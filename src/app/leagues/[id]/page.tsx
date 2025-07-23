@@ -1,35 +1,38 @@
 "use client";
 
+import { use } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { LeagueHomepage } from "@/components/LeagueHomepage";
 import { CommissionerTeamSelection } from "@/components/CommissionerTeamSelection";
 import { TeamInviteManager } from "@/components/TeamInviteManager";
 
 interface LeaguePageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default function LeaguePage({ params }: LeaguePageProps) {
   const { user, isLoaded: userLoaded } = useUser();
-  const router = useRouter();
+  
+  // Unwrap the params Promise
+  const { id } = use(params);
   
   const league = useQuery(api.leagues.getById, { 
-    id: params.id as Id<"leagues"> 
+    id: id as Id<"leagues"> 
   });
   
   const teams = useQuery(api.teams.getByLeagueAndSeason, { 
-    leagueId: params.id as Id<"leagues">,
+    leagueId: id as Id<"leagues">,
     seasonId: 2025
   });
   
   const teamClaims = useQuery(api.teamClaims.getByLeague, {
-    leagueId: params.id as Id<"leagues">,
+    leagueId: id as Id<"leagues">,
     seasonId: 2025
   });
 
@@ -42,8 +45,24 @@ export default function LeaguePage({ params }: LeaguePageProps) {
   }
 
   if (!league) {
-    router.push("/dashboard");
-    return null;
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="bg-gray-800 rounded-lg p-8 max-w-md mx-auto text-center">
+          <div className="text-red-500 mb-4">
+            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0L4.168 15.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-2">League Not Found</h1>
+          <p className="text-gray-400 mb-6">
+            This league doesn&apos;t exist or you don&apos;t have access to it.
+          </p>
+          <Link href="/dashboard" className="bg-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors inline-block">
+            Go to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   const currentUserId = user?.id;
@@ -54,34 +73,36 @@ export default function LeaguePage({ params }: LeaguePageProps) {
   // Check if this is first time setup (no teams claimed for current season)
   const noTeamsClaimed = teamClaims.length === 0;
 
-  // Flow 1: Commissioner needs to select their team first
-  if (isCommissioner && noTeamsClaimed && isCurrentSeason) {
-    return (
-      <CommissionerTeamSelection 
-        league={league}
-        teams={teams}
-      />
-    );
-  }
+  // Determine which modals to show
+  const showCommissionerTeamSelection = isCommissioner && noTeamsClaimed && isCurrentSeason;
+  const showTeamInviteManager = isCommissioner && userHasClaimedTeam && isCurrentSeason && teamClaims.length < teams.length;
 
-  // Flow 2: Commissioner has claimed team, now manage invites for others
-  if (isCommissioner && userHasClaimedTeam && isCurrentSeason && teamClaims.length < teams.length) {
-    return (
-      <TeamInviteManager
+  return (
+    <>
+      {/* Always show the League Homepage as the background */}
+      <LeagueHomepage
         league={league}
         teams={teams}
         teamClaims={teamClaims}
+        currentUserId={currentUserId}
       />
-    );
-  }
-
-  // Flow 3: All teams claimed or regular season view - show league homepage
-  return (
-    <LeagueHomepage
-      league={league}
-      teams={teams}
-      teamClaims={teamClaims}
-      currentUserId={currentUserId}
-    />
+      
+      {/* Show Commissioner Team Selection Modal if needed */}
+      {showCommissionerTeamSelection && (
+        <CommissionerTeamSelection 
+          league={league}
+          teams={teams}
+        />
+      )}
+      
+      {/* Show Team Invite Manager Modal if needed */}
+      {showTeamInviteManager && (
+        <TeamInviteManager
+          league={league}
+          teams={teams}
+          teamClaims={teamClaims}
+        />
+      )}
+    </>
   );
 }

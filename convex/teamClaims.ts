@@ -34,6 +34,20 @@ export const getByLeague = query({
   },
 });
 
+// Helper function to get user display name for team ownership
+async function getUserDisplayName(ctx: any, userId: string): Promise<string> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q: any) => q.eq("clerkId", userId))
+    .first();
+
+  if (!user) {
+    return "Unknown";
+  }
+
+  // Prefer user.name, fallback to "Unknown"
+  return user.name || "Unknown";
+}
 export const claimTeam = mutation({
   args: {
     leagueId: v.id("leagues"),
@@ -44,6 +58,16 @@ export const claimTeam = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Not authenticated");
+    }
+
+    // Get the user's information to use as the team owner
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+      .first();
+
+    if (!user) {
+      throw new Error("User not found");
     }
 
     // Check if user is a member of this league
@@ -86,6 +110,14 @@ export const claimTeam = mutation({
       throw new Error("You have already claimed a team for this season");
     }
 
+    // Get the user's display name for the team owner field
+    const ownerName = await getUserDisplayName(ctx, identity.subject);
+
+    // Update the team's owner field
+    await ctx.db.patch(args.teamId, {
+      owner: ownerName,
+    });
+
     // Create the team claim
     const claimId = await ctx.db.insert("teamClaims", {
       leagueId: args.leagueId,
@@ -97,6 +129,151 @@ export const claimTeam = mutation({
     });
 
     return claimId;
+  },
+});
+
+export const updateTeamOwnersFromClaims = mutation({
+  args: {
+    leagueId: v.optional(v.id("leagues")), // Optional - if not provided, updates all leagues
+  },
+  handler: async (ctx, args) => {
+    // Get all active team claims
+    const teamClaims = args.leagueId 
+      ? await ctx.db
+          .query("teamClaims")
+          .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId!))
+          .filter((q) => q.eq(q.field("status"), "active"))
+          .collect()
+      : await ctx.db
+          .query("teamClaims")
+          .filter((q) => q.eq(q.field("status"), "active"))
+          .collect();
+
+    let updatedCount = 0;
+    
+    for (const claim of teamClaims) {
+      // Get the user who claimed this team
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", claim.userId))
+        .first();
+
+      if (!user) {
+        console.warn(`User not found for claim: ${claim._id}`);
+        continue;
+      }
+
+      // Get the team
+      const team = await ctx.db.get(claim.teamId);
+      if (!team) {
+        console.warn(`Team not found: ${claim.teamId}`);
+        continue;
+      }
+
+      // Only update teams that currently have "Unknown" as owner
+      if (team.owner === "Unknown") {
+        const ownerName = await getUserDisplayName(ctx, claim.userId);
+        
+        await ctx.db.patch(claim.teamId, {
+          owner: ownerName,
+        });
+        
+        updatedCount++;
+      }
+    }
+
+    return {
+      success: true,
+      updatedCount,
+      message: `Updated ${updatedCount} team owners from "Unknown" to user names`,
+    };
+  },
+});
+export const getTeamsWithUnknownOwners = query({
+  args: {
+    leagueId: v.optional(v.id("leagues")),
+  },
+  handler: async (ctx, args) => {
+    const teams = args.leagueId
+      ? await ctx.db
+          .query("teams")
+          .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId!))
+          .filter((q) => q.eq(q.field("owner"), "Unknown"))
+          .collect()
+      : await ctx.db
+          .query("teams")
+          .filter((q) => q.eq(q.field("owner"), "Unknown"))
+          .collect();
+
+    return teams.map(team => ({
+      _id: team._id,
+      name: team.name,
+      owner: team.owner,
+      seasonId: team.seasonId,
+      leagueId: team.leagueId,
+    }));
+  },
+});
+export const syncAllTeamOwners = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.optional(v.number()), // Optional - if not provided, updates all seasons
+  },
+  handler: async (ctx, args) => {
+    // Get all teams for this league
+    let teamsQuery = ctx.db
+      .query("teams")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId));
+    
+    if (args.seasonId) {
+      teamsQuery = teamsQuery.filter((q) => q.eq(q.field("seasonId"), args.seasonId));
+    }
+    
+    const teams = await teamsQuery.collect();
+    
+    let updatedCount = 0;
+    let unchangedCount = 0;
+    
+    for (const team of teams) {
+      // Find if this team has been claimed
+      const claim = await ctx.db
+        .query("teamClaims")
+        .withIndex("by_team_season", (q) => 
+          q.eq("teamId", team._id).eq("seasonId", team.seasonId)
+        )
+        .filter((q) => q.eq(q.field("status"), "active"))
+        .first();
+
+      if (claim) {
+        // Get the user who claimed this team
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_clerk_id", (q) => q.eq("clerkId", claim.userId))
+          .first();
+
+        if (user && team.owner === "Unknown") {
+          const ownerName = await getUserDisplayName(ctx, claim.userId);
+          
+          await ctx.db.patch(team._id, {
+            owner: ownerName,
+          });
+          
+          updatedCount++;
+        } else {
+          unchangedCount++;
+        }
+      } else {
+        unchangedCount++;
+      }
+    }
+
+    return {
+      success: true,
+      totalTeams: teams.length,
+      updatedCount,
+      unchangedCount,
+      message: `Processed ${teams.length} teams. Updated ${updatedCount} team owners, ${unchangedCount} unchanged.`,
+    };
   },
 });
 

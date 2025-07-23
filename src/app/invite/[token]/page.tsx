@@ -1,5 +1,6 @@
-"use client";
+"use client"
 
+import { use } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useUser } from "@clerk/nextjs";
@@ -8,9 +9,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 interface InvitePageProps {
-  params: {
-    token: string;
-  };
+  params: Promise<{ token: string }>;
 }
 
 export default function InvitePage({ params }: InvitePageProps) {
@@ -19,15 +18,19 @@ export default function InvitePage({ params }: InvitePageProps) {
   const [isClaiming, setIsClaiming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Unwrap the params Promise
+  const { token } = use(params);
+  
   const invitation = useQuery(api.teamInvitations.getByToken, { 
-    token: params.token 
+    token: token 
   });
   
   const claimInvitation = useMutation(api.teamInvitations.claimInvitation);
 
   const handleClaimTeam = async () => {
     if (!user) {
-      router.push("/sign-in");
+      // Redirect to sign-in with return URL to come back to this invite page
+      router.push(`/sign-in?redirect_url=${encodeURIComponent(`/invite/${token}`)}`);
       return;
     }
 
@@ -35,10 +38,32 @@ export default function InvitePage({ params }: InvitePageProps) {
     setError(null);
     
     try {
-      const leagueId = await claimInvitation({ token: params.token });
+      console.log("🔄 Claiming invitation...");
+      const leagueId = await claimInvitation({ token: token });
+      
+      console.log("✅ Invitation claimed successfully!");
+      console.log("🔄 Redirecting to league:", leagueId);
+      
+      // Add a small delay before redirect to ensure Convex reactivity catches up
+      await new Promise(resolve => setTimeout(resolve, 250));
+      
       router.push(`/leagues/${leagueId}`);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error occurred");
+      console.error("❌ Error claiming invitation:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      
+      // Provide more specific error messages based on the error
+      if (errorMessage.includes("database consistency issue")) {
+        setError("There was a temporary database issue. Please try again in a moment.");
+      } else if (errorMessage.includes("User not found")) {
+        setError("Authentication issue. Please sign out and try again.");
+      } else if (errorMessage.includes("already claimed")) {
+        setError("This team has already been claimed by another user.");
+      } else if (errorMessage.includes("already have a team")) {
+        setError("You already have a team in this league for this season.");
+      } else {
+        setError(`Failed to claim team: ${errorMessage}`);
+      }
     } finally {
       setIsClaiming(false);
     }
@@ -80,8 +105,12 @@ export default function InvitePage({ params }: InvitePageProps) {
     <div className="min-h-screen bg-gray-900">
       <header className="bg-red-600 border-b border-red-700">
         <div className="container mx-auto px-6 py-4">
-          <Link href="/" className="text-2xl font-bold text-white">
-            FFSN
+          <Link href="/" className="flex items-center">
+            <img 
+              src="/FFSN.png" 
+              alt="FFSN Logo" 
+              className="h-8 w-auto"
+            />
           </Link>
         </div>
       </header>
@@ -96,7 +125,7 @@ export default function InvitePage({ params }: InvitePageProps) {
                 </svg>
               </div>
               <h1 className="text-3xl font-bold text-white mb-2">
-                You're Invited!
+                You&apos;re Invited!
               </h1>
               <p className="text-gray-400 text-lg">
                 Join {invitation.league?.name} and claim your team
@@ -109,73 +138,44 @@ export default function InvitePage({ params }: InvitePageProps) {
                   <img 
                     src={invitation.team.logo} 
                     alt={`${invitation.teamName} logo`}
-                    className="w-16 h-16 rounded"
+                    className="w-16 h-16 rounded-full"
                   />
                 )}
-                <div className="text-left">
-                  <h2 className="text-2xl font-bold text-white">{invitation.teamName}</h2>
-                  {invitation.teamAbbreviation && (
-                    <p className="text-gray-400">{invitation.teamAbbreviation}</p>
-                  )}
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {invitation.teamName}
+                  </h2>
+                  <p className="text-gray-400">
+                    {invitation.league?.name}
+                  </p>
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-gray-400">League</div>
-                  <div className="text-white font-semibold">{invitation.league?.name}</div>
-                </div>
-                <div>
-                  <div className="text-gray-400">Season</div>
-                  <div className="text-white font-semibold">2025</div>
-                </div>
+              <div className="text-sm text-gray-400">
+                Season: {invitation.seasonId}
               </div>
             </div>
 
             {error && (
               <div className="bg-red-900/50 border border-red-500 rounded-lg p-4 mb-6">
                 <p className="text-red-200">{error}</p>
-              </div>
-            )}
-
-            {!user ? (
-              <div className="space-y-4">
-                <p className="text-gray-400 mb-4">
-                  You need to sign in to claim this team
+                <p className="text-red-300 text-sm mt-2">
+                  Please try again or contact support if the issue persists.
                 </p>
-                <div className="space-x-4">
-                  <Link
-                    href="/sign-in"
-                    className="bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors inline-block"
-                  >
-                    Sign In
-                  </Link>
-                  <Link
-                    href="/sign-up"
-                    className="bg-gray-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-gray-700 transition-colors inline-block"
-                  >
-                    Sign Up
-                  </Link>
-                </div>
               </div>
-            ) : (
-              <button
-                onClick={handleClaimTeam}
-                disabled={isClaiming}
-                className="bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isClaiming ? "Claiming Team..." : "Claim This Team"}
-              </button>
             )}
 
-            <div className="mt-6 text-sm text-gray-400">
-              <p>
-                This invitation expires on{" "}
-                <span className="text-white">
-                  {new Date(invitation.expiresAt).toLocaleDateString()}
-                </span>
-              </p>
-            </div>
+            <button
+              onClick={handleClaimTeam}
+              disabled={isClaiming}
+              className="bg-red-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isClaiming ? "Claiming Team..." : user ? "Claim Team" : "Sign In to Claim Team"}
+            </button>
+
+            <p className="text-gray-500 text-sm mt-4">
+              {user ? "Click to claim this team and join the league" : "You&apos;ll need to sign in first to claim this team"}
+            </p>
           </div>
         </div>
       </main>

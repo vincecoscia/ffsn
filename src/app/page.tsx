@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuthSync } from "@/hooks/use-auth-sync";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import Image from "next/image";
 
 export default function Home() {
   const { clerkUser, convexUser, isLoaded } = useAuthSync();
@@ -19,7 +20,15 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900">
       <header className="p-6 flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-white">FFSN</h1>
+        <div className="flex items-center">
+          <Image
+            src="/FFSN.png"
+            alt="FFSN Logo"
+            width={60}
+            height={40}
+            className="h-10 w-auto"
+          />
+        </div>
         <div>
           <SignedOut>
             <div className="flex gap-3">

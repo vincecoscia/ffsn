@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAction } from 'convex/react'
+import { toast } from 'sonner'
 import { api } from '../../convex/_generated/api'
 import { Id } from '../../convex/_generated/dataModel'
 
@@ -59,13 +60,22 @@ export default function HistoricalDataSync({ leagueId, leagueName }: HistoricalD
       
       if (result.success) {
         console.log('Sync completed successfully:', result)
+        toast.success("League data sync completed successfully!", {
+          description: `Synced ${result.totalSynced} of ${result.totalYearsRequested} seasons with ${result.totalErrors} errors.`
+        })
       } else {
         setError(result.message)
+        toast.error("League data sync failed", {
+          description: result.message
+        })
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred'
       setError(errorMessage)
       console.error('Sync failed:', err)
+      toast.error("League data sync failed", {
+        description: errorMessage
+      })
     } finally {
       setIsLoading(false)
     }

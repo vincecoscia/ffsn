@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useAction } from "convex/react";
+import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 
@@ -33,12 +34,19 @@ export function LeagueCard({ league }: LeagueCardProps) {
     try {
       const result = await debugClearAndRefetch({ leagueId: league._id });
       if (result.success) {
-        alert("Successfully cleared and refetched all league data!");
+        toast.success("League data refreshed successfully!", {
+          description: "All league data has been cleared and refetched."
+        });
       } else {
-        alert(`Error: ${result.error}`);
+        toast.error("Failed to refresh league data", {
+          description: result.error || "An unknown error occurred."
+        });
       }
     } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast.error("Failed to refresh league data", {
+        description: errorMessage
+      });
     } finally {
       setIsRefetching(false);
     }

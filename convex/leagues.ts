@@ -127,8 +127,15 @@ export const getById = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
+      console.log("🔍 getById: No identity found");
       return null;
     }
+
+    console.log("🔍 getById: Checking league access for user:", {
+      userId: identity.subject,
+      leagueId: args.id,
+      email: identity.email
+    });
 
     // Check if user is a member of this league
     const membership = await ctx.db
@@ -139,13 +146,54 @@ export const getById = query({
       .first();
 
     if (!membership) {
+      console.log("❌ getById: No membership found for user in league");
+      
+      // Debug: check if there are any memberships for this league
+      const allMemberships = await ctx.db
+        .query("leagueMemberships")
+        .withIndex("by_league", (q) => q.eq("leagueId", args.id))
+        .collect();
+      
+      console.log("🔍 getById: All memberships for this league:", allMemberships.map(m => ({
+        id: m._id,
+        userId: m.userId,
+        role: m.role,
+        joinedAt: m.joinedAt
+      })));
+      
+      // Debug: check if there are any memberships for this user
+      const userMemberships = await ctx.db
+        .query("leagueMemberships")
+        .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+        .collect();
+      
+      console.log("🔍 getById: All memberships for this user:", userMemberships.map(m => ({
+        id: m._id,
+        leagueId: m.leagueId,
+        role: m.role,
+        joinedAt: m.joinedAt
+      })));
+      
       return null;
     }
 
+    console.log("✅ getById: Membership found:", {
+      membershipId: membership._id,
+      role: membership.role,
+      joinedAt: membership.joinedAt
+    });
+
     const league = await ctx.db.get(args.id);
     if (!league) {
+      console.log("❌ getById: League not found in database");
       return null;
     }
+    
+    console.log("✅ getById: League found and returning:", {
+      leagueId: league._id,
+      name: league.name,
+      role: membership.role
+    });
     
     return {
       ...league,
