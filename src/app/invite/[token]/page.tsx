@@ -105,7 +105,7 @@ export default function InvitePage({ params }: InvitePageProps) {
     <div className="min-h-screen bg-gray-900">
       <header className="bg-red-600 border-b border-red-700">
         <div className="container mx-auto px-6 py-4">
-          <Link href="/" className="flex items-center">
+          <Link href="/" className="flex items-center cursor-pointer">
             <img 
               src="/FFSN.png" 
               alt="FFSN Logo" 

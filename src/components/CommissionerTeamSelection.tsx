@@ -117,14 +117,14 @@ export function CommissionerTeamSelection({ league, teams }: CommissionerTeamSel
 
         <Flex gap="3" justify="end">
           <Dialog.Close>
-            <Button variant="soft" color="gray">
+            <Button variant="soft" color="gray" className="cursor-pointer">
               Cancel
             </Button>
           </Dialog.Close>
           <Button
             onClick={handleClaimTeam}
             disabled={!selectedTeamId || isClaiming}
-            className="bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+            className="bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isClaiming ? "Claiming..." : "Claim Team"}
           </Button>

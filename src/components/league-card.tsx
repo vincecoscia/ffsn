@@ -99,7 +99,7 @@ export function LeagueCard({ league }: LeagueCardProps) {
           
           <Link
             href={`/leagues/${league._id}`}
-            className="bg-red-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-red-700 transition-colors"
+            className="bg-red-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-red-700 transition-colors cursor-pointer"
           >
             View League
           </Link>

@@ -172,7 +172,7 @@ export function LeagueSettingsPage({
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center">
+              <Link href="/" className="flex items-center cursor-pointer">
                 <Image
                   src="/FFSN.png"
                   alt="FFSN Logo"
@@ -182,7 +182,7 @@ export function LeagueSettingsPage({
                 />
               </Link>
               <span className="text-red-200">|</span>
-              <Link href={`/leagues/${league._id}`} className="text-white hover:text-red-200 transition-colors">
+              <Link href={`/leagues/${league._id}`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
                 <span className="font-semibold text-lg">{league.name}</span>
               </Link>
               <span className="text-red-200">›</span>
@@ -191,19 +191,19 @@ export function LeagueSettingsPage({
             
             <div className="flex items-center gap-6">
               <nav className="hidden md:flex items-center gap-6">
-                <Link href={`/leagues/${league._id}`} className="text-white hover:text-red-200 transition-colors">
+                <Link href={`/leagues/${league._id}`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
                   Home
                 </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors">
+                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
                   Scores
                 </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors">
+                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
                   Schedule
                 </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors">
+                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
                   Standings
                 </Link>
-                <Link href="#" className="text-red-200 font-semibold">
+                <Link href="#" className="text-red-200 font-semibold cursor-pointer">
                   Settings
                 </Link>
               </nav>
@@ -224,19 +224,19 @@ export function LeagueSettingsPage({
               <span className="text-white font-semibold">Fantasy</span>
             </div>
             <nav className="flex items-center gap-6 text-sm">
-              <Link href={`/leagues/${league._id}`} className="text-gray-300 hover:text-white transition-colors">
+              <Link href={`/leagues/${league._id}`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Home
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors">
+              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Scores
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors">
+              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Schedule
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors">
+              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Standings
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors">
+              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Teams
               </Link>
               <span className="text-white font-semibold">Settings</span>

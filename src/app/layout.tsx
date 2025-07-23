@@ -4,6 +4,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { ConvexClientProvider } from '@/components/convex-client-provider'
 import { AuthSync } from '@/components/auth-sync'
 import { Toaster } from '@/components/ui/sonner'
+import { Theme } from "@radix-ui/themes";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,7 +35,9 @@ export default function RootLayout({
         >
           <ConvexClientProvider>
             <AuthSync>
-              {children}
+              <Theme>
+                {children}
+              </Theme>
             </AuthSync>
             <Toaster />
           </ConvexClientProvider>

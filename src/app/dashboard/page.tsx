@@ -24,7 +24,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-900">
       <header className="bg-gray-800 border-b border-gray-700">
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-2xl font-bold text-white">
+          <Link href="/" className="text-2xl font-bold text-white cursor-pointer">
             FFSN
           </Link>
           <div className="flex items-center gap-4">

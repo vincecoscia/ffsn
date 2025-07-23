@@ -46,7 +46,7 @@ export default function Home() {
           </SignedOut>
           <SignedIn>
             <div className="flex items-center gap-4">
-              <Link href="/dashboard" className="text-white hover:text-red-300 transition-colors">
+              <Link href="/dashboard" className="text-white hover:text-red-300 transition-colors cursor-pointer">
                 Dashboard
               </Link>
               <UserButton />
@@ -75,7 +75,7 @@ export default function Home() {
           </SignedOut>
           
           <SignedIn>
-            <Link href="/dashboard">
+            <Link href="/dashboard" className="cursor-pointer">
               <button className="bg-red-600 text-white px-8 py-4 text-lg rounded-lg font-bold hover:bg-red-700 transition-all transform hover:scale-105">
                 Go to Dashboard
               </button>

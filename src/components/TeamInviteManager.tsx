@@ -174,6 +174,7 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
                     variant="solid"
                     color="red"
                     size="2"
+                    className="cursor-pointer"
                   >
                     Copy
                   </Button>
@@ -190,11 +191,12 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
               onClick={() => setCreatedInvites([])}
               variant="soft"
               color="gray"
+              className="cursor-pointer"
             >
               Create More Invites
             </Button>
             <Dialog.Close>
-              <Button variant="solid" color="red">
+              <Button variant="solid" color="red" className="cursor-pointer">
                 Continue to League
               </Button>
             </Dialog.Close>
@@ -277,7 +279,7 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
 
         <Flex gap="3" justify="end">
           <Dialog.Close>
-            <Button variant="soft" color="gray">
+            <Button variant="soft" color="gray" className="cursor-pointer">
               Skip for Now
             </Button>
           </Dialog.Close>
@@ -286,6 +288,7 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
             disabled={selectedTeamIds.size === 0 || isCreatingInvites}
             variant="solid"
             color="red"
+            className="cursor-pointer"
           >
             {isCreatingInvites ? "Creating..." : `Create ${selectedTeamIds.size} Invite${selectedTeamIds.size !== 1 ? 's' : ''}`}
           </Button>
