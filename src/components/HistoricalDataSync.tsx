@@ -26,6 +26,24 @@ interface SyncResponse {
   syncedAt: number
 }
 
+interface RosterResult {
+  teamId: string
+  teamName: string
+  success: boolean
+  error?: string
+  playersCount?: number
+}
+
+interface RosterResponse {
+  success: boolean
+  totalTeams: number
+  totalRostersFetched: number
+  totalErrors: number
+  results: RosterResult[]
+  message: string
+  fetchedAt: number
+}
+
 interface HistoricalDataSyncProps {
   leagueId: Id<"leagues">
   leagueName?: string
@@ -41,7 +59,7 @@ export default function HistoricalDataSync({ leagueId, leagueName }: HistoricalD
   
   // Historical roster specific state
   const [isLoadingRosters, setIsLoadingRosters] = useState(false)
-  const [rosterResult, setRosterResult] = useState<any>(null)
+  const [rosterResult, setRosterResult] = useState<RosterResponse | null>(null)
   const [selectedSeason, setSelectedSeason] = useState(new Date().getFullYear() - 1)
 
   const syncAllData = useAction(api.espnSync.syncAllLeagueData)
@@ -295,7 +313,7 @@ export default function HistoricalDataSync({ leagueId, leagueName }: HistoricalD
           {rosterResult.results.length > 0 && (
             <div className="space-y-2">
               <h5 className="font-medium text-green-800">Team Results:</h5>
-              {rosterResult.results.map((result: any, index: number) => (
+              {rosterResult.results.map((result, index) => (
                 <div key={index} className={`p-2 rounded text-sm ${result.success ? 'bg-green-100' : 'bg-red-100'}`}>
                   <span className="font-medium">{result.teamName}</span>
                   {result.success ? (

@@ -1,5 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { generatePrompt, PromptBuilderOptions, LeagueDataContext } from './prompt-builder';
+
+interface AnthropicSettings {
+  maxTokens: number;
+  temperature: number;
+}
+
+interface AnthropicResponse {
+  content: Array<{ text: string }>;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+}
 import { contentTemplates } from './content-templates';
 import { Id } from '../../../convex/_generated/dataModel';
 
@@ -129,8 +142,8 @@ export class ContentGenerationService {
     anthropic: Anthropic,
     systemPrompt: string,
     userPrompt: string,
-    settings: any
-  ): Promise<any> {
+    settings: AnthropicSettings
+  ): Promise<AnthropicResponse> {
     console.log("=== callClaude START ===");
     console.log("Model:", this.modelConfig.primary);
     console.log("Settings:", {
@@ -160,12 +173,25 @@ export class ContentGenerationService {
       });
       
       console.log("Claude API call successful");
-      return response;
-    } catch (error: any) {
+      
+      // Transform the response to match our interface
+      const transformedResponse: AnthropicResponse = {
+        content: response.content
+          .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+          .map(block => ({ text: block.text })),
+        usage: response.usage ? {
+          input_tokens: response.usage.input_tokens,
+          output_tokens: response.usage.output_tokens,
+        } : undefined,
+      };
+      
+      return transformedResponse;
+    } catch (error: unknown) {
       // If primary model fails, try fallback
-      if (error.status === 404 || error.status === 500) {
+      if (error && typeof error === 'object' && 'status' in error && 
+          (error.status === 404 || error.status === 500)) {
         console.warn('Primary model failed, trying fallback...');
-        console.warn('Error:', error.message);
+        console.warn('Error:', error && typeof error === 'object' && 'message' in error ? error.message : 'Unknown error');
         
         const response = await anthropic.messages.create({
           model: this.modelConfig.fallback,
@@ -181,7 +207,19 @@ export class ContentGenerationService {
         });
 
         console.log("Fallback model call successful");
-        return response;
+        
+        // Transform the fallback response to match our interface
+        const transformedFallbackResponse: AnthropicResponse = {
+          content: response.content
+            .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+            .map(block => ({ text: block.text })),
+          usage: response.usage ? {
+            input_tokens: response.usage.input_tokens,
+            output_tokens: response.usage.output_tokens,
+          } : undefined,
+        };
+        
+        return transformedFallbackResponse;
       }
       
       console.error("Claude API call failed:", error);
@@ -217,7 +255,7 @@ export class ContentGenerationService {
     return { title, content, summary };
   }
 
-  private extractFeaturedTeams(content: string, teams: any[]): string[] {
+  private extractFeaturedTeams(content: string, teams: Array<{ name: string; id: string }>): string[] {
     const featured: string[] = [];
     const contentLower = content.toLowerCase();
 

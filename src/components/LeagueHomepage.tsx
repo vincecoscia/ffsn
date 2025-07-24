@@ -1,15 +1,13 @@
 "use client";
 
-import { useQuery, useMutation } from "convex/react";
-import { toast } from "sonner";
+import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { useState } from "react";
-import Image from "next/image";
-import { Button, Card, Badge, Flex, Text, Heading } from "@radix-ui/themes";
+import { Button } from "@radix-ui/themes";
 import { ContentGenerator } from "./ContentGenerator";
 
 interface Team {
@@ -107,11 +105,9 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-6">
               <Link href="/" className="flex items-center cursor-pointer">
-                <Image
+                <img
                   src="/FFSN.png"
                   alt="FFSN Logo"
-                  width={80}
-                  height={53}
                   className="h-12 w-auto"
                 />
               </Link>
@@ -410,7 +406,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
               <div className="p-4 space-y-4">
                 <div className="border-b border-gray-100 pb-3 last:border-0">
                   <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                    Cowboys' Parsons ready for 'terrible' NFL start
+                    Cowboys&apos; Parsons ready for &apos;terrible&apos; NFL start
                   </h4>
                   <p className="text-xs text-gray-600">Dallas prepares for tough opening stretch</p>
                 </div>
@@ -422,9 +418,9 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                 </div>
                 <div className="border-b border-gray-100 pb-3 last:border-0">
                   <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                    Jets' Gardner defends deal: 'There ain't no roof'
+                    Jets&apos; Gardner defends deal: &apos;There ain&apos;t no roof&apos;
                   </h4>
-                  <p className="text-xs text-gray-600">Confident about team's potential this season</p>
+                  <p className="text-xs text-gray-600">Confident about team&apos;s potential this season</p>
                 </div>
               </div>
             </div>
@@ -464,7 +460,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                   <div className="w-12 h-12 bg-blue-600 rounded flex-shrink-0"></div>
                   <div className="flex-1">
                     <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                      Ranking the NFL's best players at every position for 2025
+                      Ranking the NFL&apos;s best players at every position for 2025
                     </h4>
                     <p className="text-xs text-gray-600">Our experts rank the top 10 at each position</p>
                   </div>

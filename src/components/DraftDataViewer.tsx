@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -27,7 +27,9 @@ export function DraftDataViewer({ leagueId }: DraftDataViewerProps) {
 
   // Get available seasons
   const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
-  const availableSeasons = leagueSeasons?.map(s => s.seasonId).sort((a, b) => b - a) || [];
+  const availableSeasons = useMemo(() => {
+    return leagueSeasons?.map(s => s.seasonId).sort((a, b) => b - a) || [];
+  }, [leagueSeasons]);
 
   // Update selected season to most recent with draft data
   useEffect(() => {

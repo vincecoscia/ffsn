@@ -7,6 +7,64 @@ import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+interface EspnTeam {
+  id: string;
+  name: string;
+  abbreviation: string;
+  owner: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  pointsFor: number;
+  pointsAgainst: number;
+}
+
+interface EspnSettings {
+  scoringType: string;
+  rosterComposition: Record<string, number>;
+  playoffTeamCount: number;
+  playoffWeeks: number;
+  regularSeasonMatchupPeriods: number;
+}
+
+interface HistoricalSeason {
+  seasonId: number;
+  winner: {
+    teamId: string;
+    teamName: string;
+    owner: string;
+  };
+  runnerUp: {
+    teamId: string;
+    teamName: string;
+    owner: string;
+  };
+  regularSeasonChampion?: {
+    teamId: string;
+    teamName: string;
+    owner: string;
+  };
+}
+
+interface EspnData {
+  id: string;
+  name: string;
+  size: number;
+  scoringType: string;
+  rosterSize: number;
+  playoffWeeks: number;
+  seasonId: number;
+  currentScoringPeriod: number;
+  isPrivate: boolean;
+  espnS2?: string;
+  swid?: string;
+  teams: EspnTeam[];
+  settings: EspnSettings;
+  draftSettings: unknown;
+  draftPicks: unknown[];
+  history: HistoricalSeason[];
+}
+
 export default function SetupPage() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -21,7 +79,7 @@ export default function SetupPage() {
     espnS2: "",
     swid: "",
   });
-  const [espnData, setEspnData] = useState<any>(null);
+  const [espnData, setEspnData] = useState<EspnData | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingEspnData, setIsLoadingEspnData] = useState(false);
   const [espnError, setEspnError] = useState<string | null>(null);
@@ -67,7 +125,7 @@ export default function SetupPage() {
       } else {
         setEspnError(result.error || "Failed to load ESPN data");
       }
-    } catch (error) {
+    } catch {
       setEspnError("Failed to connect to ESPN. Please check your League ID.");
     } finally {
       setIsLoadingEspnData(false);
@@ -101,7 +159,6 @@ export default function SetupPage() {
           rosterComposition: espnData?.settings?.rosterComposition,
           playoffTeamCount: espnData?.settings?.playoffTeamCount,
           regularSeasonMatchupPeriods: espnData?.settings?.regularSeasonMatchupPeriods,
-          divisions: espnData?.settings?.divisions,
         },
         espnData: espnData ? {
           seasonId: espnData.seasonId,
@@ -345,7 +402,7 @@ export default function SetupPage() {
                         <div className="mt-3 p-3 bg-green-800/30 rounded-lg border border-green-600/30">
                           <p className="text-green-200 font-semibold mb-2">🏆 League History Found ({espnData.history.length} seasons)</p>
                           <div className="space-y-1 text-sm">
-                            {espnData.history.slice(0, 3).map((season: any) => (
+                            {espnData.history.slice(0, 3).map((season) => (
                               <div key={season.seasonId} className="text-green-100">
                                 <span className="font-semibold">{season.seasonId}:</span>
                                 <span className="ml-1">🏆 {season.winner.teamName} ({season.winner.owner})</span>
@@ -452,7 +509,7 @@ export default function SetupPage() {
                           🏆 League Champions ({espnData.history.length} seasons found)
                         </h4>
                         <div className="space-y-2">
-                          {espnData.history.map((season: any) => (
+                          {espnData.history.map((season) => (
                             <div key={season.seasonId} className="flex flex-wrap items-center gap-2 text-sm">
                               <span className="font-semibold text-yellow-400">{season.seasonId}:</span>
                               <span className="text-green-400">🏆 {season.winner.teamName}</span>

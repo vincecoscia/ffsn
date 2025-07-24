@@ -5,7 +5,6 @@ import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { ArrowLeft, Clock, User } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 
@@ -57,11 +56,9 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-6">
               <Link href="/" className="flex items-center cursor-pointer">
-                <Image
+                <img
                   src="/FFSN.png"
                   alt="FFSN Logo"
-                  width={80}
-                  height={53}
                   className="h-12 w-auto"
                 />
               </Link>

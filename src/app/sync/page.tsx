@@ -1,10 +1,13 @@
+'use client'
+
 import { Suspense } from 'react'
 import HistoricalDataSync from '@/components/HistoricalDataSync'
 import { ConvexProvider, convex } from '@/lib/convex'
+import { Id } from '../../../convex/_generated/dataModel'
 
 // This would typically come from your routing params or user session
 // For demo purposes, using a placeholder ID
-const DEMO_LEAGUE_ID = "your_league_id_here" as any
+const DEMO_LEAGUE_ID = "your_league_id_here" as Id<"leagues">
 
 export default function SyncPage() {
   return (

@@ -6,6 +6,24 @@ import { toast } from 'sonner'
 import { api } from '../../convex/_generated/api'
 import { Id } from '../../convex/_generated/dataModel'
 
+interface RosterResult {
+  teamId: string
+  teamName: string
+  success: boolean
+  error?: string
+  playersCount?: number
+}
+
+interface RosterResponse {
+  success: boolean
+  totalTeams: number
+  totalRostersFetched: number
+  totalErrors: number
+  results: RosterResult[]
+  message: string
+  fetchedAt: number
+}
+
 interface HistoricalRosterManagerProps {
   leagueId: Id<"leagues">
 }
@@ -13,7 +31,7 @@ interface HistoricalRosterManagerProps {
 export default function HistoricalRosterManager({ leagueId }: HistoricalRosterManagerProps) {
   const [selectedSeason, setSelectedSeason] = useState(new Date().getFullYear() - 1)
   const [isLoading, setIsLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<RosterResponse | null>(null)
 
   const fetchHistoricalRosters = useAction(api.espnSync.fetchHistoricalRosters)
 
@@ -123,7 +141,7 @@ export default function HistoricalRosterManager({ leagueId }: HistoricalRosterMa
                 Team Results:
               </h5>
               <div className="max-h-40 overflow-y-auto space-y-1">
-                {result.results.map((teamResult: any, index: number) => (
+                {result.results.map((teamResult, index) => (
                   <div 
                     key={index} 
                     className={`p-2 rounded text-sm ${
@@ -158,7 +176,7 @@ export default function HistoricalRosterManager({ leagueId }: HistoricalRosterMa
             <div className="mt-2 text-sm text-blue-700">
               <p>
                 This feature fetches detailed roster information for each team from a specific season. 
-                Make sure you've already synced basic team data for the season before fetching rosters.
+                Make sure you&apos;ve already synced basic team data for the season before fetching rosters.
                 The process may take a few minutes for leagues with many teams.
               </p>
             </div>

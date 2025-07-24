@@ -422,7 +422,11 @@ export const getLeagueDataForGeneration = query({
           champion: season.champion,
           runnerUp: season.runnerUp,
           regularSeasonChampion: season.regularSeasonChampion,
-          settings: season.settings,
+          settings: season.settings ? {
+            scoringType: season.settings.scoringType,
+            teamCount: season.settings.size, // Map size to teamCount
+            playoffWeeks: season.settings.playoffWeeks,
+          } : undefined,
         })),
       },
     };

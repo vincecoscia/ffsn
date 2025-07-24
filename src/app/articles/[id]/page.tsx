@@ -1,8 +1,3 @@
-import { notFound } from "next/navigation";
-import Link from "next/link";
-import Image from "next/image";
-import { ArrowLeft, Clock, User } from "lucide-react";
-import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ArticleClient } from "./ArticleClient";
 
 interface ArticlePageProps {

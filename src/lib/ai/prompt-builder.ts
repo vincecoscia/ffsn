@@ -104,13 +104,13 @@ export interface LeagueDataContext {
     totalSeasons: number;
     seasons?: Array<{
       year: number;
-      champion?: any;
-      runnerUp?: any;
-      regularSeasonChampion?: any;
-      settings?: any;
+      champion?: { teamId: string; teamName: string; owner: string; };
+      runnerUp?: { teamId: string; teamName: string; owner: string; };
+      regularSeasonChampion?: { teamId: string; teamName: string; owner: string; };
+      settings?: { scoringType: string; teamCount: number; playoffWeeks: number; };
     }>;
   };
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export class PromptBuilder {
@@ -131,7 +131,7 @@ export class PromptBuilder {
     }
   }
 
-  build(): { systemPrompt: string; userPrompt: string; settings: any } {
+  build(): { systemPrompt: string; userPrompt: string; settings: { maxTokens: number; temperature: number; } } {
     console.log("=== PromptBuilder START ===");
     console.log("Content type:", this.options.contentType);
     console.log("Persona:", this.options.persona);
@@ -407,7 +407,7 @@ Manager 2: ${team2.manager}`;
 `;
 
     // Find available players (low ownership percentage)
-    const availablePlayers: any[] = [];
+    const availablePlayers: Array<{ playerId: string; playerName: string; position: string; team: string; ownership?: { percentOwned?: number; percentChange?: number; }; }> = [];
     const ownedPlayers = new Set<string>();
     
     // Collect all rostered players
@@ -419,13 +419,14 @@ Manager 2: ${team2.manager}`;
           // Check for low ownership that might be available
           if (player.ownership && player.ownership.percentOwned && player.ownership.percentOwned < 50) {
             availablePlayers.push({
-              name: player.fullName || player.playerName,
+              playerId: player.playerId,
+              playerName: player.fullName || player.playerName,
               position: player.position,
               team: player.team,
-              percentOwned: player.ownership.percentOwned,
-              percentChange: player.ownership.percentChange,
-              recentPoints: player.stats?.appliedTotal || 0,
-              seasonAvg: player.stats?.seasonStats?.averagePoints || 0
+              ownership: {
+                percentOwned: player.ownership.percentOwned,
+                percentChange: player.ownership.percentChange,
+              },
             });
           }
         });
@@ -435,15 +436,12 @@ Manager 2: ${team2.manager}`;
     if (availablePlayers.length > 0) {
       waiverData += 'TRENDING AVAILABLE PLAYERS:\n';
       availablePlayers
-        .sort((a, b) => (b.percentChange || 0) - (a.percentChange || 0))
+        .sort((a, b) => (b.ownership?.percentChange || 0) - (a.ownership?.percentChange || 0))
         .slice(0, 10)
         .forEach(player => {
-          waiverData += `- ${player.name} (${player.position}, ${player.team}) - ${player.percentOwned}% owned`;
-          if (player.percentChange > 0) {
-            waiverData += ` (+${player.percentChange}% this week)`;
-          }
-          if (player.seasonAvg > 0) {
-            waiverData += ` - Avg: ${player.seasonAvg.toFixed(1)} pts`;
+          waiverData += `- ${player.playerName} (${player.position}, ${player.team}) - ${player.ownership?.percentOwned}% owned`;
+          if (player.ownership?.percentChange && player.ownership.percentChange > 0) {
+            waiverData += ` (+${player.ownership.percentChange}% this week)`;
           }
           waiverData += '\n';
         });
@@ -491,17 +489,18 @@ Manager 2: ${team2.manager}`;
     }
 
     // Find league-wide top performers
-    const allPlayers: any[] = [];
+    const allPlayers: Array<{ playerId: string; playerName: string; position: string; team: string; avgPoints: number; totalPoints: number; }> = [];
     data.teams.forEach(team => {
       if (team.roster) {
         team.roster.forEach(player => {
           if (player.stats?.seasonStats?.averagePoints) {
             allPlayers.push({
-              name: player.fullName || player.playerName,
-              team: team.name,
+              playerId: player.playerId,
+              playerName: player.fullName || player.playerName,
               position: player.position,
+              team: team.name,
               avgPoints: player.stats.seasonStats.averagePoints,
-              totalPoints: player.stats.seasonStats.appliedTotal || 0
+              totalPoints: player.stats.seasonStats.appliedTotal || 0,
             });
           }
         });
@@ -514,7 +513,8 @@ Manager 2: ${team2.manager}`;
         .sort((a, b) => b.avgPoints - a.avgPoints)
         .slice(0, 5)
         .forEach((player, idx) => {
-          genericData += `${idx + 1}. ${player.name} (${player.position}, ${player.team}) - ${player.avgPoints.toFixed(1)} ppg\n`;
+          genericData += `${idx + 1}. ${player.playerName} (${player.position}, ${player.team}) - ${player.avgPoints.toFixed(1)} ppg
+`;
         });
     }
 
@@ -547,7 +547,10 @@ Manager 2: ${team2.manager}`;
           .slice(-3)
           .forEach(season => {
             console.log("Champion data for", season.year, ":", season.champion);
-            welcomeData += `- ${season.year}: ${season.champion.teamName} (${season.champion.owner})\n`;
+            if (season.champion) {
+              welcomeData += `- ${season.year}: ${season.champion.teamName} (${season.champion.owner})
+`;
+            }
           });
         welcomeData += '\n';
       }
@@ -578,7 +581,6 @@ Manager 2: ${team2.manager}`;
       welcomeData += `\nRETURNING PLAYERS FROM ${lastYear} ROSTERS:\n`;
       
       // Track which players are on which teams
-      const playerMovements: Record<string, { from: string; to: string }> = {};
       const currentRosters: Record<string, Set<string>> = {};
       const previousRosters: Record<string, Set<string>> = {};
       

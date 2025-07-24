@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { UserButton } from "@clerk/nextjs"; 
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
@@ -66,10 +64,8 @@ export function LeagueSettingsPage({
   league, 
   teams, 
   teamClaims, 
-  teamInvitations, 
-  currentUserId 
+  teamInvitations
 }: LeagueSettingsPageProps) {
-  const router = useRouter();
   const [editingLeague, setEditingLeague] = useState(false);
   const [leagueName, setLeagueName] = useState(league.name);
   const [isCreatingInvites, setIsCreatingInvites] = useState(false);
@@ -110,7 +106,7 @@ export function LeagueSettingsPage({
       // Reset form
       setSelectedTeamIds([]);
       setEmailInputs({});
-    } catch (error) {
+    } catch {
       toast.error("Failed to create invitations", {
         description: "Please try again or contact support if the issue persists."
       });
@@ -126,7 +122,7 @@ export function LeagueSettingsPage({
       toast.success("Invite link copied to clipboard!", {
         description: "The invite link is ready to share."
       });
-    } catch (err) {
+    } catch {
       toast.error("Failed to copy invite link", {
         description: "Please try again or manually copy the link."
       });
@@ -176,11 +172,9 @@ export function LeagueSettingsPage({
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-6">
               <Link href="/" className="flex items-center cursor-pointer">
-                <Image
+                <img
                   src="/FFSN.png"
                   alt="FFSN Logo"
-                  width={80}
-                  height={53}
                   className="h-12 w-auto"
                 />
               </Link>

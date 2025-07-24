@@ -170,7 +170,7 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
                         toast.success("Invite link copied to clipboard!", {
                           description: "The invite link is ready to share."
                         });
-                      } catch (err) {
+                      } catch {
                         toast.error("Failed to copy invite link", {
                           description: "Please try again or manually copy the link."
                         });

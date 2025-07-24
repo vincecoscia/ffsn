@@ -3,7 +3,7 @@
 import { use } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { LeagueSettingsPage } from "../../../../components/LeagueSettingsPage";

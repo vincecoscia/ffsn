@@ -48,7 +48,7 @@ export function MarkdownPreview({
         remarkPlugins={[remarkGfm]}
         components={{
           // Customize link rendering for security
-          a: ({ node, ...props }) => (
+          a: ({ ...props }) => (
             <a 
               {...props} 
               target="_blank" 
