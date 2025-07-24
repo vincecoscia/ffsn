@@ -51,7 +51,7 @@ export const syncLeagueData = action({
       }
 
       // Get comprehensive league data including players, matchups, and draft info
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=players_wl&view=kona_player_info`, {
+      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info`, {
         headers
       });
 
@@ -65,6 +65,33 @@ export const syncLeagueData = action({
       const schedule = leagueData.schedule || [];
       const players = leagueData.players || [];
       const draftDetail = leagueData.draftDetail;
+
+      // Store draft data for current season
+      if (settings || draftDetail) {
+        await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+          leagueId: args.leagueId,
+          seasonId: currentYear,
+          seasonData: {
+            settings: {
+              name: settings?.name || 'ESPN League',
+              size: settings?.size || teams.length,
+              scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
+                          settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
+              playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
+              playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+              regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+              rosterSettings: settings?.rosterSettings,
+            },
+            draftSettings: settings?.draftSettings || null,
+            draft: draftDetail?.picks || null,
+            draftInfo: draftDetail ? {
+              draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+              draftType: draftDetail.type,
+              timePerPick: draftDetail.timePerPick,
+            } : undefined,
+          }
+        });
+      }
 
       // Update teams with comprehensive data
       await ctx.runMutation(api.espnSync.updateTeams, {
@@ -436,8 +463,8 @@ export const syncHistoricalData = action({
           });
         }
 
-        // Get historical league data
-        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail`, {
+        // Get historical league data including player information
+        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info`, {
           headers
         });
 
@@ -723,6 +750,23 @@ export const updateLeagueSeason = mutation({
         draftType: v.optional(v.string()),
         timePerPick: v.optional(v.number()),
       })),
+      draftSettings: v.optional(v.any()),
+      draft: v.optional(v.array(v.object({
+        autoDraftTypeId: v.number(),
+        bidAmount: v.number(),
+        id: v.number(),
+        keeper: v.boolean(),
+        lineupSlotId: v.number(),
+        memberId: v.optional(v.string()),
+        nominatingTeamId: v.number(),
+        overallPickNumber: v.number(),
+        playerId: v.number(),
+        reservedForKeeper: v.boolean(),
+        roundId: v.number(),
+        roundPickNumber: v.number(),
+        teamId: v.number(),
+        tradeLocked: v.boolean(),
+      }))),
     }),
   },
   handler: async (ctx, args) => {
@@ -742,6 +786,8 @@ export const updateLeagueSeason = mutation({
         runnerUp: args.seasonData.runnerUp,
         regularSeasonChampion: args.seasonData.regularSeasonChampion,
         draftInfo: args.seasonData.draftInfo,
+        draftSettings: args.seasonData.draftSettings,
+        draft: args.seasonData.draft,
       });
     } else {
       // Create new season record
@@ -753,9 +799,45 @@ export const updateLeagueSeason = mutation({
         runnerUp: args.seasonData.runnerUp,
         regularSeasonChampion: args.seasonData.regularSeasonChampion,
         draftInfo: args.seasonData.draftInfo,
+        draftSettings: args.seasonData.draftSettings,
+        draft: args.seasonData.draft,
         createdAt: now,
       });
     }
+  },
+});
+export const updateSeasonDraftData = mutation({
+  args: {
+    seasonId: v.id("leagueSeasons"),
+    draftSettings: v.optional(v.any()),
+    draft: v.optional(v.array(v.object({
+      autoDraftTypeId: v.number(),
+      bidAmount: v.number(),
+      id: v.number(),
+      keeper: v.boolean(),
+      lineupSlotId: v.number(),
+      memberId: v.optional(v.string()),
+      nominatingTeamId: v.number(),
+      overallPickNumber: v.number(),
+      playerId: v.number(),
+      reservedForKeeper: v.boolean(),
+      roundId: v.number(),
+      roundPickNumber: v.number(),
+      teamId: v.number(),
+      tradeLocked: v.boolean(),
+    }))),
+    draftInfo: v.optional(v.object({
+      draftDate: v.optional(v.number()),
+      draftType: v.optional(v.string()),
+      timePerPick: v.optional(v.number()),
+    })),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.seasonId, {
+      draftSettings: args.draftSettings,
+      draft: args.draft,
+      draftInfo: args.draftInfo,
+    });
   },
 });
 
@@ -1113,6 +1195,8 @@ export const syncAllLeagueData = action({
                 draftType: draftDetail.type,
                 timePerPick: draftDetail.timePerPick,
               } : undefined,
+              draftSettings: settings?.draftSettings || null,
+              draft: draftDetail?.picks || null,
             }
           });
         }
@@ -1164,13 +1248,13 @@ export const syncAllLeagueData = action({
                 appliedTotal: entry.playerPoolEntry.player.stats.appliedTotal,
                 projectedTotal: entry.playerPoolEntry.player.stats.projectedTotal,
               } : undefined,
-            })) : [], // Historical seasons typically don't have roster data
+            })) : [], // Historical rosters can be fetched separately using fetchHistoricalRosters
             divisionId: team.divisionId,
           }))
         });
 
-        // Sync players data (only for current season)
-        if (year === currentYear && players.length > 0) {
+        // Sync players data for all seasons (historical and current)
+        if (players.length > 0) {
           await ctx.runMutation(api.espnSync.updatePlayers, {
             playersData: players.map((player: any) => ({
               externalId: player.id?.toString() || '',
@@ -1261,6 +1345,417 @@ export const syncAllLeagueData = action({
       results,
       message: `Sync completed: ${totalSynced}/${yearsToSync.length} years synced successfully`,
       syncedAt: Date.now(),
+    };
+  },
+});
+// Historical roster fetching action
+export const fetchHistoricalRosters = action({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    teamIds: v.optional(v.array(v.string())), // If not provided, fetches for all teams
+  },
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    totalTeams: number;
+    totalRostersFetched: number;
+    totalErrors: number;
+    results: Array<{
+      teamId: string;
+      teamName: string;
+      success: boolean;
+      error?: string;
+      playersCount?: number;
+    }>;
+    message: string;
+    fetchedAt: number;
+  }> => {
+    const league: any = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    if (!league.espnData) {
+      throw new Error("No ESPN data found for league");
+    }
+
+    // Validate ESPN credentials if league is private
+    if (league.espnData.isPrivate) {
+      const credentialsCheck = await validateEspnCredentials(
+        league.externalId, 
+        league.espnData.espnS2, 
+        league.espnData.swid
+      );
+      
+      if (!credentialsCheck.isValid) {
+        throw new Error(`ESPN credentials invalid: ${credentialsCheck.error}. Please re-authenticate with ESPN.`);
+      }
+    }
+
+    // Get teams for the specified season using a query
+    const teams = await ctx.runQuery(api.teams.getBySeasonAndLeague, { 
+      leagueId: args.leagueId, 
+      seasonId: args.seasonId 
+    });
+
+    if (teams.length === 0) {
+      throw new Error(`No teams found for season ${args.seasonId}. Please sync team data first.`);
+    }
+
+    // Filter teams if specific teamIds provided
+    const teamsToFetch = args.teamIds 
+      ? teams.filter((team: any) => args.teamIds!.includes(team.externalId))
+      : teams;
+
+    const results = [];
+    let totalRostersFetched = 0;
+    let totalErrors = 0;
+
+    for (const team of teamsToFetch) {
+      try {
+        console.log(`Fetching historical roster for team ${team.name} (${team.externalId}) for season ${args.seasonId}...`);
+        
+        const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
+        const viewParams = `?rosterForTeamId=${team.externalId}&view=mDraftDetail&view=mLiveScoring&view=mMatchupScore&view=mPendingTransactions&view=mPositionalRatings&view=mRoster&view=mSettings&view=mTeam&view=modular&view=mNav`;
+        
+        const headers: HeadersInit = {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        };
+        
+        if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
+          const espnS2 = decodeURIComponent(league.espnData.espnS2);
+          headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
+        }
+
+        const response = await fetch(`${baseUrl}${viewParams}`, { headers });
+
+        if (!response.ok) {
+          console.error(`Failed to fetch roster for team ${team.externalId}:`, response.status, response.statusText);
+          results.push({
+            teamId: team.externalId,
+            teamName: team.name,
+            success: false,
+            error: `HTTP ${response.status}: ${response.statusText}`
+          });
+          totalErrors++;
+          continue;
+        }
+
+        const data = await response.json();
+        
+        // Extract roster data from the response
+        let rosterEntries = [];
+        
+        // Check multiple possible locations for roster data
+        if (data.teams) {
+          const teamData = data.teams.find((t: any) => t.id.toString() === team.externalId);
+          if (teamData?.roster?.entries) {
+            rosterEntries = teamData.roster.entries;
+          }
+        }
+        
+        // If no roster found in teams, try the direct roster property
+        if (rosterEntries.length === 0 && data.roster?.entries) {
+          rosterEntries = data.roster.entries;
+        }
+
+        if (rosterEntries.length === 0) {
+          console.warn(`No roster data found for team ${team.externalId} in season ${args.seasonId}`);
+          results.push({
+            teamId: team.externalId,
+            teamName: team.name,
+            success: false,
+            error: 'No roster data available for this team/season combination'
+          });
+          totalErrors++;
+          continue;
+        }
+
+        // Process and store the roster data
+        const historicalRoster = rosterEntries.map((entry: any) => ({
+          playerId: entry.playerId?.toString() || '',
+          playerName: entry.playerPoolEntry?.player?.fullName || 'Unknown',
+          position: entry.playerPoolEntry?.player?.defaultPositionId ? getPositionName(entry.playerPoolEntry.player.defaultPositionId) : 'UNKNOWN',
+          team: entry.playerPoolEntry?.player?.proTeamId ? getTeamAbbreviation(entry.playerPoolEntry.player.proTeamId) : 'FA',
+          acquisitionType: entry.acquisitionType,
+          lineupSlotId: entry.lineupSlotId,
+          playerStats: entry.playerPoolEntry?.player?.stats ? {
+            appliedTotal: entry.playerPoolEntry.player.stats.appliedTotal,
+            projectedTotal: entry.playerPoolEntry.player.stats.projectedTotal,
+          } : undefined,
+        }));
+
+        // Update the team's roster for this season using a mutation
+        await ctx.runMutation(api.teams.updateTeamRoster, {
+          teamId: team._id,
+          roster: historicalRoster,
+        });
+
+        results.push({
+          teamId: team.externalId,
+          teamName: team.name,
+          success: true,
+          playersCount: historicalRoster.length
+        });
+        totalRostersFetched++;
+        
+        console.log(`Successfully fetched roster for team ${team.name}: ${historicalRoster.length} players`);
+        
+        // Add small delay to prevent rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (error) {
+        console.error(`Failed to fetch roster for team ${team.externalId}:`, error);
+        results.push({
+          teamId: team.externalId,
+          teamName: team.name,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        totalErrors++;
+      }
+    }
+
+    return {
+      success: totalRostersFetched > 0,
+      totalTeams: teamsToFetch.length,
+      totalRostersFetched,
+      totalErrors,
+      results,
+      message: `Historical rosters fetch completed: ${totalRostersFetched}/${teamsToFetch.length} teams fetched successfully`,
+      fetchedAt: Date.now(),
+    };
+  },
+});
+// Action to fetch draft data for a specific season
+export const fetchDraftDataForSeason = action({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+    picksCount?: number;
+  }> => {
+    const league: any = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    if (!league.espnData) {
+      throw new Error("No ESPN data found for league");
+    }
+
+    // Validate ESPN credentials if league is private
+    if (league.espnData.isPrivate) {
+      const credentialsCheck = await validateEspnCredentials(
+        league.externalId, 
+        league.espnData.espnS2, 
+        league.espnData.swid
+      );
+      
+      if (!credentialsCheck.isValid) {
+        throw new Error(`ESPN credentials invalid: ${credentialsCheck.error}. Please re-authenticate with ESPN.`);
+      }
+    }
+
+    try {
+      console.log(`Fetching draft data for season ${args.seasonId}...`);
+      
+      const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
+      
+      const headers: HeadersInit = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      };
+      
+      if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
+        const espnS2 = decodeURIComponent(league.espnData.espnS2);
+        headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
+      }
+
+      // Fetch league data with draft details
+      const response = await fetch(
+        `${baseUrl}?view=mDraftDetail&view=mSettings&view=mTeam&view=modular&view=mNav`,
+        { headers }
+      );
+
+      if (!response.ok) {
+        console.error(`ESPN API Error for draft data:`, {
+          status: response.status,
+          statusText: response.statusText,
+        });
+        return {
+          success: false,
+          message: `Failed to fetch draft data`,
+          error: `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+
+      const leagueData = await response.json();
+      const draftDetail = leagueData.draftDetail;
+      const settings = leagueData.settings;
+
+      if (!draftDetail?.picks || draftDetail.picks.length === 0) {
+        return {
+          success: false,
+          message: "No draft data available for this season",
+          error: "Draft has not occurred yet or data is not available",
+        };
+      }
+
+      // Sync all player data for this season to ensure comprehensive playersEnhanced table
+      try {
+        await ctx.runAction(api.playerSync.syncAllPlayers, {
+          season: args.seasonId,
+          forceUpdate: false,
+          leagueId: args.leagueId,
+        });
+      } catch (playerSyncError) {
+        console.warn("Failed to sync all players data for season, continuing with draft data sync:", playerSyncError);
+      }
+
+      // Get existing season record
+      const existingSeason = await ctx.runQuery(api.leagues.getLeagueSeasonByYear, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
+
+      if (!existingSeason) {
+        // Create new season record with draft data
+        await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+          leagueId: args.leagueId,
+          seasonId: args.seasonId,
+          seasonData: {
+            settings: {
+              name: settings?.name || league.name,
+              size: settings?.size || 10,
+              scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
+                          settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
+              playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
+              playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+              regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+              rosterSettings: settings?.rosterSettings,
+            },
+            draftSettings: settings?.draftSettings || null,
+            draft: draftDetail.picks,
+            draftInfo: {
+              draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+              draftType: draftDetail.type,
+              timePerPick: draftDetail.timePerPick,
+            },
+          },
+        });
+      } else {
+        // Update existing season with draft data
+        await ctx.runMutation(api.espnSync.updateSeasonDraftData, {
+          seasonId: existingSeason._id,
+          draftSettings: settings?.draftSettings || null,
+          draft: draftDetail.picks,
+          draftInfo: {
+            draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+            draftType: draftDetail.type,
+            timePerPick: draftDetail.timePerPick,
+          },
+        });
+      }
+
+      return {
+        success: true,
+        message: `Successfully fetched draft data for ${args.seasonId}`,
+        picksCount: draftDetail.picks.length,
+      };
+
+    } catch (error) {
+      console.error(`Failed to fetch draft data for season ${args.seasonId}:`, error);
+      return {
+        success: false,
+        message: "Failed to fetch draft data",
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  },
+});
+// Enhanced sync function that includes historical roster fetching
+export const syncAllDataWithRosters = action({
+  args: {
+    leagueId: v.id("leagues"),
+    includeCurrentSeason: v.optional(v.boolean()),
+    historicalYears: v.optional(v.number()),
+    includeHistoricalRosters: v.optional(v.boolean()), // New option
+  },
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    totalYearsRequested: number;
+    totalSynced: number;
+    totalErrors: number;
+    results: Array<{
+      year: number;
+      success: boolean;
+      error?: string;
+      teamsCount?: number;
+      matchupsCount?: number;
+      playersCount?: number;
+      rostersCount?: number;
+    }>;
+    message: string;
+    syncedAt: number;
+  }> => {
+    // First run the regular sync
+    const regularSyncResult = await ctx.runAction(api.espnSync.syncAllLeagueData, {
+      leagueId: args.leagueId,
+      includeCurrentSeason: args.includeCurrentSeason,
+      historicalYears: args.historicalYears,
+    });
+
+    if (!regularSyncResult.success || !args.includeHistoricalRosters) {
+      return regularSyncResult;
+    }
+
+    // Now fetch historical rosters for each successfully synced year
+    const enhancedResults = [];
+    
+    for (const result of regularSyncResult.results) {
+      if (result.success && result.year !== new Date().getFullYear()) {
+        try {
+          console.log(`Fetching historical rosters for year ${result.year}...`);
+          
+          const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+            leagueId: args.leagueId,
+            seasonId: result.year,
+          });
+
+          enhancedResults.push({
+            ...result,
+            rostersCount: rosterResult.success ? rosterResult.totalRostersFetched : 0,
+          });
+          
+          console.log(`Historical rosters for ${result.year}: ${rosterResult.success ? `${rosterResult.totalRostersFetched} teams` : 'failed'}`);
+          
+          // Add delay between roster fetches to prevent rate limiting
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+        } catch (error) {
+          console.error(`Failed to fetch rosters for year ${result.year}:`, error);
+          enhancedResults.push({
+            ...result,
+            rostersCount: 0,
+          });
+        }
+      } else {
+        enhancedResults.push(result);
+      }
+    }
+
+    return {
+      ...regularSyncResult,
+      results: enhancedResults,
+      message: args.includeHistoricalRosters 
+        ? `Sync completed with historical rosters: ${regularSyncResult.totalSynced}/${regularSyncResult.totalYearsRequested} years synced successfully`
+        : regularSyncResult.message,
     };
   },
 });

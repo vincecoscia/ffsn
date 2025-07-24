@@ -9,6 +9,9 @@ import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import { PlayerManagement } from "./PlayerManagement";
+import HistoricalRosterManager from "./HistoricalRosterManager";
+import { DraftDataViewer } from "./DraftDataViewer";
 
 interface League {
   _id: Id<"leagues">;
@@ -471,6 +474,42 @@ export function LeagueSettingsPage({
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Player Management Section */}
+          <div className="bg-white rounded-lg shadow-sm">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-2xl font-bold text-gray-900">Player Management</h2>
+              <p className="text-gray-600 mt-1">Sync and manage NFL player data for your league</p>
+            </div>
+            
+            <div className="p-6">
+              <PlayerManagement leagueId={league._id} />
+            </div>
+          </div>
+
+          {/* Historical Rosters Section */}
+          <div className="bg-white rounded-lg shadow-sm">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-2xl font-bold text-gray-900">Historical Rosters</h2>
+              <p className="text-gray-600 mt-1">Fetch detailed roster information from previous seasons</p>
+            </div>
+            
+            <div className="p-6">
+              <HistoricalRosterManager leagueId={league._id} />
+            </div>
+          </div>
+
+          {/* Draft Data Section */}
+          <div className="bg-white rounded-lg shadow-sm">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-2xl font-bold text-gray-900">Draft Data</h2>
+              <p className="text-gray-600 mt-1">View draft order and historical draft picks for all seasons</p>
+            </div>
+            
+            <div className="p-6">
+              <DraftDataViewer leagueId={league._id} />
             </div>
           </div>
 

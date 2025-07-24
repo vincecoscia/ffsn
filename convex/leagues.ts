@@ -201,6 +201,142 @@ export const getById = query({
     };
   },
 });
+export const getDraftData = query({
+  args: { 
+    leagueId: v.id("leagues"),
+    seasonId: v.number()
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return null;
+    }
+
+    // Get league season data
+    const leagueSeason = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .first();
+
+    if (!leagueSeason) {
+      return null;
+    }
+
+    // Get teams for this season
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .collect();
+
+    // Get enhanced player data - ensure string conversion for espnId matching
+    const playerIds = leagueSeason.draft?.map(pick => pick.playerId.toString()) || [];
+    const players = await Promise.all(
+      playerIds.map(async (playerId) => {
+        const player = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_espn_id_season", (q) => 
+            q.eq("espnId", playerId).eq("season", args.seasonId)
+          )
+          .first();
+        return player;
+      })
+    );
+
+    // Create a map for quick lookup - use string keys to match draft data
+    const teamMap = new Map(teams.map(t => [parseInt(t.externalId), t]));
+    const playerMap = new Map(players.filter(p => p).map(p => [p!.espnId, p]));
+
+    return {
+      draftSettings: leagueSeason.draftSettings,
+      draftInfo: leagueSeason.draftInfo,
+      picks: leagueSeason.draft?.map(pick => ({
+        ...pick,
+        team: teamMap.get(pick.teamId),
+        player: playerMap.get(pick.playerId.toString())
+      })) || [],
+      hasData: !!leagueSeason.draft && leagueSeason.draft.length > 0
+    };
+  },
+});
+export const getLeagueSeasons = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return [];
+    }
+
+    // Get all seasons for this league
+    const seasons = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .collect();
+
+    return seasons;
+  },
+});
+export const getLeagueSeasonByYear = query({
+  args: { 
+    leagueId: v.id("leagues"),
+    seasonId: v.number()
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return null;
+    }
+
+    // Get specific season for this league
+    const season = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .first();
+
+    return season;
+  },
+});
 
 export const joinLeague = mutation({
   args: { leagueId: v.id("leagues") },

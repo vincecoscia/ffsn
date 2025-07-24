@@ -1,6 +1,25 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 
+// Helper function to fetch draft data for a specific season
+async function fetchDraftData(leagueId: string, season: number, headers: HeadersInit): Promise<any> {
+  try {
+    const draftUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mDraftDetail&view=mSettings&view=mTeam&view=modular&view=mNav`;
+    const response = await fetch(draftUrl, { headers });
+    
+    if (!response.ok) {
+      console.warn(`Failed to fetch draft data for season ${season}: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    return data.draftDetail?.picks || null;
+  } catch (error) {
+    console.warn(`Error fetching draft data for season ${season}:`, error);
+    return null;
+  }
+}
+
 // Helper function to fetch historical league data
 async function fetchHistoricalData(leagueId: string, headers: HeadersInit): Promise<any[]> {
   const currentYear = new Date().getFullYear();
@@ -102,8 +121,8 @@ export const fetchLeagueData = action({
         });
       }
 
-      // Get basic league info
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams`, {
+      // Get basic league info with draft settings
+      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mNav&view=modular`, {
         headers
       });
 
@@ -156,6 +175,9 @@ export const fetchLeagueData = action({
 
       const isPrivate = !!(args.espnS2 && args.swid);
       
+      // Fetch draft data for current season
+      const draftPicks = await fetchDraftData(args.leagueId, currentYear, headers);
+      
       const processedData = {
         id: args.leagueId,
         name: settings?.name || 'ESPN League',
@@ -186,6 +208,8 @@ export const fetchLeagueData = action({
           playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
           regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
         },
+        draftSettings: settings?.draftSettings || null,
+        draftPicks: draftPicks,
         history: await fetchHistoricalData(args.leagueId, headers)
       };
       

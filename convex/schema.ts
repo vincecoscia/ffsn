@@ -239,6 +239,23 @@ export default defineSchema({
       draftType: v.optional(v.string()),
       timePerPick: v.optional(v.number()),
     })),
+    draftSettings: v.optional(v.any()), // Store ESPN's draftSettings object
+    draft: v.optional(v.array(v.object({
+      autoDraftTypeId: v.number(),
+      bidAmount: v.number(),
+      id: v.number(),
+      keeper: v.boolean(),
+      lineupSlotId: v.number(),
+      memberId: v.optional(v.string()),
+      nominatingTeamId: v.number(),
+      overallPickNumber: v.number(),
+      playerId: v.number(),
+      reservedForKeeper: v.boolean(),
+      roundId: v.number(),
+      roundPickNumber: v.number(),
+      teamId: v.number(),
+      tradeLocked: v.boolean(),
+    }))),
     createdAt: v.number(),
   })
     .index("by_league", ["leagueId"])
@@ -333,4 +350,121 @@ export default defineSchema({
     .index("by_league", ["leagueId"])
     .index("by_user", ["userId"])
     .index("by_team_season", ["teamId", "seasonId"]),
+
+  // Enhanced player management tables
+  playersEnhanced: defineTable({
+    // ESPN player ID - unique identifier across all leagues
+    espnId: v.string(),
+    season: v.number(), // e.g., 2025
+    
+    // Basic info
+    fullName: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    
+    // Position data
+    defaultPositionId: v.number(),
+    defaultPosition: v.string(), // e.g., "RB", "WR"
+    eligibleSlots: v.array(v.number()),
+    eligiblePositions: v.array(v.string()),
+    
+    // Team info
+    proTeamId: v.number(),
+    proTeamAbbrev: v.optional(v.string()),
+    jersey: v.optional(v.string()),
+    
+    // Player status
+    active: v.boolean(),
+    injured: v.boolean(),
+    injuryStatus: v.optional(v.string()),
+    
+    // ESPN metadata
+    droppable: v.boolean(),
+    universeId: v.optional(v.number()),
+    
+    // Global ownership stats
+    ownership: v.object({
+      percentOwned: v.number(),
+      percentStarted: v.number(),
+      percentChange: v.optional(v.number()),
+      auctionValueAverage: v.optional(v.number()),
+      averageDraftPosition: v.optional(v.number()),
+    }),
+    
+    // Rankings
+    draftRanksByRankType: v.optional(v.any()), // Complex ESPN ranking object
+    
+    // Season outlook
+    seasonOutlook: v.optional(v.string()),
+    
+    // Stats snapshot (updated periodically)
+    stats: v.optional(v.object({
+      seasonProjectedTotal: v.optional(v.number()),
+      seasonActualTotal: v.optional(v.number()),
+      lastWeekPoints: v.optional(v.number()),
+      averagePoints: v.optional(v.number()),
+    })),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_espn_id_season", ["espnId", "season"])
+    .index("by_position", ["defaultPosition"])
+    .index("by_pro_team", ["proTeamId"])
+    .index("by_ownership", ["ownership.percentOwned"]),
+
+  // League-specific player status
+  leaguePlayerStatus: defineTable({
+    leagueId: v.id("leagues"),
+    playerId: v.string(), // ESPN player ID
+    season: v.number(),
+    
+    // Ownership status in this league
+    status: v.union(
+      v.literal("owned"),
+      v.literal("free_agent"),
+      v.literal("waivers"),
+      v.literal("cant_drop")
+    ),
+    
+    // Team ownership (if owned)
+    teamId: v.optional(v.id("teams")),
+    teamExternalId: v.optional(v.string()),
+    
+    // Roster position (if owned)
+    lineupSlotId: v.optional(v.number()),
+    acquisitionType: v.optional(v.string()), // DRAFT, ADD, TRADE
+    acquisitionDate: v.optional(v.number()),
+    
+    // Waiver/trade info
+    onWaivers: v.boolean(),
+    waiverProcessDate: v.optional(v.number()),
+    tradeLocked: v.boolean(),
+    keeperValue: v.optional(v.number()),
+    keeperValueFuture: v.optional(v.number()),
+    
+    // League-specific values
+    draftAuctionValue: v.optional(v.number()),
+    
+    updatedAt: v.number(),
+  })
+    .index("by_league_player", ["leagueId", "playerId"])
+    .index("by_league_status", ["leagueId", "status"])
+    .index("by_team", ["teamId"])
+    .index("by_league_free_agents", ["leagueId", "status", "playerId"]),
+
+  // Player sync status tracking
+  playerSyncStatus: defineTable({
+    season: v.number(),
+    lastFullSync: v.optional(v.number()),
+    lastIncrementalSync: v.optional(v.number()),
+    totalPlayers: v.optional(v.number()),
+    status: v.union(
+      v.literal("idle"),
+      v.literal("syncing"),
+      v.literal("error")
+    ),
+    error: v.optional(v.string()),
+  })
+    .index("by_season", ["season"]),
 });

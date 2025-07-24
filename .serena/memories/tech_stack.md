@@ -11,7 +11,7 @@
 - **Database**: Convex (real-time database)
 - **Authentication**: Clerk (simplified, no Organizations)
 - **Payments**: Stripe
-- **AI**: OpenAI GPT-4
+- **AI**: Claude 4.0 Sonnet
 
 ## Key Dependencies
 - React 19.1.0

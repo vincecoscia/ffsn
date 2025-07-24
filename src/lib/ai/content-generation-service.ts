@@ -37,6 +37,14 @@ export class ContentGenerationService {
   };
 
   async generateContent(request: GenerationRequest, apiKey: string): Promise<GeneratedContent> {
+    console.log("=== ContentGenerationService.generateContent START ===");
+    console.log("Request:", {
+      contentType: request.contentType,
+      persona: request.persona,
+      hasCustomContext: !!request.customContext,
+      leagueDataKeys: Object.keys(request.leagueData),
+    });
+    
     // Initialize Anthropic client with provided API key
     const anthropic = new Anthropic({
       apiKey: apiKey,
@@ -54,13 +62,31 @@ export class ContentGenerationService {
         includeExamples: true,
       };
 
+      console.log("Building prompts...");
       const { systemPrompt, userPrompt, settings } = await generatePrompt(promptOptions);
+      
+      console.log("Prompt built successfully");
+      console.log("System prompt preview:", systemPrompt.substring(0, 200) + "...");
+      console.log("User prompt preview:", userPrompt.substring(0, 200) + "...");
 
       // Call Claude API
+      console.log("Calling Claude API...");
       const response = await this.callClaude(anthropic, systemPrompt, userPrompt, settings);
+      
+      console.log("Claude response received");
+      console.log("Response usage:", {
+        inputTokens: response.usage?.input_tokens,
+        outputTokens: response.usage?.output_tokens,
+      });
 
       // Parse the response
       const parsed = this.parseGeneratedContent(response.content[0].text);
+      console.log("Content parsed:", {
+        hasTitle: !!parsed.title,
+        hasContent: !!parsed.content,
+        contentLength: parsed.content?.length,
+        hasSummary: !!parsed.summary,
+      });
 
       // Extract metadata
       const metadata = {
@@ -74,13 +100,27 @@ export class ContentGenerationService {
         promptTokens: response.usage?.input_tokens || 0,
         completionTokens: response.usage?.output_tokens || 0,
       };
+      
+      console.log("Metadata extracted:", {
+        featuredTeams: metadata.featuredTeams.length,
+        featuredPlayers: metadata.featuredPlayers.length,
+        tags: metadata.tags.length,
+        generationTimeMs: metadata.generationTime,
+      });
 
+      console.log("=== ContentGenerationService.generateContent SUCCESS ===");
+      
       return {
         ...parsed,
         metadata,
       };
     } catch (error) {
+      console.error("=== ContentGenerationService.generateContent ERROR ===");
       console.error('Content generation failed:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw new Error('Failed to generate content. Please try again.');
     }
   }
@@ -91,6 +131,20 @@ export class ContentGenerationService {
     userPrompt: string,
     settings: any
   ): Promise<any> {
+    console.log("=== callClaude START ===");
+    console.log("Model:", this.modelConfig.primary);
+    console.log("Settings:", {
+      maxTokens: settings.maxTokens || 4000,
+      temperature: settings.temperature || 0.8,
+    });
+    
+    // Log full prompts for debugging (be careful with this in production)
+    console.log("=== FULL SYSTEM PROMPT ===");
+    console.log(systemPrompt);
+    console.log("=== FULL USER PROMPT ===");
+    console.log(userPrompt);
+    console.log("=== END PROMPTS ===");
+    
     try {
       const response = await anthropic.messages.create({
         model: this.modelConfig.primary,
@@ -104,12 +158,14 @@ export class ContentGenerationService {
           },
         ],
       });
-
+      
+      console.log("Claude API call successful");
       return response;
     } catch (error: any) {
       // If primary model fails, try fallback
       if (error.status === 404 || error.status === 500) {
         console.warn('Primary model failed, trying fallback...');
+        console.warn('Error:', error.message);
         
         const response = await anthropic.messages.create({
           model: this.modelConfig.fallback,
@@ -124,9 +180,11 @@ export class ContentGenerationService {
           ],
         });
 
+        console.log("Fallback model call successful");
         return response;
       }
       
+      console.error("Claude API call failed:", error);
       throw error;
     }
   }

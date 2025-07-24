@@ -1,6 +1,6 @@
 'use server'
 
-import { fetchMutation } from 'convex/nextjs'
+import { fetchAction } from 'convex/nextjs'
 import { api } from '../../../convex/_generated/api'
 import { Id } from '../../../convex/_generated/dataModel'
 
@@ -10,7 +10,7 @@ export async function triggerHistoricalSync(
   includeCurrentSeason: boolean = true
 ) {
   try {
-    const result = await fetchMutation(api.espnSync.syncAllLeagueData, {
+    const result = await fetchAction(api.espnSync.syncAllLeagueData, {
       leagueId,
       includeCurrentSeason,
       historicalYears,
@@ -31,7 +31,7 @@ export async function triggerHistoricalSync(
 
 export async function getCurrentLeagueSync(leagueId: Id<"leagues">) {
   try {
-    const result = await fetchMutation(api.espnSync.syncLeagueData, {
+    const result = await fetchAction(api.espnSync.syncLeagueData, {
       leagueId,
     })
 

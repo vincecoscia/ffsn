@@ -63,3 +63,41 @@ export const getByLeagueAndSeason = query({
     return teams;
   },
 });
+export const getBySeasonAndLeague = query({
+  args: { 
+    leagueId: v.id("leagues"), 
+    seasonId: v.number() 
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .collect();
+  },
+});
+
+export const updateTeamRoster = mutation({
+  args: {
+    teamId: v.id("teams"),
+    roster: v.array(v.object({
+      playerId: v.string(),
+      playerName: v.string(),
+      position: v.string(),
+      team: v.string(),
+      acquisitionType: v.optional(v.string()),
+      lineupSlotId: v.optional(v.number()),
+      playerStats: v.optional(v.object({
+        appliedTotal: v.optional(v.number()),
+        projectedTotal: v.optional(v.number()),
+      })),
+    })),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.teamId, {
+      roster: args.roster,
+      updatedAt: Date.now(),
+    });
+  },
+});

@@ -13,6 +13,11 @@ interface Team {
   abbreviation?: string;
   logo?: string;
   owner: string;
+  record?: {
+    wins: number;
+    losses: number;
+    ties: number;
+  };
 }
 
 interface League {
@@ -246,7 +251,7 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
                     <div className="flex-1">
                       <h4 className="font-bold text-gray-900">{team.name}</h4>
                       <p className="text-sm text-gray-600">
-                        {team.record.wins}-{team.record.losses}-{team.record.ties || 0}
+                        {team.record ? `${team.record.wins}-${team.record.losses}-${team.record.ties || 0}` : 'No record'}
                       </p>
                     </div>
                     {isInvited && (
