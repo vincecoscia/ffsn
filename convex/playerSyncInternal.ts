@@ -29,6 +29,10 @@ export const upsertPlayersBatch = mutation({
         auctionValueAverage: v.optional(v.number()),
         averageDraftPosition: v.optional(v.number()),
       }),
+      jersey: v.optional(v.string()),
+      seasonOutlook: v.optional(v.string()),
+      stats: v.optional(v.any()),
+      draftRanksByRankType: v.optional(v.any()),
     })),
   },
   handler: async (ctx, { players }) => {

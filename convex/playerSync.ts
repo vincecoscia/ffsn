@@ -38,6 +38,10 @@ interface ESPNPlayer {
   droppable?: boolean;
   universeId?: number;
   ownership?: ESPNPlayerOwnership;
+  jersey?: string;
+  seasonOutlook?: string;
+  stats?: any; // ESPN stats object structure varies
+  draftRanksByRankType?: any; // ESPN draft rankings object
 }
 
 interface ESPNLeaguePlayerData {
@@ -56,7 +60,7 @@ interface ESPNLeaguePlayerData {
 interface ESPNLeagueResponse {
   players: ESPNLeaguePlayerData[];
 }
-const ESPN_PLAYERS_ENDPOINT = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/players?scoringPeriodId=0&view=players_wl";
+const ESPN_PLAYERS_ENDPOINT = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/players?scoringPeriodId=0&view=players_wl&view=kona_player_info";
 const ESPN_LEAGUE_PLAYERS_ENDPOINT = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/segments/0/leagues/{leagueId}?scoringPeriodId=0&view=kona_player_info";
 
 // Re-export queries and mutations from internal file
@@ -239,6 +243,10 @@ export const syncAllPlayers = action({
               auctionValueAverage: player.ownership?.auctionValueAverage,
               averageDraftPosition: player.ownership?.averageDraftPosition,
             },
+            jersey: player.jersey || undefined,
+            seasonOutlook: player.seasonOutlook || undefined,
+            stats: player.stats,
+            draftRanksByRankType: player.draftRanksByRankType,
           })),
         });
       }
@@ -369,6 +377,10 @@ export const syncPlayersForDraft = action({
                 auctionValueAverage: player.ownership?.auctionValueAverage,
                 averageDraftPosition: player.ownership?.averageDraftPosition,
               },
+              jersey: player.jersey || undefined,
+              seasonOutlook: player.seasonOutlook || undefined,
+              stats: player.stats,
+              draftRanksByRankType: player.draftRanksByRankType,
             };
           }),
         });

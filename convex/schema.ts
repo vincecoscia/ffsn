@@ -397,13 +397,8 @@ export default defineSchema({
     // Season outlook
     seasonOutlook: v.optional(v.string()),
     
-    // Stats snapshot (updated periodically)
-    stats: v.optional(v.object({
-      seasonProjectedTotal: v.optional(v.number()),
-      seasonActualTotal: v.optional(v.number()),
-      lastWeekPoints: v.optional(v.number()),
-      averagePoints: v.optional(v.number()),
-    })),
+    // Stats snapshot (raw ESPN data structure)
+    stats: v.optional(v.any()), // ESPN returns complex array structure
     
     createdAt: v.number(),
     updatedAt: v.number(),

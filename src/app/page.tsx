@@ -3,19 +3,10 @@
 import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { useAuthSync } from "@/hooks/use-auth-sync";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 
 export default function Home() {
-  const { clerkUser, convexUser, isLoaded } = useAuthSync();
-  const router = useRouter();
+  useAuthSync(); // Ensure user is synced between Clerk and Convex
 
-  // Redirect authenticated users with completed onboarding to dashboard
-  useEffect(() => {
-    if (isLoaded && clerkUser && convexUser && convexUser.hasCompletedOnboarding) {
-      router.push("/dashboard");
-    }
-  }, [isLoaded, clerkUser, convexUser, router]);
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900">
       <header className="p-6 flex justify-between items-center">
