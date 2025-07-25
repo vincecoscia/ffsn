@@ -83,9 +83,10 @@ export const syncLeagueData = action({
               rosterSettings: settings?.rosterSettings,
             },
             draftSettings: settings?.draftSettings || null,
-            draft: draftDetail?.picks || null,
+            // Only include draft picks if draft has actually occurred (draftDate exists)
+            draft: (draftDetail?.drafted === 1 && draftDetail.picks) ? draftDetail.picks : null,
             draftInfo: draftDetail ? {
-              draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
               draftType: draftDetail.type,
               timePerPick: draftDetail.timePerPick,
             } : undefined,
@@ -613,7 +614,7 @@ export const syncHistoricalData = action({
               pointsFor: regularSeasonChamp.record?.overall?.pointsFor,
             } : undefined,
             draftInfo: draftDetail ? {
-              draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
               draftType: draftDetail.type,
               timePerPick: draftDetail.timePerPick,
             } : undefined,
@@ -1191,12 +1192,13 @@ export const syncAllLeagueData = action({
                 pointsFor: regularSeasonChamp.record?.overall?.pointsFor,
               } : undefined,
               draftInfo: draftDetail ? {
-                draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+                draftDate: draftDetail.drafted === 1 ? 1 : undefined,
                 draftType: draftDetail.type,
                 timePerPick: draftDetail.timePerPick,
               } : undefined,
               draftSettings: settings?.draftSettings || null,
-              draft: draftDetail?.picks || null,
+              // Only include draft picks if draft has actually occurred (draftDate exists)
+            draft: (draftDetail?.drafted === 1 && draftDetail.picks) ? draftDetail.picks : null,
             }
           });
         }
@@ -1407,6 +1409,40 @@ export const fetchHistoricalRosters = action({
     const teamsToFetch = args.teamIds 
       ? teams.filter((team: any) => args.teamIds!.includes(team.externalId))
       : teams;
+
+    // Check if draft has occurred for current season - skip roster fetching if not
+    const currentYear = new Date().getFullYear();
+    if (args.seasonId === currentYear) {
+      // For current season, check draft status before fetching rosters
+      try {
+        const leagueResponse = await fetch(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}?view=mDraftDetail`, {
+          headers: league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid ? {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Cookie': `espn_s2=${decodeURIComponent(league.espnData.espnS2)}; SWID=${league.espnData.swid}`
+          } : {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+          }
+        });
+
+        if (leagueResponse.ok) {
+          const leagueData = await leagueResponse.json();
+          // Check if draft has occurred (draftDate should be 1 when drafted)
+          if (leagueData.draftDetail?.drafted !== 1) {
+            return {
+              success: false,
+              totalTeams: teamsToFetch.length,
+              totalRostersFetched: 0,
+              totalErrors: 1,
+              results: [],
+              message: "Draft has not occurred yet for current season. Cannot fetch rosters.",
+              fetchedAt: Date.now(),
+            };
+          }
+        }
+      } catch (error) {
+        console.log("Could not verify draft status, proceeding with roster fetch:", error);
+      }
+    }
 
     const results = [];
     let totalRostersFetched = 0;
@@ -1643,7 +1679,7 @@ export const fetchDraftDataForSeason = action({
             draftSettings: settings?.draftSettings || null,
             draft: draftDetail.picks,
             draftInfo: {
-              draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
               draftType: draftDetail.type,
               timePerPick: draftDetail.timePerPick,
             },
@@ -1656,7 +1692,7 @@ export const fetchDraftDataForSeason = action({
           draftSettings: settings?.draftSettings || null,
           draft: draftDetail.picks,
           draftInfo: {
-            draftDate: draftDetail.drafted ? new Date(draftDetail.drafted).getTime() : undefined,
+            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
             draftType: draftDetail.type,
             timePerPick: draftDetail.timePerPick,
           },

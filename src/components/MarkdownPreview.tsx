@@ -17,6 +17,19 @@ export function MarkdownPreview({
   preview = false, 
   maxLines = 3 
 }: MarkdownPreviewProps) {
+  // Helper function to get static line-clamp class
+  const getLineClampClass = (lines: number) => {
+    switch (lines) {
+      case 1: return 'line-clamp-1';
+      case 2: return 'line-clamp-2';
+      case 3: return 'line-clamp-3';
+      case 4: return 'line-clamp-4';
+      case 5: return 'line-clamp-5';
+      case 6: return 'line-clamp-6';
+      default: return 'line-clamp-3'; // fallback to 3 lines
+    }
+  };
+
   // For preview mode, we'll show plain text instead of rendered markdown
   // to avoid complexity in truncation
   if (preview) {
@@ -34,7 +47,7 @@ export function MarkdownPreview({
     return (
       <p className={cn(
         "text-gray-700 leading-relaxed",
-        `line-clamp-${maxLines}`,
+        getLineClampClass(maxLines),
         className
       )}>
         {plainText}

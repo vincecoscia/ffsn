@@ -3,12 +3,13 @@
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
-import { MarkdownPreview } from "./MarkdownPreview";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { Button } from "@radix-ui/themes";
 import { ContentGenerator } from "./ContentGenerator";
+import { LeagueWeeklySection } from "./LeagueWeeklySection";
+import { ArticleList } from "./ArticleList";
+import { ArticleListSkeleton } from "./ui/ArticleSkeleton";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Team {
   _id: Id<"teams">;
@@ -16,6 +17,7 @@ interface Team {
   abbreviation?: string;
   logo?: string;
   owner: string;
+  externalId: string;
   record: {
     wins: number;
     losses: number;
@@ -53,11 +55,37 @@ interface LeagueHomepageProps {
 
 export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: LeagueHomepageProps) {
   const [showContentGenerator, setShowContentGenerator] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(null);
   
-  // Get AI content for this league
-  const aiContent = useQuery(api.aiContent.getByLeague, {
-    leagueId: league._id
+  // Get AI content result for pagination controls
+  const aiContentResult = useQuery(api.aiContent.getByLeague, {
+    leagueId: league._id,
+    paginationOpts: {
+      numItems: 3,
+      cursor: cursor
+    }
   });
+  
+  // Pagination functions
+  const handleNextPage = () => {
+    if (aiContentResult && !aiContentResult.isDone) {
+      setCursor(aiContentResult.continueCursor);
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      // For simplicity, we'll reset to first page when going back
+      // In a more complex implementation, you'd store previous cursors
+      setCursor(null);
+      setCurrentPage(1);
+    }
+  };
+
+  const canGoNext = aiContentResult && !aiContentResult.isDone;
+  const canGoPrevious = currentPage > 1;
 
   // Get user's claimed team
   const userTeam = teams.find(team => {
@@ -75,127 +103,12 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
     return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
   });
 
-
-
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* ESPN-style Top Events Bar */}
-      <div className="bg-black text-white py-2 px-4">
-        <div className="container mx-auto">
-          <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-8">
-              <span className="font-semibold">Top Events</span>
-              <div className="flex items-center gap-6">
-                <span className="text-gray-300">NFL</span>
-                <span className="text-gray-300">Fantasy</span>
-                <span className="text-gray-300">More Sports</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-gray-300">Watch</span>
-              <span className="text-gray-300">Listen</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ESPN Main Header */}
-      <header className="bg-red-600 shadow-lg">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center cursor-pointer">
-                <img
-                  src="/FFSN.png"
-                  alt="FFSN Logo"
-                  className="h-12 w-auto"
-                />
-              </Link>
-              <span className="text-red-200">|</span>
-              <span className="text-white font-semibold text-lg">{league.name}</span>
-            </div>
-            
-            <div className="flex items-center gap-6">
-              <nav className="hidden md:flex items-center gap-6">
-                <Link href="#" className="text-white hover:text-red-200 transition-colors font-semibold cursor-pointer">
-                  Home
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Scores
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Schedule
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Standings
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Teams
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Odds
-                </Link>
-                {league.role === "commissioner" && (
-                  <Link href={`/leagues/${league._id}/settings`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                    Settings
-                  </Link>
-                )}
-              </nav>
-              <UserButton />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* NFL Sub Navigation */}
-      <div className="bg-gray-800 border-b border-gray-600">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center gap-8 py-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white rounded flex items-center justify-center">
-                <span className="text-gray-800 font-bold text-sm">NFL</span>
-              </div>
-              <span className="text-white font-semibold">Fantasy</span>
-            </div>
-            <nav className="flex items-center gap-6 text-sm">
-              <Link href="#" className="text-white hover:text-gray-300 transition-colors cursor-pointer">
-                Home
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Scores
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Schedule
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Standings
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Teams
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Depth Charts
-              </Link>
-              {league.role === "commissioner" && (
-                <Link href={`/leagues/${league._id}/settings`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                  Settings
-                </Link>
-              )}
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                More
-              </Link>
-            </nav>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
             {/* Featured Story Section */}
-            <div className="bg-white rounded-lg overflow-hidden shadow-sm">
+            {/* <div className="bg-white rounded-lg overflow-hidden shadow-sm">
               <div className="relative h-64 bg-gradient-to-r from-blue-600 to-purple-600">
                 <div className="absolute inset-0 bg-black bg-opacity-40"></div>
                 <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
@@ -207,7 +120,14 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                   </p>
                 </div>
               </div>
-            </div>
+            </div> */}
+
+            {/* Weekly Section - Matchups or Draft Order */}
+            <LeagueWeeklySection
+              leagueId={league._id}
+              teams={teams}
+              seasonId={2025}
+            />
 
             {/* League Articles & Stories */}
             <div className="bg-white rounded-lg shadow-sm">
@@ -236,57 +156,44 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                   </div>
                 )}
 
-                {!aiContent || aiContent.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-gray-400 mb-6">
-                      <svg className="w-20 h-20 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-3">No Stories Yet</h3>
-                    <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                      Generate AI-powered stories about your league including weekly recaps, trade analysis, and player breakdowns.
-                    </p>
-                    {league.role === "commissioner" && (
-                      <Button
-                        onClick={() => setShowContentGenerator(true)}
-                        color="red"
-                        size="3"
-                        className="cursor-pointer"
+                <Suspense fallback={<ArticleListSkeleton />}>
+                  <ArticleList 
+                    leagueId={league._id} 
+                    cursor={cursor}
+                    isCommissioner={league.role === "commissioner"}
+                    onShowContentGenerator={() => setShowContentGenerator(true)}
+                  />
+                </Suspense>
+                
+                {/* Pagination Controls */}
+                {aiContentResult && aiContentResult.page && aiContentResult.page.length > 0 && (canGoNext || canGoPrevious) && (
+                  <div className="flex justify-center items-center gap-8 p-6 border-t border-gray-200">
+                    {/* Previous Button - Only show if we can go previous */}
+                    {canGoPrevious && (
+                      <button
+                        onClick={handlePreviousPage}
+                        className="flex items-center justify-center w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white transition-colors duration-200 shadow-lg hover:shadow-xl"
+                        aria-label="Previous page"
                       >
-                        Create Your First Story
-                      </Button>
+                        <ChevronLeft size={20} />
+                      </button>
                     )}
-                  </div>
-                ) : (
-                  <div className="grid gap-6">
-                    {aiContent.map((article) => (
-                      <article key={article._id} className="border-b border-gray-200 pb-6 last:border-0">
-                        <Link href={`/articles/${article._id}`} className="block hover:bg-gray-50 transition-colors rounded-lg p-2 -m-2">
-                          <div className="flex gap-4">
-                            <div className="flex-1">
-                              <h3 className="font-bold text-xl text-gray-900 mb-2 hover:text-red-600 cursor-pointer transition-colors">
-                                {article.title}
-                              </h3>
-                            <div className="text-gray-600 text-sm mb-3">
-                              {new Date(article.publishedAt || article.createdAt).toLocaleDateString('en-US', {
-                                weekday: 'long',
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                              })}
-                            </div>
-                            <MarkdownPreview 
-                              content={article.content} 
-                              preview={true} 
-                              maxLines={3} 
-                            />
-                          </div>
-                          <div className="w-32 h-24 bg-gray-200 rounded flex-shrink-0"></div>
-                          </div>
-                        </Link>
-                      </article>
-                    ))}
+                    
+                    {/* Page Indicator */}
+                    <div className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-medium text-gray-700">
+                      Page {currentPage}
+                    </div>
+                    
+                    {/* Next Button - Only show if we can go next */}
+                    {canGoNext && (
+                      <button
+                        onClick={handleNextPage}
+                        className="flex items-center justify-center w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white transition-colors duration-200 shadow-lg hover:shadow-xl"
+                        aria-label="Next page"
+                      >
+                        <ChevronRight size={20} />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -478,7 +385,5 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
             </div>
           </div>
         </div>
-      </div>
-    </div>
   );
 }

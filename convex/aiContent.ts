@@ -5,11 +5,17 @@ import { generateAIContent } from "../src/lib/ai/content-generation-service";
 import { contentTemplates } from "../src/lib/ai/content-templates";
 
 export const getByLeague = query({
-  args: { leagueId: v.id("leagues") },
+  args: { 
+    leagueId: v.id("leagues"),
+    paginationOpts: v.optional(v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null())
+    }))
+  },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      return [];
+      return { page: [], continueCursor: null, isDone: true };
     }
 
     // Check if user is a member of this league
@@ -21,17 +27,21 @@ export const getByLeague = query({
       .first();
 
     if (!membership) {
-      return [];
+      return { page: [], continueCursor: null, isDone: true };
     }
 
-    const content = await ctx.db
+    // Use pagination if provided, otherwise return first 3 items
+    const numItems = args.paginationOpts?.numItems || 3;
+    const cursor = args.paginationOpts?.cursor || null;
+
+    const result = await ctx.db
       .query("aiContent")
       .withIndex("by_league_published", (q) => q.eq("leagueId", args.leagueId))
       .filter((q) => q.eq(q.field("status"), "published"))
       .order("desc")
-      .take(10);
+      .paginate({ numItems, cursor });
 
-    return content;
+    return result;
   },
 });
 export const getById = query({

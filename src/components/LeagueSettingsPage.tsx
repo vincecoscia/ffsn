@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { UserButton } from "@clerk/nextjs"; 
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
@@ -145,106 +143,7 @@ export function LeagueSettingsPage({
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* ESPN-style Top Events Bar */}
-      <div className="bg-black text-white py-2 px-4">
-        <div className="container mx-auto">
-          <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-8">
-              <span className="font-semibold">Top Events</span>
-              <div className="flex items-center gap-6">
-                <span className="text-gray-300">NFL</span>
-                <span className="text-gray-300">Fantasy</span>
-                <span className="text-gray-300">More Sports</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-gray-300">Watch</span>
-              <span className="text-gray-300">Listen</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ESPN Main Header */}
-      <header className="bg-red-600 shadow-lg">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center cursor-pointer">
-                <img
-                  src="/FFSN.png"
-                  alt="FFSN Logo"
-                  className="h-12 w-auto"
-                />
-              </Link>
-              <span className="text-red-200">|</span>
-              <Link href={`/leagues/${league._id}`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                <span className="font-semibold text-lg">{league.name}</span>
-              </Link>
-              <span className="text-red-200">›</span>
-              <span className="text-white font-semibold">Settings</span>
-            </div>
-            
-            <div className="flex items-center gap-6">
-              <nav className="hidden md:flex items-center gap-6">
-                <Link href={`/leagues/${league._id}`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Home
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Scores
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Schedule
-                </Link>
-                <Link href="#" className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                  Standings
-                </Link>
-                <Link href="#" className="text-red-200 font-semibold cursor-pointer">
-                  Settings
-                </Link>
-              </nav>
-              <UserButton />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* NFL Sub Navigation */}
-      <div className="bg-gray-800 border-b border-gray-600">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center gap-8 py-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white rounded flex items-center justify-center">
-                <span className="text-gray-800 font-bold text-sm">NFL</span>
-              </div>
-              <span className="text-white font-semibold">Fantasy</span>
-            </div>
-            <nav className="flex items-center gap-6 text-sm">
-              <Link href={`/leagues/${league._id}`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Home
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Scores
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Schedule
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Standings
-              </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
-                Teams
-              </Link>
-              <span className="text-white font-semibold">Settings</span>
-            </nav>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
-        <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-8">
           
           {/* League Settings Section */}
           <div className="bg-white rounded-lg shadow-sm">
@@ -507,8 +406,6 @@ export function LeagueSettingsPage({
             </div>
           </div>
 
-        </div>
-      </div>
     </div>
   );
 }

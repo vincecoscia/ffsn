@@ -210,9 +210,7 @@ export function DraftDataViewer({ leagueId }: DraftDataViewerProps) {
           {draftData.draftInfo && (
             <div className="text-sm text-gray-600">
               <span className="font-medium">Draft Date:</span>{" "}
-              {draftData.draftInfo.draftDate 
-                ? new Date(draftData.draftInfo.draftDate).toLocaleDateString()
-                : "Not scheduled"}
+              {draftData.draftSettings.availableDate ? new Date(draftData.draftSettings.availableDate).toLocaleString() : "Not scheduled"}
             </div>
           )}
         </div>
