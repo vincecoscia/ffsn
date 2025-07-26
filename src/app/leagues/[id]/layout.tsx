@@ -7,19 +7,6 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 
-interface League {
-  _id: Id<"leagues">;
-  name: string;
-  role: "commissioner" | "member";
-  platform: string;
-  settings: {
-    scoringType: string;
-    rosterSize: number;
-    playoffWeeks: number;
-    categories: string[];
-  };
-}
-
 interface LeagueLayoutProps {
   children: React.ReactNode;
   params: Promise<{ id: string }>;
@@ -82,19 +69,19 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
               <Link href={`/leagues/${league._id}`} className="text-white hover:text-gray-300 transition-colors cursor-pointer">
                 Home
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link href={`/leagues/${league._id}/scores`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Scores
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link href={`/leagues/${league._id}/schedule`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Schedule
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link href={`/leagues/${league._id}/standings`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Standings
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link href={`/leagues/${league._id}/teams`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Teams
               </Link>
-              <Link href="#" className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link href={`/leagues/${league._id}/depth-charts`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
                 Depth Charts
               </Link>
               {league.role === "commissioner" && (
