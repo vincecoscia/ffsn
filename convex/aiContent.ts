@@ -82,6 +82,54 @@ export const getById = query({
     };
   },
 });
+export const getMostRecentWithImage = query({
+  args: {
+    leagueId: v.id("leagues"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return null;
+    }
+
+    // Get the most recent published article with a banner image
+    const article = await ctx.db
+      .query("aiContent")
+      .withIndex("by_league_published", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("status"), "published"),
+          q.neq(q.field("bannerImageId"), undefined)
+        )
+      )
+      .order("desc")
+      .first();
+
+    if (!article || !article.bannerImageId) {
+      return null;
+    }
+
+    // Get the banner image URL
+    const bannerImageUrl = await ctx.storage.getUrl(article.bannerImageId);
+
+    return {
+      ...article,
+      bannerImageUrl,
+    };
+  },
+});
 
 export const createGenerationRequest = mutation({
   args: {

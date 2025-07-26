@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { notFound } from "next/navigation";
@@ -13,19 +13,28 @@ interface ArticleClientProps {
 }
 
 export function ArticleClient({ articleId }: ArticleClientProps) {
+  const { isLoading: isAuthLoading, isAuthenticated } = useConvexAuth();
+
   // Get the article
   const article = useQuery(api.aiContent.getById, {
     articleId: articleId as Id<"aiContent">
   });
 
-  // Get the league information if we have the article
-  const league = useQuery(
-    api.leagues.getById,
-    article ? { id: article.leagueId } : "skip"
+  // Get the league information using different queries based on auth status
+  const publicLeague = useQuery(
+    api.leagues.getPublicInfo,
+    article && !isAuthenticated ? { id: article.leagueId } : "skip"
   );
 
+  const authenticatedLeague = useQuery(
+    api.leagues.getById,
+    article && isAuthenticated ? { id: article.leagueId } : "skip"
+  );
+
+  const league = isAuthenticated ? authenticatedLeague : publicLeague;
+
   // Loading state
-  if (article === undefined || league === undefined) {
+  if (isAuthLoading || article === undefined || (article && league === undefined)) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
@@ -63,12 +72,9 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
                 />
               </Link>
               <span className="text-red-200">|</span>
-              <Link 
-                href={`/leagues/${league._id}`}
-                className="text-white hover:text-red-200 transition-colors font-semibold"
-              >
+              <span className="text-white font-semibold">
                 {league.name}
-              </Link>
+              </span>
             </div>
           </div>
         </div>
@@ -77,14 +83,16 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          {/* Back Button */}
-          <Link 
-            href={`/leagues/${league._id}`}
-            className="inline-flex items-center gap-2 text-red-600 hover:text-red-800 mb-6 transition-colors"
-          >
-            <ArrowLeft size={16} />
-            Back to League Home
-          </Link>
+          {/* Back Button - only show for authenticated users */}
+          {isAuthenticated && authenticatedLeague && (
+            <Link 
+              href={`/leagues/${league._id}`}
+              className="inline-flex items-center gap-2 text-red-600 hover:text-red-800 mb-6 transition-colors"
+            >
+              <ArrowLeft size={16} />
+              Back to League Home
+            </Link>
+          )}
 
           {/* Article Header */}
           <article className="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -135,12 +143,14 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
                   <div className="text-sm text-gray-500">
                     Published in <strong>{league.name}</strong>
                   </div>
-                  <Link 
-                    href={`/leagues/${league._id}`}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors"
-                  >
-                    View more league stories →
-                  </Link>
+                  {isAuthenticated && authenticatedLeague && (
+                    <Link 
+                      href={`/leagues/${league._id}`}
+                      className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors"
+                    >
+                      View more league stories →
+                    </Link>
+                  )}
                 </div>
               </footer>
             </div>

@@ -202,6 +202,21 @@ export const getById = query({
     };
   },
 });
+
+export const getPublicInfo = query({
+  args: { id: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.id);
+    if (!league) return null;
+    
+    // Return only public information about the league
+    return {
+      _id: league._id,
+      name: league.name,
+      createdAt: league.createdAt,
+    };
+  },
+});
 export const getDraftData = query({
   args: { 
     leagueId: v.id("leagues"),

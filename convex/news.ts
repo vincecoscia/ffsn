@@ -90,6 +90,7 @@ export const getLatestNews = query({
     teamId: v.optional(v.number()),
     athleteId: v.optional(v.number()),
     onlyNonPremium: v.optional(v.boolean()),
+    type: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 20;
@@ -120,6 +121,10 @@ export const getLatestNews = query({
 
     if (args.onlyNonPremium) {
       filteredArticles = filteredArticles.filter(article => !article.premium);
+    }
+
+    if (args.type !== undefined) {
+      filteredArticles = filteredArticles.filter(article => article.type === args.type);
     }
 
     // Apply pagination

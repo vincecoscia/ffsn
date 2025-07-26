@@ -59,6 +59,17 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
   const [currentPage, setCurrentPage] = useState(1);
   const [cursor, setCursor] = useState<string | null>(null);
   
+  // Get featured story (most recent AI content with image)
+  const featuredStory = useQuery(api.aiContent.getMostRecentWithImage, {
+    leagueId: league._id
+  });
+  
+  // Get trending ESPN news (type='Media', limit to 3)
+  const trendingNews = useQuery(api.news.getLatestNews, {
+    type: "Media",
+    limit: 3
+  });
+  
   // Get AI content result for pagination controls
   const aiContentResult = useQuery(api.aiContent.getByLeague, {
     leagueId: league._id,
@@ -109,19 +120,38 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
             {/* Featured Story Section */}
-            {/* <div className="bg-white rounded-lg overflow-hidden shadow-sm">
-              <div className="relative h-64 bg-gradient-to-r from-blue-600 to-purple-600">
-                <div className="absolute inset-0 bg-black bg-opacity-40"></div>
-                <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                  <h1 className="text-3xl font-bold mb-2">
-                    We ranked the 50 most impactful {league.name} moves
-                  </h1>
-                  <p className="text-gray-200 text-lg">
-                    From rookie sensations to veteran comebacks - which moves will have the most impact this season?
-                  </p>
+            {featuredStory && (
+              <div 
+                className="bg-white rounded-lg overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => window.location.href = `/articles/${featuredStory._id}`}
+              >
+                <div 
+                  className="relative h-64"
+                  style={{
+                    background: featuredStory.bannerImageUrl 
+                      ? `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url(${featuredStory.bannerImageUrl}) center/cover no-repeat`
+                      : 'linear-gradient(to right, #2563eb, #9333ea)',
+                  }}
+                >
+                  <div className="absolute bottom-0 left-0 right-0 p-6 text-white z-10">
+                    <h1 className="text-3xl font-bold mb-2 line-clamp-2 drop-shadow-lg">
+                      {featuredStory.title}
+                    </h1>
+                    <div className="flex items-center gap-4 text-gray-100">
+                      <span className="text-sm font-medium drop-shadow">
+                        {featuredStory.type.charAt(0).toUpperCase() + featuredStory.type.slice(1).replace(/_/g, ' ')}
+                      </span>
+                      {featuredStory.metadata?.week && (
+                        <span className="text-sm drop-shadow">Week {featuredStory.metadata.week}</span>
+                      )}
+                      <span className="text-sm drop-shadow">
+                        {new Date(featuredStory.publishedAt || Date.now()).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div> */}
+            )}
 
             {/* Weekly Section - Matchups or Draft Order */}
             <LeagueWeeklySection
@@ -335,31 +365,43 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
             </div>
 
             {/* Trending Now */}
-            <div className="bg-white rounded-lg shadow-sm">
-              <div className="border-b border-gray-200 p-4">
-                <h3 className="text-lg font-bold text-gray-900">Trending Now</h3>
-              </div>
-              <div className="p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 bg-blue-600 rounded flex-shrink-0"></div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                      Ranking the NFL&apos;s best players at every position for 2025
-                    </h4>
-                    <p className="text-xs text-gray-600">Our experts rank the top 10 at each position</p>
-                  </div>
+            {trendingNews && trendingNews.articles.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm">
+                <div className="border-b border-gray-200 p-4">
+                  <h3 className="text-lg font-bold text-gray-900">📰 Trending Now</h3>
                 </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 bg-red-600 rounded flex-shrink-0"></div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                      2025 NFL draft top pick predictions
-                    </h4>
-                    <p className="text-xs text-gray-600">Early chances at No. 1 overall pick</p>
-                  </div>
+                <div className="p-4 space-y-3">
+                  {trendingNews.articles.map((article) => (
+                    <div key={article.espnId} className="flex items-start gap-3">
+                      {article.images && article.images.length > 0 && (
+                        <img 
+                          src={article.images[0].url} 
+                          alt={article.images[0].alt || article.headline}
+                          className="w-12 h-12 rounded object-cover flex-shrink-0"
+                        />
+                      )}
+                      {(!article.images || article.images.length === 0) && (
+                        <div className="w-12 h-12 bg-red-600 rounded flex-shrink-0"></div>
+                      )}
+                      <div className="flex-1">
+                        <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1 line-clamp-2">
+                          <a 
+                            href={article.links.web} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                          >
+                            {article.headline}
+                          </a>
+                        </h4>
+                        {article.description && (
+                          <p className="text-xs text-gray-600 line-clamp-2">{article.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
   );

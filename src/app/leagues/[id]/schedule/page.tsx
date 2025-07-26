@@ -48,9 +48,16 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   const [selectedSeason, setSelectedSeason] = useState(2025);
   const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>("all");
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<string>("all");
+  const [selectedSeasonType, setSelectedSeasonType] = useState<string>("all");
   
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
+  
+  // Get season-specific data
+  const leagueSeason = useQuery(api.leagues.getLeagueSeasonByYear, {
+    leagueId,
+    seasonId: selectedSeason
+  });
   
   // Get teams for the selected season
   const teams = useQuery(api.teams.getByLeagueAndSeason, { 
@@ -58,24 +65,120 @@ export default function SchedulePage({ params }: SchedulePageProps) {
     seasonId: selectedSeason 
   }) || [];
   
-  // For now, we'll simulate getting matchups for all weeks
-  // In production, you'd want a query that returns all matchups for a season
+  // Fetch matchups for each week
   const [allMatchups, setAllMatchups] = useState<Matchup[]>([]);
+  const [isLoadingMatchups, setIsLoadingMatchups] = useState(true);
   
+  // Get the total number of weeks including playoffs from season-specific settings
+  const regularSeasonWeeks = leagueSeason?.settings?.regularSeasonMatchupPeriods || league?.settings?.regularSeasonMatchupPeriods || 14;
+  const playoffWeeks = leagueSeason?.settings?.playoffWeeks || league?.settings?.playoffWeeks || 3;
+  const totalWeeks = regularSeasonWeeks + playoffWeeks;
+  
+  // Don't fetch matchups until we have league data and season data
+  const shouldFetchMatchups = !!league && !!leagueSeason;
+  
+  // Create an array of week numbers based on the league's settings
+  const weekNumbers = React.useMemo(() => {
+    return Array.from({ length: totalWeeks }, (_, i) => i + 1);
+  }, [totalWeeks]);
+  
+  // Determine if a week is a playoff week
+  const isPlayoffWeek = (week: number) => week > regularSeasonWeeks;
+  
+  
+  // Fetch matchups for each week (up to 18 weeks to cover most leagues)
+  // Always call all hooks to maintain consistent order
+  const week1 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 1 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 1 } : "skip");
+  const week2 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 2 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 2 } : "skip");
+  const week3 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 3 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 3 } : "skip");
+  const week4 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 4 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 4 } : "skip");
+  const week5 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 5 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 5 } : "skip");
+  const week6 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 6 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 6 } : "skip");
+  const week7 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 7 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 7 } : "skip");
+  const week8 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 8 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 8 } : "skip");
+  const week9 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 9 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 9 } : "skip");
+  const week10 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 10 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 10 } : "skip");
+  const week11 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 11 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 11 } : "skip");
+  const week12 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 12 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 12 } : "skip");
+  const week13 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 13 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 13 } : "skip");
+  const week14 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 14 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 14 } : "skip");
+  const week15 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 15 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 15 } : "skip");
+  const week16 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 16 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 16 } : "skip");
+  const week17 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 17 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 17 } : "skip");
+  const week18 = useQuery(api.matchups.getByLeagueAndPeriod, 
+    shouldFetchMatchups && 18 <= totalWeeks ? { leagueId, seasonId: selectedSeason, matchupPeriod: 18 } : "skip");
+  
+  // Combine matchups when they're loaded
   React.useEffect(() => {
-    // Simulate fetching all weeks' matchups
-    const fetchAllMatchups = async () => {
-      const matchupsByWeek: Matchup[] = [];
-      // This is a placeholder - in production you'd batch this or have a proper query
-      for (let week = 1; week <= 17; week++) {
-        // You would actually fetch each week here
-        // For now, we'll just use empty data
-      }
-      setAllMatchups(matchupsByWeek);
-    };
+    if (!shouldFetchMatchups) {
+      return;
+    }
     
-    fetchAllMatchups();
-  }, [leagueId, selectedSeason]);
+    const allQueries = [
+      { week: 1, data: week1 },
+      { week: 2, data: week2 },
+      { week: 3, data: week3 },
+      { week: 4, data: week4 },
+      { week: 5, data: week5 },
+      { week: 6, data: week6 },
+      { week: 7, data: week7 },
+      { week: 8, data: week8 },
+      { week: 9, data: week9 },
+      { week: 10, data: week10 },
+      { week: 11, data: week11 },
+      { week: 12, data: week12 },
+      { week: 13, data: week13 },
+      { week: 14, data: week14 },
+      { week: 15, data: week15 },
+      { week: 16, data: week16 },
+      { week: 17, data: week17 },
+      { week: 18, data: week18 }
+    ];
+    
+    // Filter to only weeks that should exist for this league
+    const relevantQueries = allQueries.filter(q => q.week <= totalWeeks);
+    
+    // Check if all relevant queries have returned data
+    const allLoaded = relevantQueries.every(q => q.data !== undefined);
+    
+    if (allLoaded) {
+      // Combine all non-empty query results
+      const combined = [];
+      for (const query of relevantQueries) {
+        if (query.data && Array.isArray(query.data) && query.data.length > 0) {
+          combined.push(...query.data);
+        }
+      }
+      
+      console.log('Schedule data combined:', {
+        selectedSeason,
+        totalWeeks,
+        totalMatchups: combined.length,
+        uniqueWeeks: [...new Set(combined.map(m => m.matchupPeriod))].sort((a, b) => a - b)
+      });
+      
+      setAllMatchups(combined);
+      setIsLoadingMatchups(false);
+    }
+  }, [shouldFetchMatchups, week1, week2, week3, week4, week5, week6, week7, week8, week9,
+      week10, week11, week12, week13, week14, week15, week16, week17, week18, totalWeeks, selectedSeason]);
   
   // Create a map for quick team lookup
   const teamMap = React.useMemo(() => {
@@ -107,8 +210,15 @@ export default function SchedulePage({ params }: SchedulePageProps) {
       );
     }
     
+    if (selectedSeasonType !== "all") {
+      filtered = filtered.filter(matchup => {
+        const isPlayoff = isPlayoffWeek(matchup.matchupPeriod);
+        return selectedSeasonType === "playoffs" ? isPlayoff : !isPlayoff;
+      });
+    }
+    
     return filtered.sort((a, b) => a.matchupPeriod - b.matchupPeriod);
-  }, [allMatchups, selectedTeamFilter, selectedWeekFilter]);
+  }, [allMatchups, selectedTeamFilter, selectedWeekFilter, selectedSeasonType, regularSeasonWeeks]);
 
   if (!userId || !league) {
     return <div>Loading...</div>;
@@ -122,8 +232,8 @@ export default function SchedulePage({ params }: SchedulePageProps) {
     >
       {/* Controls */}
       <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Filter by Team
             </label>
@@ -142,7 +252,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
             </Select>
           </div>
           
-          <div className="flex-1">
+          <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Filter by Week
             </label>
@@ -152,16 +262,32 @@ export default function SchedulePage({ params }: SchedulePageProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Weeks</SelectItem>
-                {Array.from({ length: 17 }, (_, i) => i + 1).map((week) => (
+                {weekNumbers.map((week) => (
                   <SelectItem key={week} value={week.toString()}>
-                    Week {week}
+                    Week {week} {isPlayoffWeek(week) && "(Playoffs)"}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           
-          <div className="flex-1">
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">
+              Season Type
+            </label>
+            <Select value={selectedSeasonType} onValueChange={setSelectedSeasonType}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Games" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Games</SelectItem>
+                <SelectItem value="regular">Regular Season</SelectItem>
+                <SelectItem value="playoffs">Playoffs</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Season
             </label>
@@ -177,18 +303,30 @@ export default function SchedulePage({ params }: SchedulePageProps) {
       {/* Schedule Table */}
       <div className="bg-white rounded-lg shadow-sm">
         <div className="p-6">
-          <h2 className="text-xl font-bold mb-4">
-            {selectedSeason} Season Schedule
-            {selectedTeamFilter !== "all" && ` - ${getTeamByExternalId(selectedTeamFilter)?.name}`}
-            {selectedWeekFilter !== "all" && ` - Week ${selectedWeekFilter}`}
-          </h2>
+          <div className="mb-4">
+            <h2 className="text-xl font-bold">
+              {selectedSeason} Season Schedule
+              {selectedTeamFilter !== "all" && ` - ${getTeamByExternalId(selectedTeamFilter)?.name}`}
+              {selectedWeekFilter !== "all" && ` - Week ${selectedWeekFilter}`}
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Regular Season: Weeks 1-{regularSeasonWeeks} • 
+              Playoffs: Weeks {regularSeasonWeeks + 1}-{totalWeeks}
+            </p>
+          </div>
           
-          {filteredMatchups.length === 0 ? (
+          {isLoadingMatchups ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Loading schedule...</p>
+            </div>
+          ) : filteredMatchups.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500">No matchups found for the selected filters.</p>
-              <p className="text-sm text-gray-400 mt-2">
-                Note: Full schedule data is being implemented. Check back soon!
-              </p>
+              {allMatchups.length === 0 && (
+                <p className="text-sm text-gray-400 mt-2">
+                  No matchup data available yet. Try syncing your league data first.
+                </p>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -206,14 +344,23 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                   {filteredMatchups.map((matchup) => {
                     const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                     const awayTeam = getTeamByExternalId(matchup.awayTeamId);
-                    const isComplete = matchup.winner !== null;
-                    const currentWeek = league?.espnData?.currentScoringPeriod || 1;
-                    const isFuture = matchup.matchupPeriod > currentWeek;
+                    const isComplete = matchup.winner !== null && matchup.winner !== undefined;
+                    const currentYear = new Date().getFullYear();
+                    const isCurrentSeason = selectedSeason === currentYear;
+                    const currentScoringPeriod = league?.espnData?.currentScoringPeriod || 1;
+                    const isFuture = isCurrentSeason && matchup.matchupPeriod > currentScoringPeriod;
                     
                     return (
                       <TableRow key={matchup._id}>
                         <TableCell className="font-medium">
-                          Week {matchup.matchupPeriod}
+                          <div className="flex items-center gap-2">
+                            <span>Week {matchup.matchupPeriod}</span>
+                            {isPlayoffWeek(matchup.matchupPeriod) && (
+                              <Badge variant="secondary" className="text-xs">
+                                Playoffs
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">

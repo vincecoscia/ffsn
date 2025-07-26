@@ -20,6 +20,7 @@ export function ESPNNewsWidget({
     teamId,
     athleteId,
     onlyNonPremium: true, // Filter out premium content
+    type: "HeadlineNews", // Only show HeadlineNews type articles
   });
 
   if (!newsData) {
