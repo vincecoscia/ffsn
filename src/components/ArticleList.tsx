@@ -31,6 +31,7 @@ export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGen
     createdAt: number;
     type: string;
     persona: string;
+    bannerImageUrl?: string | null;
   }>; isDone: boolean; continueCursor: string | null } | null;
 
   // Extract the page data
@@ -86,7 +87,17 @@ export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGen
                   maxLines={3} 
                 />
               </div>
-              <div className="w-32 h-24 bg-gray-200 rounded flex-shrink-0"></div>
+              {article.bannerImageUrl ? (
+                <div className="w-32 h-24 rounded flex-shrink-0 overflow-hidden">
+                  <img 
+                    src={article.bannerImageUrl} 
+                    alt={article.title}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="w-32 h-24 bg-gray-200 rounded flex-shrink-0"></div>
+              )}
             </div>
           </Link>
         </article>

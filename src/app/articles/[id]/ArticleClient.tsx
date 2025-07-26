@@ -88,6 +88,18 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
 
           {/* Article Header */}
           <article className="bg-white rounded-lg shadow-sm overflow-hidden">
+            {/* Banner Image */}
+            {article.bannerImageUrl && (
+              <div className="relative w-full h-[400px] overflow-hidden">
+                <img 
+                  src={article.bannerImageUrl} 
+                  alt={article.title}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
+              </div>
+            )}
+            
             <div className="p-8">
               <header className="mb-8">
                 <h1 className="text-4xl font-bold text-gray-900 mb-4 leading-tight">

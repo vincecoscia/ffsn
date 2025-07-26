@@ -42,7 +42,24 @@ export const getByLeague = query({
       .order("desc")
       .paginate({ numItems, cursor });
 
-    return result;
+    // Add banner image URLs to each article
+    const pageWithImages = await Promise.all(
+      result.page.map(async (article) => {
+        let bannerImageUrl = null;
+        if (article.bannerImageId) {
+          bannerImageUrl = await ctx.storage.getUrl(article.bannerImageId);
+        }
+        return {
+          ...article,
+          bannerImageUrl,
+        };
+      })
+    );
+
+    return {
+      ...result,
+      page: pageWithImages,
+    };
   },
 });
 export const getById = query({
@@ -50,7 +67,19 @@ export const getById = query({
     articleId: v.id("aiContent"),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.articleId);
+    const article = await ctx.db.get(args.articleId);
+    if (!article) return null;
+    
+    // Add banner image URL if available
+    let bannerImageUrl = null;
+    if (article.bannerImageId) {
+      bannerImageUrl = await ctx.storage.getUrl(article.bannerImageId);
+    }
+    
+    return {
+      ...article,
+      bannerImageUrl,
+    };
   },
 });
 
@@ -202,6 +231,51 @@ export const generateContentAction = action({
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
       });
+      
+      // Generate banner image if applicable
+      const { shouldGenerateImage, generateArticleImage } = await import("../src/lib/ai/image-generator");
+      
+      const shouldGenerate = shouldGenerateImage(args.contentType);
+      console.log(`Should generate image for ${args.contentType}:`, shouldGenerate);
+      
+      if (shouldGenerate) {
+        console.log("Generating banner image for article type:", args.contentType);
+        
+        const openAIKey = process.env.OPENAI_API_KEY;
+        if (!openAIKey) {
+          console.warn("OPENAI_API_KEY not configured in Convex environment variables, skipping image generation");
+          console.warn("To enable image generation, run: npx convex env set OPENAI_API_KEY \"your-api-key\"");
+        } else {
+          try {
+            // Generate the image
+            const imageBlob = await generateArticleImage({
+              title: generatedContent.title,
+              contentType: args.contentType,
+              metadata: {
+                week: generatedContent.metadata?.week,
+                featuredTeams: generatedContent.metadata?.featuredTeams,
+                featuredPlayers: generatedContent.metadata?.featuredPlayers,
+              },
+              persona: args.persona,
+            }, openAIKey);
+            
+            // Store the image in Convex
+            const storageId = await ctx.storage.store(imageBlob);
+            console.log("Banner image stored with ID:", storageId);
+            
+            // Update article with banner image ID
+            await ctx.runMutation(api.aiContent.storeBannerImage, {
+              articleId: args.articleId,
+              storageId,
+            });
+            
+            console.log("Banner image successfully added to article");
+          } catch (imageError) {
+            console.error("Failed to generate/store banner image:", imageError);
+            // Continue without image - don't fail the entire generation
+          }
+        }
+      }
       
       console.log("=== generateContentAction SUCCESS ===");
     } catch (error) {
@@ -489,6 +563,19 @@ export const updateGeneratedContent = mutation({
       },
       status: "published",
       publishedAt: Date.now(),
+    });
+  },
+});
+
+// Mutation to store banner image
+export const storeBannerImage = mutation({
+  args: {
+    articleId: v.id("aiContent"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.articleId, {
+      bannerImageId: args.storageId,
     });
   },
 });

@@ -14,10 +14,13 @@ import type {
   FunctionReference,
 } from "convex/server";
 import type * as aiContent from "../aiContent.js";
+import type * as crons from "../crons.js";
 import type * as espn from "../espn.js";
+import type * as espnNews from "../espnNews.js";
 import type * as espnSync from "../espnSync.js";
 import type * as leagues from "../leagues.js";
 import type * as matchups from "../matchups.js";
+import type * as news from "../news.js";
 import type * as playerSync from "../playerSync.js";
 import type * as playerSyncInternal from "../playerSyncInternal.js";
 import type * as teamClaims from "../teamClaims.js";
@@ -35,10 +38,13 @@ import type * as users from "../users.js";
  */
 declare const fullApi: ApiFromModules<{
   aiContent: typeof aiContent;
+  crons: typeof crons;
   espn: typeof espn;
+  espnNews: typeof espnNews;
   espnSync: typeof espnSync;
   leagues: typeof leagues;
   matchups: typeof matchups;
+  news: typeof news;
   playerSync: typeof playerSync;
   playerSyncInternal: typeof playerSyncInternal;
   teamClaims: typeof teamClaims;

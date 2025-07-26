@@ -10,6 +10,7 @@ import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
 import { ArticleListSkeleton } from "./ui/ArticleSkeleton";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ESPNNewsWidget } from "./ESPNNewsWidget";
 
 interface Team {
   _id: Id<"teams">;
@@ -305,32 +306,8 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
               </div>
             )}
 
-            {/* Top Headlines */}
-            <div className="bg-white rounded-lg shadow-sm">
-              <div className="border-b border-gray-200 p-4">
-                <h3 className="text-lg font-bold text-gray-900">🔥 Top Headlines</h3>
-              </div>
-              <div className="p-4 space-y-4">
-                <div className="border-b border-gray-100 pb-3 last:border-0">
-                  <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                    Cowboys&apos; Parsons ready for &apos;terrible&apos; NFL start
-                  </h4>
-                  <p className="text-xs text-gray-600">Dallas prepares for tough opening stretch</p>
-                </div>
-                <div className="border-b border-gray-100 pb-3 last:border-0">
-                  <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                    Unhappy McLaurin a no-show for Commanders
-                  </h4>
-                  <p className="text-xs text-gray-600">WR skips voluntary workouts amid contract talks</p>
-                </div>
-                <div className="border-b border-gray-100 pb-3 last:border-0">
-                  <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1">
-                    Jets&apos; Gardner defends deal: &apos;There ain&apos;t no roof&apos;
-                  </h4>
-                  <p className="text-xs text-gray-600">Confident about team&apos;s potential this season</p>
-                </div>
-              </div>
-            </div>
+            {/* ESPN Top Headlines */}
+            <ESPNNewsWidget limit={5} />
 
             {/* League Info */}
             <div className="bg-white rounded-lg shadow-sm">

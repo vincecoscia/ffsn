@@ -294,6 +294,7 @@ export default defineSchema({
     status: v.string(), // "draft", "published", "scheduled"
     publishedAt: v.optional(v.number()),
     createdAt: v.number(),
+    bannerImageId: v.optional(v.id("_storage")), // AI-generated banner image
   })
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
@@ -462,4 +463,60 @@ export default defineSchema({
     error: v.optional(v.string()),
   })
     .index("by_season", ["season"]),
+
+  // ESPN News articles
+  espnNews: defineTable({
+    espnId: v.string(), // ESPN article ID
+    nowId: v.optional(v.string()), // ESPN now ID
+    type: v.string(), // "Story", "HeadlineNews", etc.
+    headline: v.string(),
+    description: v.optional(v.string()),
+    lastModified: v.string(), // ISO date string
+    published: v.string(), // ISO date string
+    byline: v.optional(v.string()),
+    premium: v.boolean(),
+    
+    // Links
+    links: v.object({
+      web: v.optional(v.string()),
+      mobile: v.optional(v.string()),
+      api: v.optional(v.string()),
+    }),
+    
+    // Images
+    images: v.array(v.object({
+      id: v.optional(v.string()),
+      url: v.string(),
+      alt: v.optional(v.string()),
+      caption: v.optional(v.string()),
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+    })),
+    
+    // Processed categories
+    categories: v.object({
+      teams: v.array(v.object({
+        id: v.number(),
+        name: v.string(),
+        abbreviation: v.optional(v.string()),
+      })),
+      athletes: v.array(v.object({
+        id: v.number(),
+        name: v.string(),
+        position: v.optional(v.string()),
+      })),
+      leagues: v.array(v.object({
+        id: v.number(),
+        name: v.string(),
+        abbreviation: v.optional(v.string()),
+      })),
+    }),
+    
+    // Metadata
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_espn_id", ["espnId"])
+    .index("by_published", ["published"])
+    .index("by_updated", ["updatedAt"]),
 });
