@@ -16,6 +16,8 @@ interface ImageGenerationParams {
 // Determine image quality based on content type
 function getImageQuality(contentType: string): 'low' | 'medium' | 'high' | 'auto' {
   // Use medium quality for all images
+  // TODO: Implement quality selection based on contentType
+  void contentType; // Suppress unused variable warning
   return 'medium';
 }
 

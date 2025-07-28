@@ -60,10 +60,12 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   });
   
   // Get teams for the selected season
-  const teams = useQuery(api.teams.getByLeagueAndSeason, { 
+  const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
     leagueId,
     seasonId: selectedSeason 
-  }) || [];
+  });
+  
+  const teams = React.useMemo(() => teamsData || [], [teamsData]);
   
   // Fetch matchups for each week
   const [allMatchups, setAllMatchups] = useState<Matchup[]>([]);
@@ -83,7 +85,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   }, [totalWeeks]);
   
   // Determine if a week is a playoff week
-  const isPlayoffWeek = (week: number) => week > regularSeasonWeeks;
+  const isPlayoffWeek = React.useCallback((week: number) => week > regularSeasonWeeks, [regularSeasonWeeks]);
   
   
   // Fetch matchups for each week (up to 18 weeks to cover most leagues)
@@ -218,7 +220,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
     }
     
     return filtered.sort((a, b) => a.matchupPeriod - b.matchupPeriod);
-  }, [allMatchups, selectedTeamFilter, selectedWeekFilter, selectedSeasonType, regularSeasonWeeks]);
+  }, [allMatchups, selectedTeamFilter, selectedWeekFilter, selectedSeasonType, isPlayoffWeek]);
 
   if (!userId || !league) {
     return <div>Loading...</div>;

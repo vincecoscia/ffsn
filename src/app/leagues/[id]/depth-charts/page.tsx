@@ -58,10 +58,12 @@ export default function DepthChartsPage({ params }: DepthChartsPageProps) {
   const league = useQuery(api.leagues.getById, { id: leagueId });
   
   // Get teams for the selected season
-  const teams = useQuery(api.teams.getByLeagueAndSeason, { 
+  const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
     leagueId,
     seasonId: selectedSeason 
-  }) || [];
+  });
+  
+  const teams = React.useMemo(() => teamsData || [], [teamsData]);
   
   // Aggregate all players from all teams
   const allPlayers = React.useMemo(() => {

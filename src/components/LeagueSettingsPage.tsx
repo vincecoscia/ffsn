@@ -8,6 +8,7 @@ import { Id } from "../../convex/_generated/dataModel";
 import { PlayerManagement } from "./PlayerManagement";
 import HistoricalRosterManager from "./HistoricalRosterManager";
 import { DraftDataViewer } from "./DraftDataViewer";
+import { MatchupRefreshManager } from "./MatchupRefreshManager";
 
 interface League {
   _id: Id<"leagues">;
@@ -367,6 +368,18 @@ export function LeagueSettingsPage({
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Matchup Refresh Section */}
+          <div className="bg-white rounded-lg shadow-sm">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-2xl font-bold text-gray-900">Refresh Matchups</h2>
+              <p className="text-gray-600 mt-1">Update all matchup data from ESPN including scores and playoff details</p>
+            </div>
+            
+            <div className="p-6">
+              <MatchupRefreshManager leagueId={league._id} />
             </div>
           </div>
 

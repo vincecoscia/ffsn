@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { mutation, query, action } from "./_generated/server";
+import { mutation, query, action, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 export const create = mutation({
   args: {
@@ -123,6 +123,13 @@ export const getByUser = query({
   },
 });
 
+// List all leagues (internal use for syncing)
+export const listLeagues = query({
+  handler: async (ctx) => {
+    return await ctx.db.query("leagues").collect();
+  },
+});
+
 export const getById = query({
   args: { id: v.id("leagues") },
   handler: async (ctx, args) => {
@@ -215,6 +222,26 @@ export const getPublicInfo = query({
       name: league.name,
       createdAt: league.createdAt,
     };
+  },
+});
+
+// Internal query for fetching league data without authentication
+export const getByIdInternal = internalQuery({
+  args: { id: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.id);
+    if (!league) {
+      console.log("🔍 getByIdInternal: League not found");
+      return null;
+    }
+    
+    console.log("✅ getByIdInternal: League found:", {
+      leagueId: league._id,
+      name: league.name,
+      hasEspnData: !!league.espnData
+    });
+    
+    return league;
   },
 });
 export const getDraftData = query({
@@ -387,7 +414,9 @@ export const joinLeague = mutation({
 });
 
 // Debug mutation to clear all league data and refetch from ESPN
-export const debugClearAndRefetch = action({
+// Refresh league data from ESPN without clearing existing data
+// This preserves team IDs and relationships (like team claims)
+export const refreshLeagueData = action({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args): Promise<{
     success: boolean;
@@ -407,9 +436,9 @@ export const debugClearAndRefetch = action({
     }
 
     try {
-      // Clear all existing data for this league
-      await ctx.runMutation(api.leagues.clearAllLeagueData, { leagueId: args.leagueId });
-
+      // NOTE: We no longer clear data - we use upsert logic in the sync functions
+      // This preserves team IDs and maintains relationships with teamClaims
+      
       // Refetch all data from ESPN (current season + 10 years of history)
       const syncResult: any = await ctx.runAction(api.espnSync.syncAllLeagueData, {
         leagueId: args.leagueId,
@@ -419,7 +448,7 @@ export const debugClearAndRefetch = action({
 
       return {
         success: true,
-        message: "Successfully cleared all data and refetched from ESPN",
+        message: "Successfully refreshed all data from ESPN (data updated, not replaced)",
         syncResult,
       };
     } catch (error) {
@@ -429,7 +458,7 @@ export const debugClearAndRefetch = action({
       };
     }
   },
-});
+});;
 
 // Helper mutation to clear all league data
 export const clearAllLeagueData = mutation({

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { action, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 // Helper functions for ESPN data mapping
 const getPositionName = (positionId: number): string => {
@@ -27,8 +27,8 @@ export const syncLeagueData = action({
     leagueId: v.id("leagues"),
   },
   handler: async (ctx, args) => {
-    // Get the league with ESPN auth data
-    const league = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    // Get the league with ESPN auth data using internal query
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
     if (!league) {
       throw new Error("League not found");
@@ -69,29 +69,42 @@ export const syncLeagueData = action({
 
       // Store draft data for current season
       if (settings || draftDetail) {
+        const seasonData: any = {
+          settings: {
+            name: settings?.name || 'ESPN League',
+            size: settings?.size || teams.length,
+            scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
+                        settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
+            playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
+            playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+            regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+            rosterSettings: settings?.rosterSettings,
+          },
+        };
+
+        // Only include draftSettings if it exists
+        if (settings?.draftSettings) {
+          seasonData.draftSettings = settings.draftSettings;
+        }
+
+        // Only include draft picks if draft has actually occurred
+        if (draftDetail?.drafted === 1 && draftDetail.picks) {
+          seasonData.draft = draftDetail.picks;
+        }
+
+        // Only include draftInfo if draftDetail exists
+        if (draftDetail) {
+          seasonData.draftInfo = {
+            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+            draftType: draftDetail.type,
+            timePerPick: draftDetail.timePerPick,
+          };
+        }
+
         await ctx.runMutation(api.espnSync.updateLeagueSeason, {
           leagueId: args.leagueId,
           seasonId: currentYear,
-          seasonData: {
-            settings: {
-              name: settings?.name || 'ESPN League',
-              size: settings?.size || teams.length,
-              scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
-                          settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
-              playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
-              playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
-              regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
-              rosterSettings: settings?.rosterSettings,
-            },
-            draftSettings: settings?.draftSettings || null,
-            // Only include draft picks if draft has actually occurred (draftDate exists)
-            draft: (draftDetail?.drafted === 1 && draftDetail.picks) ? draftDetail.picks : null,
-            draftInfo: draftDetail ? {
-              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
-              draftType: draftDetail.type,
-              timePerPick: draftDetail.timePerPick,
-            } : undefined,
-          }
+          seasonData,
         });
       }
 
@@ -188,6 +201,8 @@ export const syncLeagueData = action({
             awayScore: matchup.away?.totalPoints || 0,
             homeProjectedScore: matchup.home?.totalProjectedPoints,
             awayProjectedScore: matchup.away?.totalProjectedPoints,
+            homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
+            awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
             winner: matchup.winner === 'HOME' ? 'home' as const : 
                    matchup.winner === 'AWAY' ? 'away' as const : 
                    matchup.winner === 'TIE' ? 'tie' as const : undefined,
@@ -265,21 +280,24 @@ export const updateTeams = mutation({
     })),
   },
   handler: async (ctx, args) => {
-    // Delete existing teams for this league and season
-    const existingTeams = await ctx.db
-      .query("teams")
-      .withIndex("by_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-      .collect();
-
-    for (const team of existingTeams) {
-      await ctx.db.delete(team._id);
-    }
-
     const now = Date.now();
+    const processedExternalIds = new Set<string>();
 
-    // Insert updated teams
+    // Upsert teams - update if exists, insert if new
     for (const teamData of args.teamsData) {
-      await ctx.db.insert("teams", {
+      processedExternalIds.add(teamData.externalId);
+      
+      // Check if team already exists
+      const existingTeam = await ctx.db
+        .query("teams")
+        .withIndex("by_external", (q) => 
+          q.eq("leagueId", args.leagueId)
+           .eq("externalId", teamData.externalId)
+           .eq("seasonId", args.seasonId)
+        )
+        .first();
+
+      const teamRecord = {
         leagueId: args.leagueId,
         externalId: teamData.externalId,
         name: teamData.name,
@@ -293,12 +311,54 @@ export const updateTeams = mutation({
         roster: teamData.roster,
         seasonId: args.seasonId,
         divisionId: teamData.divisionId,
-        createdAt: now,
         updatedAt: now,
-      });
+      };
+
+      if (existingTeam) {
+        // Update existing team, preserving the ID
+        await ctx.db.patch(existingTeam._id, teamRecord);
+      } else {
+        // Insert new team
+        await ctx.db.insert("teams", {
+          ...teamRecord,
+          createdAt: now,
+        });
+      }
+    }
+
+    // Remove teams that are no longer in the league/season
+    // This handles cases where teams are removed from the league
+    const allTeamsForSeason = await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .collect();
+
+    for (const team of allTeamsForSeason) {
+      if (!processedExternalIds.has(team.externalId)) {
+        // Check if this team has any claims before deleting
+        const teamClaim = await ctx.db
+          .query("teamClaims")
+          .withIndex("by_team_season", (q) => 
+            q.eq("teamId", team._id).eq("seasonId", args.seasonId)
+          )
+          .first();
+        
+        if (!teamClaim) {
+          // Safe to delete - no one has claimed this team
+          await ctx.db.delete(team._id);
+        } else {
+          // Mark as inactive instead of deleting to preserve claims
+          await ctx.db.patch(team._id, { 
+            updatedAt: now,
+            isActive: false 
+          });
+        }
+      }
     }
   },
-});
+});;
 
 export const updatePlayers = mutation({
   args: {
@@ -386,26 +446,35 @@ export const updateMatchups = mutation({
       awayScore: v.number(),
       homeProjectedScore: v.optional(v.number()),
       awayProjectedScore: v.optional(v.number()),
+      homePointsByScoringPeriod: v.optional(v.record(v.string(), v.number())),
+      awayPointsByScoringPeriod: v.optional(v.record(v.string(), v.number())),
       winner: v.optional(v.union(v.literal("home"), v.literal("away"), v.literal("tie"))),
       playoffTier: v.optional(v.string()),
     })),
   },
   handler: async (ctx, args) => {
-    // Delete existing matchups for this league and season
-    const existingMatchups = await ctx.db
-      .query("matchups")
-      .withIndex("by_league_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-      .collect();
-
-    for (const matchup of existingMatchups) {
-      await ctx.db.delete(matchup._id);
-    }
-
     const now = Date.now();
+    const processedMatchupKeys = new Set<string>();
 
-    // Insert updated matchups
+    // Upsert matchups - update if exists, insert if new
     for (const matchupData of args.matchupsData) {
-      await ctx.db.insert("matchups", {
+      // Create a unique key for this matchup
+      const matchupKey = `${matchupData.matchupPeriod}-${matchupData.homeTeamId}-${matchupData.awayTeamId}`;
+      processedMatchupKeys.add(matchupKey);
+      
+      // Check if matchup already exists
+      const existingMatchup = await ctx.db
+        .query("matchups")
+        .withIndex("by_unique_matchup", (q) => 
+          q.eq("leagueId", args.leagueId)
+           .eq("seasonId", args.seasonId)
+           .eq("matchupPeriod", matchupData.matchupPeriod)
+           .eq("homeTeamId", matchupData.homeTeamId)
+           .eq("awayTeamId", matchupData.awayTeamId)
+        )
+        .first();
+
+      const matchupRecord = {
         leagueId: args.leagueId,
         seasonId: args.seasonId,
         matchupPeriod: matchupData.matchupPeriod,
@@ -416,13 +485,43 @@ export const updateMatchups = mutation({
         awayScore: matchupData.awayScore,
         homeProjectedScore: matchupData.homeProjectedScore,
         awayProjectedScore: matchupData.awayProjectedScore,
+        homePointsByScoringPeriod: matchupData.homePointsByScoringPeriod,
+        awayPointsByScoringPeriod: matchupData.awayPointsByScoringPeriod,
         winner: matchupData.winner,
         playoffTier: matchupData.playoffTier,
-        createdAt: now,
-      });
+        updatedAt: now,
+      };
+
+      if (existingMatchup) {
+        // Update existing matchup, preserving the ID
+        await ctx.db.patch(existingMatchup._id, matchupRecord);
+      } else {
+        // Insert new matchup
+        await ctx.db.insert("matchups", {
+          ...matchupRecord,
+          createdAt: now,
+        });
+      }
+    }
+
+    // Remove matchups that are no longer in the data
+    // This handles cases where matchups are removed or corrected
+    const allMatchupsForSeason = await ctx.db
+      .query("matchups")
+      .withIndex("by_league_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .collect();
+
+    for (const matchup of allMatchupsForSeason) {
+      const matchupKey = `${matchup.matchupPeriod}-${matchup.homeTeamId}-${matchup.awayTeamId}`;
+      if (!processedMatchupKeys.has(matchupKey)) {
+        // Safe to delete - this matchup no longer exists in the source data
+        await ctx.db.delete(matchup._id);
+      }
     }
   },
-});
+});;
 
 export const syncHistoricalData = action({
   args: {
@@ -430,7 +529,7 @@ export const syncHistoricalData = action({
     years: v.optional(v.array(v.number())), // If not provided, will sync last 10 seasons
   },
   handler: async (ctx, args) => {
-    const league = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
     if (!league) {
       throw new Error("League not found");
@@ -677,6 +776,8 @@ export const syncHistoricalData = action({
               awayScore: matchup.away?.totalPoints || 0,
               homeProjectedScore: matchup.home?.totalProjectedPoints,
               awayProjectedScore: matchup.away?.totalProjectedPoints,
+              homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
+              awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
               winner: matchup.winner === 'HOME' ? 'home' as const : 
                      matchup.winner === 'AWAY' ? 'away' as const : 
                      matchup.winner === 'TIE' ? 'tie' as const : undefined,
@@ -897,7 +998,7 @@ export const syncAllLeagueData = action({
     message: string;
     syncedAt: number;
   }> => {
-    const league: any = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
     console.log('League ESPN data check:', {
       hasEspnData: !!league?.espnData,
@@ -1136,71 +1237,96 @@ export const syncAllLeagueData = action({
 
         // Create/update league season record
         if (teams.length > 0) {
+          const seasonData: any = {
+            settings: {
+              name: settings?.name || league.name,
+              size: settings?.size || teams.length,
+              scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
+                          settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
+              playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
+              playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+              regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+              rosterSettings: settings?.rosterSettings,
+            },
+          };
+
+          // Only include champion if exists
+          if (champion) {
+            seasonData.champion = {
+              teamId: champion.id?.toString() || '',
+              teamName: champion.name || (champion.location && champion.nickname ? `${champion.location} ${champion.nickname}` : 'Unknown Team'),
+              owner: champion.owners?.[0]?.displayName || 
+                  (champion.owners?.[0]?.firstName && champion.owners?.[0]?.lastName 
+                    ? `${champion.owners[0].firstName} ${champion.owners[0].lastName}` 
+                    : champion.owners?.[0]?.firstName || champion.owners?.[0]?.lastName || 'Unknown'),
+              record: {
+                wins: champion.record?.overall?.wins || 0,
+                losses: champion.record?.overall?.losses || 0,
+                ties: champion.record?.overall?.ties || 0,
+              },
+              pointsFor: champion.record?.overall?.pointsFor,
+            };
+          }
+
+          // Only include runnerUp if exists
+          if (runnerUp) {
+            seasonData.runnerUp = {
+              teamId: runnerUp.id?.toString() || '',
+              teamName: runnerUp.name || (runnerUp.location && runnerUp.nickname ? `${runnerUp.location} ${runnerUp.nickname}` : 'Unknown Team'),
+              owner: runnerUp.owners?.[0]?.displayName || 
+                  (runnerUp.owners?.[0]?.firstName && runnerUp.owners?.[0]?.lastName 
+                    ? `${runnerUp.owners[0].firstName} ${runnerUp.owners[0].lastName}` 
+                    : runnerUp.owners?.[0]?.firstName || runnerUp.owners?.[0]?.lastName || 'Unknown'),
+              record: {
+                wins: runnerUp.record?.overall?.wins || 0,
+                losses: runnerUp.record?.overall?.losses || 0,
+                ties: runnerUp.record?.overall?.ties || 0,
+              },
+              pointsFor: runnerUp.record?.overall?.pointsFor,
+            };
+          }
+
+          // Only include regularSeasonChampion if exists
+          if (regularSeasonChamp) {
+            seasonData.regularSeasonChampion = {
+              teamId: regularSeasonChamp.id?.toString() || '',
+              teamName: regularSeasonChamp.name || (regularSeasonChamp.location && regularSeasonChamp.nickname ? `${regularSeasonChamp.location} ${regularSeasonChamp.nickname}` : 'Unknown Team'),
+              owner: regularSeasonChamp.owners?.[0]?.displayName || 
+                  (regularSeasonChamp.owners?.[0]?.firstName && regularSeasonChamp.owners?.[0]?.lastName 
+                    ? `${regularSeasonChamp.owners[0].firstName} ${regularSeasonChamp.owners[0].lastName}` 
+                    : regularSeasonChamp.owners?.[0]?.firstName || regularSeasonChamp.owners?.[0]?.lastName || 'Unknown'),
+              record: {
+                wins: regularSeasonChamp.record?.overall?.wins || 0,
+                losses: regularSeasonChamp.record?.overall?.losses || 0,
+                ties: regularSeasonChamp.record?.overall?.ties || 0,
+              },
+              pointsFor: regularSeasonChamp.record?.overall?.pointsFor,
+            };
+          }
+
+          // Only include draftInfo if draftDetail exists
+          if (draftDetail) {
+            seasonData.draftInfo = {
+              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+              draftType: draftDetail.type,
+              timePerPick: draftDetail.timePerPick,
+            };
+          }
+
+          // Only include draftSettings if it exists
+          if (settings?.draftSettings) {
+            seasonData.draftSettings = settings.draftSettings;
+          }
+
+          // Only include draft picks if draft has actually occurred
+          if (draftDetail?.drafted === 1 && draftDetail.picks) {
+            seasonData.draft = draftDetail.picks;
+          }
+
           await ctx.runMutation(api.espnSync.updateLeagueSeason, {
             leagueId: args.leagueId,
             seasonId: year,
-            seasonData: {
-              settings: {
-                name: settings?.name || league.name,
-                size: settings?.size || teams.length,
-                scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
-                            settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
-                playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
-                playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
-                regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
-                rosterSettings: settings?.rosterSettings,
-              },
-              champion: champion ? {
-                teamId: champion.id?.toString() || '',
-                teamName: champion.name || (champion.location && champion.nickname ? `${champion.location} ${champion.nickname}` : 'Unknown Team'),
-                owner: champion.owners?.[0]?.displayName || 
-                    (champion.owners?.[0]?.firstName && champion.owners?.[0]?.lastName 
-                      ? `${champion.owners[0].firstName} ${champion.owners[0].lastName}` 
-                      : champion.owners?.[0]?.firstName || champion.owners?.[0]?.lastName || 'Unknown'),
-                record: {
-                  wins: champion.record?.overall?.wins || 0,
-                  losses: champion.record?.overall?.losses || 0,
-                  ties: champion.record?.overall?.ties || 0,
-                },
-                pointsFor: champion.record?.overall?.pointsFor,
-              } : undefined,
-              runnerUp: runnerUp ? {
-                teamId: runnerUp.id?.toString() || '',
-                teamName: runnerUp.name || (runnerUp.location && runnerUp.nickname ? `${runnerUp.location} ${runnerUp.nickname}` : 'Unknown Team'),
-                owner: runnerUp.owners?.[0]?.displayName || 
-                    (runnerUp.owners?.[0]?.firstName && runnerUp.owners?.[0]?.lastName 
-                      ? `${runnerUp.owners[0].firstName} ${runnerUp.owners[0].lastName}` 
-                      : runnerUp.owners?.[0]?.firstName || runnerUp.owners?.[0]?.lastName || 'Unknown'),
-                record: {
-                  wins: runnerUp.record?.overall?.wins || 0,
-                  losses: runnerUp.record?.overall?.losses || 0,
-                  ties: runnerUp.record?.overall?.ties || 0,
-                },
-                pointsFor: runnerUp.record?.overall?.pointsFor,
-              } : undefined,
-              regularSeasonChampion: regularSeasonChamp ? {
-                teamId: regularSeasonChamp.id?.toString() || '',
-                teamName: regularSeasonChamp.name || (regularSeasonChamp.location && regularSeasonChamp.nickname ? `${regularSeasonChamp.location} ${regularSeasonChamp.nickname}` : 'Unknown Team'),
-                owner: regularSeasonChamp.owners?.[0]?.displayName || 
-                    (regularSeasonChamp.owners?.[0]?.firstName && regularSeasonChamp.owners?.[0]?.lastName 
-                      ? `${regularSeasonChamp.owners[0].firstName} ${regularSeasonChamp.owners[0].lastName}` 
-                      : regularSeasonChamp.owners?.[0]?.firstName || regularSeasonChamp.owners?.[0]?.lastName || 'Unknown'),
-                record: {
-                  wins: regularSeasonChamp.record?.overall?.wins || 0,
-                  losses: regularSeasonChamp.record?.overall?.losses || 0,
-                  ties: regularSeasonChamp.record?.overall?.ties || 0,
-                },
-                pointsFor: regularSeasonChamp.record?.overall?.pointsFor,
-              } : undefined,
-              draftInfo: draftDetail ? {
-                draftDate: draftDetail.drafted === 1 ? 1 : undefined,
-                draftType: draftDetail.type,
-                timePerPick: draftDetail.timePerPick,
-              } : undefined,
-              draftSettings: settings?.draftSettings || null,
-              // Only include draft picks if draft has actually occurred (draftDate exists)
-            draft: (draftDetail?.drafted === 1 && draftDetail.picks) ? draftDetail.picks : null,
-            }
+            seasonData,
           });
         }
 
@@ -1299,6 +1425,8 @@ export const syncAllLeagueData = action({
               awayScore: matchup.away?.totalPoints || 0,
               homeProjectedScore: matchup.home?.totalProjectedPoints,
               awayProjectedScore: matchup.away?.totalProjectedPoints,
+              homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
+              awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
               winner: matchup.winner === 'HOME' ? 'home' as const : 
                      matchup.winner === 'AWAY' ? 'away' as const : 
                      matchup.winner === 'TIE' ? 'tie' as const : undefined,
@@ -1373,7 +1501,7 @@ export const fetchHistoricalRosters = action({
     message: string;
     fetchedAt: number;
   }> => {
-    const league: any = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
     if (!league) {
       throw new Error("League not found");
@@ -1577,7 +1705,7 @@ export const fetchDraftDataForSeason = action({
     error?: string;
     picksCount?: number;
   }> => {
-    const league: any = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+    const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
     if (!league) {
       throw new Error("League not found");
@@ -1663,35 +1791,62 @@ export const fetchDraftDataForSeason = action({
 
       if (!existingSeason) {
         // Create new season record with draft data
+        const seasonData: any = {
+          settings: {
+            name: settings?.name || league.name,
+            size: settings?.size || 10,
+            scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
+                        settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
+            playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
+            playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+            regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+            rosterSettings: settings?.rosterSettings,
+          },
+          draftInfo: {
+            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+            draftType: draftDetail.type,
+            timePerPick: draftDetail.timePerPick,
+          },
+        };
+
+        // Only include draftSettings if it exists
+        if (settings?.draftSettings) {
+          seasonData.draftSettings = settings.draftSettings;
+        }
+
+        // Only include draft if it exists
+        if (draftDetail.picks) {
+          seasonData.draft = draftDetail.picks;
+        }
+
         await ctx.runMutation(api.espnSync.updateLeagueSeason, {
           leagueId: args.leagueId,
           seasonId: args.seasonId,
-          seasonData: {
-            settings: {
-              name: settings?.name || league.name,
-              size: settings?.size || 10,
-              scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
-                          settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
-              playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
-              playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
-              regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
-              rosterSettings: settings?.rosterSettings,
-            },
-            draftSettings: settings?.draftSettings || null,
-            draft: draftDetail.picks,
-            draftInfo: {
-              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
-              draftType: draftDetail.type,
-              timePerPick: draftDetail.timePerPick,
-            },
-          },
+          seasonData,
         });
       } else {
         // Update existing season with draft data
+        const updateData: any = {
+          draftInfo: {
+            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+            draftType: draftDetail.type,
+            timePerPick: draftDetail.timePerPick,
+          },
+        };
+
+        // Only include draftSettings if it exists
+        if (settings?.draftSettings) {
+          updateData.draftSettings = settings.draftSettings;
+        }
+
+        // Only include draft if it exists
+        if (draftDetail.picks) {
+          updateData.draft = draftDetail.picks;
+        }
+
         await ctx.runMutation(api.espnSync.updateSeasonDraftData, {
           seasonId: existingSeason._id,
-          draftSettings: settings?.draftSettings || null,
-          draft: draftDetail.picks,
+          ...updateData,
           draftInfo: {
             draftDate: draftDetail.drafted === 1 ? 1 : undefined,
             draftType: draftDetail.type,
@@ -1803,7 +1958,7 @@ export const updateLeagueSync = mutation({
     currentScoringPeriod: v.number(),
   },
   handler: async (ctx, args) => {
-    const league = await ctx.db.get(args.leagueId);
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     if (!league || !league.espnData) {
       throw new Error("League or ESPN data not found");
     }

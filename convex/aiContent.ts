@@ -230,9 +230,10 @@ export const generateContentAction = action({
       if (args.contentType === 'season_welcome' && leagueData.previousSeasons) {
         console.log("=== SEASON WELCOME DATA CHECK ===");
         Object.entries(leagueData.previousSeasons).forEach(([year, teams]) => {
-          console.log(`Year ${year}: ${teams.length} teams`);
-          if (teams[0]) {
-            console.log(`  Sample team: ${teams[0].teamName} with ${teams[0].roster?.length || 0} players`);
+          const teamsList = teams as any[];
+          console.log(`Year ${year}: ${teamsList.length} teams`);
+          if (teamsList[0]) {
+            console.log(`  Sample team: ${teamsList[0].teamName} with ${teamsList[0].roster?.length || 0} players`);
           }
         });
       }

@@ -75,10 +75,12 @@ export default function TeamsPage({ params }: TeamsPageProps) {
   const league = useQuery(api.leagues.getById, { id: leagueId });
   
   // Get teams for the selected season
-  const teams = useQuery(api.teams.getByLeagueAndSeason, { 
+  const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
     leagueId,
     seasonId: selectedSeason 
-  }) || [];
+  });
+  
+  const teams = React.useMemo(() => teamsData || [], [teamsData]);
   
   // Sort teams by record
   const sortedTeams = React.useMemo(() => {

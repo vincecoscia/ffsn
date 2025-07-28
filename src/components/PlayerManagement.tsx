@@ -48,7 +48,7 @@ export function PlayerManagement({ leagueId, season = 2025 }: PlayerManagementPr
   
   // Actions
   const syncAllPlayers = useAction(api.playerSync.syncAllPlayers);
-  const syncLeaguePlayersComplete = useAction(api.playerSync.syncAllLeaguePlayersComplete);
+  const syncLeaguePlayersComplete = useAction(api.playerSync.completeLeagueSync);
   const syncLeaguePlayersBatch = useAction(api.playerSync.syncAllLeaguePlayers);
   
   const handleFullSync = useCallback(async () => {
@@ -113,7 +113,7 @@ export function PlayerManagement({ leagueId, season = 2025 }: PlayerManagementPr
   
   // Initial sync check
   useEffect(() => {
-    if (!syncStatus || !syncStatus.lastFullSync) {
+    if (!syncStatus || !syncStatus.completedAt) {
       // Prompt for initial sync
       toast.info("Player database needs to be initialized", {
         action: {
@@ -209,12 +209,12 @@ export function PlayerManagement({ leagueId, season = 2025 }: PlayerManagementPr
             <div className="space-y-1">
               <p className="text-sm font-medium">Last Full Sync</p>
               <p className="text-sm text-muted-foreground">
-                {formatLastSync(syncStatus?.lastFullSync)}
+                {formatLastSync(syncStatus?.completedAt)}
               </p>
             </div>
             <div className="space-y-1">
               <p className="text-sm font-medium">Status</p>
-              <Badge variant={syncStatus?.status === "error" ? "destructive" : "default"}>
+              <Badge variant={syncStatus?.status === "failed" ? "destructive" : "default"}>
                 {syncStatus?.status || "Not Synced"}
               </Badge>
             </div>

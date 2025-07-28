@@ -140,11 +140,13 @@ export default defineSchema({
     })),
     seasonId: v.number(),
     divisionId: v.optional(v.number()),
+    isActive: v.optional(v.boolean()), // Used to mark teams as inactive instead of deleting
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_league", ["leagueId"])
-    .index("by_season", ["leagueId", "seasonId"]),
+    .index("by_season", ["leagueId", "seasonId"])
+    .index("by_external", ["leagueId", "externalId", "seasonId"]),
 
   // Enhanced player data from ESPN
   players: defineTable({
@@ -273,12 +275,16 @@ export default defineSchema({
     awayScore: v.number(),
     homeProjectedScore: v.optional(v.number()),
     awayProjectedScore: v.optional(v.number()),
+    homePointsByScoringPeriod: v.optional(v.record(v.string(), v.number())),
+    awayPointsByScoringPeriod: v.optional(v.record(v.string(), v.number())),
     winner: v.optional(v.union(v.literal("home"), v.literal("away"), v.literal("tie"))),
     playoffTier: v.optional(v.string()),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_league_period", ["leagueId", "matchupPeriod"])
-    .index("by_league_season", ["leagueId", "seasonId"]),
+    .index("by_league_season", ["leagueId", "seasonId"])
+    .index("by_unique_matchup", ["leagueId", "seasonId", "matchupPeriod", "homeTeamId", "awayTeamId"]),
 
   aiContent: defineTable({
     leagueId: v.id("leagues"),
@@ -451,18 +457,18 @@ export default defineSchema({
 
   // Player sync status tracking
   playerSyncStatus: defineTable({
+    type: v.string(), // "all", "league", "default"
     season: v.number(),
-    lastFullSync: v.optional(v.number()),
-    lastIncrementalSync: v.optional(v.number()),
-    totalPlayers: v.optional(v.number()),
-    status: v.union(
-      v.literal("idle"),
-      v.literal("syncing"),
-      v.literal("error")
-    ),
+    status: v.union(v.literal("syncing"), v.literal("completed"), v.literal("failed")),
+    leagueId: v.optional(v.id("leagues")),
     error: v.optional(v.string()),
+    playersProcessed: v.optional(v.number()),
+    totalPlayers: v.optional(v.number()),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
   })
-    .index("by_season", ["season"]),
+    .index("by_type_season", ["type", "season"])
+    .index("by_league", ["leagueId"]),
 
   // ESPN News articles
   espnNews: defineTable({
@@ -519,4 +525,25 @@ export default defineSchema({
     .index("by_espn_id", ["espnId"])
     .index("by_published", ["published"])
     .index("by_updated", ["updatedAt"]),
+
+  // League-specific player stats
+  playerStats: defineTable({
+    leagueId: v.id("leagues"),
+    espnId: v.string(),
+    season: v.number(),
+    
+    // League's scoring type for reference
+    scoringType: v.string(), // "PPR", "HALF_PPR", "STANDARD", "CUSTOM"
+    
+    // Calculated stats based on league's specific scoring rules
+    stats: v.any(), // Same structure as playersEnhanced.stats but with league-specific calculations
+    
+    // Track last calculation
+    calculatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league_player", ["leagueId", "espnId", "season"])
+    .index("by_league", ["leagueId"])
+    .index("by_player", ["espnId"]),
 });

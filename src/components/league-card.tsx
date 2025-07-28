@@ -25,17 +25,17 @@ interface LeagueCardProps {
 
 export function LeagueCard({ league }: LeagueCardProps) {
   const [isRefetching, setIsRefetching] = useState(false);
-  const debugClearAndRefetch = useAction(api.leagues.debugClearAndRefetch);
+  const refreshLeagueData = useAction(api.leagues.refreshLeagueData);
 
   const handleDebugRefetch = async () => {
     if (isRefetching) return;
     
     setIsRefetching(true);
     try {
-      const result = await debugClearAndRefetch({ leagueId: league._id });
+      const result = await refreshLeagueData({ leagueId: league._id });
       if (result.success) {
         toast.success("League data refreshed successfully!", {
-          description: "All league data has been cleared and refetched."
+          description: "All league data has been updated from ESPN."
         });
       } else {
         toast.error("Failed to refresh league data", {
@@ -91,7 +91,7 @@ export function LeagueCard({ league }: LeagueCardProps) {
               onClick={handleDebugRefetch}
               disabled={isRefetching}
               className="bg-orange-600 text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Clear all data and refetch from ESPN (Debug)"
+              title="Refresh league data from ESPN"
             >
               {isRefetching ? "Syncing..." : "🔄 Debug Refetch"}
             </button>

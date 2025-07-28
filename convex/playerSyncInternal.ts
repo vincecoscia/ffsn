@@ -125,33 +125,79 @@ export const updateLeaguePlayerStatuses = mutation({
 export const updateSyncStatus = mutation({
   args: {
     season: v.number(),
-    status: v.union(v.literal("idle"), v.literal("syncing"), v.literal("error")),
-    lastFullSync: v.optional(v.number()),
-    lastIncrementalSync: v.optional(v.number()),
-    totalPlayers: v.optional(v.number()),
+    status: v.union(v.literal("syncing"), v.literal("completed"), v.literal("failed")),
+    type: v.string(),
+    playersProcessed: v.optional(v.number()),
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("playerSyncStatus")
-      .withIndex("by_season", (q) => q.eq("season", args.season))
+      .withIndex("by_type_season", (q) => q.eq("type", args.type).eq("season", args.season))
       .first();
     
     if (existing) {
-      await ctx.db.patch(existing._id, args);
+      await ctx.db.patch(existing._id, {
+        ...args,
+        completedAt: args.status === "completed" ? Date.now() : undefined,
+      });
+    }
+  },
+});
+
+export const createSyncStatus = mutation({
+  args: {
+    type: v.string(),
+    season: v.number(),
+    status: v.union(v.literal("syncing"), v.literal("completed"), v.literal("failed")),
+    leagueId: v.optional(v.id("leagues")),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("playerSyncStatus")
+      .withIndex("by_type_season", (q) => q.eq("type", args.type).eq("season", args.season))
+      .first();
+    
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        status: args.status,
+        startedAt: Date.now(),
+        error: undefined,
+        playersProcessed: undefined,
+        completedAt: undefined,
+      });
     } else {
-      await ctx.db.insert("playerSyncStatus", args);
+      await ctx.db.insert("playerSyncStatus", {
+        ...args,
+        startedAt: Date.now(),
+      });
     }
   },
 });
 
 // Queries
 export const getSyncStatus = query({
-  args: { season: v.number() },
-  handler: async (ctx, { season }) => {
+  args: { 
+    season: v.number(),
+    type: v.optional(v.string()),
+  },
+  handler: async (ctx, { season, type = "all" }) => {
     return await ctx.db
       .query("playerSyncStatus")
-      .withIndex("by_season", (q) => q.eq("season", season))
+      .withIndex("by_type_season", (q) => q.eq("type", type).eq("season", season))
+      .first();
+  },
+});
+
+export const checkSyncStatus = query({
+  args: {
+    type: v.string(),
+    season: v.number(),
+  },
+  handler: async (ctx, { type, season }) => {
+    return await ctx.db
+      .query("playerSyncStatus")
+      .withIndex("by_type_season", (q) => q.eq("type", type).eq("season", season))
       .first();
   },
 });
@@ -199,6 +245,169 @@ export const getLeagueFreeAgents = query({
     );
     
     return filteredPlayers.slice(0, limit);
+  },
+});
+
+// Get all players for a season
+export const getAllPlayersForSeason = query({
+  args: {
+    season: v.number(),
+  },
+  handler: async (ctx, { season }) => {
+    return await ctx.db
+      .query("playersEnhanced")
+      .withIndex("by_espn_id_season")
+      .filter((q) => q.eq(q.field("season"), season))
+      .collect();
+  },
+});
+
+// Upsert batch of player stats
+export const upsertPlayerStatsBatch = mutation({
+  args: {
+    playerStats: v.array(v.object({
+      leagueId: v.id("leagues"),
+      espnId: v.string(),
+      season: v.number(),
+      scoringType: v.string(),
+      stats: v.any(),
+      calculatedAt: v.number(),
+    })),
+  },
+  handler: async (ctx, { playerStats }) => {
+    const now = Date.now();
+    
+    for (const stat of playerStats) {
+      // Check if player stat exists
+      const existing = await ctx.db
+        .query("playerStats")
+        .withIndex("by_league_player", (q) => 
+          q.eq("leagueId", stat.leagueId)
+           .eq("espnId", stat.espnId)
+           .eq("season", stat.season)
+        )
+        .first();
+      
+      if (existing) {
+        // Update existing stat
+        await ctx.db.patch(existing._id, {
+          ...stat,
+          updatedAt: now,
+        });
+      } else {
+        // Insert new stat
+        await ctx.db.insert("playerStats", {
+          ...stat,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  },
+});
+
+// Get players with league-specific stats
+export const getPlayersWithLeagueStats = query({
+  args: {
+    leagueId: v.id("leagues"),
+    playerIds: v.array(v.string()),
+    season: v.number(),
+  },
+  handler: async (ctx, { leagueId, playerIds, season }) => {
+    // Get base player info
+    const players = await Promise.all(
+      playerIds.map(async (playerId) => {
+        const player = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_espn_id_season", (q) => 
+            q.eq("espnId", playerId).eq("season", season)
+          )
+          .first();
+        
+        if (!player) return null;
+        
+        // Get league-specific stats if available
+        const leagueStats = await ctx.db
+          .query("playerStats")
+          .withIndex("by_league_player", (q) => 
+            q.eq("leagueId", leagueId)
+             .eq("espnId", playerId)
+             .eq("season", season)
+          )
+          .first();
+        
+        return {
+          ...player,
+          leagueStats: leagueStats || null,
+        };
+      })
+    );
+    
+    return players.filter(p => p !== null);
+  },
+});
+
+// Get league free agents with league-specific stats
+export const getLeagueFreeAgentsWithStats = query({
+  args: {
+    leagueId: v.id("leagues"),
+    limit: v.optional(v.number()),
+    position: v.optional(v.string()),
+    season: v.number(),
+  },
+  handler: async (ctx, { leagueId, limit = 50, position, season }) => {
+    // Get free agent statuses
+    let query = ctx.db
+      .query("leaguePlayerStatus")
+      .withIndex("by_league_status", (q) => 
+        q.eq("leagueId", leagueId).eq("status", "free_agent")
+      );
+    
+    const statuses = await query.take(limit * 2);
+    
+    // Get player details with stats
+    const playerIds = statuses.map(s => s.playerId);
+    const playersWithStats = await Promise.all(
+      playerIds.map(async (playerId) => {
+        // Get base player info
+        const player = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_espn_id_season", (q) => 
+            q.eq("espnId", playerId).eq("season", season)
+          )
+          .first();
+        
+        if (!player) return null;
+        
+        // Skip if wrong position
+        if (position && player.defaultPosition !== position && !player.eligiblePositions.includes(position)) {
+          return null;
+        }
+        
+        // Get league-specific stats
+        const leagueStats = await ctx.db
+          .query("playerStats")
+          .withIndex("by_league_player", (q) => 
+            q.eq("leagueId", leagueId)
+             .eq("espnId", playerId)
+             .eq("season", season)
+          )
+          .first();
+        
+        return {
+          ...player,
+          leagueStats: leagueStats || null,
+        };
+      })
+    );
+    
+    // Filter out nulls and sort by ownership
+    const validPlayers = playersWithStats.filter(p => p !== null);
+    validPlayers.sort((a, b) => 
+      (b!.ownership.percentOwned || 0) - (a!.ownership.percentOwned || 0)
+    );
+    
+    return validPlayers.slice(0, limit);
   },
 });
 
