@@ -45,6 +45,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [topScoresView, setTopScoresView] = useState<"all-time" | "season">("all-time");
   const [scoreType, setScoreType] = useState<"single" | "twoWeek">("single");
+  const [scoreDirection, setScoreDirection] = useState<"highest" | "lowest">("highest");
   
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
@@ -97,6 +98,21 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   
   // Get top scores by season
   const topScoresBySeason = useQuery(api.matchups.getTopScoresBySeason, {
+    leagueId,
+    seasonId: selectedSeason,
+    limit: 10,
+    scoreType
+  }) || [];
+  
+  // Get lowest scores all time
+  const lowestScoresAllTime = useQuery(api.matchups.getLowestScoresAllTime, {
+    leagueId,
+    limit: 10,
+    scoreType
+  }) || [];
+  
+  // Get lowest scores by season
+  const lowestScoresBySeason = useQuery(api.matchups.getLowestScoresBySeason, {
     leagueId,
     seasonId: selectedSeason,
     limit: 10,
@@ -394,8 +410,14 @@ export default function ScoresPage({ params }: ScoresPageProps) {
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="mb-6 space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-2xl font-bold">Top Scores</h2>
+                <h2 className="text-2xl font-bold">{scoreDirection === "highest" ? "Top" : "Lowest"} Scores</h2>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <Tabs value={scoreDirection} onValueChange={(value) => setScoreDirection(value as "highest" | "lowest")}>
+                    <TabsList>
+                      <TabsTrigger value="highest">Highest</TabsTrigger>
+                      <TabsTrigger value="lowest">Lowest</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
                   <Tabs value={scoreType} onValueChange={(value) => setScoreType(value as "single" | "twoWeek")}>
                     <TabsList>
                       <TabsTrigger value="single">Single Week</TabsTrigger>
@@ -459,7 +481,14 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {(topScoresView === "all-time" ? topScoresAllTime : topScoresBySeason).map((score, index) => {
+                  {(() => {
+                    let scores;
+                    if (scoreDirection === "highest") {
+                      scores = topScoresView === "all-time" ? topScoresAllTime : topScoresBySeason;
+                    } else {
+                      scores = topScoresView === "all-time" ? lowestScoresAllTime : lowestScoresBySeason;
+                    }
+                    return scores.map((score, index) => {
                     const team = topScoresView === "all-time" 
                       ? getTeamByExternalIdAndSeason(score.teamId, score.seasonId)
                       : getTeamByExternalId(score.teamId);
@@ -471,7 +500,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                       <tr key={isTwoWeek ? `${twoWeekScore.matchupIds?.join('-')}-${score.isHome}` : `${singleScore.matchupId}-${score.isHome}`} className={index === 0 ? "bg-yellow-50" : ""}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-lg font-bold">
-                            {index === 0 && "🏆"} #{index + 1}
+                            {index === 0 && (scoreDirection === "highest" ? "🏆" : "💩")} #{index + 1}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -516,7 +545,8 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                         </td>
                       </tr>
                     );
-                  })}
+                  });
+                  })()}
                 </tbody>
               </table>
             </div>
