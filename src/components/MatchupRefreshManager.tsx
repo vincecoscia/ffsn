@@ -26,8 +26,8 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
         result = await getCurrentLeagueSync(leagueId);
         
         if (result.success) {
-          toast.success("Current season matchups refreshed!", {
-            description: "All matchup data for the current season has been updated."
+          toast.success("Current season data synced!", {
+            description: "All league data for the current season has been updated (teams, owners, logos, rosters, matchups)."
           });
         } else {
           throw new Error(result.error);
@@ -40,10 +40,10 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
           const { totalSynced, totalErrors, results } = result.data;
           
           if (totalSynced > 0) {
-            toast.success(`Successfully refreshed ${totalSynced} season${totalSynced > 1 ? 's' : ''}!`, {
+            toast.success(`Successfully synced ${totalSynced} season${totalSynced > 1 ? 's' : ''}!`, {
               description: totalErrors > 0 
                 ? `${totalErrors} season${totalErrors > 1 ? 's' : ''} had errors. Check console for details.`
-                : "All matchup data has been updated across all seasons."
+                : "All league data has been updated across all seasons."
             });
             
             // Log detailed results for debugging
@@ -56,7 +56,7 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
         }
       }
     } catch (error) {
-      toast.error("Failed to refresh matchups", {
+      toast.error("Failed to sync league data", {
         description: error instanceof Error ? error.message : "Please try again or contact support."
       });
       console.error("Refresh error:", error);
@@ -73,8 +73,8 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
           <div>
             <h4 className="text-sm font-medium text-yellow-800">Important Information</h4>
             <p className="text-sm text-yellow-700 mt-1">
-              Refreshing matchups will re-sync all game data from ESPN, including scores, 
-              winners, and points by scoring period (for two-week playoff games). This process 
+              Syncing league data will refresh all information from ESPN, including teams, 
+              owners, logos, rosters, matchups, scores, and playoff details. This process 
               may take a few moments depending on the amount of data.
             </p>
           </div>
@@ -97,7 +97,7 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
             <Calendar className="h-6 w-6 mb-2 mx-auto text-gray-600" />
             <div className="font-medium">Current Season</div>
             <div className="text-sm text-gray-600 mt-1">
-              Refresh only the current season&apos;s matchups
+              Sync only the current season&apos;s data
             </div>
           </button>
           
@@ -112,7 +112,7 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
             <RefreshCw className="h-6 w-6 mb-2 mx-auto text-gray-600" />
             <div className="font-medium">All Seasons</div>
             <div className="text-sm text-gray-600 mt-1">
-              Refresh current and historical matchups
+              Sync current and historical league data
             </div>
           </button>
         </div>
@@ -144,18 +144,18 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
         {isRefreshing ? (
           <>
             <RefreshCw className="h-5 w-5 animate-spin" />
-            Refreshing Matchups...
+            Syncing League Data...
           </>
         ) : (
           <>
             <RefreshCw className="h-5 w-5" />
-            Refresh {refreshType === "current" ? "Current Season" : "All"} Matchups
+            Sync {refreshType === "current" ? "Current Season" : "All"} League Data
           </>
         )}
       </button>
       
       <p className="text-xs text-gray-500 text-center">
-        Last sync information is not currently tracked. Consider running a refresh if matchup data seems outdated.
+        Last sync information is not currently tracked. Consider running a sync if league data seems outdated.
       </p>
     </div>
   );

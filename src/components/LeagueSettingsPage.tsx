@@ -374,8 +374,8 @@ export function LeagueSettingsPage({
           {/* Matchup Refresh Section */}
           <div className="bg-white rounded-lg shadow-sm">
             <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Refresh Matchups</h2>
-              <p className="text-gray-600 mt-1">Update all matchup data from ESPN including scores and playoff details</p>
+              <h2 className="text-2xl font-bold text-gray-900">Sync League Data</h2>
+              <p className="text-gray-600 mt-1">Sync all league data from ESPN including teams, owners, logos, rosters, matchups, and scores</p>
             </div>
             
             <div className="p-6">

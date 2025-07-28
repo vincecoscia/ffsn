@@ -26,8 +26,8 @@ async function fetchHistoricalData(leagueId: string, headers: HeadersInit): Prom
   const currentYear = new Date().getFullYear();
   const history = [];
   
-  // Try to fetch last 5 years of historical data
-  for (let i = 1; i <= 5; i++) {
+  // Try to fetch last 8 years of historical data
+  for (let i = 1; i <= 8; i++) {
     const year = currentYear - i;
     try {
       const historicalUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mSettings&view=mTeams`;

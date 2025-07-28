@@ -10,10 +10,11 @@ export async function triggerHistoricalSync(
   includeCurrentSeason: boolean = true
 ) {
   try {
-    const result = await fetchAction(api.espnSync.syncAllLeagueData, {
+    const result = await fetchAction(api.espnSync.syncAllDataWithRosters, {
       leagueId,
       includeCurrentSeason,
       historicalYears,
+      includeHistoricalRosters: true,
     })
 
     return {

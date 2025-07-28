@@ -52,7 +52,7 @@ export const syncLeagueData = action({
       }
 
       // Get comprehensive league data including players, matchups, and draft info
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info`, {
+      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings`, {
         headers
       });
 
@@ -62,10 +62,44 @@ export const syncLeagueData = action({
 
       const leagueData = await leagueResponse.json();
       const teams = leagueData.teams || [];
+      const members = leagueData.members || [];
       const settings = leagueData.settings;
       const schedule = leagueData.schedule || [];
       const players = leagueData.players || [];
       const draftDetail = leagueData.draftDetail;
+
+      // Create a map of member IDs to member data for easy lookup
+      const memberMap = new Map();
+      members.forEach((member: any) => {
+        memberMap.set(member.id, member);
+      });
+      
+      // Log member map for debugging
+      if (members.length > 0 && teams.length > 0) {
+        console.log('Member/Owner data mapping:', {
+          memberCount: members.length,
+          sampleMemberId: members[0].id,
+          memberMapSize: memberMap.size,
+          firstTeamOwner: teams[0]?.owners?.[0],
+          ownerType: typeof teams[0]?.owners?.[0],
+          ownerInMap: teams[0]?.owners?.[0] ? memberMap.has(teams[0].owners[0]) : 'No owner'
+        });
+      }
+
+      // Log data availability for debugging
+      console.log('ESPN API Data Check:', {
+        hasTeams: !!teams.length,
+        teamsCount: teams.length,
+        hasMembers: !!members.length,
+        membersCount: members.length,
+        sampleTeam: teams[0] ? {
+          hasOwners: !!teams[0].owners,
+          ownersLength: teams[0].owners?.length || 0,
+          hasPrimaryOwner: !!teams[0].primaryOwner,
+          hasLogo: !!teams[0].logo,
+          logoUrl: teams[0].logo
+        } : null
+      });
 
       // Store draft data for current season
       if (settings || draftDetail) {
@@ -108,27 +142,104 @@ export const syncLeagueData = action({
         });
       }
 
+      // Helper function for roster data
+      // Note: The general league endpoint doesn't reliably return roster data
+      // We'll use fetchHistoricalRosters after team sync for accurate roster data
+      const getRosterData = (team: any) => {
+        // Return empty array - rosters will be fetched separately using fetchHistoricalRosters
+        return [];
+      };
+
+      // Helper function to get owner info with fallback logic
+      const getOwnerInfo = (team: any) => {
+        // First try to get owner from team.owners array
+        if (team.owners?.[0]) {
+          const owner = team.owners[0];
+          
+          // Check if owner is just a string ID (historical data) or an object (current data)
+          if (typeof owner === 'string') {
+            // Owner is just an ID, need to look up in members
+            const member = memberMap.get(owner);
+            if (member) {
+              return {
+                ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+                ownerInfo: {
+                  displayName: member.displayName,
+                  firstName: member.firstName,
+                  lastName: member.lastName,
+                  id: member.id?.toString() || owner,
+                }
+              };
+            }
+          } else if (owner.displayName || owner.firstName || owner.lastName) {
+            // Owner is an object with properties
+            return {
+              ownerName: owner.displayName || 
+                        (owner.firstName && owner.lastName 
+                          ? `${owner.firstName} ${owner.lastName}` 
+                          : owner.firstName || owner.lastName || 'Unknown'),
+              ownerInfo: {
+                displayName: owner.displayName,
+                firstName: owner.firstName,
+                lastName: owner.lastName,
+                id: owner.id?.toString(),
+              }
+            };
+          }
+        }
+        
+        // Fallback to member data using primaryOwner
+        if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
+          const member = memberMap.get(team.primaryOwner);
+          return {
+            ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+            ownerInfo: {
+              displayName: member.displayName,
+              firstName: member.firstName,
+              lastName: member.lastName,
+              id: member.id?.toString(),
+            }
+          };
+        }
+        
+        // Last resort - try to find member by matching team name
+        const matchingMember = members.find((m: any) => 
+          team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
+        );
+        if (matchingMember) {
+          return {
+            ownerName: matchingMember.displayName || `${matchingMember.firstName || ''} ${matchingMember.lastName || ''}`.trim() || 'Unknown',
+            ownerInfo: {
+              displayName: matchingMember.displayName,
+              firstName: matchingMember.firstName,
+              lastName: matchingMember.lastName,
+              id: matchingMember.id?.toString(),
+            }
+          };
+        }
+        
+        return {
+          ownerName: 'Unknown',
+          ownerInfo: undefined
+        };
+      };
+
+
       // Update teams with comprehensive data
       await ctx.runMutation(api.espnSync.updateTeams, {
         leagueId: args.leagueId,
         seasonId: currentYear,
-        teamsData: teams.map((team: any) => ({
-          externalId: team.id.toString(),
-          name: team.name || (team.location && team.nickname ? `${team.location} ${team.nickname}` : 'Unknown Team'),
-          abbreviation: team.abbrev,
-          location: team.location,
-          nickname: team.nickname,
-          logo: team.logo,
-          owner: team.owners?.[0]?.displayName || 
-                  (team.owners?.[0]?.firstName && team.owners?.[0]?.lastName 
-                    ? `${team.owners[0].firstName} ${team.owners[0].lastName}` 
-                    : team.owners?.[0]?.firstName || team.owners?.[0]?.lastName || 'Unknown'),
-          ownerInfo: team.owners?.[0] ? {
-            displayName: team.owners[0].displayName,
-            firstName: team.owners[0].firstName,
-            lastName: team.owners[0].lastName,
-            id: team.owners[0].id?.toString(),
-          } : undefined,
+        teamsData: teams.map((team: any) => {
+          const { ownerName, ownerInfo } = getOwnerInfo(team);
+          return {
+            externalId: team.id.toString(),
+            name: team.name || (team.location && team.nickname ? `${team.location} ${team.nickname}` : 'Unknown Team'),
+            abbreviation: team.abbrev,
+            location: team.location,
+            nickname: team.nickname,
+            logo: team.logo || team.logoURL || team.logoUrl || undefined,
+            owner: ownerName,
+            ownerInfo: ownerInfo,
           record: {
             wins: team.record?.overall?.wins || 0,
             losses: team.record?.overall?.losses || 0,
@@ -142,20 +253,10 @@ export const syncLeagueData = action({
               ties: team.record.division.ties || 0,
             } : undefined,
           },
-          roster: team.roster?.entries?.map((entry: any) => ({
-            playerId: entry.playerId?.toString() || '',
-            playerName: entry.playerPoolEntry?.player?.fullName || 'Unknown',
-            position: entry.playerPoolEntry?.player?.defaultPositionId ? getPositionName(entry.playerPoolEntry.player.defaultPositionId) : 'UNKNOWN',
-            team: entry.playerPoolEntry?.player?.proTeamId ? getTeamAbbreviation(entry.playerPoolEntry.player.proTeamId) : 'FA',
-            acquisitionType: entry.acquisitionType,
-            lineupSlotId: entry.lineupSlotId,
-            playerStats: entry.playerPoolEntry?.player?.stats ? {
-              appliedTotal: entry.playerPoolEntry.player.stats.appliedTotal,
-              projectedTotal: entry.playerPoolEntry.player.stats.projectedTotal,
-            } : undefined,
-          })) || [],
-          divisionId: team.divisionId,
-        }))
+          roster: getRosterData(team),
+            divisionId: team.divisionId,
+          };
+        })
       });
 
       // Sync players data if available
@@ -216,6 +317,24 @@ export const syncLeagueData = action({
         leagueId: args.leagueId,
         currentScoringPeriod: settings?.scoringSettings?.matchupPeriods?.length || league.espnData.currentScoringPeriod,
       });
+
+      // Fetch rosters using the dedicated roster endpoint
+      console.log('Fetching current season rosters...');
+      try {
+        const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+          leagueId: args.leagueId,
+          seasonId: currentYear,
+        });
+        
+        if (rosterResult.success) {
+          console.log(`Successfully fetched rosters for ${rosterResult.totalRostersFetched} teams`);
+        } else {
+          console.warn('Failed to fetch some rosters:', rosterResult.message);
+        }
+      } catch (rosterError) {
+        console.error('Error fetching rosters:', rosterError);
+        // Don't fail the entire sync if roster fetching fails
+      }
 
       return {
         success: true,
@@ -565,7 +684,7 @@ export const syncHistoricalData = action({
         }
 
         // Get historical league data including player information
-        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info`, {
+        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mRoster&view=mBoxscore&view=mPositionalRatings`, {
           headers
         });
 
@@ -608,6 +727,105 @@ export const syncHistoricalData = action({
         const settings = leagueData.settings;
         const schedule = leagueData.schedule || [];
         const draftDetail = leagueData.draftDetail;
+
+        // Create a map of member IDs to member data for easy lookup
+        const memberMap = new Map();
+        members.forEach((member: any) => {
+          memberMap.set(member.id, member);
+        });
+        
+        // Log member map for debugging in historical data
+        if (year !== currentYear && members.length > 0) {
+          console.log(`Member data for ${year}:`, {
+            memberCount: members.length,
+            sampleMemberId: members[0].id,
+            memberMapSize: memberMap.size,
+            firstTeamOwner: teams[0]?.owners?.[0],
+            ownerInMap: teams[0]?.owners?.[0] ? memberMap.has(teams[0].owners[0]) : 'No owner'
+          });
+        }
+
+        // Helper function for roster data
+        // Note: The general league endpoint doesn't reliably return roster data
+        // We'll use fetchHistoricalRosters after team sync for accurate roster data
+        const getRosterData = (team: any) => {
+          // Return empty array - rosters will be fetched separately using fetchHistoricalRosters
+          return [];
+        };
+
+        // Helper function to get owner info with fallback logic
+      const getOwnerInfo = (team: any) => {
+        // First try to get owner from team.owners array
+        if (team.owners?.[0]) {
+          const owner = team.owners[0];
+          
+          // Check if owner is just a string ID (historical data) or an object (current data)
+          if (typeof owner === 'string') {
+            // Owner is just an ID, need to look up in members
+            const member = memberMap.get(owner);
+            if (member) {
+              return {
+                ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+                ownerInfo: {
+                  displayName: member.displayName,
+                  firstName: member.firstName,
+                  lastName: member.lastName,
+                  id: member.id?.toString() || owner,
+                }
+              };
+            }
+          } else if (owner.displayName || owner.firstName || owner.lastName) {
+            // Owner is an object with properties
+            return {
+              ownerName: owner.displayName || 
+                        (owner.firstName && owner.lastName 
+                          ? `${owner.firstName} ${owner.lastName}` 
+                          : owner.firstName || owner.lastName || 'Unknown'),
+              ownerInfo: {
+                displayName: owner.displayName,
+                firstName: owner.firstName,
+                lastName: owner.lastName,
+                id: owner.id?.toString(),
+              }
+            };
+          }
+        }
+          
+          // Fallback to member data using primaryOwner
+          if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
+            const member = memberMap.get(team.primaryOwner);
+            return {
+              ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+              ownerInfo: {
+                displayName: member.displayName,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                id: member.id?.toString(),
+              }
+            };
+          }
+          
+          // Last resort - try to find member by matching team name  
+          const matchingMember = members.find((m: any) => 
+            team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
+          );
+          if (matchingMember) {
+            return {
+              ownerName: matchingMember.displayName || `${matchingMember.firstName || ''} ${matchingMember.lastName || ''}`.trim() || 'Unknown',
+              ownerInfo: {
+                displayName: matchingMember.displayName,
+                firstName: matchingMember.firstName,
+                lastName: matchingMember.lastName,
+                id: matchingMember.id?.toString(),
+              }
+            };
+          }
+          
+          return {
+            ownerName: 'Unknown',
+            ownerInfo: undefined
+          };
+        };
 
         // Process champion and runner-up from final standings
         let champion, runnerUp;
@@ -725,25 +943,19 @@ export const syncHistoricalData = action({
         await ctx.runMutation(api.espnSync.updateTeams, {
           leagueId: args.leagueId,
           seasonId: year,
-          teamsData: teams.map((team: any) => ({
-            externalId: team.id.toString(),
-            name: team.name || 
-                  (team.location && team.nickname ? `${team.location} ${team.nickname}` : 
-                   team.location || team.nickname || `Team ${team.id}` || 'Unknown Team'),
-            abbreviation: team.abbrev,
-            location: team.location,
-            nickname: team.nickname,
-            logo: team.logo,
-            owner: team.owners?.[0]?.displayName || 
-                  (team.owners?.[0]?.firstName && team.owners?.[0]?.lastName 
-                    ? `${team.owners[0].firstName} ${team.owners[0].lastName}` 
-                    : team.owners?.[0]?.firstName || team.owners?.[0]?.lastName || 'Unknown'),
-            ownerInfo: team.owners?.[0] ? {
-              displayName: team.owners[0].displayName,
-              firstName: team.owners[0].firstName,
-              lastName: team.owners[0].lastName,
-              id: team.owners[0].id?.toString(),
-            } : undefined,
+          teamsData: teams.map((team: any) => {
+            const { ownerName, ownerInfo } = getOwnerInfo(team);
+            return {
+              externalId: team.id.toString(),
+              name: team.name || 
+                    (team.location && team.nickname ? `${team.location} ${team.nickname}` : 
+                     team.location || team.nickname || `Team ${team.id}` || 'Unknown Team'),
+              abbreviation: team.abbrev,
+              location: team.location,
+              nickname: team.nickname,
+              logo: team.logo || team.logoURL || team.logoUrl || undefined,
+              owner: ownerName,
+              ownerInfo: ownerInfo,
             record: {
               wins: team.record?.overall?.wins || 0,
               losses: team.record?.overall?.losses || 0,
@@ -757,9 +969,10 @@ export const syncHistoricalData = action({
                 ties: team.record.division.ties || 0,
               } : undefined,
             },
-            roster: [], // Historical rosters are typically not available
+            roster: getRosterData(team),
             divisionId: team.divisionId,
-          }))
+            };
+          })
         });
 
         // Sync matchups for historical season if available
@@ -1074,8 +1287,8 @@ export const syncAllLeagueData = action({
 
         // For current season, get more comprehensive data
         const viewParams = year === currentYear 
-          ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=players_wl&view=kona_player_info'
-          : '?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=mTeam&view=mStatus';
+          ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus'
+          : '?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=mTeam&view=mStatus&view=mRoster&view=mBoxscore&view=mPositionalRatings';
 
         const leagueResponse: Response = await fetch(`${baseUrl}${viewParams}`, {
           headers
@@ -1145,6 +1358,23 @@ export const syncAllLeagueData = action({
 
         const teams = leagueData.teams || [];
         const members = leagueData.members || [];
+
+        // Create a map of member IDs to member data for easy lookup
+        const memberMap = new Map();
+        members.forEach((member: any) => {
+          memberMap.set(member.id, member);
+        });
+        
+        // Log member map for debugging in historical data
+        if (year !== currentYear && members.length > 0) {
+          console.log(`Member data for ${year}:`, {
+            memberCount: members.length,
+            sampleMemberId: members[0].id,
+            memberMapSize: memberMap.size,
+            firstTeamOwner: teams[0]?.owners?.[0],
+            ownerInMap: teams[0]?.owners?.[0] ? memberMap.has(teams[0].owners[0]) : 'No owner'
+          });
+        }
 
         // Skip processing if historical data is too incomplete
         if (year !== currentYear) {
@@ -1330,29 +1560,105 @@ export const syncAllLeagueData = action({
           });
         }
 
+        // Helper function for roster data
+        // Note: The general league endpoint doesn't reliably return roster data
+        // We'll use fetchHistoricalRosters after team sync for accurate roster data
+        const getRosterData = (team: any) => {
+          // Return empty array - rosters will be fetched separately using fetchHistoricalRosters
+          return [];
+        };
+
+        // Helper function to get owner info with fallback logic
+      const getOwnerInfo = (team: any) => {
+        // First try to get owner from team.owners array
+        if (team.owners?.[0]) {
+          const owner = team.owners[0];
+          
+          // Check if owner is just a string ID (historical data) or an object (current data)
+          if (typeof owner === 'string') {
+            // Owner is just an ID, need to look up in members
+            const member = memberMap.get(owner);
+            if (member) {
+              return {
+                ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+                ownerInfo: {
+                  displayName: member.displayName,
+                  firstName: member.firstName,
+                  lastName: member.lastName,
+                  id: member.id?.toString() || owner,
+                }
+              };
+            }
+          } else if (owner.displayName || owner.firstName || owner.lastName) {
+            // Owner is an object with properties
+            return {
+              ownerName: owner.displayName || 
+                        (owner.firstName && owner.lastName 
+                          ? `${owner.firstName} ${owner.lastName}` 
+                          : owner.firstName || owner.lastName || 'Unknown'),
+              ownerInfo: {
+                displayName: owner.displayName,
+                firstName: owner.firstName,
+                lastName: owner.lastName,
+                id: owner.id?.toString(),
+              }
+            };
+          }
+        }
+          
+          // Fallback to member data using primaryOwner
+          if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
+            const member = memberMap.get(team.primaryOwner);
+            return {
+              ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+              ownerInfo: {
+                displayName: member.displayName,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                id: member.id?.toString(),
+              }
+            };
+          }
+          
+          // Last resort - try to find member by matching team name  
+          const matchingMember = members.find((m: any) => 
+            team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
+          );
+          if (matchingMember) {
+            return {
+              ownerName: matchingMember.displayName || `${matchingMember.firstName || ''} ${matchingMember.lastName || ''}`.trim() || 'Unknown',
+              ownerInfo: {
+                displayName: matchingMember.displayName,
+                firstName: matchingMember.firstName,
+                lastName: matchingMember.lastName,
+                id: matchingMember.id?.toString(),
+              }
+            };
+          }
+          
+          return {
+            ownerName: 'Unknown',
+            ownerInfo: undefined
+          };
+        };
+
         // Sync teams for this season
         await ctx.runMutation(api.espnSync.updateTeams, {
           leagueId: args.leagueId,
           seasonId: year,
-          teamsData: teams.map((team: any) => ({
-            externalId: team.id.toString(),
-            name: team.name || 
-                  (team.location && team.nickname ? `${team.location} ${team.nickname}` : 
-                   team.location || team.nickname || `Team ${team.id}` || 'Unknown Team'),
-            abbreviation: team.abbrev,
-            location: team.location,
-            nickname: team.nickname,
-            logo: team.logo,
-            owner: team.owners?.[0]?.displayName || 
-                  (team.owners?.[0]?.firstName && team.owners?.[0]?.lastName 
-                    ? `${team.owners[0].firstName} ${team.owners[0].lastName}` 
-                    : team.owners?.[0]?.firstName || team.owners?.[0]?.lastName || 'Unknown'),
-            ownerInfo: team.owners?.[0] ? {
-              displayName: team.owners[0].displayName,
-              firstName: team.owners[0].firstName,
-              lastName: team.owners[0].lastName,
-              id: team.owners[0].id?.toString(),
-            } : undefined,
+          teamsData: teams.map((team: any) => {
+            const { ownerName, ownerInfo } = getOwnerInfo(team);
+            return {
+              externalId: team.id.toString(),
+              name: team.name || 
+                    (team.location && team.nickname ? `${team.location} ${team.nickname}` : 
+                     team.location || team.nickname || `Team ${team.id}` || 'Unknown Team'),
+              abbreviation: team.abbrev,
+              location: team.location,
+              nickname: team.nickname,
+              logo: team.logo || team.logoURL || team.logoUrl || undefined,
+              owner: ownerName,
+              ownerInfo: ownerInfo,
             record: {
               wins: team.record?.overall?.wins || 0,
               losses: team.record?.overall?.losses || 0,
@@ -1379,7 +1685,8 @@ export const syncAllLeagueData = action({
               } : undefined,
             })) : [], // Historical rosters can be fetched separately using fetchHistoricalRosters
             divisionId: team.divisionId,
-          }))
+            };
+          })
         });
 
         // Sync players data for all seasons (historical and current)
@@ -1911,9 +2218,9 @@ export const syncAllDataWithRosters = action({
     const enhancedResults = [];
     
     for (const result of regularSyncResult.results) {
-      if (result.success && result.year !== new Date().getFullYear()) {
+      if (result.success) {
         try {
-          console.log(`Fetching historical rosters for year ${result.year}...`);
+          console.log(`Fetching rosters for year ${result.year}...`);
           
           const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
             leagueId: args.leagueId,
@@ -1925,7 +2232,7 @@ export const syncAllDataWithRosters = action({
             rostersCount: rosterResult.success ? rosterResult.totalRostersFetched : 0,
           });
           
-          console.log(`Historical rosters for ${result.year}: ${rosterResult.success ? `${rosterResult.totalRostersFetched} teams` : 'failed'}`);
+          console.log(`Rosters for ${result.year}: ${rosterResult.success ? `${rosterResult.totalRostersFetched} teams` : 'failed'}`);
           
           // Add delay between roster fetches to prevent rate limiting
           await new Promise(resolve => setTimeout(resolve, 2000));
