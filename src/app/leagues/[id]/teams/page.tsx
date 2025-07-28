@@ -74,6 +74,17 @@ export default function TeamsPage({ params }: TeamsPageProps) {
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
   
+  // Get available seasons for the league
+  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
+  
+  // Extract season IDs and sort them in descending order
+  const availableSeasons = React.useMemo(() => {
+    if (!leagueSeasons) return undefined;
+    return leagueSeasons
+      .map(season => season.seasonId)
+      .sort((a, b) => b - a);
+  }, [leagueSeasons]);
+  
   // Get teams for the selected season
   const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
     leagueId,
@@ -135,6 +146,7 @@ export default function TeamsPage({ params }: TeamsPageProps) {
             currentSeason={2025}
             selectedSeason={selectedSeason}
             onSeasonChange={setSelectedSeason}
+            availableSeasons={availableSeasons}
           />
         </div>
       </div>

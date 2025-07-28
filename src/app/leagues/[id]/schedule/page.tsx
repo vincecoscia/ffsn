@@ -53,6 +53,17 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
   
+  // Get available seasons for the league
+  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
+  
+  // Extract season IDs and sort them in descending order
+  const availableSeasons = React.useMemo(() => {
+    if (!leagueSeasons) return undefined;
+    return leagueSeasons
+      .map(season => season.seasonId)
+      .sort((a, b) => b - a);
+  }, [leagueSeasons]);
+  
   // Get season-specific data
   const leagueSeason = useQuery(api.leagues.getLeagueSeasonByYear, {
     leagueId,
@@ -297,6 +308,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
               currentSeason={2025}
               selectedSeason={selectedSeason}
               onSeasonChange={setSelectedSeason}
+              availableSeasons={availableSeasons}
             />
           </div>
         </div>

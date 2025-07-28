@@ -49,6 +49,17 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
   
+  // Get available seasons for the league
+  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
+  
+  // Extract season IDs and sort them in descending order
+  const availableSeasons = React.useMemo(() => {
+    if (!leagueSeasons) return undefined;
+    return leagueSeasons
+      .map(season => season.seasonId)
+      .sort((a, b) => b - a);
+  }, [leagueSeasons]);
+  
   // Get current scoring period from ESPN data
   const currentWeek = league?.espnData?.currentScoringPeriod || 1;
   
@@ -59,13 +70,16 @@ export default function ScoresPage({ params }: ScoresPageProps) {
     }
   }, [currentWeek, selectedWeek]);
   
-  // Get teams for the selected season
-  const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
+  // Get teams for the selected season (for weekly view)
+  const teamsDataBySeason = useQuery(api.teams.getByLeagueAndSeason, { 
     leagueId,
     seasonId: selectedSeason 
   });
   
-  const teams = React.useMemo(() => teamsData || [], [teamsData]);
+  // Get all teams for the league (for all-time view)
+  const allTeamsData = useQuery(api.teams.getByLeague, { leagueId });
+  
+  const teams = React.useMemo(() => teamsDataBySeason || [], [teamsDataBySeason]);
   
   // Get matchups for the selected week
   const matchups = useQuery(api.matchups.getByLeagueAndPeriod, {
@@ -97,9 +111,31 @@ export default function ScoresPage({ params }: ScoresPageProps) {
     });
     return map;
   }, [teams]);
+  
+  // Create a season-aware map for all-time scores
+  const allTeamsMap = React.useMemo(() => {
+    const map = new Map<string, Map<number, typeof teams[0]>>();
+    if (allTeamsData) {
+      allTeamsData.forEach(team => {
+        if (!map.has(team.externalId)) {
+          map.set(team.externalId, new Map());
+        }
+        map.get(team.externalId)!.set(team.seasonId, team);
+      });
+    }
+    return map;
+  }, [allTeamsData]);
 
   const getTeamByExternalId = (externalId: string) => {
     return teamMap.get(externalId) || null;
+  };
+  
+  const getTeamByExternalIdAndSeason = (externalId: string, seasonId: number) => {
+    const teamSeasons = allTeamsMap.get(externalId);
+    if (teamSeasons) {
+      return teamSeasons.get(seasonId) || null;
+    }
+    return null;
   };
 
   const handleWeekChange = (direction: 'prev' | 'next') => {
@@ -163,6 +199,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 currentSeason={2025}
                 selectedSeason={selectedSeason}
                 onSeasonChange={setSelectedSeason}
+                availableSeasons={availableSeasons}
               />
             </div>
           </div>
@@ -355,7 +392,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
         
         <TabsContent value="top-scores">
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="mb-6">
+            <div className="mb-6 space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 className="text-2xl font-bold">Top Scores</h2>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -371,13 +408,21 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                       <TabsTrigger value="season">Season</TabsTrigger>
                     </TabsList>
                   </Tabs>
-                  {topScoresView === "season" && (
-                    <SeasonSelector
-                      currentSeason={2025}
-                      selectedSeason={selectedSeason}
-                      onSeasonChange={setSelectedSeason}
-                    />
-                  )}
+                </div>
+              </div>
+              
+              {/* Season selector with smooth transition */}
+              <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                topScoresView === "season" ? "max-h-20 opacity-100" : "max-h-0 opacity-0"
+              }`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Season:</span>
+                  <SeasonSelector
+                    currentSeason={2025}
+                    selectedSeason={selectedSeason}
+                    onSeasonChange={setSelectedSeason}
+                    availableSeasons={availableSeasons}
+                  />
                 </div>
               </div>
             </div>
@@ -415,7 +460,9 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {(topScoresView === "all-time" ? topScoresAllTime : topScoresBySeason).map((score, index) => {
-                    const team = getTeamByExternalId(score.teamId);
+                    const team = topScoresView === "all-time" 
+                      ? getTeamByExternalIdAndSeason(score.teamId, score.seasonId)
+                      : getTeamByExternalId(score.teamId);
                     const isTwoWeek = scoreType === "twoWeek";
                     const twoWeekScore = score as TwoWeekScore;
                     const singleScore = score as SingleWeekScore;

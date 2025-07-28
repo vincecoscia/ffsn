@@ -63,6 +63,43 @@ export const getByLeagueAndSeason = query({
     return teams;
   },
 });
+
+export const getByExternalIdAndSeason = query({
+  args: { 
+    leagueId: v.id("leagues"),
+    externalId: v.string(),
+    seasonId: v.number()
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return null;
+    }
+
+    const team = await ctx.db
+      .query("teams")
+      .withIndex("by_external", (q) => 
+        q.eq("leagueId", args.leagueId)
+          .eq("externalId", args.externalId)
+          .eq("seasonId", args.seasonId)
+      )
+      .first();
+
+    return team;
+  },
+});
 export const getBySeasonAndLeague = query({
   args: { 
     leagueId: v.id("leagues"), 
