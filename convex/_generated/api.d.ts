@@ -14,7 +14,9 @@ import type {
   FunctionReference,
 } from "convex/server";
 import type * as aiContent from "../aiContent.js";
+import type * as aiQueries from "../aiQueries.js";
 import type * as crons from "../crons.js";
+import type * as dataProcessing from "../dataProcessing.js";
 import type * as espn from "../espn.js";
 import type * as espnNews from "../espnNews.js";
 import type * as espnSync from "../espnSync.js";
@@ -39,7 +41,9 @@ import type * as users from "../users.js";
  */
 declare const fullApi: ApiFromModules<{
   aiContent: typeof aiContent;
+  aiQueries: typeof aiQueries;
   crons: typeof crons;
+  dataProcessing: typeof dataProcessing;
   espn: typeof espn;
   espnNews: typeof espnNews;
   espnSync: typeof espnSync;

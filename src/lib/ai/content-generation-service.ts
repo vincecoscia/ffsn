@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { generatePrompt, PromptBuilderOptions, LeagueDataContext } from './prompt-builder';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 interface AnthropicSettings {
   maxTokens: number;
@@ -24,6 +26,36 @@ export interface GenerationRequest {
   customContext?: string;
   userId: string;
 }
+
+// Zod schema for structured article output
+const ArticleSection = z.object({
+  name: z.string(),
+  content: z.string(),
+  wordCount: z.number(),
+});
+
+const GeneratedArticle = z.object({
+  title: z.string().describe("Compelling article title that captures the essence of the content"),
+  summary: z.string().describe("Brief 2-3 sentence summary of the article"),
+  sections: z.array(ArticleSection).describe("Article sections as defined in the template"),
+  featuredTeams: z.array(z.object({
+    teamId: z.string(),
+    teamName: z.string(),
+    mentions: z.number().describe("Number of times team is mentioned"),
+  })).describe("Teams prominently featured in the article"),
+  featuredPlayers: z.array(z.object({
+    playerName: z.string(),
+    position: z.string(),
+    team: z.string(),
+    mentions: z.number(),
+  })).describe("Players prominently featured in the article"),
+  keyStats: z.array(z.object({
+    stat: z.string(),
+    value: z.string(),
+    context: z.string(),
+  })).optional().describe("Key statistics mentioned in the article"),
+  tone: z.enum(["humorous", "analytical", "dramatic", "casual", "professional"]).describe("Overall tone of the article"),
+});
 
 export interface GeneratedContent {
   title: string;
@@ -82,9 +114,30 @@ export class ContentGenerationService {
       console.log("System prompt preview:", systemPrompt.substring(0, 200) + "...");
       console.log("User prompt preview:", userPrompt.substring(0, 200) + "...");
 
-      // Call Claude API
-      console.log("Calling Claude API...");
-      const response = await this.callClaude(anthropic, systemPrompt, userPrompt, settings);
+      // Determine if we should use structured output (for supported models)
+      const useStructuredOutput = this.modelConfig.primary.includes('claude-3') || 
+                                  this.modelConfig.primary.includes('claude-sonnet-4');
+
+      let response: AnthropicResponse;
+      let structuredData: z.infer<typeof GeneratedArticle> | null = null;
+
+      if (useStructuredOutput) {
+        console.log("Using structured output with Zod schema...");
+        try {
+          // Call Claude API with structured output
+          const structuredResponse = await this.callClaudeStructured(anthropic, systemPrompt, userPrompt, settings);
+          structuredData = structuredResponse.structuredData;
+          response = structuredResponse.response;
+        } catch (structuredError) {
+          console.warn("Structured output failed, falling back to regular mode:", structuredError);
+          // Fallback to regular generation
+          response = await this.callClaude(anthropic, systemPrompt, userPrompt, settings);
+        }
+      } else {
+        // Call Claude API without structured output
+        console.log("Using standard text generation...");
+        response = await this.callClaude(anthropic, systemPrompt, userPrompt, settings);
+      }
       
       console.log("Claude response received");
       console.log("Response usage:", {
@@ -92,20 +145,59 @@ export class ContentGenerationService {
         outputTokens: response.usage?.output_tokens,
       });
 
-      // Parse the response
-      const parsed = this.parseGeneratedContent(response.content[0].text);
-      console.log("Content parsed:", {
-        hasTitle: !!parsed.title,
-        hasContent: !!parsed.content,
-        contentLength: parsed.content?.length,
-        hasSummary: !!parsed.summary,
-      });
+      let title: string;
+      let content: string;
+      let summary: string;
+      let featuredTeams: string[];
+      let featuredPlayers: string[];
 
-      // Extract metadata
+      if (structuredData) {
+        console.log("Processing structured data...");
+        
+        // Build content from structured sections
+        title = structuredData.title;
+        summary = structuredData.summary;
+        
+        // Combine sections into markdown content
+        content = `# ${title}\n\n`;
+        structuredData.sections.forEach(section => {
+          content += `## ${section.name}\n\n${section.content}\n\n`;
+        });
+
+        // Extract featured teams and players
+        featuredTeams = structuredData.featuredTeams
+          .sort((a, b) => b.mentions - a.mentions)
+          .slice(0, 5)
+          .map(t => t.teamId);
+          
+        featuredPlayers = structuredData.featuredPlayers
+          .sort((a, b) => b.mentions - a.mentions)
+          .slice(0, 10)
+          .map(p => p.playerName);
+
+        console.log("Structured content processed:", {
+          sectionsCount: structuredData.sections.length,
+          totalWordCount: structuredData.sections.reduce((sum, s) => sum + s.wordCount, 0),
+          tone: structuredData.tone,
+          keyStatsCount: structuredData.keyStats?.length || 0,
+        });
+      } else {
+        // Parse the response using existing method
+        const parsed = this.parseGeneratedContent(response.content[0].text);
+        title = parsed.title;
+        content = parsed.content;
+        summary = parsed.summary;
+        
+        // Extract metadata using existing methods
+        featuredTeams = this.extractFeaturedTeams(content, request.leagueData.teams);
+        featuredPlayers = this.extractFeaturedPlayers(content);
+      }
+
+      // Build metadata
       const metadata = {
         week: request.leagueData.currentWeek,
-        featuredTeams: this.extractFeaturedTeams(parsed.content, request.leagueData.teams),
-        featuredPlayers: this.extractFeaturedPlayers(parsed.content),
+        featuredTeams,
+        featuredPlayers,
         tags: this.generateTags(request.contentType, request.persona),
         creditsUsed: contentTemplates[request.contentType].creditCost,
         generationTime: Date.now() - startTime,
@@ -114,7 +206,7 @@ export class ContentGenerationService {
         completionTokens: response.usage?.output_tokens || 0,
       };
       
-      console.log("Metadata extracted:", {
+      console.log("Metadata built:", {
         featuredTeams: metadata.featuredTeams.length,
         featuredPlayers: metadata.featuredPlayers.length,
         tags: metadata.tags.length,
@@ -124,7 +216,9 @@ export class ContentGenerationService {
       console.log("=== ContentGenerationService.generateContent SUCCESS ===");
       
       return {
-        ...parsed,
+        title,
+        content,
+        summary,
         metadata,
       };
     } catch (error) {
@@ -135,6 +229,75 @@ export class ContentGenerationService {
         stack: error instanceof Error ? error.stack : undefined,
       });
       throw new Error('Failed to generate content. Please try again.');
+    }
+  }
+
+  private async callClaudeStructured(
+    anthropic: Anthropic,
+    systemPrompt: string,
+    userPrompt: string,
+    settings: AnthropicSettings
+  ): Promise<{ structuredData: z.infer<typeof GeneratedArticle>; response: AnthropicResponse }> {
+    console.log("=== callClaudeStructured START ===");
+    
+    // Add structured output instructions to the prompt
+    const structuredUserPrompt = `${userPrompt}
+
+IMPORTANT: Generate your response as a structured JSON object that matches the following schema:
+- title: A compelling article title
+- summary: A 2-3 sentence summary
+- sections: An array of sections, each with name, content, and wordCount
+- featuredTeams: Teams mentioned with teamId, teamName, and mention count
+- featuredPlayers: Players mentioned with name, position, team, and mention count
+- keyStats: Optional array of important statistics with stat name, value, and context
+- tone: The overall tone (humorous, analytical, dramatic, casual, or professional)
+
+Make sure each section follows the template requirements and word counts.`;
+
+    try {
+      // Use tool calling for structured output
+      const response = await anthropic.messages.create({
+        model: this.modelConfig.primary,
+        max_tokens: settings.maxTokens || 4000,
+        temperature: settings.temperature || 0.8,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: structuredUserPrompt,
+          },
+        ],
+        tools: [{
+          name: "generate_article",
+          description: "Generate a structured fantasy football article",
+          input_schema: zodToJsonSchema(GeneratedArticle) as any,
+        }],
+        tool_choice: { type: "tool", name: "generate_article" },
+      });
+
+      console.log("Structured API call successful");
+
+      // Extract the structured data from the tool use
+      const toolUse = response.content.find((c: any) => c.type === 'tool_use');
+      if (!toolUse || toolUse.type !== 'tool_use') {
+        throw new Error('No structured output received');
+      }
+
+      const structuredData = GeneratedArticle.parse(toolUse.input);
+      
+      // Transform to match our interface
+      const transformedResponse: AnthropicResponse = {
+        content: [{ text: JSON.stringify(structuredData) }],
+        usage: response.usage ? {
+          input_tokens: response.usage.input_tokens,
+          output_tokens: response.usage.output_tokens,
+        } : undefined,
+      };
+
+      return { structuredData, response: transformedResponse };
+    } catch (error) {
+      console.error("Structured output generation failed:", error);
+      throw error;
     }
   }
 

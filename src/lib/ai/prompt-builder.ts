@@ -21,6 +21,10 @@ export interface LeagueDataContext {
     pointsFor: number;
     pointsAgainst: number;
     externalId?: string; // ESPN team ID for consistency tracking
+    playoffSeed?: number;
+    divisionRecord?: { wins: number; losses: number; ties: number; };
+    strengthOfSchedule?: number; // Calculated metric
+    recentForm?: { wins: number; losses: number; avgPoints: number; }; // Last 3 weeks
     roster?: Array<{
       playerId: string;
       playerName: string;
@@ -44,6 +48,10 @@ export interface LeagueDataContext {
           appliedTotal?: number;
           projectedTotal?: number;
         }>;
+        recentPerformance?: { // Last 3 weeks
+          avgPoints: number;
+          trend: "improving" | "declining" | "stable";
+        };
       };
       ownership?: {
         percentOwned?: number;
@@ -51,6 +59,8 @@ export interface LeagueDataContext {
         percentStarted?: number;
       };
     }>;
+    benchPoints?: number; // Points left on bench this week
+    optimalPoints?: number; // Best possible lineup score
   }>;
   previousSeasons?: Record<number, Array<{
     teamId: string;
@@ -71,9 +81,13 @@ export interface LeagueDataContext {
     teamB: string;
     scoreA: number;
     scoreB: number;
+    projectedScoreA?: number;
+    projectedScoreB?: number;
     winner?: string;
     week?: number;
-    topPerformers: Array<{ 
+    isUpset?: boolean; // When underdog wins
+    closeness?: "blowout" | "comfortable" | "close" | "nail-biter";
+    topPerformers?: Array<{ 
       playerId?: string;
       playerName?: string;
       points: number; 
@@ -82,23 +96,65 @@ export interface LeagueDataContext {
       player?: string; // legacy support
       team?: string; // legacy support
     }>;
+    benchPointsA?: number;
+    benchPointsB?: number;
+    memorableMoment?: string; // e.g., "Comeback victory", "Monday night miracle"
   }>;
   trades?: Array<{
     teamA: string;
     teamB: string;
-    playersFromA: string[];
-    playersFromB: string[];
+    playersFromA: Array<{ playerId: string; playerName: string; position: string; }>;
+    playersFromB: Array<{ playerId: string; playerName: string; position: string; }>;
     date: string;
+    tradeGrade?: { teamA: string; teamB: string; };
+    analysis?: string;
+  }>;
+  transactions?: Array<{
+    teamId: string;
+    teamName: string;
+    type: "add" | "drop" | "add_drop" | "waiver_claim";
+    playerAdded?: { playerId: string; playerName: string; position: string; };
+    playerDropped?: { playerId: string; playerName: string; position: string; };
+    date: string;
+    faabBid?: number;
   }>;
   standings?: Array<{
     rank: number;
     team: string;
+    teamId: string;
     wins: number;
     losses: number;
+    ties: number;
     pointsFor: number;
+    pointsAgainst: number;
+    playoffSeed?: number;
+    divisionRank?: number;
+    streakType?: "W" | "L";
+    streakLength?: number;
+  }>;
+  rivalries?: Array<{
+    teamA: { id: string; name: string; manager: string; };
+    teamB: { id: string; name: string; manager: string; };
+    allTimeRecord: { teamAWins: number; teamBWins: number; ties: number; };
+    recentGames?: Array<{ week: number; scoreA: number; scoreB: number; }>;
+    intensity: "casual" | "competitive" | "heated" | "bitter";
+    backstory?: string;
+  }>;
+  managerActivity?: Array<{
+    teamId: string;
+    teamName: string;
+    manager: string;
+    totalTransactions: number;
+    trades: number;
+    waiverClaims: number;
+    optimalLineupPercentage?: number;
+    weeklyHighScores: number;
+    weeklyLowScores: number;
   }>;
   scoringType?: string;
   rosterSize?: number;
+  playoffTeams?: number;
+  regularSeasonWeeks?: number;
   leagueHistory?: {
     foundedYear: number;
     totalSeasons: number;
@@ -109,7 +165,47 @@ export interface LeagueDataContext {
       regularSeasonChampion?: { teamId: string; teamName: string; owner: string; };
       settings?: { scoringType: string; teamCount: number; playoffWeeks: number; };
     }>;
+    allTimeRecords?: {
+      mostChampionships?: { manager: string; count: number; };
+      highestSingleGameScore?: { team: string; score: number; week: number; season: number; };
+      lowestSingleGameScore?: { team: string; score: number; week: number; season: number; };
+      biggestBlowout?: { winner: string; loser: string; margin: number; week: number; season: number; };
+      longestWinStreak?: { team: string; length: number; season: number; };
+    };
   };
+  availablePlayers?: Array<{
+    playerId: string;
+    playerName: string;
+    position: string;
+    team: string;
+    ownership: { percentOwned: number; percentChange?: number; };
+    recentStats?: { avgPoints: number; trend: string; };
+    upcomingSchedule?: Array<{ week: number; opponent: string; difficulty: "easy" | "medium" | "hard"; }>;
+  }>;
+  injuryReport?: Array<{
+    playerId: string;
+    playerName: string;
+    team: string;
+    position: string;
+    status: string;
+    description?: string;
+    fantasyImpact?: string;
+  }>;
+  weatherImpact?: Array<{
+    game: string;
+    conditions: string;
+    temperature?: number;
+    windSpeed?: number;
+    precipitation?: number;
+    fantasyImpact?: { passing: string; rushing: string; kicking: string; };
+  }>;
+  upcomingSchedule?: Array<{
+    teamId: string;
+    teamName: string;
+    nextOpponent: string;
+    nextOpponentRank?: number;
+    restOfSeasonDifficulty?: "easy" | "medium" | "hard";
+  }>;
   [key: string]: unknown;
 }
 
@@ -265,12 +361,27 @@ CURRENT CONTEXT:
 
     let recap = 'THIS WEEK\'S MATCHUPS:\n';
     data.recentMatchups.forEach(matchup => {
-      recap += `- ${matchup.teamA} (${matchup.scoreA}) vs ${matchup.teamB} (${matchup.scoreB})`;
-      if (matchup.winner) {
-        recap += ` - ${matchup.winner === 'home' ? matchup.teamA : matchup.teamB} wins`;
+      recap += `\n${matchup.teamA} (${matchup.scoreA}) vs ${matchup.teamB} (${matchup.scoreB})`;
+      
+      // Add projected scores for context
+      if (matchup.projectedScoreA && matchup.projectedScoreB) {
+        recap += `\n  Projected: ${matchup.projectedScoreA.toFixed(1)} - ${matchup.projectedScoreB.toFixed(1)}`;
       }
+      
+      // Determine closeness and upsets
+      if (matchup.closeness) {
+        recap += ` [${matchup.closeness.toUpperCase()}]`;
+      }
+      if (matchup.isUpset) {
+        recap += ' **UPSET**';
+      }
+      if (matchup.memorableMoment) {
+        recap += `\n  ${matchup.memorableMoment}`;
+      }
+      
       recap += '\n';
       
+      // Top performers with more detail
       if (matchup.topPerformers && matchup.topPerformers.length > 0) {
         recap += '  Top performers:\n';
         matchup.topPerformers.slice(0, 3).forEach(perf => {
@@ -279,31 +390,81 @@ CURRENT CONTEXT:
           recap += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts\n`;
         });
       }
-    });
-
-    // Add injury report if we have roster data
-    const injuredPlayers: string[] = [];
-    data.teams.forEach(team => {
-      if (team.roster) {
-        team.roster.forEach(player => {
-          if (player.injuryStatus && player.injuryStatus !== 'ACTIVE') {
-            injuredPlayers.push(`${player.fullName || player.playerName} (${team.name}) - ${player.injuryStatus}`);
-          }
-        });
+      
+      // Bench points analysis
+      if (matchup.benchPointsA !== undefined && matchup.benchPointsB !== undefined) {
+        recap += `  Bench points: ${matchup.teamA} (${matchup.benchPointsA.toFixed(1)}) vs ${matchup.teamB} (${matchup.benchPointsB.toFixed(1)})\n`;
       }
     });
 
-    if (injuredPlayers.length > 0) {
-      recap += '\nKEY INJURIES:\n';
-      injuredPlayers.slice(0, 5).forEach(injury => {
-        recap += `- ${injury}\n`;
+    // Add injury report with impact analysis
+    if (data.injuryReport && data.injuryReport.length > 0) {
+      recap += '\nKEY INJURIES & FANTASY IMPACT:\n';
+      data.injuryReport.slice(0, 5).forEach(injury => {
+        recap += `- ${injury.playerName} (${injury.position}, ${injury.team}) - ${injury.status}`;
+        if (injury.fantasyImpact) {
+          recap += ` - ${injury.fantasyImpact}`;
+        }
+        recap += '\n';
       });
     }
 
+    // Enhanced standings with streaks
     if (data.standings) {
-      recap += '\nCURRENT STANDINGS:\n';
-      data.standings.slice(0, 5).forEach(team => {
-        recap += `${team.rank}. ${team.team} (${team.wins}-${team.losses})\n`;
+      recap += '\nCURRENT STANDINGS & MOMENTUM:\n';
+      data.standings.slice(0, 6).forEach(team => {
+        recap += `${team.rank}. ${team.team} (${team.wins}-${team.losses}`;
+        if (team.ties > 0) recap += `-${team.ties}`;
+        recap += `)`;
+        if (team.streakType && team.streakLength) {
+          recap += ` [${team.streakType}${team.streakLength}]`;
+        }
+        if (team.playoffSeed) {
+          recap += ` - #${team.playoffSeed} seed`;
+        }
+        recap += '\n';
+      });
+    }
+
+    // Manager activity highlights
+    if (data.managerActivity && data.managerActivity.length > 0) {
+      recap += '\nMANAGER ACTIVITY THIS WEEK:\n';
+      const activeManagers = data.managerActivity
+        .filter(m => m.totalTransactions > 0)
+        .sort((a, b) => b.totalTransactions - a.totalTransactions)
+        .slice(0, 3);
+      
+      activeManagers.forEach(manager => {
+        recap += `- ${manager.manager}: ${manager.totalTransactions} moves`;
+        if (manager.trades > 0) recap += ` (${manager.trades} trades)`;
+        recap += '\n';
+      });
+    }
+
+    // Recent transactions
+    if (data.transactions && data.transactions.length > 0) {
+      const recentTransactions = data.transactions.slice(0, 5);
+      recap += '\nNOTABLE TRANSACTIONS:\n';
+      recentTransactions.forEach(trans => {
+        if (trans.type === 'waiver_claim' && trans.playerAdded) {
+          recap += `- ${trans.teamName} claimed ${trans.playerAdded.playerName} (${trans.playerAdded.position})`;
+          if (trans.faabBid) recap += ` for $${trans.faabBid} FAAB`;
+          recap += '\n';
+        } else if (trans.type === 'add_drop' && trans.playerAdded && trans.playerDropped) {
+          recap += `- ${trans.teamName} added ${trans.playerAdded.playerName} (${trans.playerAdded.position}), dropped ${trans.playerDropped.playerName}\n`;
+        }
+      });
+    }
+
+    // Weather impact if any
+    if (data.weatherImpact && data.weatherImpact.length > 0) {
+      recap += '\nWEATHER IMPACT:\n';
+      data.weatherImpact.slice(0, 3).forEach(weather => {
+        recap += `- ${weather.game}: ${weather.conditions}`;
+        if (weather.fantasyImpact) {
+          recap += ` (Passing: ${weather.fantasyImpact.passing})`;
+        }
+        recap += '\n';
       });
     }
 
@@ -373,28 +534,176 @@ CURRENT CONTEXT:
     }
 
     const latestTrade = data.trades[0];
-    return `TRADE DETAILS:
-Team A: ${latestTrade.teamA}
-Team B: ${latestTrade.teamB}
-Players from Team A: ${latestTrade.playersFromA.join(', ')}
-Players from Team B: ${latestTrade.playersFromB.join(', ')}
-Trade Date: ${latestTrade.date}
+    const teamAData = data.teams.find(t => t.name === latestTrade.teamA || t.externalId === latestTrade.teamA);
+    const teamBData = data.teams.find(t => t.name === latestTrade.teamB || t.externalId === latestTrade.teamB);
 
-Analyze this trade from both perspectives.`;
+    let tradeAnalysis = `TRADE DETAILS:
+Team A: ${latestTrade.teamA}
+- Record: ${teamAData ? `${teamAData.record.wins}-${teamAData.record.losses}` : 'Unknown'}
+- Standing: ${data.standings?.find(s => s.team === latestTrade.teamA)?.rank || 'Unknown'}
+- Manager: ${teamAData?.manager || 'Unknown'}
+
+Team B: ${latestTrade.teamB}
+- Record: ${teamBData ? `${teamBData.record.wins}-${teamBData.record.losses}` : 'Unknown'}
+- Standing: ${data.standings?.find(s => s.team === latestTrade.teamB)?.rank || 'Unknown'}
+- Manager: ${teamBData?.manager || 'Unknown'}
+
+Players from Team A: ${latestTrade.playersFromA.map(p => `${p.playerName} (${p.position})`).join(', ')}
+Players from Team B: ${latestTrade.playersFromB.map(p => `${p.playerName} (${p.position})`).join(', ')}
+Trade Date: ${latestTrade.date}
+`;
+
+    // Add player performance data if available
+    if (latestTrade.playersFromA.length > 0 && teamAData?.roster) {
+      tradeAnalysis += '\nPLAYER PERFORMANCE (Team A assets):\n';
+      latestTrade.playersFromA.forEach(player => {
+        const rosterPlayer = teamBData?.roster?.find(p => p.playerId === player.playerId);
+        if (rosterPlayer?.stats?.seasonStats) {
+          tradeAnalysis += `- ${player.playerName}: ${rosterPlayer.stats.seasonStats.averagePoints?.toFixed(1)} ppg`;
+          if (rosterPlayer.stats.recentPerformance) {
+            tradeAnalysis += ` (${rosterPlayer.stats.recentPerformance.trend})`;
+          }
+          if (rosterPlayer.injuryStatus) {
+            tradeAnalysis += ` [${rosterPlayer.injuryStatus}]`;
+          }
+          tradeAnalysis += '\n';
+        }
+      });
+    }
+
+    if (latestTrade.playersFromB.length > 0 && teamBData?.roster) {
+      tradeAnalysis += '\nPLAYER PERFORMANCE (Team B assets):\n';
+      latestTrade.playersFromB.forEach(player => {
+        const rosterPlayer = teamAData?.roster?.find(p => p.playerId === player.playerId);
+        if (rosterPlayer?.stats?.seasonStats) {
+          tradeAnalysis += `- ${player.playerName}: ${rosterPlayer.stats.seasonStats.averagePoints?.toFixed(1)} ppg`;
+          if (rosterPlayer.stats.recentPerformance) {
+            tradeAnalysis += ` (${rosterPlayer.stats.recentPerformance.trend})`;
+          }
+          if (rosterPlayer.injuryStatus) {
+            tradeAnalysis += ` [${rosterPlayer.injuryStatus}]`;
+          }
+          tradeAnalysis += '\n';
+        }
+      });
+    }
+
+    // Add team needs analysis
+    tradeAnalysis += '\nTEAM NEEDS ANALYSIS:\n';
+    if (teamAData?.roster) {
+      const positionCounts: Record<string, number> = {};
+      teamAData.roster.forEach(p => {
+        const pos = p.position.replace(/[0-9]/g, '');
+        positionCounts[pos] = (positionCounts[pos] || 0) + 1;
+      });
+      tradeAnalysis += `Team A depth: RB(${positionCounts['RB'] || 0}), WR(${positionCounts['WR'] || 0}), TE(${positionCounts['TE'] || 0})\n`;
+    }
+    if (teamBData?.roster) {
+      const positionCounts: Record<string, number> = {};
+      teamBData.roster.forEach(p => {
+        const pos = p.position.replace(/[0-9]/g, '');
+        positionCounts[pos] = (positionCounts[pos] || 0) + 1;
+      });
+      tradeAnalysis += `Team B depth: RB(${positionCounts['RB'] || 0}), WR(${positionCounts['WR'] || 0}), TE(${positionCounts['TE'] || 0})\n`;
+    }
+
+    if (latestTrade.tradeGrade) {
+      tradeAnalysis += `\nINITIAL GRADES: Team A: ${latestTrade.tradeGrade.teamA}, Team B: ${latestTrade.tradeGrade.teamB}\n`;
+    }
+
+    tradeAnalysis += '\nAnalyze this trade considering team needs, player performance trends, injury risks, and playoff implications.';
+    
+    return tradeAnalysis;
   }
 
   private buildRivalryData(data: LeagueDataContext): string {
-    // Pick two teams with similar records for rivalry
+    // Check for existing rivalries
+    if (data.rivalries && data.rivalries.length > 0) {
+      // Find the most intense rivalry
+      const rivalry = data.rivalries.find(r => r.intensity === "bitter" || r.intensity === "heated") || data.rivalries[0];
+      
+      let rivalryData = `RIVALRY MATCHUP:
+${rivalry.teamA.name} vs ${rivalry.teamB.name}
+
+RIVALRY HISTORY:
+- All-time record: ${rivalry.teamA.name} ${rivalry.allTimeRecord.teamAWins}-${rivalry.allTimeRecord.teamBWins}${rivalry.allTimeRecord.ties > 0 ? `-${rivalry.allTimeRecord.ties}` : ''}
+- Intensity level: ${rivalry.intensity.toUpperCase()}
+${rivalry.backstory ? `- Backstory: ${rivalry.backstory}` : ''}
+
+CURRENT SEASON STATUS:
+`;
+      
+      const teamAData = data.teams.find(t => t.id === rivalry.teamA.id || t.externalId === rivalry.teamA.id);
+      const teamBData = data.teams.find(t => t.id === rivalry.teamB.id || t.externalId === rivalry.teamB.id);
+      
+      if (teamAData && teamBData) {
+        rivalryData += `${rivalry.teamA.name}: ${teamAData.record.wins}-${teamAData.record.losses}, ${teamAData.pointsFor.toFixed(1)} PF
+${rivalry.teamB.name}: ${teamBData.record.wins}-${teamBData.record.losses}, ${teamBData.pointsFor.toFixed(1)} PF
+
+RECENT FORM:
+`;
+        if (teamAData.recentForm) {
+          rivalryData += `${rivalry.teamA.name}: ${teamAData.recentForm.wins}-${teamAData.recentForm.losses} last 3 weeks, ${teamAData.recentForm.avgPoints.toFixed(1)} ppg\n`;
+        }
+        if (teamBData.recentForm) {
+          rivalryData += `${rivalry.teamB.name}: ${teamBData.recentForm.wins}-${teamBData.recentForm.losses} last 3 weeks, ${teamBData.recentForm.avgPoints.toFixed(1)} ppg\n`;
+        }
+      }
+      
+      if (rivalry.recentGames && rivalry.recentGames.length > 0) {
+        rivalryData += '\nRECENT HEAD-TO-HEAD:\n';
+        rivalry.recentGames.slice(-3).forEach(game => {
+          rivalryData += `Week ${game.week}: ${rivalry.teamA.name} ${game.scoreA} - ${game.scoreB} ${rivalry.teamB.name}\n`;
+        });
+      }
+      
+      rivalryData += '\nCreate an exciting narrative about this rivalry matchup, incorporating the history and current context.';
+      
+      return rivalryData;
+    }
+    
+    // Fallback: Create rivalry from two competitive teams
     const sortedTeams = [...data.teams].sort((a, b) => b.record.wins - a.record.wins);
     const team1 = sortedTeams[0];
     const team2 = sortedTeams[1];
 
-    return `RIVALRY MATCHUP:
+    let rivalryData = `RIVALRY MATCHUP:
 ${team1.name} (${team1.record.wins}-${team1.record.losses}) vs ${team2.name} (${team2.record.wins}-${team2.record.losses})
 
-Create an exciting rivalry narrative between these two teams.
-Manager 1: ${team1.manager}
-Manager 2: ${team2.manager}`;
+CURRENT SEASON STATS:
+${team1.name}:
+- Manager: ${team1.manager}
+- Points For: ${team1.pointsFor.toFixed(1)}
+- Playoff Seed: ${team1.playoffSeed || 'TBD'}
+${team1.recentForm ? `- Recent Form: ${team1.recentForm.wins}-${team1.recentForm.losses}, ${team1.recentForm.avgPoints.toFixed(1)} ppg` : ''}
+
+${team2.name}:
+- Manager: ${team2.manager}
+- Points For: ${team2.pointsFor.toFixed(1)}
+- Playoff Seed: ${team2.playoffSeed || 'TBD'}
+${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm.losses}, ${team2.recentForm.avgPoints.toFixed(1)} ppg` : ''}
+`;
+
+    // Check for previous matchups this season
+    const headToHead = data.recentMatchups?.filter(m => 
+      (m.teamA === team1.name && m.teamB === team2.name) ||
+      (m.teamA === team2.name && m.teamB === team1.name)
+    );
+    
+    if (headToHead && headToHead.length > 0) {
+      rivalryData += '\nPREVIOUS MATCHUPS THIS SEASON:\n';
+      headToHead.forEach(game => {
+        rivalryData += `Week ${game.week}: ${game.teamA} ${game.scoreA} - ${game.scoreB} ${game.teamB}`;
+        if (game.memorableMoment) {
+          rivalryData += ` (${game.memorableMoment})`;
+        }
+        rivalryData += '\n';
+      });
+    }
+
+    rivalryData += '\nCreate an exciting rivalry narrative between these two competitive teams.';
+    
+    return rivalryData;
   }
 
   private buildWaiverWireData(data: LeagueDataContext): string {

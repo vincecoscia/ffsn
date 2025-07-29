@@ -546,4 +546,257 @@ export default defineSchema({
     .index("by_league_player", ["leagueId", "espnId", "season"])
     .index("by_league", ["leagueId"])
     .index("by_player", ["espnId"]),
+
+  // Trade transactions
+  trades: defineTable({
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    tradeDate: v.number(),
+    status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("rejected"), v.literal("completed")),
+    
+    // Teams involved
+    teamA: v.object({
+      teamId: v.string(),
+      teamName: v.string(),
+      manager: v.string(),
+    }),
+    teamB: v.object({
+      teamId: v.string(),
+      teamName: v.string(),
+      manager: v.string(),
+    }),
+    
+    // Players exchanged
+    playersFromTeamA: v.array(v.object({
+      playerId: v.string(),
+      playerName: v.string(),
+      position: v.string(),
+      team: v.string(), // NFL team
+    })),
+    playersFromTeamB: v.array(v.object({
+      playerId: v.string(),
+      playerName: v.string(),
+      position: v.string(),
+      team: v.string(), // NFL team
+    })),
+    
+    // Optional trade details
+    faabFromTeamA: v.optional(v.number()),
+    faabFromTeamB: v.optional(v.number()),
+    draftPicksFromTeamA: v.optional(v.array(v.object({
+      round: v.number(),
+      year: v.number(),
+    }))),
+    draftPicksFromTeamB: v.optional(v.array(v.object({
+      round: v.number(),
+      year: v.number(),
+    }))),
+    
+    // Trade analysis (can be AI-generated or manual)
+    analysis: v.optional(v.object({
+      teamAGrade: v.optional(v.string()), // A+, A, B+, etc.
+      teamBGrade: v.optional(v.string()),
+      summary: v.optional(v.string()),
+      impactTeamA: v.optional(v.string()),
+      impactTeamB: v.optional(v.string()),
+    })),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_season", ["leagueId", "seasonId"])
+    .index("by_date", ["leagueId", "tradeDate"])
+    .index("by_team", ["leagueId", "teamA.teamId"])
+    .index("by_status", ["status"]),
+
+  // All transactions (waivers, drops, adds)
+  transactions: defineTable({
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    transactionDate: v.number(),
+    transactionType: v.union(
+      v.literal("add"),
+      v.literal("drop"),
+      v.literal("add_drop"),
+      v.literal("waiver_claim"),
+      v.literal("trade") // Reference to trades table
+    ),
+    
+    // Team making the transaction
+    teamId: v.string(),
+    teamName: v.string(),
+    manager: v.string(),
+    
+    // Players involved
+    playerAdded: v.optional(v.object({
+      playerId: v.string(),
+      playerName: v.string(),
+      position: v.string(),
+      team: v.string(), // NFL team
+    })),
+    playerDropped: v.optional(v.object({
+      playerId: v.string(),
+      playerName: v.string(),
+      position: v.string(),
+      team: v.string(), // NFL team
+    })),
+    
+    // Waiver details
+    waiverPriority: v.optional(v.number()),
+    faabBid: v.optional(v.number()),
+    isSuccessful: v.optional(v.boolean()),
+    
+    // Reference to trade if applicable
+    tradeId: v.optional(v.id("trades")),
+    
+    createdAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_season", ["leagueId", "seasonId"])
+    .index("by_date", ["leagueId", "transactionDate"])
+    .index("by_team", ["leagueId", "teamId"])
+    .index("by_type", ["transactionType"]),
+
+  // Team rivalries
+  rivalries: defineTable({
+    leagueId: v.id("leagues"),
+    teamA: v.object({
+      teamId: v.string(),
+      teamName: v.string(),
+      manager: v.string(),
+    }),
+    teamB: v.object({
+      teamId: v.string(),
+      teamName: v.string(),
+      manager: v.string(),
+    }),
+    
+    // Rivalry stats
+    allTimeRecord: v.object({
+      teamAWins: v.number(),
+      teamBWins: v.number(),
+      ties: v.number(),
+    }),
+    playoffMeetings: v.number(),
+    championshipMeetings: v.number(),
+    
+    // Notable games
+    notableGames: v.optional(v.array(v.object({
+      seasonId: v.number(),
+      week: v.number(),
+      teamAScore: v.number(),
+      teamBScore: v.number(),
+      significance: v.string(), // "Playoff", "Championship", "Upset", etc.
+      description: v.optional(v.string()),
+    }))),
+    
+    // Rivalry intensity (calculated or manual)
+    intensity: v.union(
+      v.literal("casual"),
+      v.literal("competitive"), 
+      v.literal("heated"),
+      v.literal("bitter")
+    ),
+    
+    // Custom rivalry story/lore
+    backstory: v.optional(v.string()),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_teams", ["leagueId", "teamA.teamId", "teamB.teamId"]),
+
+  // Manager activity tracking
+  managerActivity: defineTable({
+    leagueId: v.id("leagues"),
+    userId: v.string(), // Clerk user ID
+    teamId: v.string(),
+    seasonId: v.number(),
+    
+    // Activity metrics
+    totalTransactions: v.number(),
+    trades: v.number(),
+    waiverClaims: v.number(),
+    lineupChanges: v.number(),
+    
+    // Engagement metrics
+    lastActiveAt: v.number(),
+    loginCount: v.number(),
+    messagesSent: v.optional(v.number()),
+    
+    // Performance metrics
+    optimalLineupPercentage: v.optional(v.number()), // How often they set optimal lineup
+    benchPointsLeft: v.optional(v.number()), // Total points left on bench
+    
+    // Awards/Recognition
+    weeklyHighScores: v.number(),
+    weeklyLowScores: v.number(),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league_user", ["leagueId", "userId"])
+    .index("by_league_season", ["leagueId", "seasonId"])
+    .index("by_team", ["teamId"]),
+
+  // Weather data for games (optional)
+  weatherData: defineTable({
+    nflGameId: v.string(), // ESPN game ID or similar
+    gameDate: v.number(),
+    stadium: v.string(),
+    
+    // Weather conditions
+    temperature: v.number(), // Fahrenheit
+    condition: v.string(), // "Clear", "Rain", "Snow", etc.
+    windSpeed: v.optional(v.number()), // mph
+    precipitation: v.optional(v.number()), // percentage
+    isDome: v.boolean(),
+    
+    // Impact assessment
+    passingImpact: v.optional(v.string()), // "Negative", "Neutral", "Positive"
+    rushingImpact: v.optional(v.string()),
+    kickingImpact: v.optional(v.string()),
+    
+    createdAt: v.number(),
+  })
+    .index("by_date", ["gameDate"])
+    .index("by_game", ["nflGameId"]),
+
+  // NFL team schedules
+  nflSchedules: defineTable({
+    season: v.number(),
+    week: v.number(),
+    teamId: v.number(), // ESPN team ID
+    teamAbbrev: v.string(),
+    
+    // Game details
+    opponent: v.string(),
+    isHome: v.boolean(),
+    gameTime: v.number(),
+    
+    // Matchup difficulty
+    opponentRankVsPosition: v.optional(v.object({
+      vsQB: v.optional(v.number()),
+      vsRB: v.optional(v.number()),
+      vsWR: v.optional(v.number()),
+      vsTE: v.optional(v.number()),
+      vsDST: v.optional(v.number()),
+    })),
+    
+    // Game result (after played)
+    result: v.optional(v.object({
+      teamScore: v.number(),
+      opponentScore: v.number(),
+      won: v.boolean(),
+    })),
+    
+    isByeWeek: v.boolean(),
+    
+    createdAt: v.number(),
+  })
+    .index("by_team_season", ["teamId", "season"])
+    .index("by_week", ["season", "week"])
+    .index("by_team_week", ["teamId", "season", "week"]),
 });

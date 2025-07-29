@@ -342,227 +342,69 @@ export const generateContentAction = action({
   },
 });
 
-// Query to get league data for generation
+// Query to get league data for generation - using enhanced data
 export const getLeagueDataForGeneration = query({
   args: { leagueId: v.id("leagues") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<any> => {
     console.log("=== getLeagueDataForGeneration START ===");
     console.log("League ID:", args.leagueId);
     
-    const league = await ctx.db.get(args.leagueId);
-    if (!league) {
-      throw new Error("League not found");
-    }
+    // Use our enhanced query to get all enriched data
+    const enrichedData = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+      leagueId: args.leagueId,
+    });
+    
+    console.log("Enriched league data fetched:", {
+      teams: enrichedData.teams.length,
+      trades: enrichedData.trades.length,
+      transactions: enrichedData.transactions.length,
+      rivalries: enrichedData.rivalries.length,
+      hasTransactionTrends: !!enrichedData.transactionTrends,
+      hasPlayoffProbabilities: !!enrichedData.playoffProbabilities,
+    });
+    
+    const league = enrichedData.league;
     console.log("League found:", league.name);
 
-    // Get teams for current season (2025)
-    const currentYear = new Date().getFullYear();
-    console.log("Current year:", currentYear);
-    
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", currentYear))
-      .collect();
-    console.log("Current season teams found:", teams.length);
-    
-    // Log sample team data
-    if (teams.length > 0) {
-      console.log("Sample team:", {
-        name: teams[0].name,
-        rosterSize: teams[0].roster?.length,
-        samplePlayer: teams[0].roster?.[0],
-      });
-    }
-
-    // Get teams from previous seasons for historical data
-    const previousSeasonTeams = await ctx.db
-      .query("teams")
-      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .filter((q) => q.neq(q.field("seasonId"), currentYear))
-      .collect();
-    console.log("Previous season teams found:", previousSeasonTeams.length);
-    
-    // Group by season for logging
-    const teamsBySeason = previousSeasonTeams.reduce((acc, team) => {
-      acc[team.seasonId] = (acc[team.seasonId] || 0) + 1;
-      return acc;
-    }, {} as Record<number, number>);
-    console.log("Teams by season:", teamsBySeason);
-
-    // Get recent matchups for current season (if available)
-    const matchups = await ctx.db
-      .query("matchups")
-      .withIndex("by_league_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", currentYear))
-      .order("desc")
-      .take(10);
-    console.log("Recent matchups found:", matchups.length);
-
-    // Get players data from the players table
-    const playerIds = new Set<string>();
-    teams.forEach(team => {
-      team.roster.forEach(player => {
-        playerIds.add(player.playerId);
-      });
-    });
-
-    // Also collect player IDs from previous seasons
-    previousSeasonTeams.forEach(team => {
-      team.roster.forEach(player => {
-        playerIds.add(player.playerId);
-      });
-    });
-    console.log("Total unique player IDs collected:", playerIds.size);
-
-    // Fetch player details from players table
-    const players = await Promise.all(
-      Array.from(playerIds).map(async (playerId) => {
-        const player = await ctx.db
-          .query("players")
-          .withIndex("by_external_id", (q) => q.eq("externalId", playerId))
-          .first();
-        return player;
-      })
-    );
-    
-    const validPlayers = players.filter(p => p !== null);
-    console.log("Players found in players table:", validPlayers.length);
-
-    // Create a map of player ID to player details for quick lookup
-    const playerMap = new Map(
-      validPlayers.map(p => [p!.externalId, p])
-    );
-
-    // Get league season history
-    const leagueSeasons = await ctx.db
-      .query("leagueSeasons")
-      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .order("desc")
-      .collect();
-    console.log("League seasons found:", leagueSeasons.length);
-
-    // Note: trades table doesn't exist in schema, so we'll return empty array
-    const trades: any[] = [];
-
-    // Build previous seasons data
-    const previousSeasonsData = previousSeasonTeams.reduce((acc, team) => {
-      const seasonId = team.seasonId;
-      if (!acc[seasonId]) {
-        acc[seasonId] = [];
-      }
-      acc[seasonId].push({
-        teamId: team.externalId,
-        teamName: team.name,
-        manager: team.owner,
-        record: team.record,
-        roster: team.roster.map(player => ({
-          playerId: player.playerId,
-          playerName: player.playerName,
-          position: player.position,
-          team: player.team,
-          acquisitionType: player.acquisitionType || "UNKNOWN",
-          // Try to get enhanced info but it might not exist for old players
-          fullName: playerMap.get(player.playerId)?.fullName || player.playerName,
-        })),
-      });
-      return acc;
-    }, {} as Record<number, any[]>);
-    
-    console.log("Previous seasons data structure:", {
-      seasons: Object.keys(previousSeasonsData),
-      sampleSeason: Object.keys(previousSeasonsData)[0] ? {
-        year: Object.keys(previousSeasonsData)[0],
-        teamCount: previousSeasonsData[Number(Object.keys(previousSeasonsData)[0])].length,
-        sampleTeam: previousSeasonsData[Number(Object.keys(previousSeasonsData)[0])][0]?.teamName,
-        sampleRosterSize: previousSeasonsData[Number(Object.keys(previousSeasonsData)[0])][0]?.roster.length,
-      } : null,
-    });
-
-    // Build league data context with enhanced roster information
+    // Transform enriched data to match the expected format for AI generation
     const result = {
-      leagueName: league.name,
-      currentWeek: league.espnData?.currentScoringPeriod || 1,
-      teams: teams.map(team => ({
-        id: team._id,
-        name: team.name,
-        manager: team.owner,
-        record: team.record,
-        pointsFor: team.record.pointsFor || 0,
-        pointsAgainst: team.record.pointsAgainst || 0,
-        externalId: team.externalId, // ESPN team ID for consistency tracking across seasons
-        roster: team.roster.map(rosterPlayer => {
-          const playerDetails = playerMap.get(rosterPlayer.playerId);
-          return {
-            playerId: rosterPlayer.playerId,
-            playerName: rosterPlayer.playerName,
-            position: rosterPlayer.position,
-            team: rosterPlayer.team,
-            lineupSlotId: rosterPlayer.lineupSlotId,
-            acquisitionType: rosterPlayer.acquisitionType,
-            // Enhanced player details from players table
-            fullName: playerDetails?.fullName || rosterPlayer.playerName,
-            eligiblePositions: playerDetails?.eligiblePositions || [rosterPlayer.position],
-            injuryStatus: playerDetails?.injuryStatus,
-            stats: {
-              appliedTotal: rosterPlayer.playerStats?.appliedTotal,
-              projectedTotal: rosterPlayer.playerStats?.projectedTotal,
-              seasonStats: playerDetails?.stats?.seasonStats,
-              weeklyStats: playerDetails?.stats?.weeklyStats,
-            },
-            ownership: playerDetails?.ownership,
-          };
-        }),
-      })),
-      // Add previous season data for season welcome package
-      previousSeasons: previousSeasonsData,
-      recentMatchups: matchups.map(m => ({
-        teamA: m.homeTeamId,
-        teamB: m.awayTeamId,
-        scoreA: m.homeScore,
-        scoreB: m.awayScore,
-        winner: m.winner,
-        week: m.matchupPeriod,
-        // Find top performers from rosters for each matchup
-        topPerformers: teams
-          .filter(t => t.externalId === m.homeTeamId || t.externalId === m.awayTeamId)
-          .flatMap(t => 
-            t.roster
-              .filter(p => p.playerStats?.appliedTotal)
-              .map(p => ({
-                playerId: p.playerId,
-                playerName: p.playerName,
-                points: p.playerStats!.appliedTotal!,
-                teamId: t._id,
-                position: p.position,
-              }))
-          )
-          .sort((a, b) => b.points - a.points)
-          .slice(0, 5), // Top 5 performers per matchup
-      })),
-      trades: trades.map(t => ({
-        teamA: t.teamA,
-        teamB: t.teamB,
-        playersFromA: t.playersFromA || [],
-        playersFromB: t.playersFromB || [],
-        date: new Date(t.createdAt).toLocaleDateString(),
-      })),
-      scoringType: league.settings?.scoringType || "PPR",
-      rosterSize: league.settings?.rosterSize || 16,
-      // Additional context for content generation
-      leagueHistory: {
-        foundedYear: league.createdAt ? new Date(league.createdAt).getFullYear() : currentYear,
-        totalSeasons: leagueSeasons.length || 1,
-        seasons: leagueSeasons.map(season => ({
-          year: season.seasonId,
-          champion: season.champion,
-          runnerUp: season.runnerUp,
-          regularSeasonChampion: season.regularSeasonChampion,
-          settings: season.settings ? {
-            scoringType: season.settings.scoringType,
-            teamCount: season.settings.size, // Map size to teamCount
-            playoffWeeks: season.settings.playoffWeeks,
-          } : undefined,
-        })),
-      },
+      // Core league info
+      league: enrichedData.league,
+      leagueName: enrichedData.league.name,
+      currentWeek: enrichedData.currentWeek,
+      currentSeason: enrichedData.currentSeason,
+      
+      // Teams with all enhanced data
+      teams: enrichedData.teams,
+      standings: enrichedData.standings,
+      
+      // Matchup data
+      recentMatchups: enrichedData.recentMatchups,
+      
+      // Transaction data
+      trades: enrichedData.trades,
+      transactions: enrichedData.transactions,
+      transactionTrends: enrichedData.transactionTrends,
+      
+      // Rivalry data
+      rivalries: enrichedData.rivalries,
+      
+      // Manager activity
+      managerActivity: enrichedData.managerActivity,
+      
+      // Playoff probabilities
+      playoffProbabilities: enrichedData.playoffProbabilities,
+      
+      // League history
+      leagueHistory: enrichedData.leagueHistory,
+      
+      // Additional metadata
+      scoringType: enrichedData.league.settings?.scoringType || "PPR",
+      rosterSize: enrichedData.league.settings?.rosterSize || 16,
+      metadata: enrichedData.metadata,
+      
+      // Legacy fields for backward compatibility
+      previousSeasons: {}, // Will be populated from league history if needed
     };
     
     console.log("=== FINAL LEAGUE DATA SUMMARY ===");
@@ -573,7 +415,7 @@ export const getLeagueDataForGeneration = query({
       previousSeasons: Object.keys(result.previousSeasons).length,
       matchups: result.recentMatchups.length,
       trades: result.trades.length,
-      leagueHistorySeasons: result.leagueHistory.seasons?.length || 0,
+      leagueHistorySeasons: result.leagueHistory?.length || 0,
     });
     console.log("=== getLeagueDataForGeneration END ===");
     

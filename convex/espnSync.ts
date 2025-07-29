@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action, mutation } from "./_generated/server";
+import { action, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
@@ -51,8 +51,8 @@ export const syncLeagueData = action({
         headers['Cookie'] = `espn_s2=${league.espnData.espnS2}; SWID=${league.espnData.swid}`;
       }
 
-      // Get comprehensive league data including players, matchups, and draft info
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings`, {
+      // Get comprehensive league data including players, matchups, draft info, and transactions
+      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication`, {
         headers
       });
 
@@ -67,6 +67,7 @@ export const syncLeagueData = action({
       const schedule = leagueData.schedule || [];
       const players = leagueData.players || [];
       const draftDetail = leagueData.draftDetail;
+      const communication = leagueData.communication || {};
 
       // Create a map of member IDs to member data for easy lookup
       const memberMap = new Map();
@@ -162,7 +163,7 @@ export const syncLeagueData = action({
             const member = memberMap.get(owner);
             if (member) {
               return {
-                ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+                ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
                 ownerInfo: {
                   displayName: member.displayName,
                   firstName: member.firstName,
@@ -174,10 +175,7 @@ export const syncLeagueData = action({
           } else if (owner.displayName || owner.firstName || owner.lastName) {
             // Owner is an object with properties
             return {
-              ownerName: owner.displayName || 
-                        (owner.firstName && owner.lastName 
-                          ? `${owner.firstName} ${owner.lastName}` 
-                          : owner.firstName || owner.lastName || 'Unknown'),
+              ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
               ownerInfo: {
                 displayName: owner.displayName,
                 firstName: owner.firstName,
@@ -192,7 +190,7 @@ export const syncLeagueData = action({
         if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
           const member = memberMap.get(team.primaryOwner);
           return {
-            ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+            ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
             ownerInfo: {
               displayName: member.displayName,
               firstName: member.firstName,
@@ -208,7 +206,7 @@ export const syncLeagueData = action({
         );
         if (matchingMember) {
           return {
-            ownerName: matchingMember.displayName || `${matchingMember.firstName || ''} ${matchingMember.lastName || ''}`.trim() || 'Unknown',
+            ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
             ownerInfo: {
               displayName: matchingMember.displayName,
               firstName: matchingMember.firstName,
@@ -335,6 +333,31 @@ export const syncLeagueData = action({
         console.error('Error fetching rosters:', rosterError);
         // Don't fail the entire sync if roster fetching fails
       }
+
+      // Process transaction data if available
+      if (communication.messages && communication.messages.length > 0) {
+        console.log(`Processing ${communication.messages.length} transaction messages...`);
+        try {
+          await ctx.runAction(api.espnSync.processTransactionData, {
+            leagueId: args.leagueId,
+            seasonId: currentYear,
+            messages: communication.messages,
+            teams: teams.map((t: any) => ({
+              id: t.id.toString(),
+              name: t.name || 'Unknown Team',
+              owner: getOwnerInfo(t).ownerName,
+            })),
+          });
+        } catch (transactionError) {
+          console.error('Error processing transactions:', transactionError);
+          // Don't fail the entire sync if transaction processing fails
+        }
+      }
+
+      // Run data processing pipeline after successful sync
+      // Note: This would be called separately after sync completes
+      // to avoid circular dependencies and internal mutation issues
+      console.log("Sync completed. Data processing should be triggered separately.");
 
       return {
         success: true,
@@ -765,7 +788,7 @@ export const syncHistoricalData = action({
             const member = memberMap.get(owner);
             if (member) {
               return {
-                ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+                ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
                 ownerInfo: {
                   displayName: member.displayName,
                   firstName: member.firstName,
@@ -777,10 +800,7 @@ export const syncHistoricalData = action({
           } else if (owner.displayName || owner.firstName || owner.lastName) {
             // Owner is an object with properties
             return {
-              ownerName: owner.displayName || 
-                        (owner.firstName && owner.lastName 
-                          ? `${owner.firstName} ${owner.lastName}` 
-                          : owner.firstName || owner.lastName || 'Unknown'),
+              ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
               ownerInfo: {
                 displayName: owner.displayName,
                 firstName: owner.firstName,
@@ -795,7 +815,7 @@ export const syncHistoricalData = action({
           if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
             const member = memberMap.get(team.primaryOwner);
             return {
-              ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+              ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
               ownerInfo: {
                 displayName: member.displayName,
                 firstName: member.firstName,
@@ -811,7 +831,7 @@ export const syncHistoricalData = action({
           );
           if (matchingMember) {
             return {
-              ownerName: matchingMember.displayName || `${matchingMember.firstName || ''} ${matchingMember.lastName || ''}`.trim() || 'Unknown',
+              ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
               ownerInfo: {
                 displayName: matchingMember.displayName,
                 firstName: matchingMember.firstName,
@@ -1580,7 +1600,7 @@ export const syncAllLeagueData = action({
             const member = memberMap.get(owner);
             if (member) {
               return {
-                ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+                ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
                 ownerInfo: {
                   displayName: member.displayName,
                   firstName: member.firstName,
@@ -1592,10 +1612,7 @@ export const syncAllLeagueData = action({
           } else if (owner.displayName || owner.firstName || owner.lastName) {
             // Owner is an object with properties
             return {
-              ownerName: owner.displayName || 
-                        (owner.firstName && owner.lastName 
-                          ? `${owner.firstName} ${owner.lastName}` 
-                          : owner.firstName || owner.lastName || 'Unknown'),
+              ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
               ownerInfo: {
                 displayName: owner.displayName,
                 firstName: owner.firstName,
@@ -1610,7 +1627,7 @@ export const syncAllLeagueData = action({
           if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
             const member = memberMap.get(team.primaryOwner);
             return {
-              ownerName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Unknown',
+              ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
               ownerInfo: {
                 displayName: member.displayName,
                 firstName: member.firstName,
@@ -1626,7 +1643,7 @@ export const syncAllLeagueData = action({
           );
           if (matchingMember) {
             return {
-              ownerName: matchingMember.displayName || `${matchingMember.firstName || ''} ${matchingMember.lastName || ''}`.trim() || 'Unknown',
+              ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
               ownerInfo: {
                 displayName: matchingMember.displayName,
                 firstName: matchingMember.firstName,
@@ -2278,5 +2295,324 @@ export const updateLeagueSync = mutation({
       },
       lastSync: Date.now(),
     });
+  },
+});
+
+// Process transaction data from ESPN communication messages
+export const processTransactionData = action({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    messages: v.array(v.any()),
+    teams: v.array(v.object({
+      id: v.string(),
+      name: v.string(),
+      owner: v.string(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const processedTransactions = [];
+    const processedTrades = [];
+    
+    // Create team lookup map
+    const teamMap = new Map(args.teams.map(t => [t.id, t]));
+    
+    for (const message of args.messages) {
+      const messageType = message.messageTypeId;
+      const date = message.date || Date.now();
+      
+      // Process different transaction types
+      if (messageType === 244 || messageType === 188) { // Trade messages
+        const tradeData = await processTradeMessage(message, teamMap);
+        if (tradeData) {
+          processedTrades.push({
+            ...tradeData,
+            leagueId: args.leagueId,
+            seasonId: args.seasonId,
+            tradeDate: date,
+          });
+        }
+      } else if (messageType === 178 || messageType === 180 || messageType === 179) { 
+        // Waiver claim (178), Free agent add (180), Drop (179)
+        const transactionData = await processTransactionMessage(message, teamMap);
+        if (transactionData) {
+          processedTransactions.push({
+            ...transactionData,
+            leagueId: args.leagueId,
+            seasonId: args.seasonId,
+            transactionDate: date,
+          });
+        }
+      }
+    }
+    
+    // Store trades
+    if (processedTrades.length > 0) {
+      await ctx.runMutation(api.espnSync.storeTrades, {
+        trades: processedTrades,
+      });
+    }
+    
+    // Store transactions
+    if (processedTransactions.length > 0) {
+      await ctx.runMutation(api.espnSync.storeTransactions, {
+        transactions: processedTransactions,
+      });
+    }
+    
+    console.log(`Processed ${processedTrades.length} trades and ${processedTransactions.length} transactions`);
+    
+    return {
+      tradesProcessed: processedTrades.length,
+      transactionsProcessed: processedTransactions.length,
+    };
+  },
+});
+
+// Helper function to process trade messages
+async function processTradeMessage(message: any, teamMap: Map<string, any>) {
+  try {
+    // ESPN trade messages contain targetId (receiving team) and messages array with player details
+    const teamAId = message.author?.toString();
+    const teamBId = message.targetId?.toString();
+    
+    if (!teamAId || !teamBId || !teamMap.has(teamAId) || !teamMap.has(teamBId)) {
+      return null;
+    }
+    
+    const teamA = teamMap.get(teamAId)!;
+    const teamB = teamMap.get(teamBId)!;
+    
+    // Parse players from message - this structure varies by ESPN version
+    const playersFromA: any[] = [];
+    const playersFromB: any[] = [];
+    
+    // ESPN often embeds player info in the messages array
+    if (message.messages && Array.isArray(message.messages)) {
+      message.messages.forEach((msg: any) => {
+        if (msg.playerId && msg.fromTeamId && msg.toTeamId) {
+          const player = {
+            playerId: msg.playerId.toString(),
+            playerName: msg.playerName || 'Unknown Player',
+            position: msg.playerPosition || 'Unknown',
+            team: msg.playerProTeam || 'FA',
+          };
+          
+          if (msg.fromTeamId.toString() === teamAId) {
+            playersFromA.push(player);
+          } else if (msg.fromTeamId.toString() === teamBId) {
+            playersFromB.push(player);
+          }
+        }
+      });
+    }
+    
+    // Only create trade if we found players
+    if (playersFromA.length === 0 && playersFromB.length === 0) {
+      return null;
+    }
+    
+    return {
+      teamA: {
+        teamId: teamAId,
+        teamName: teamA.name,
+        manager: teamA.owner,
+      },
+      teamB: {
+        teamId: teamBId,
+        teamName: teamB.name,
+        manager: teamB.owner,
+      },
+      playersFromTeamA: playersFromA,
+      playersFromTeamB: playersFromB,
+      status: 'completed' as const,
+    };
+  } catch (error) {
+    console.error('Error processing trade message:', error);
+    return null;
+  }
+}
+
+// Helper function to process waiver/FA transactions
+async function processTransactionMessage(message: any, teamMap: Map<string, any>) {
+  try {
+    const teamId = message.author?.toString();
+    if (!teamId || !teamMap.has(teamId)) {
+      return null;
+    }
+    
+    const team = teamMap.get(teamId)!;
+    const messageType = message.messageTypeId;
+    
+    // Parse transaction details from message
+    let transactionType: 'add' | 'drop' | 'add_drop' | 'waiver_claim';
+    let playerAdded = undefined;
+    let playerDropped = undefined;
+    
+    // Extract player info from messages array
+    if (message.messages && Array.isArray(message.messages)) {
+      message.messages.forEach((msg: any) => {
+        if (msg.playerId) {
+          const player = {
+            playerId: msg.playerId.toString(),
+            playerName: msg.playerName || 'Unknown Player',
+            position: msg.playerPosition || 'Unknown',
+            team: msg.playerProTeam || 'FA',
+          };
+          
+          if (messageType === 180 || messageType === 178) { // Add or Waiver
+            playerAdded = player;
+            transactionType = messageType === 178 ? 'waiver_claim' : 'add';
+          } else if (messageType === 179) { // Drop
+            playerDropped = player;
+            transactionType = 'drop';
+          }
+        }
+      });
+    }
+    
+    // Handle add/drop combo
+    if (playerAdded && playerDropped) {
+      transactionType = 'add_drop';
+    }
+    
+    if (!playerAdded && !playerDropped) {
+      return null;
+    }
+    
+    return {
+      teamId,
+      teamName: team.name,
+      manager: team.owner,
+      transactionType: transactionType!,
+      playerAdded,
+      playerDropped,
+      waiverPriority: message.waiverOrder,
+      isSuccessful: true,
+    };
+  } catch (error) {
+    console.error('Error processing transaction message:', error);
+    return null;
+  }
+}
+
+// Store trades in database
+export const storeTrades = mutation({
+  args: {
+    trades: v.array(v.object({
+      leagueId: v.id("leagues"),
+      seasonId: v.number(),
+      tradeDate: v.number(),
+      teamA: v.object({
+        teamId: v.string(),
+        teamName: v.string(),
+        manager: v.string(),
+      }),
+      teamB: v.object({
+        teamId: v.string(),
+        teamName: v.string(),
+        manager: v.string(),
+      }),
+      playersFromTeamA: v.array(v.object({
+        playerId: v.string(),
+        playerName: v.string(),
+        position: v.string(),
+        team: v.string(),
+      })),
+      playersFromTeamB: v.array(v.object({
+        playerId: v.string(),
+        playerName: v.string(),
+        position: v.string(),
+        team: v.string(),
+      })),
+      status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("rejected"), v.literal("completed")),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    
+    for (const trade of args.trades) {
+      // Check if trade already exists (by date and teams)
+      const existingTrade = await ctx.db
+        .query("trades")
+        .withIndex("by_date", q => 
+          q.eq("leagueId", trade.leagueId)
+           .eq("tradeDate", trade.tradeDate)
+        )
+        .filter(q => 
+          q.and(
+            q.eq(q.field("teamA.teamId"), trade.teamA.teamId),
+            q.eq(q.field("teamB.teamId"), trade.teamB.teamId)
+          )
+        )
+        .first();
+      
+      if (!existingTrade) {
+        await ctx.db.insert("trades", {
+          ...trade,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  },
+});
+
+// Store transactions in database
+export const storeTransactions = mutation({
+  args: {
+    transactions: v.array(v.object({
+      leagueId: v.id("leagues"),
+      seasonId: v.number(),
+      transactionDate: v.number(),
+      transactionType: v.union(
+        v.literal("add"),
+        v.literal("drop"),
+        v.literal("add_drop"),
+        v.literal("waiver_claim"),
+        v.literal("trade")
+      ),
+      teamId: v.string(),
+      teamName: v.string(),
+      manager: v.string(),
+      playerAdded: v.optional(v.object({
+        playerId: v.string(),
+        playerName: v.string(),
+        position: v.string(),
+        team: v.string(),
+      })),
+      playerDropped: v.optional(v.object({
+        playerId: v.string(),
+        playerName: v.string(),
+        position: v.string(),
+        team: v.string(),
+      })),
+      waiverPriority: v.optional(v.number()),
+      isSuccessful: v.optional(v.boolean()),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    
+    for (const transaction of args.transactions) {
+      // Check if transaction already exists
+      const existingTransaction = await ctx.db
+        .query("transactions")
+        .withIndex("by_date", q => 
+          q.eq("leagueId", transaction.leagueId)
+           .eq("transactionDate", transaction.transactionDate)
+        )
+        .filter(q => 
+          q.eq(q.field("teamId"), transaction.teamId)
+        )
+        .first();
+      
+      if (!existingTransaction) {
+        await ctx.db.insert("transactions", {
+          ...transaction,
+          createdAt: now,
+        });
+      }
+    }
   },
 });
