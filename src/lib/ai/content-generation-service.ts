@@ -270,7 +270,7 @@ Make sure each section follows the template requirements and word counts.`;
         tools: [{
           name: "generate_article",
           description: "Generate a structured fantasy football article",
-          input_schema: zodToJsonSchema(GeneratedArticle) as any,
+          input_schema: zodToJsonSchema(GeneratedArticle) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
         }],
         tool_choice: { type: "tool", name: "generate_article" },
       });
@@ -278,7 +278,7 @@ Make sure each section follows the template requirements and word counts.`;
       console.log("Structured API call successful");
 
       // Extract the structured data from the tool use
-      const toolUse = response.content.find((c: any) => c.type === 'tool_use');
+      const toolUse = response.content.find((c: any) => c.type === 'tool_use'); // eslint-disable-line @typescript-eslint/no-explicit-any
       if (!toolUse || toolUse.type !== 'tool_use') {
         throw new Error('No structured output received');
       }

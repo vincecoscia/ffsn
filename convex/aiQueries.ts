@@ -181,8 +181,7 @@ export const getLeagueDataForAI = query({
     
     // Analyze transaction trends
     const transactionTrends = analyzeTransactionTrends(
-      transactions as any, // Type mismatch - helper expects different format
-      4
+      transactions as any // Type mismatch - helper expects different format
     );
     
     // Calculate playoff probabilities

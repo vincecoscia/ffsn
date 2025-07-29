@@ -170,7 +170,7 @@ export function calculateBenchPoints(
 
   // Separate starters and bench
   const starters = playersWithPoints.filter(p => p.lineupSlotId !== undefined && p.lineupSlotId < 20);
-  const bench = playersWithPoints.filter(p => p.lineupSlotId === undefined || p.lineupSlotId >= 20);
+  // const bench = playersWithPoints.filter(p => p.lineupSlotId === undefined || p.lineupSlotId >= 20);
 
   // Calculate optimal lineup
   const optimalLineup = calculateOptimalLineup(playersWithPoints, lineupPositions);
@@ -227,7 +227,7 @@ function canPlayPosition(
 // Analyze transaction trends
 export function analyzeTransactionTrends(
   transactions: LeagueDataContext['transactions'],
-  weekWindow: number = 4
+  // weekWindow: number = 4
 ): {
   hotPickups: Array<{ playerName: string; position: string; pickupCount: number; }>;
   frequentDrops: Array<{ playerName: string; position: string; dropCount: number; }>;
