@@ -317,6 +317,180 @@ export const scheduledDailyPlayerSync = internalAction({
   }
 });
 
+// Sync all historical player stats for a specific league and all its seasons
+export const syncHistoricalLeaguePlayerStats = action({
+  args: {
+    leagueId: v.id("leagues"),
+    seasons: v.optional(v.array(v.number())), // If not provided, will sync all seasons the league has
+  },
+  handler: async (ctx, { leagueId, seasons }): Promise<{
+    status: string;
+    message: string;
+    totalSeasons: number;
+    results: Array<{
+      season: number;
+      status: string;
+      playersProcessed?: number;
+      error?: string;
+    }>;
+    timestamp: number;
+  }> => {
+    console.log(`Starting historical player stats sync for league ${leagueId}`);
+    
+    // Get league info
+    const league = await ctx.runQuery(api.leagues.getById, { id: leagueId });
+    if (!league) {
+      throw new Error("League not found");
+    }
+    
+    // Determine which seasons to sync
+    let seasonsToSync = seasons;
+    if (!seasonsToSync) {
+      // Get all seasons for this league from teams
+      const teams = await ctx.runQuery(api.teams.getByLeague, { leagueId });
+      const uniqueSeasons = [...new Set(teams.map((team: any) => team.seasonId))].sort((a, b) => Number(a) - Number(b)) as number[];
+      seasonsToSync = uniqueSeasons;
+    }
+    
+    if (!seasonsToSync || seasonsToSync.length === 0) {
+      return {
+        status: "no_seasons",
+        message: "No seasons found for this league",
+        totalSeasons: 0,
+        results: [],
+        timestamp: Date.now()
+      };
+    }
+    
+    const results = [];
+    let successCount = 0;
+    
+    // Sync each season's player stats
+    for (const season of seasonsToSync) {
+      console.log(`Syncing player stats for season ${season}...`);
+      
+      try {
+        // Use the existing syncAllLeaguePlayerStats function
+        const result = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
+          leagueId,
+          season
+        });
+        
+        results.push({
+          season,
+          status: result.status,
+          playersProcessed: result.totalPlayersProcessed
+        });
+        
+        if (result.status === "success") {
+          successCount++;
+        }
+        
+        // Add delay between seasons to avoid rate limiting
+        if (season !== seasonsToSync![seasonsToSync!.length - 1]) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } catch (error) {
+        console.error(`Failed to sync stats for season ${season}:`, error);
+        results.push({
+          season,
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    
+    return {
+      status: "completed",
+      message: `Synced ${successCount} of ${seasonsToSync!.length} seasons successfully`,
+      totalSeasons: seasonsToSync!.length,
+      results,
+      timestamp: Date.now()
+    };
+  }
+});
+
+// Sync player stats for all leagues and all their historical seasons
+export const syncAllLeaguesHistoricalPlayerStats = action({
+  args: {},
+  handler: async (ctx): Promise<{
+    status: string;
+    message: string;
+    totalLeagues: number;
+    totalSeasons: number;
+    results: Array<{
+      leagueId: string;
+      leagueName: string;
+      status: string;
+      seasonsProcessed?: number;
+      error?: string;
+    }>;
+    timestamp: number;
+  }> => {
+    console.log("Starting historical player stats sync for all leagues");
+    
+    // Get all leagues
+    const leagues = await ctx.runQuery(api.leagues.listLeagues, {});
+    
+    if (!leagues || leagues.length === 0) {
+      return {
+        status: "no_leagues",
+        message: "No leagues found to sync",
+        totalLeagues: 0,
+        totalSeasons: 0,
+        results: [],
+        timestamp: Date.now()
+      };
+    }
+    
+    const results = [];
+    let totalSeasons = 0;
+    let successfulLeagues = 0;
+    
+    for (const league of leagues) {
+      console.log(`Processing league: ${league.name} (${league._id})`);
+      
+      try {
+        const result = await ctx.runAction(api.playerHistoricalSync.syncHistoricalLeaguePlayerStats, {
+          leagueId: league._id
+        });
+        
+        results.push({
+          leagueId: league._id,
+          leagueName: league.name,
+          status: result.status,
+          seasonsProcessed: result.totalSeasons
+        });
+        
+        totalSeasons += result.totalSeasons;
+        if (result.status === "completed") {
+          successfulLeagues++;
+        }
+        
+        // Delay between leagues
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      } catch (error) {
+        console.error(`Failed to sync league ${league._id}:`, error);
+        results.push({
+          leagueId: league._id,
+          leagueName: league.name,
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    
+    return {
+      status: "completed",
+      message: `Processed ${successfulLeagues} of ${leagues.length} leagues successfully`,
+      totalLeagues: leagues.length,
+      totalSeasons,
+      results,
+      timestamp: Date.now()
+    };
+  }
+});
+
 // Internal action for cron job - all leagues sync
 export const scheduledDailyAllLeaguesSync = internalAction({
   args: {},

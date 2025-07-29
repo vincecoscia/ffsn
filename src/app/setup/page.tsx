@@ -6,6 +6,7 @@ import { api } from "../../../convex/_generated/api";
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Progress } from "@/components/ui/progress";
 
 interface EspnTeam {
   id: string;
@@ -65,6 +66,13 @@ interface EspnData {
   history: HistoricalSeason[];
 }
 
+interface SyncProgress {
+  step: number;
+  totalSteps: number;
+  message: string;
+  percentage: number;
+}
+
 export default function SetupPage() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -83,6 +91,7 @@ export default function SetupPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingEspnData, setIsLoadingEspnData] = useState(false);
   const [espnError, setEspnError] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   
   const createLeague = useMutation(api.leagues.create);
   const completeOnboarding = useMutation(api.users.completeOnboarding);
@@ -145,6 +154,8 @@ export default function SetupPage() {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    setSyncProgress({ step: 1, totalSteps: 6, message: "Creating league...", percentage: 10 });
+    
     try {
       // Step 1: Create the basic league record
       const leagueId = await createLeague({
@@ -172,25 +183,66 @@ export default function SetupPage() {
         history: espnData?.history,
       });
 
-      // Step 2: Run comprehensive data sync to populate leagueSeasons and teams tables
+      // Step 2: Show progress for league creation
+      setSyncProgress({ step: 2, totalSteps: 6, message: "League created! Fetching teams...", percentage: 20 });
+
+      // Step 3: Run comprehensive data sync to populate leagueSeasons and teams tables
       console.log('🔄 Starting comprehensive league data sync...');
-      const syncResult = await syncAllLeagueData({
+      
+      // Update progress for sync start
+      setSyncProgress({ step: 3, totalSteps: 6, message: "Syncing team data and owners...", percentage: 30 });
+      
+      // Since we can't modify the backend sync function easily, we'll simulate progress updates
+      // In a real implementation, the backend would send progress updates
+      const syncPromise = syncAllLeagueData({
         leagueId,
         includeCurrentSeason: true,
         historicalYears: 5, // Sync up to 5 years of historical data
       });
 
+      // Simulate progress updates while sync is happening
+      const progressInterval = setInterval(() => {
+        setSyncProgress(prev => {
+          if (!prev) return null;
+          const messages = [
+            "Syncing team data and owners...",
+            "Fetching player rosters...",
+            "Loading matchup history...",
+            "Processing historical seasons...",
+            "Analyzing league statistics..."
+          ];
+          const newStep = Math.min(prev.step + 1, 5);
+          const messageIndex = Math.min(newStep - 3, messages.length - 1);
+          return {
+            ...prev,
+            step: newStep,
+            message: messages[messageIndex],
+            percentage: Math.min(20 + (newStep - 2) * 15, 80)
+          };
+        });
+      }, 2000);
+
+      const syncResult = await syncPromise;
+      clearInterval(progressInterval);
+
       if (syncResult.success) {
+        setSyncProgress({ step: 6, totalSteps: 6, message: "Sync complete! Finalizing setup...", percentage: 90 });
         console.log(`✅ League sync completed: ${syncResult.totalSynced}/${syncResult.totalYearsRequested} seasons synced`);
       } else {
         console.warn('⚠️ League sync had some issues, but league was created successfully');
       }
 
-      // Step 3: Mark onboarding as complete
+      // Step 4: Mark onboarding as complete
+      setSyncProgress({ step: 6, totalSteps: 6, message: "All done! Redirecting...", percentage: 100 });
       await completeOnboarding();
+      
+      // Small delay to show 100% completion
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       router.push("/dashboard");
     } catch (error) {
       console.error("Failed to create league:", error);
+      setSyncProgress(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -635,6 +687,23 @@ export default function SetupPage() {
               </button>
             )}
           </div>
+
+          {/* Progress Bar Section */}
+          {syncProgress && (
+            <div className="mt-6 space-y-3 bg-gray-700/50 p-4 rounded-lg border border-gray-600">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-300">{syncProgress.message}</span>
+                <span className="text-gray-400">{syncProgress.percentage}%</span>
+              </div>
+              <Progress value={syncProgress.percentage} className="h-3" />
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>Step {syncProgress.step} of {syncProgress.totalSteps}</span>
+                {syncProgress.percentage === 100 && (
+                  <span className="text-green-400">✓ Complete</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 text-center">

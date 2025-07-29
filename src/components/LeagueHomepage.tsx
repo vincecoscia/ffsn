@@ -172,7 +172,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                     <Button
                       onClick={() => setShowContentGenerator(!showContentGenerator)}
                       variant="default"
-                      className="bg-red-600 hover:bg-red-700 text-white"
+                      className="bg-red-600 hover:bg-red-700 text-white hover:cursor-pointer"
                     >
                       {showContentGenerator ? "Hide Generator" : "Generate Story"}
                     </Button>

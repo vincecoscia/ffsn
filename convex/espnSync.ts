@@ -1788,17 +1788,38 @@ export const syncAllLeagueData = action({
           // Don't fail the entire sync if roster fetching fails
         }
 
+        // Fetch player stats for each year after rosters are synced
+        console.log(`Fetching player stats for year ${year}...`);
+        let playerStatsSynced = 0;
+        try {
+          const statsResult = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
+            leagueId: args.leagueId,
+            season: year,
+          });
+          
+          if (statsResult.status === "success") {
+            playerStatsSynced = statsResult.totalPlayersProcessed;
+            console.log(`Successfully synced player stats for ${playerStatsSynced} players in ${year}`);
+          } else {
+            console.warn(`Failed to sync player stats for ${year}`);
+          }
+        } catch (statsError) {
+          console.error(`Error syncing player stats for ${year}:`, statsError);
+          // Don't fail the entire sync if player stats syncing fails
+        }
+
         results.push({ 
           year, 
           success: true, 
           teamsCount: teams.length,
           matchupsCount: schedule.length,
           playersCount: year === currentYear ? players.length : 0,
-          rostersCount: rostersFetched
+          rostersCount: rostersFetched,
+          playerStatsCount: playerStatsSynced
         });
         totalSynced++;
         
-        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters`);
+        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${playerStatsSynced} player stats`);
         
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1825,6 +1846,31 @@ export const syncAllLeagueData = action({
     };
   },
 });
+
+// Sync all historical player stats for all leagues
+export const syncAllHistoricalPlayerStats = action({
+  args: {},
+  handler: async (ctx): Promise<{
+    status: string;
+    message: string;
+    totalLeagues: number;
+    totalSeasons: number;
+    results: Array<{
+      leagueId: string;
+      leagueName: string;
+      status: string;
+      seasonsProcessed?: number;
+      error?: string;
+    }>;
+    timestamp: number;
+  }> => {
+    console.log("Starting comprehensive historical player stats sync for all leagues");
+    
+    // This delegates to the playerHistoricalSync module
+    return await ctx.runAction(api.playerHistoricalSync.syncAllLeaguesHistoricalPlayerStats, {});
+  }
+});
+
 // Historical roster fetching action
 export const fetchHistoricalRosters = action({
   args: {
