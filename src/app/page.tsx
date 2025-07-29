@@ -2,10 +2,10 @@
 
 import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { useAuthSync } from "@/hooks/use-auth-sync";
+// import { useAuthSync } from "@/hooks/use-auth-sync";
 
 export default function Home() {
-  useAuthSync(); // Ensure user is synced between Clerk and Convex
+  // useAuthSync(); // Ensure user is synced between Clerk and Convex
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900">

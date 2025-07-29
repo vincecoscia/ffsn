@@ -1227,6 +1227,7 @@ export const syncAllLeagueData = action({
       teamsCount?: number;
       matchupsCount?: number;
       playersCount?: number;
+      rostersCount?: number;
     }>;
     message: string;
     syncedAt: number;
@@ -1767,16 +1768,37 @@ export const syncAllLeagueData = action({
           });
         }
 
+        // Fetch rosters for each year after teams are synced
+        console.log(`Fetching rosters for year ${year}...`);
+        let rostersFetched = 0;
+        try {
+          const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+            leagueId: args.leagueId,
+            seasonId: year,
+          });
+          
+          if (rosterResult.success) {
+            rostersFetched = rosterResult.totalRostersFetched;
+            console.log(`Successfully fetched rosters for ${rostersFetched} teams in ${year}`);
+          } else {
+            console.warn(`Failed to fetch some rosters for ${year}:`, rosterResult.message);
+          }
+        } catch (rosterError) {
+          console.error(`Error fetching rosters for ${year}:`, rosterError);
+          // Don't fail the entire sync if roster fetching fails
+        }
+
         results.push({ 
           year, 
           success: true, 
           teamsCount: teams.length,
           matchupsCount: schedule.length,
-          playersCount: year === currentYear ? players.length : 0
+          playersCount: year === currentYear ? players.length : 0,
+          rostersCount: rostersFetched
         });
         totalSynced++;
         
-        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups`);
+        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters`);
         
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));

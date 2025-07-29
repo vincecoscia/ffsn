@@ -25,7 +25,7 @@ interface LeagueCardProps {
 
 export function LeagueCard({ league }: LeagueCardProps) {
   const [isRefetching, setIsRefetching] = useState(false);
-  const refreshLeagueData = useAction(api.leagues.refreshLeagueData);
+  const refreshLeagueData = useAction(api.espnSync.syncAllLeagueData);
 
   const handleDebugRefetch = async () => {
     if (isRefetching) return;
@@ -39,7 +39,7 @@ export function LeagueCard({ league }: LeagueCardProps) {
         });
       } else {
         toast.error("Failed to refresh league data", {
-          description: result.error || "An unknown error occurred."
+          description: result.message || "An unknown error occurred."
         });
       }
     } catch (error) {

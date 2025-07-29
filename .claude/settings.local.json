@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__serena__initial_instructions",
+      "mcp__serena__find_file",
+      "mcp__serena__search_for_pattern",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "mcp__serena__list_dir",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "mcp__serena__find_symbol"
+    ],
+    "deny": []
+  }
+}
