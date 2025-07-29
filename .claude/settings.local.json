@@ -9,7 +9,9 @@
       "mcp__serena__list_dir",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
-      "mcp__serena__find_symbol"
+      "mcp__serena__find_symbol",
+      "Bash(npx shadcn@latest add dialog)",
+      "Bash(npm install:*)"
     ],
     "deny": []
   }

@@ -4,13 +4,14 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { useState, Suspense } from "react";
-import { Button } from "@radix-ui/themes";
+import { Button } from "@/components/ui/button";
 import { ContentGenerator } from "./ContentGenerator";
 import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
 import { ArticleListSkeleton } from "./ui/ArticleSkeleton";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
+import { CommissionerTeamSelection } from "./CommissionerTeamSelection";
 
 interface Team {
   _id: Id<"teams">;
@@ -58,6 +59,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
   const [showContentGenerator, setShowContentGenerator] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [showTeamClaimModal, setShowTeamClaimModal] = useState(false);
   
   // Get featured story (most recent AI content with image)
   const featuredStory = useQuery(api.aiContent.getMostRecentWithImage, {
@@ -116,7 +118,8 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
             {/* Featured Story Section */}
@@ -168,10 +171,8 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                   {league.role === "commissioner" && (
                     <Button
                       onClick={() => setShowContentGenerator(!showContentGenerator)}
-                      color="red"
-                      variant="solid"
-                      size="2"
-                      className="cursor-pointer"
+                      variant="default"
+                      className="bg-red-600 hover:bg-red-700 text-white"
                     >
                       {showContentGenerator ? "Hide Generator" : "Generate Story"}
                     </Button>
@@ -296,7 +297,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
             {/* Your Team Card */}
-            {userTeam && (
+            {userTeam ? (
               <div className="bg-white rounded-lg shadow-sm">
                 <div className="border-b border-gray-200 p-4">
                   <h3 className="text-lg font-bold text-gray-900">Your Team</h3>
@@ -331,6 +332,34 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                         </div>
                       )}
                     </div>
+                  </div>
+                </div>
+              </div>
+            ) : currentUserId && (
+              <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                <div className="bg-gradient-to-r from-red-500 to-red-600 p-4">
+                  <h3 className="text-lg font-bold text-white">Your Team</h3>
+                </div>
+                <div className="p-6">
+                  <div className="text-center">
+                    <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center shadow-inner">
+                      <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <h4 className="font-semibold text-gray-900 mb-2">No Team Claimed</h4>
+                    <p className="text-gray-600 text-sm mb-4">Join the league by claiming your team for the 2025 season</p>
+                    <Button
+                      onClick={() => setShowTeamClaimModal(true)}
+                      variant="default"
+                      size="lg"
+                      className="bg-red-600 hover:bg-red-700 text-white w-full shadow-lg hover:shadow-xl transition-all"
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      Claim Your Team
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -404,5 +433,15 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
             )}
           </div>
         </div>
+        
+        {/* Team Claim Modal */}
+        {showTeamClaimModal && currentUserId && !userTeam && (
+          <CommissionerTeamSelection 
+            league={league}
+            teams={teams}
+            onClose={() => setShowTeamClaimModal(false)}
+          />
+        )}
+    </>
   );
 }
