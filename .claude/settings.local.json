@@ -12,7 +12,14 @@
       "mcp__serena__find_symbol",
       "Bash(npx shadcn@latest add dialog)",
       "Bash(npm install:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run lint)",
+      "Bash(npx tsc:*)",
+      "Bash(npx convex dev:*)",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__replace_regex"
     ],
     "deny": []
   }

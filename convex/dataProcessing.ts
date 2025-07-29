@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, internalMutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 import { 
   calculateStrengthOfSchedule, 
   calculateRecentForm, 
@@ -15,6 +16,50 @@ import {
  * Data processing pipeline for post-sync calculations
  * Processes league data after ESPN sync to calculate derived metrics
  */
+
+// Public mutation to trigger data processing
+export const runDataProcessing = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  async handler(ctx, args) {
+    console.log(`Triggering data processing for league ${args.leagueId}, season ${args.seasonId}`);
+    
+    // Log available seasons for debugging
+    const allSeasons = await ctx.db
+      .query("teams")
+      .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
+      .collect();
+    const uniqueSeasons = [...new Set(allSeasons.map(t => t.seasonId))].sort();
+    console.log(`Found ${uniqueSeasons.length} historical seasons:`, uniqueSeasons);
+    
+    try {
+      // Run the processing directly
+      // In a production environment, you might want to use ctx.scheduler
+      // to run this asynchronously
+      await ctx.runMutation(api.dataProcessing.calculateTeamMetrics, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
+      
+      await ctx.runMutation(api.dataProcessing.detectAndStoreRivalries, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
+      
+      await ctx.runMutation(api.dataProcessing.updateManagerActivity, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Failed to trigger data processing:", error);
+      return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
+  },
+});
 
 // Main processing function called after league sync
 export const processLeagueDataAfterSync = internalMutation({
@@ -41,7 +86,7 @@ export const processLeagueDataAfterSync = internalMutation({
 });
 
 // Calculate and store team-specific metrics
-export const calculateTeamMetrics = internalMutation({
+export const calculateTeamMetrics = mutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -113,67 +158,126 @@ export const calculateTeamMetrics = internalMutation({
 });
 
 // Detect and store rivalries
-export const detectAndStoreRivalries = internalMutation({
+export const detectAndStoreRivalries = mutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
   },
   async handler(ctx, args) {
-    // Get all matchups across all seasons
+    // Get all matchups across ALL seasons for this league
+    // We need to use by_league_period index since by_league_season requires both leagueId and seasonId
     const allMatchups = await ctx.db
       .query("matchups")
-      .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+      .withIndex("by_league_period", q => q.eq("leagueId", args.leagueId))
       .collect();
     
-    // Get teams for mapping
-    const teams = await ctx.db
+    console.log(`Found ${allMatchups.length} total matchups across all seasons for rivalry detection`);
+    
+    // Get current season teams for metadata
+    const currentTeams = await ctx.db
       .query("teams")
-      .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
+      .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
       .collect();
     
-    const teamMap = new Map(teams.map(t => [t.externalId, t]));
+    // Create map of externalId to current team info
+    const teamMap = new Map(currentTeams.map(t => [t.externalId, t]));
     
-    // Transform matchups for rivalry detection
-    const matchupData = allMatchups.map(m => ({
-      teamA: m.homeTeamId,
-      teamB: m.awayTeamId,
-      scoreA: m.homeScore,
-      scoreB: m.awayScore,
-      week: m.matchupPeriod,
-      isUpset: false,
-    }));
+    // Transform matchups for rivalry detection, filtering out games where either team scored 0
+    const matchupData = allMatchups
+      .filter(m => m.homeScore > 0 && m.awayScore > 0)
+      .map(m => ({
+        teamA: m.homeTeamId,
+        teamB: m.awayTeamId,
+        scoreA: m.homeScore,
+        scoreB: m.awayScore,
+        week: m.matchupPeriod,
+        isUpset: false,
+      }));
     
-    // Detect rivalries
+    // Detect rivalries with minimum 3 games and closeness factor
     const detectedRivalries = detectRivalries(matchupData, 3, 10);
     
-    // Store rivalries
+    // Calculate detailed rivalry statistics
     for (const rivalry of detectedRivalries) {
       const teamA = teamMap.get(rivalry.teamA);
       const teamB = teamMap.get(rivalry.teamB);
       
-      if (!teamA || !teamB) continue;
+      if (!teamA || !teamB) {
+        console.log(`Skipping rivalry - team not found in current season: ${rivalry.teamA} vs ${rivalry.teamB}`);
+        continue;
+      }
       
-      // Check if rivalry already exists
+      // Calculate head-to-head record
+      let teamAWins = 0;
+      let teamBWins = 0;
+      let ties = 0;
+      let playoffMeetings = 0;
+      let championshipMeetings = 0;
+      const notableGames: any[] = [];
+      
+      // Filter matchups for this specific rivalry, excluding games where either team scored 0
+      const rivalryMatchups = allMatchups.filter(m => 
+        ((m.homeTeamId === rivalry.teamA && m.awayTeamId === rivalry.teamB) ||
+        (m.homeTeamId === rivalry.teamB && m.awayTeamId === rivalry.teamA)) &&
+        m.homeScore > 0 && m.awayScore > 0
+      );
+      
+      for (const matchup of rivalryMatchups) {
+        // Determine winner
+        if (matchup.homeScore > matchup.awayScore) {
+          if (matchup.homeTeamId === rivalry.teamA) teamAWins++;
+          else teamBWins++;
+        } else if (matchup.awayScore > matchup.homeScore) {
+          if (matchup.awayTeamId === rivalry.teamA) teamAWins++;
+          else teamBWins++;
+        } else {
+          ties++;
+        }
+        
+        // Track playoff/championship games
+        if (matchup.playoffTier) {
+          playoffMeetings++;
+          if (matchup.playoffTier === "CHAMPIONSHIP") {
+            championshipMeetings++;
+          }
+          
+          // Add to notable games
+          notableGames.push({
+            seasonId: matchup.seasonId,
+            week: matchup.matchupPeriod,
+            teamAScore: matchup.homeTeamId === rivalry.teamA ? matchup.homeScore : matchup.awayScore,
+            teamBScore: matchup.homeTeamId === rivalry.teamB ? matchup.homeScore : matchup.awayScore,
+            significance: matchup.playoffTier === "CHAMPIONSHIP" ? "Championship" : "Playoff",
+            description: `${matchup.seasonId} ${matchup.playoffTier}`,
+          });
+        }
+      }
+      
+      // Check if rivalry already exists (check both directions)
       const existing = await ctx.db
         .query("rivalries")
-        .withIndex("by_teams", q => 
-          q.eq("leagueId", args.leagueId)
-           .eq("teamA.teamId", rivalry.teamA)
-           .eq("teamB.teamId", rivalry.teamB)
-        )
-        .first();
+        .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
+        .collect()
+        .then(rivalries => rivalries.find(r => 
+          (r.teamA.teamId === rivalry.teamA && r.teamB.teamId === rivalry.teamB) ||
+          (r.teamA.teamId === rivalry.teamB && r.teamB.teamId === rivalry.teamA)
+        ));
       
       if (existing) {
         // Update existing rivalry
         await ctx.db.patch(existing._id, {
           allTimeRecord: {
-            teamAWins: rivalry.games, // This would need proper win counting
-            teamBWins: 0,
-            ties: 0,
+            teamAWins: existing.teamA.teamId === rivalry.teamA ? teamAWins : teamBWins,
+            teamBWins: existing.teamA.teamId === rivalry.teamA ? teamBWins : teamAWins,
+            ties,
           },
+          playoffMeetings,
+          championshipMeetings,
+          notableGames: notableGames.length > 0 ? notableGames : undefined,
           intensity: rivalry.intensity,
           updatedAt: Date.now(),
         });
+        console.log(`Updated rivalry: ${teamA.name} vs ${teamB.name}`);
       } else {
         // Create new rivalry
         await ctx.db.insert("rivalries", {
@@ -189,16 +293,18 @@ export const detectAndStoreRivalries = internalMutation({
             manager: teamB.owner,
           },
           allTimeRecord: {
-            teamAWins: 0,
-            teamBWins: 0,
-            ties: 0,
+            teamAWins,
+            teamBWins,
+            ties,
           },
-          playoffMeetings: 0,
-          championshipMeetings: 0,
+          playoffMeetings,
+          championshipMeetings,
+          notableGames: notableGames.length > 0 ? notableGames : undefined,
           intensity: rivalry.intensity,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         });
+        console.log(`Created new rivalry: ${teamA.name} vs ${teamB.name} (${teamAWins}-${teamBWins}-${ties})`);
       }
     }
     
@@ -207,7 +313,7 @@ export const detectAndStoreRivalries = internalMutation({
 });
 
 // Update manager activity tracking
-export const updateManagerActivity = internalMutation({
+export const updateManagerActivity = mutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),

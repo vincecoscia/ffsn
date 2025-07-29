@@ -9,6 +9,7 @@ import { PlayerManagement } from "./PlayerManagement";
 import HistoricalRosterManager from "./HistoricalRosterManager";
 import { DraftDataViewer } from "./DraftDataViewer";
 import { MatchupRefreshManager } from "./MatchupRefreshManager";
+import { DataProcessingManager } from "./DataProcessingManager";
 
 interface League {
   _id: Id<"leagues">;
@@ -416,6 +417,18 @@ export function LeagueSettingsPage({
             
             <div className="p-6">
               <DraftDataViewer leagueId={league._id} />
+            </div>
+          </div>
+
+          {/* Data Processing Section */}
+          <div className="bg-white rounded-lg shadow-sm">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-2xl font-bold text-gray-900">Data Processing</h2>
+              <p className="text-gray-600 mt-1">Process league data for AI content generation</p>
+            </div>
+            
+            <div className="p-6">
+              <DataProcessingManager leagueId={league._id} />
             </div>
           </div>
 

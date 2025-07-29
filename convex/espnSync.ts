@@ -52,7 +52,7 @@ export const syncLeagueData = action({
       }
 
       // Get comprehensive league data including players, matchups, draft info, and transactions
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication`, {
+      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication`, {
         headers
       });
 
@@ -1308,8 +1308,8 @@ export const syncAllLeagueData = action({
 
         // For current season, get more comprehensive data
         const viewParams = year === currentYear 
-          ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mStandings&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus'
-          : '?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=mTeam&view=mStatus&view=mRoster&view=mBoxscore&view=mPositionalRatings';
+          ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication'
+          : '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication';
 
         const leagueResponse: Response = await fetch(`${baseUrl}${viewParams}`, {
           headers

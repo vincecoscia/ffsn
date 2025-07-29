@@ -32,7 +32,7 @@ export async function triggerHistoricalSync(
 
 export async function getCurrentLeagueSync(leagueId: Id<"leagues">) {
   try {
-    const result = await fetchAction(api.espnSync.syncLeagueData, {
+    const result = await fetchAction(api.espnSync.syncAllLeagueData, {
       leagueId,
     })
 

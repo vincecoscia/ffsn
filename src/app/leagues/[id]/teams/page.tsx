@@ -7,10 +7,12 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 import { useAuth } from "@clerk/nextjs";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
+import { RivalriesTab } from "@/components/RivalriesTab";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Users, Trophy, TrendingUp } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChevronDown, ChevronUp, Users, Trophy, TrendingUp, Swords } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -70,6 +72,7 @@ export default function TeamsPage({ params }: TeamsPageProps) {
   
   const [selectedSeason, setSelectedSeason] = useState(2025);
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState("teams");
   
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
@@ -151,8 +154,22 @@ export default function TeamsPage({ params }: TeamsPageProps) {
         </div>
       </div>
 
-      {/* Teams Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="teams" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Teams
+          </TabsTrigger>
+          <TabsTrigger value="rivalries" className="flex items-center gap-2">
+            <Swords className="h-4 w-4" />
+            Rivalries
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="teams" className="mt-6">
+          {/* Teams Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {sortedTeams.map((team, index) => {
           const isExpanded = expandedTeams.has(team._id);
           const totalGames = team.record.wins + team.record.losses + team.record.ties;
@@ -280,7 +297,13 @@ export default function TeamsPage({ params }: TeamsPageProps) {
             </Card>
           );
         })}
-      </div>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="rivalries" className="mt-6">
+          <RivalriesTab leagueId={leagueId} />
+        </TabsContent>
+      </Tabs>
     </LeaguePageLayout>
   );
 }

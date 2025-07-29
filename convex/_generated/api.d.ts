@@ -26,6 +26,7 @@ import type * as news from "../news.js";
 import type * as playerHistoricalSync from "../playerHistoricalSync.js";
 import type * as playerSync from "../playerSync.js";
 import type * as playerSyncInternal from "../playerSyncInternal.js";
+import type * as rivalries from "../rivalries.js";
 import type * as teamClaims from "../teamClaims.js";
 import type * as teamInvitations from "../teamInvitations.js";
 import type * as teams from "../teams.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   playerHistoricalSync: typeof playerHistoricalSync;
   playerSync: typeof playerSync;
   playerSyncInternal: typeof playerSyncInternal;
+  rivalries: typeof rivalries;
   teamClaims: typeof teamClaims;
   teamInvitations: typeof teamInvitations;
   teams: typeof teams;
