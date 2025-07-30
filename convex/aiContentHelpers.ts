@@ -53,6 +53,30 @@ export const prepareAIContentData = internalAction({
           managerActivity: [],
           standings: [],
         };
+      } else if (args.contentType === 'season_welcome') {
+        console.log("Fetching season welcome data...");
+        
+        const seasonWelcomeData = await ctx.runQuery(api.aiQueries.getSeasonWelcomeDataForAI, {
+          leagueId: args.leagueId,
+        });
+        
+        leagueData = seasonWelcomeData;
+      } else if (args.contentType === 'waiver_wire_report') {
+        console.log("Fetching waiver wire data...");
+        
+        const waiverWireData = await ctx.runQuery(api.aiQueries.getWaiverWireDataForAI, {
+          leagueId: args.leagueId,
+        });
+        
+        leagueData = waiverWireData;
+      } else if (args.contentType === 'trade_analysis') {
+        console.log("Fetching trade analysis data...");
+        
+        const tradeAnalysisData = await ctx.runQuery(api.aiQueries.getTradeAnalysisDataForAI, {
+          leagueId: args.leagueId,
+        });
+        
+        leagueData = tradeAnalysisData;
       } else {
         // Regular content generation
         leagueData = await ctx.runQuery(api.aiContent.getLeagueDataForGeneration, {

@@ -265,6 +265,15 @@ export class PromptBuilder {
     console.log("Persona:", this.options.persona);
     console.log("League data available:", !!this.options.leagueData);
     
+    // Validate required data for the template
+    const validation = this.validateRequiredData();
+    if (!validation.valid) {
+      console.warn("=== MISSING REQUIRED DATA ===");
+      console.warn("Content type:", this.options.contentType);
+      console.warn("Missing fields:", validation.missing);
+      console.warn("This may result in lower quality content generation");
+    }
+    
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt();
     const settings = getPersonaSettings(this.options.persona);
@@ -274,6 +283,72 @@ export class PromptBuilder {
     console.log("=== PromptBuilder END ===");
 
     return { systemPrompt, userPrompt, settings };
+  }
+  
+  private validateRequiredData(): { valid: boolean; missing: string[] } {
+    const missing: string[] = [];
+    const data = this.options.leagueData;
+    
+    // Check each required field
+    this.template.requiredData.forEach(field => {
+      switch (field) {
+        case 'historical_data':
+          if (!data.previousSeasons || Object.keys(data.previousSeasons).length === 0) {
+            missing.push('historical_data (previousSeasons)');
+          }
+          break;
+        case 'all_time_records':
+          if (!data.leagueHistory?.allTimeRecords || Object.keys(data.leagueHistory.allTimeRecords).length === 0) {
+            missing.push('all_time_records');
+          }
+          break;
+        case 'championship_history':
+          if (!data.leagueHistory?.seasons || data.leagueHistory.seasons.length === 0) {
+            missing.push('championship_history');
+          }
+          break;
+        case 'matchup_results':
+          if (!data.recentMatchups || data.recentMatchups.length === 0) {
+            missing.push('matchup_results');
+          }
+          break;
+        case 'player_scores':
+          if (!data.teams.some(team => team.roster && team.roster.length > 0)) {
+            missing.push('player_scores (rosters)');
+          }
+          break;
+        case 'standings':
+          if (!data.standings || data.standings.length === 0) {
+            missing.push('standings');
+          }
+          break;
+        case 'draft_order':
+          if (!data.draftOrder || data.draftOrder.length === 0) {
+            missing.push('draft_order');
+          }
+          break;
+        case 'available_players':
+          if (!data.availablePlayers || data.availablePlayers.length === 0) {
+            missing.push('available_players');
+          }
+          break;
+        case 'trade_details':
+          if (!data.trades || data.trades.length === 0) {
+            missing.push('trade_details');
+          }
+          break;
+        case 'rivalry_history':
+          if (!data.rivalries || data.rivalries.length === 0) {
+            missing.push('rivalry_history');
+          }
+          break;
+      }
+    });
+    
+    return {
+      valid: missing.length === 0,
+      missing
+    };
   }
 
   private buildSystemPrompt(): string {

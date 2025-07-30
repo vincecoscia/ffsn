@@ -63,6 +63,40 @@ export const getByLeague = query({
     };
   },
 });
+
+// New query for article management - returns all articles regardless of status
+export const getAllByLeague = query({
+  args: { 
+    leagueId: v.id("leagues"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return [];
+    }
+
+    // Get all articles for this league, ordered by creation date (newest first)
+    const articles = await ctx.db
+      .query("aiContent")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .order("desc")
+      .collect();
+
+    return articles;
+  },
+});
 export const getById = query({
   args: {
     articleId: v.id("aiContent"),
@@ -382,6 +416,10 @@ async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any
       rivalries: enrichedData.rivalries.length,
       hasTransactionTrends: !!enrichedData.transactionTrends,
       hasPlayoffProbabilities: !!enrichedData.playoffProbabilities,
+      previousSeasons: Object.keys(enrichedData.previousSeasons || {}).length,
+      historicalSeasons: enrichedData.metadata?.historicalSeasons || 0,
+      allTimeRecordsCount: Object.keys(enrichedData.leagueHistory?.allTimeRecords || {}).length,
+      championshipHistoryCount: enrichedData.leagueHistory?.seasons?.length || 0,
     });
     
     const league = enrichedData.league;
@@ -416,16 +454,17 @@ async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any
       // Playoff probabilities
       playoffProbabilities: enrichedData.playoffProbabilities,
       
-      // League history
-      leagueHistory: enrichedData.leagueHistory,
+      // ENHANCED: Historical data for season welcome packages
+      previousSeasons: enrichedData.previousSeasons || {},
+      leagueHistory: enrichedData.leagueHistory || {
+        seasons: [],
+        allTimeRecords: {},
+      },
       
       // Additional metadata
       scoringType: enrichedData.league.settings?.scoringType || "PPR",
       rosterSize: enrichedData.league.settings?.rosterSize || 16,
       metadata: enrichedData.metadata,
-      
-      // Legacy fields for backward compatibility
-      previousSeasons: {}, // Will be populated from league history if needed
     };
     
     console.log("=== FINAL LEAGUE DATA SUMMARY ===");
@@ -434,10 +473,29 @@ async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any
       currentWeek: result.currentWeek,
       currentTeams: result.teams.length,
       previousSeasons: Object.keys(result.previousSeasons).length,
+      historicalSeasonsData: Object.keys(result.previousSeasons).map(season => `${season}: ${result.previousSeasons[season].length} teams`),
+      allTimeRecords: Object.keys(result.leagueHistory.allTimeRecords).length + " teams tracked",
+      championshipHistory: result.leagueHistory.seasons.length + " seasons",
       matchups: result.recentMatchups.length,
       trades: result.trades.length,
-      leagueHistorySeasons: result.leagueHistory?.length || 0,
+      leagueHistorySeasons: result.leagueHistory?.seasons?.length || 0,
     });
+    
+    // Validate the required data for season welcome package
+    const hasHistoricalData = Object.keys(result.previousSeasons).length > 0;
+    const hasAllTimeRecords = Object.keys(result.leagueHistory.allTimeRecords).length > 0;
+    const hasChampionshipHistory = result.leagueHistory.seasons.length > 0;
+    
+    console.log("=== DATA VALIDATION FOR SEASON WELCOME ===");
+    console.log({
+      hasHistoricalData,
+      hasAllTimeRecords, 
+      hasChampionshipHistory,
+      previousSeasonsCount: Object.keys(result.previousSeasons).length,
+      allTimeRecordsCount: Object.keys(result.leagueHistory.allTimeRecords).length,
+      championshipSeasonsCount: result.leagueHistory.seasons.length,
+    });
+    
     console.log("=== getLeagueDataForGeneration END ===");
     
     return result;
@@ -519,8 +577,8 @@ export const updateGeneratedContent = mutation({
         featured_teams: featuredTeamIds, // Now using actual team IDs
         credits_used: args.metadata.creditsUsed,
       },
-      status: "published",
-      publishedAt: Date.now(),
+      status: "draft", // Set to draft for review instead of auto-publishing
+      // publishedAt will be set when actually published
     });
   },
 });
@@ -546,8 +604,45 @@ export const updateContentStatus = mutation({
     error: v.optional(v.string()), // We'll ignore this since it's not in schema
   },
   handler: async (ctx, args) => {
-    // Only update the status, ignore error field since it's not in schema
-    const update = { status: args.status };
+    // Update the status and set publishedAt if publishing
+    const update: any = { status: args.status };
+    if (args.status === "published") {
+      update.publishedAt = Date.now();
+    }
     await ctx.db.patch(args.articleId, update);
+  },
+});
+
+// Mutation to delete content
+export const deleteContent = mutation({
+  args: {
+    articleId: v.id("aiContent"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    // Get the article to check permissions
+    const article = await ctx.db.get(args.articleId);
+    if (!article) {
+      throw new Error("Article not found");
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", article.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      throw new Error("Not authorized to delete this article");
+    }
+
+    // Delete the article
+    await ctx.db.delete(args.articleId);
   },
 });

@@ -16,7 +16,7 @@ import {
   SheetTrigger,
   SheetClose
 } from "@/components/ui/sheet";
-import { Menu, Home, Trophy, Calendar, BarChart3, Users, Target, Settings } from "lucide-react";
+import { Menu, Home, Trophy, Calendar, BarChart3, Users, Target, Settings, Sparkles } from "lucide-react";
 
 interface LeagueLayoutProps {
   children: React.ReactNode;
@@ -64,6 +64,10 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
             <div className="flex items-center gap-4">
               {/* Desktop Navigation */}
               <nav className="hidden md:flex items-center gap-6">
+                <Link href={`/leagues/${league._id}/ai-generation`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
+                  <Sparkles className="h-5 w-5" />
+                  <span className="sr-only">AI Content Generation</span>
+                </Link>
                 {league.role === "commissioner" && (
                   <Link href={`/leagues/${league._id}/settings`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
                     Settings
@@ -183,6 +187,23 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
                             <span className="text-base">Depth Charts</span>
                           </Link>
                         </SheetClose>
+                        
+                        {/* AI Generation for all members */}
+                        <div className="h-px bg-slate-700/50 my-3 mx-4"></div>
+                        <SheetClose asChild>
+                          <Link 
+                            href={`/leagues/${league._id}/ai-generation`}
+                            className={`group flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 transform hover:scale-[1.02] ${
+                              isActivePath(`/leagues/${league._id}/ai-generation`)
+                                ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg shadow-red-500/25 border border-red-400/20'
+                                : 'text-slate-300 hover:text-white hover:bg-slate-800/50 backdrop-blur-sm border border-transparent hover:border-slate-700/50'
+                            }`}
+                          >
+                            <Sparkles className={`w-5 h-5 ${isActivePath(`/leagues/${league._id}/ai-generation`) ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                            <span className="text-base">AI Content</span>
+                          </Link>
+                        </SheetClose>
+                        
                         {league.role === "commissioner" && (
                           <>
                             <div className="h-px bg-slate-700/50 my-3 mx-4"></div>
