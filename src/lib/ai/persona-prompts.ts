@@ -184,35 +184,35 @@ export function getPersonaSettings(persona: string) {
   }> = {
     "mel-diaper": {
       temperature: 0.9, // High for emotional outbursts
-      maxTokens: 3000,
+      maxTokens: 10000,
       penalties: {
         repetitionPenalty: 0.8, // Allow repetition for emphasis
       }
     },
     "stan-deviation": {
       temperature: 0.3, // Low for analytical precision
-      maxTokens: 2500,
+      maxTokens: 10000,
       penalties: {
         repetitionPenalty: 1.2, // Avoid repetition
       }
     },
     "vinny-marinara": {
       temperature: 0.8, // Moderate for creative rumors
-      maxTokens: 2500,
+      maxTokens: 10000,
       penalties: {
         repetitionPenalty: 1.0,
       }
     },
     "chad-thunderhype": {
       temperature: 1.0, // Maximum for peak hype
-      maxTokens: 2000,
+      maxTokens: 10000,
       penalties: {
         repetitionPenalty: 0.7, // Allow hype repetition
       }
     },
     "rick-two-beers": {
       temperature: 0.85, // Higher for rambling
-      maxTokens: 3000,
+      maxTokens: 10000,
       penalties: {
         repetitionPenalty: 0.9,
       }

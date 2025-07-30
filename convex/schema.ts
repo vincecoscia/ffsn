@@ -301,6 +301,7 @@ export default defineSchema({
     publishedAt: v.optional(v.number()),
     createdAt: v.number(),
     bannerImageId: v.optional(v.id("_storage")), // AI-generated banner image
+    tempGenerationData: v.optional(v.any()), // Temporary data for multi-step generation
   })
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
@@ -413,7 +414,9 @@ export default defineSchema({
     .index("by_espn_id_season", ["espnId", "season"])
     .index("by_position", ["defaultPosition"])
     .index("by_pro_team", ["proTeamId"])
-    .index("by_ownership", ["ownership.percentOwned"]),
+    .index("by_ownership", ["ownership.percentOwned"])
+    .index("by_season", ["season"])
+    .index("by_season_adp", ["season", "ownership.averageDraftPosition"]),
 
   // League-specific player status
   leaguePlayerStatus: defineTable({

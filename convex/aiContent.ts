@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 import { generateAIContent } from "../src/lib/ai/content-generation-service";
 import { contentTemplates } from "../src/lib/ai/content-templates";
 
@@ -210,44 +211,38 @@ export const generateContentAction = action({
     userId: v.string(),
   },
   handler: async (ctx, args) => {
-    console.log("=== generateContentAction START ===");
+    console.log("=== generateContentAction START (OPTIMIZED) ===");
     console.log("Content type:", args.contentType);
     console.log("Persona:", args.persona);
-    console.log("Custom context provided:", !!args.customContext);
     
     try {
-      // Gather league data
+      // For mock drafts, use the new scheduled approach
+      if (args.contentType === 'mock_draft') {
+        console.log("Using scheduled approach for mock draft generation");
+        
+        // Schedule data preparation step (which will chain the generation step)
+        await ctx.scheduler.runAfter(0, internal.aiContentHelpers.prepareAIContentData, {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+        });
+        
+        console.log("Mock draft generation scheduled successfully");
+        return;
+      }
+      
+      // For other content types, use the existing approach
+      console.log("Using standard approach for content type:", args.contentType);
+      
       const leagueData = await ctx.runQuery(api.aiContent.getLeagueDataForGeneration, {
         leagueId: args.leagueId,
       });
       
-      console.log("=== LEAGUE DATA RECEIVED IN ACTION ===");
-      console.log("League name:", leagueData.leagueName);
-      console.log("Current teams:", leagueData.teams.length);
-      console.log("Previous seasons available:", Object.keys(leagueData.previousSeasons || {}).length);
+      console.log("League data fetched successfully");
       
-      // Log detailed data for season_welcome
-      if (args.contentType === 'season_welcome' && leagueData.previousSeasons) {
-        console.log("=== SEASON WELCOME DATA CHECK ===");
-        Object.entries(leagueData.previousSeasons).forEach(([year, teams]) => {
-          const teamsList = teams as any[];
-          console.log(`Year ${year}: ${teamsList.length} teams`);
-          if (teamsList[0]) {
-            console.log(`  Sample team: ${teamsList[0].teamName} with ${teamsList[0].roster?.length || 0} players`);
-          }
-        });
-      }
-      
-      // Log sample roster data
-      if (leagueData.teams[0]?.roster?.length > 0) {
-        console.log("Sample current roster player:", {
-          name: leagueData.teams[0].roster[0].playerName,
-          position: leagueData.teams[0].roster[0].position,
-          hasStats: !!leagueData.teams[0].roster[0].stats,
-          hasOwnership: !!leagueData.teams[0].roster[0].ownership,
-        });
-      }
-
       // Get API key from environment
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {
@@ -269,8 +264,6 @@ export const generateContentAction = action({
       console.log("AI content generated successfully");
       console.log("Generated title:", generatedContent.title);
       console.log("Content length:", generatedContent.content.length);
-      console.log("Featured teams:", generatedContent.metadata?.featuredTeams?.length || 0);
-      console.log("Featured players:", generatedContent.metadata?.featuredPlayers?.length || 0);
 
       // Update the article with generated content
       await ctx.runMutation(api.aiContent.updateGeneratedContent, {
@@ -338,7 +331,29 @@ export const generateContentAction = action({
         status: "failed",
         error: error instanceof Error ? error.message : "Unknown error",
       });
+      
+      // Schedule retry for mock drafts
+      if (args.contentType === 'mock_draft') {
+        console.log("Scheduling retry for failed mock draft generation");
+        await ctx.scheduler.runAfter(2000, internal.aiContentHelpers.retryFailedGeneration, {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+          retryCount: 1,
+        });
+      }
     }
+  },
+});;
+
+// Internal query for getLeagueDataForGeneration
+export const getLeagueDataForGenerationInternal = internalQuery({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args): Promise<any> => {
+    return getLeagueDataForGenerationHandler(ctx, args);
   },
 });
 
@@ -346,6 +361,12 @@ export const generateContentAction = action({
 export const getLeagueDataForGeneration = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args): Promise<any> => {
+    return getLeagueDataForGenerationHandler(ctx, args);
+  },
+});
+
+// Shared handler function
+async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any }): Promise<any> {
     console.log("=== getLeagueDataForGeneration START ===");
     console.log("League ID:", args.leagueId);
     
@@ -420,8 +441,7 @@ export const getLeagueDataForGeneration = query({
     console.log("=== getLeagueDataForGeneration END ===");
     
     return result;
-  },
-});;;;
+}
 
 // Mutation to update generated content
 export const updateGeneratedContent = mutation({
@@ -443,13 +463,60 @@ export const updateGeneratedContent = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    // Get the article to find the league
+    const article = await ctx.db.get(args.articleId);
+    if (!article) {
+      throw new Error("Article not found");
+    }
+
+    // Convert team names to team IDs
+    let featuredTeamIds: Id<"teams">[] = [];
+    if (args.metadata.featuredTeams.length > 0) {
+      // Get all teams for this league
+      const teams = await ctx.db
+        .query("teams")
+        .withIndex("by_league", (q) => q.eq("leagueId", article.leagueId))
+        .collect();
+
+      // Convert team names to IDs
+      featuredTeamIds = args.metadata.featuredTeams
+        .map(teamName => {
+          // Try exact match first
+          let team = teams.find(t => t.name.toLowerCase() === teamName.toLowerCase());
+          
+          // If no exact match, try partial match
+          if (!team) {
+            team = teams.find(t => 
+              t.name.toLowerCase().includes(teamName.toLowerCase()) ||
+              teamName.toLowerCase().includes(t.name.toLowerCase())
+            );
+          }
+          
+          // If still no match, try matching abbreviation
+          if (!team && teamName.length <= 4) {
+            team = teams.find(t => 
+              t.abbreviation?.toLowerCase() === teamName.toLowerCase()
+            );
+          }
+          
+          return team?._id;
+        })
+        .filter((id): id is Id<"teams"> => id !== undefined); // Remove undefined values
+
+      console.log(`Converted team names to IDs:`, {
+        teamNames: args.metadata.featuredTeams,
+        teamIds: featuredTeamIds,
+        teamsInLeague: teams.map(t => ({ name: t.name, abbreviation: t.abbreviation, id: t._id }))
+      });
+    }
+
     await ctx.db.patch(args.articleId, {
       title: args.title,
       content: args.content,
       // Note: summary field doesn't exist in schema
       metadata: {
         week: args.metadata.week,
-        featured_teams: args.metadata.featuredTeams as any, // Cast to match schema
+        featured_teams: featuredTeamIds, // Now using actual team IDs
         credits_used: args.metadata.creditsUsed,
       },
       status: "published",
@@ -476,13 +543,11 @@ export const updateContentStatus = mutation({
   args: {
     articleId: v.id("aiContent"),
     status: v.string(),
-    error: v.optional(v.string()),
+    error: v.optional(v.string()), // We'll ignore this since it's not in schema
   },
   handler: async (ctx, args) => {
-    const update: any = { status: args.status };
-    if (args.error) {
-      update.error = args.error;
-    }
+    // Only update the status, ignore error field since it's not in schema
+    const update = { status: args.status };
     await ctx.db.patch(args.articleId, update);
   },
 });

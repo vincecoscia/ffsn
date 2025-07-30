@@ -14,6 +14,7 @@ import type {
   FunctionReference,
 } from "convex/server";
 import type * as aiContent from "../aiContent.js";
+import type * as aiContentHelpers from "../aiContentHelpers.js";
 import type * as aiQueries from "../aiQueries.js";
 import type * as crons from "../crons.js";
 import type * as dataProcessing from "../dataProcessing.js";
@@ -42,6 +43,7 @@ import type * as users from "../users.js";
  */
 declare const fullApi: ApiFromModules<{
   aiContent: typeof aiContent;
+  aiContentHelpers: typeof aiContentHelpers;
   aiQueries: typeof aiQueries;
   crons: typeof crons;
   dataProcessing: typeof dataProcessing;

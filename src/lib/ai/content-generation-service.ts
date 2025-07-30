@@ -29,9 +29,9 @@ export interface GenerationRequest {
 
 // Zod schema for structured article output
 const ArticleSection = z.object({
-  name: z.string(),
-  content: z.string(),
-  wordCount: z.number(),
+  name: z.string().describe("The section heading/title as it should appear in the article (e.g., 'ROUND 1-2 PREDICTIONS' not 'rounds_1_2_by_team')"),
+  content: z.string().describe("The section content written in the persona's style"),
+  wordCount: z.number().describe("Number of words in the content"),
 });
 
 const GeneratedArticle = z.object({
@@ -165,10 +165,18 @@ export class ContentGenerationService {
         });
 
         // Extract featured teams and players
+        // Map external team IDs from AI to internal Convex IDs
         featuredTeams = structuredData.featuredTeams
           .sort((a, b) => b.mentions - a.mentions)
           .slice(0, 5)
-          .map(t => t.teamId);
+          .map(t => {
+            // Find the team by external ID to get the internal ID
+            const team = request.leagueData.teams.find(team => 
+              team.externalId === t.teamId || team.externalId === String(t.teamId)
+            );
+            return team?.id || t.teamId; // Use internal ID if found, otherwise fallback
+          })
+          .filter(id => id && id.startsWith('j')); // Filter out any invalid IDs (Convex IDs start with 'j')
           
         featuredPlayers = structuredData.featuredPlayers
           .sort((a, b) => b.mentions - a.mentions)
@@ -246,11 +254,16 @@ export class ContentGenerationService {
 IMPORTANT: Generate your response as a structured JSON object that matches the following schema:
 - title: A compelling article title
 - summary: A 2-3 sentence summary
-- sections: An array of sections, each with name, content, and wordCount
+- sections: An array of sections, each with:
+  * name: A PROPER SECTION TITLE (e.g., "ROUND 1-2 PREDICTIONS - BRACE YOURSELVES FOR STUPIDITY!"), NOT template field names
+  * content: The section content in your persona's style
+  * wordCount: The number of words in the content
 - featuredTeams: Teams mentioned with teamId, teamName, and mention count
 - featuredPlayers: Players mentioned with name, position, team, and mention count
 - keyStats: Optional array of important statistics with stat name, value, and context
 - tone: The overall tone (humorous, analytical, dramatic, casual, or professional)
+
+CRITICAL: The "name" field for each section should be a proper article section heading that readers will see, written in your persona's style. Do NOT use template field names like "rounds_1_2_by_team" - instead create engaging titles like "ROUND 1-2 PREDICTIONS - BRACE YOURSELVES FOR STUPIDITY!" or whatever fits your persona and the section content.
 
 Make sure each section follows the template requirements and word counts.`;
 

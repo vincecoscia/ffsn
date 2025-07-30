@@ -19,7 +19,9 @@
       "Bash(npx convex dev:*)",
       "mcp__serena__check_onboarding_performed",
       "mcp__serena__get_symbols_overview",
-      "mcp__serena__replace_regex"
+      "mcp__serena__replace_regex",
+      "mcp__serena__read_memory",
+      "mcp__serena__replace_symbol_body"
     ],
     "deny": []
   }

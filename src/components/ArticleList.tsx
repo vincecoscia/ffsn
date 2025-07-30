@@ -1,11 +1,10 @@
 "use client";
 
-import { use } from "react";
 import Link from "next/link";
 import { Button } from "@radix-ui/themes";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { useConvex } from "convex/react";
-import { fetchArticles } from "../lib/suspense-data";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
 interface ArticleListProps {
@@ -16,26 +15,49 @@ interface ArticleListProps {
 }
 
 export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGenerator }: ArticleListProps) {
-  // Get the convex client
-  const convex = useConvex();
-  
-  // Use the use() hook to fetch data with Suspense
-  const aiContentResult = use(fetchArticles(convex, leagueId, {
-    numItems: 3,
-    cursor: cursor
-  })) as { page: Array<{
-    _id: string;
-    title: string;
-    content: string;
-    publishedAt?: number;
-    createdAt: number;
-    type: string;
-    persona: string;
-    bannerImageUrl?: string | null;
-  }>; isDone: boolean; continueCursor: string | null } | null;
+  // Use useQuery for real-time updates
+  const aiContentResult = useQuery(api.aiContent.getByLeague, {
+    leagueId,
+    paginationOpts: {
+      numItems: 3,
+      cursor: cursor
+    }
+  });
 
   // Extract the page data
   const aiContent = aiContentResult?.page || [];
+
+  // Show loading state if data is still loading
+  if (aiContentResult === undefined) {
+    return (
+      <div className="grid gap-6">
+        {/* Loading skeletons */}
+        {[1, 2, 3].map((i) => (
+          <article key={i} className="border-b border-gray-200 pb-6 last:border-0">
+            <div className="block p-2 -m-2">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <div className="space-y-2 mb-2">
+                    <div className="h-6 bg-gray-200 rounded animate-pulse w-3/4"></div>
+                    <div className="h-6 bg-gray-200 rounded animate-pulse w-1/2"></div>
+                  </div>
+                  <div className="mb-3">
+                    <div className="h-4 bg-gray-200 rounded animate-pulse w-48"></div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-4 bg-gray-200 rounded animate-pulse w-full"></div>
+                    <div className="h-4 bg-gray-200 rounded animate-pulse w-5/6"></div>
+                    <div className="h-4 bg-gray-200 rounded animate-pulse w-2/3"></div>
+                  </div>
+                </div>
+                <div className="w-32 h-24 bg-gray-200 rounded animate-pulse flex-shrink-0"></div>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
 
   if (!aiContent || aiContent.length === 0) {
     return (

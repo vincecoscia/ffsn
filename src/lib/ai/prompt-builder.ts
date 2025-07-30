@@ -25,6 +25,7 @@ export interface LeagueDataContext {
     divisionRecord?: { wins: number; losses: number; ties: number; };
     strengthOfSchedule?: number; // Calculated metric
     recentForm?: { wins: number; losses: number; avgPoints: number; }; // Last 3 weeks
+    draftPosition?: number; // Draft position for mock drafts
     roster?: Array<{
       playerId: string;
       playerName: string;
@@ -177,10 +178,24 @@ export interface LeagueDataContext {
     playerId: string;
     playerName: string;
     position: string;
-    team: string;
-    ownership: { percentOwned: number; percentChange?: number; };
+    team?: string;
+    proTeam?: string;
+    ownership?: {
+      percentOwned?: number;
+      percentChange?: number;
+      percentStarted?: number;
+      averageDraftPosition?: number;
+      auctionValueAverage?: number;
+    };
+    injured?: boolean;
+    injuryStatus?: string;
+    seasonOutlook?: string;
     recentStats?: { avgPoints: number; trend: string; };
     upcomingSchedule?: Array<{ week: number; opponent: string; difficulty: "easy" | "medium" | "hard"; }>;
+    projectedStats?: {
+      projectedTotal: number;
+      projectedAverage: number;
+    };
   }>;
   injuryReport?: Array<{
     playerId: string;
@@ -191,6 +206,23 @@ export interface LeagueDataContext {
     description?: string;
     fantasyImpact?: string;
   }>;
+  // Mock draft specific data
+  draftOrder?: Array<{
+    position: number;
+    teamId: string;
+    teamName: string;
+    manager: string;
+  }>;
+  draftType?: string; // "Snake", "Auction", "Manual"
+  leagueType?: string; // "Dynasty", "Keeper", "Redraft"
+  draftSettings?: {
+    type?: string;
+    orderType?: string;
+    pickOrder?: Array<{ position: number; teamId: string; teamName: string; manager: string }>;
+    isAuction?: boolean;
+    isSnake?: boolean;
+  };
+  playerCount?: number;
   weatherImpact?: Array<{
     game: string;
     conditions: string;
@@ -346,6 +378,9 @@ CURRENT CONTEXT:
         break;
       case 'season_welcome':
         contextData = this.buildSeasonWelcomeData(data);
+        break;
+      case 'mock_draft':
+        contextData = this.buildMockDraftData(data);
         break;
       default:
         contextData = this.buildGenericData(data);
@@ -828,6 +863,121 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     }
 
     return genericData;
+  }
+
+  private buildMockDraftData(data: LeagueDataContext): string {
+    console.log("=== buildMockDraftData START (OPTIMIZED) ===");
+    console.log("Draft order available:", !!data.draftOrder);
+    console.log("Available players:", data.availablePlayers?.length || 0);
+    
+    let mockDraftData = `MOCK DRAFT INFORMATION:\n\n`;
+    
+    // Compact League Settings
+    mockDraftData += `LEAGUE SETTINGS:\n`;
+    mockDraftData += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'} | ${data.scoringType || 'PPR'}\n`;
+    mockDraftData += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n\n`;
+    
+    // Draft Order (compact format)
+    if (data.draftOrder && data.draftOrder.length > 0) {
+      mockDraftData += `DRAFT ORDER:\n`;
+      const orderList = data.draftOrder
+        .slice(0, 12) // Limit to 12 teams max
+        .map(pick => `${pick.position}. ${pick.teamName}`)
+        .join(' | ');
+      mockDraftData += `${orderList}\n\n`;
+    }
+    
+    // Enhanced player pool presentation with outlook and projections
+    if (data.availablePlayers && data.availablePlayers.length > 0) {
+      mockDraftData += `TOP 50 DRAFT-ELIGIBLE PLAYERS:\n\n`;
+      
+      // Group players by position
+      const playersByPosition = data.availablePlayers.reduce((acc: Record<string, typeof data.availablePlayers>, player: typeof data.availablePlayers[0]) => {
+        const pos = player.position || 'UNKNOWN';
+        if (!acc[pos]) acc[pos] = [];
+        acc[pos].push(player);
+        return acc;
+      }, {} as Record<string, typeof data.availablePlayers>);
+      
+      // Show top players by position with enhanced data
+      const positions = ['QB', 'RB', 'WR', 'TE'];
+      positions.forEach(pos => {
+        if (playersByPosition[pos] && playersByPosition[pos].length > 0) {
+          mockDraftData += `\n${pos}s:\n`;
+          const topPlayers = playersByPosition[pos]
+            .slice(0, pos === 'QB' || pos === 'TE' ? 8 : 15); // More players shown
+          
+          topPlayers.forEach((p, idx) => {
+            mockDraftData += `${idx + 1}. ${p.playerName} (${p.proTeam})`;
+            
+            // Add projected stats if available
+            if (p.projectedStats) {
+              mockDraftData += ` - Proj: ${p.projectedStats.projectedTotal.toFixed(0)} pts (${p.projectedStats.projectedAverage.toFixed(1)} ppg)`;
+            }
+            
+            // Add outlook if available (truncate if too long)
+            if (p.seasonOutlook && p.seasonOutlook.length > 0) {
+              const outlook = p.seasonOutlook.length > 250 
+                ? p.seasonOutlook.substring(0, 250) + '...' 
+                : p.seasonOutlook;
+              mockDraftData += `\n   Outlook: ${outlook}`;
+            }
+            
+            mockDraftData += '\n';
+          });
+        }
+      });
+      mockDraftData += '\n';
+    }
+    
+    // OPTIMIZED: Simplified team list
+    if (data.teams && data.teams.length > 0) {
+      mockDraftData += `DRAFT POSITIONS:\n`;
+      const teamList = data.teams
+        .filter(team => team.draftPosition && team.draftPosition > 0)
+        .sort((a, b) => (a.draftPosition || 0) - (b.draftPosition || 0))
+        .slice(0, 12)
+        .map(team => {
+          const pos = team.draftPosition || 0;
+          if (pos > 0 && pos <= 3) return `${pos}. ${team.name} (early)`;
+          if (pos > 0 && pos >= data.teams.length - 2) return `${pos}. ${team.name} (turn)`;
+          return `${pos}. ${team.name}`;
+        });
+      mockDraftData += teamList.join(', ') + '\n\n';
+    }
+    
+    // OPTIMIZED: Condensed strategy notes
+    mockDraftData += `KEY DRAFT STRATEGY:\n`;
+    mockDraftData += `- Format: ${data.leagueType} ${data.draftType} (${data.scoringType})\n`;
+    
+    if (data.draftType === 'Auction') {
+      mockDraftData += `- Budget wisely, target 2-3 studs + depth\n`;
+    } else {
+      mockDraftData += `- Early picks: Elite RB/WR | Mid: Best available | Late: Upside\n`;
+    }
+    
+    if (data.leagueType === 'Dynasty') {
+      mockDraftData += `- Prioritize youth and multi-year value\n`;
+    } else if (data.leagueType === 'Keeper') {
+      mockDraftData += `- Account for keeper values in strategy\n`;
+    }
+    
+    mockDraftData += `\nMOCK DRAFT PREDICTION INSTRUCTIONS:
+- You are PREDICTING what each team WILL draft based on their needs and the available players
+- This is a pre-draft prediction exercise - no picks have been made yet
+- Present your predictions for rounds 1-2 in a "by team" format
+- Base predictions on: team needs, draft position, player projections, player outlook, and league scoring settings
+- For each pick, explain WHY you predict that team will select that player
+- For later rounds (3+), provide general strategy predictions and likely targets
+- Remember: You're forecasting future decisions, not critiquing past ones
+- Use player projections and outlook to justify picks, NOT just ADP rankings
+- Avoid mentioning ADP unless it's crucial for explaining a reach/value pick`;
+    
+    const finalLength = mockDraftData.length;
+    console.log("Optimized mock draft data length:", finalLength, "(was", mockDraftData.length, ")");
+    console.log("=== buildMockDraftData END (OPTIMIZED) ===");
+    
+    return mockDraftData;
   }
 
   private buildSeasonWelcomeData(data: LeagueDataContext): string {

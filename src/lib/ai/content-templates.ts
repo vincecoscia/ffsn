@@ -211,43 +211,47 @@ export const contentTemplates: Record<string, ContentTemplate> = {
   "mock_draft": {
     id: "mock_draft",
     name: "Mock Draft",
-    description: "Full mock draft with commentary and analysis",
+    description: "Mock draft predictions forecasting what each team will select",
     creditCost: 15,
     estimatedWords: 2000,
-    requiredData: ["draft_order", "league_settings", "scoring_type"],
-    optionalData: ["keeper_info", "team_preferences"],
+    requiredData: ["draft_order", "league_settings", "scoring_type", "available_players", "draft_type", "league_type"],
+    optionalData: ["keeper_info", "team_preferences", "historical_draft_data"],
     sections: [
       {
         name: "introduction",
-        description: "Draft strategy overview",
+        description: "Pre-draft analysis explaining draft strategy predictions for each team based on league settings",
         required: true,
         wordCount: 200
       },
       {
-        name: "rounds_1_3",
-        description: "Early round analysis",
+        name: "rounds_1_2_by_team",
+        description: "Predictions for first two rounds by round, explaining why each team will likely select specific players. Go pick by pick.",
+        required: true,
+        wordCount: 800
+      },
+      {
+        name: "rounds_3_8",
+        description: "Middle round predictions focusing on likely value targets and position runs",
         required: true,
         wordCount: 600
       },
       {
-        name: "rounds_4_8",
-        description: "Middle round targets",
-        required: true,
-        wordCount: 700
-      },
-      {
         name: "rounds_9_plus",
-        description: "Late round sleepers",
+        description: "Late round predictions for sleepers and handcuffs teams are likely to target",
         required: true,
-        wordCount: 400
+        wordCount: 300
       },
       {
         name: "summary",
-        description: "Best/worst picks and strategy",
+        description: "Key predictions summary and which teams are positioned for the best drafts",
         required: true,
         wordCount: 100
       }
-    ]
+    ],
+    examplePrompt: `Write a mock draft for {leagueName} ({leagueType} league, {draftType} draft). 
+    Draft order: {draftOrder}. Scoring: {scoringType}. 
+    Use the provided player projections and season outlooks to build optimal teams.
+    Present rounds 1-2 in detail by team, then provide overview of later rounds.`
   },
 
   "rivalry_week_special": {

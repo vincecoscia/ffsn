@@ -391,3 +391,218 @@ export const getWeeklyPlayerDataForAI = query({
     };
   },
 });
+
+// Get mock draft data for AI content generation
+export const getMockDraftDataForAI = query({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.optional(v.number()),
+  },
+  async handler(ctx, args) {
+    console.log("=== getMockDraftDataForAI START (OPTIMIZED V2) ===");
+    const startTime = Date.now();
+    
+    try {
+      const league = await ctx.db.get(args.leagueId);
+      if (!league) throw new Error("League not found");
+      
+      const targetSeason = args.seasonId || league.espnData?.seasonId || new Date().getFullYear();
+      console.log("Target season:", targetSeason);
+    
+      // Get league season data for draft information
+      const leagueSeason = await ctx.db
+        .query("leagueSeasons")
+        .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", targetSeason))
+        .first();
+      
+      if (!leagueSeason) {
+        console.log("No league season found, returning minimal mock data");
+        return createMinimalMockDraftData(league.name, targetSeason, league.settings);
+      }
+      
+      // Get teams (limit to avoid timeout)
+      const teams = await ctx.db
+        .query("teams")
+        .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", targetSeason))
+        .take(12); // Limit to 12 teams max
+      
+      console.log(`Found ${teams.length} teams for season ${targetSeason}`);
+      
+      // Fetch top 50 players with enhanced data
+      console.log("Fetching player data for mock draft...");
+      let topPlayers: any[] = [];
+      
+      try {
+        // Get top 50 players by season
+        const allPlayers = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_season", q => q.eq("season", targetSeason))
+          .take(200); // Larger batch to ensure we get enough players
+        
+        // Filter and sort - only players with valid ADP
+        topPlayers = allPlayers
+          .filter(p => {
+            const adp = p.ownership?.averageDraftPosition;
+            return adp && adp > 0 && adp <= 100; // Top 100 ADP to ensure we get 50
+          })
+          .sort((a, b) => (a.ownership?.averageDraftPosition || 999) - (b.ownership?.averageDraftPosition || 999))
+          .slice(0, 50); // Top 50 players
+          
+        console.log("Found", topPlayers.length, "top players");
+      } catch (error) {
+        console.log("Player query failed, using minimal fallback:", error);
+        topPlayers = []; // Continue with empty players
+      }
+      
+      // Create enhanced player data with seasonOutlook and projected stats
+      const draftablePlayers = topPlayers.length > 0 
+        ? topPlayers.map(player => {
+            // Get 2025 projected stats (find the entry with externalId "2025" and statSourceId 1)
+            const projectedStats = player.stats && Array.isArray(player.stats) 
+              ? player.stats.find((stat: any) => 
+                  stat.externalId === "2025" && 
+                  stat.statSourceId === 1 && 
+                  stat.appliedTotal > 0
+                )
+              : null;
+            
+            const projectedData = projectedStats
+              ? {
+                  projectedTotal: projectedStats.appliedTotal || 0,
+                  projectedAverage: projectedStats.appliedAverage || 0
+                }
+              : null;
+            
+            return {
+              playerId: player.espnId,
+              playerName: player.fullName,
+              position: player.defaultPosition,
+              proTeam: player.proTeamAbbrev || "",
+              seasonOutlook: player.seasonOutlook || "",
+              projectedStats: projectedData,
+              ownership: {
+                averageDraftPosition: player.ownership?.averageDraftPosition || 0,
+              },
+            };
+          })
+        : [
+            { playerId: "1", playerName: "CeeDee Lamb", position: "WR", proTeam: "DAL", ownership: { averageDraftPosition: 3.5 } },
+            { playerId: "2", playerName: "Christian McCaffrey", position: "RB", proTeam: "SF", ownership: { averageDraftPosition: 1.2 } },
+            { playerId: "3", playerName: "Tyreek Hill", position: "WR", proTeam: "MIA", ownership: { averageDraftPosition: 2.8 } },
+          ];
+      
+      // Extract draft order (simplified)
+      let draftOrder: Array<{ position: number; teamId: string; teamName: string; manager: string }> = [];
+      if (leagueSeason.draftSettings?.pickOrder && teams.length > 0) {
+        // pickOrder contains numbers, but externalId is stored as string
+        draftOrder = leagueSeason.draftSettings.pickOrder.slice(0, teams.length).map((teamIdNum: number, index: number) => {
+          const teamIdStr = String(teamIdNum);
+          const team = teams.find(t => t.externalId === teamIdStr);
+          return {
+            position: index + 1,
+            teamId: teamIdStr,
+            teamName: team?.name || `Team ${index + 1}`,
+            manager: team?.owner || "Unknown",
+          };
+        });
+      } else if (teams.length > 0) {
+        // If no draft order is set, create one based on available teams
+        draftOrder = teams.map((team, index) => ({
+          position: index + 1,
+          teamId: team.externalId,
+          teamName: team.name,
+          manager: team.owner || "Unknown",
+        }));
+      }
+      
+      const result = {
+        leagueName: league.name,
+        seasonId: targetSeason,
+        draftOrder,
+        draftType: leagueSeason.draftSettings?.type === "AUCTION" ? "Auction" : "Snake",
+        leagueType: leagueSeason.draft?.some(pick => pick.keeper) ? "Keeper" : "Redraft",
+        scoringType: league.settings.scoringType,
+        rosterSize: league.settings.rosterSize,
+        totalTeams: teams.length,
+        teams: teams.map(team => ({
+          id: team._id,
+          externalId: team.externalId,
+          name: team.name,
+          manager: team.owner,
+          draftPosition: draftOrder.findIndex(d => d.teamId === team.externalId) + 1,
+        })),
+        availablePlayers: draftablePlayers,
+        playerCount: draftablePlayers.length,
+        metadata: {
+          dataFreshness: Date.now(),
+          draftablePlayersCount: draftablePlayers.length,
+        },
+      };
+      
+      const executionTime = Date.now() - startTime;
+      console.log("=== getMockDraftDataForAI SUCCESS ===");
+      console.log("Execution time:", executionTime + "ms");
+      console.log("Players returned:", result.availablePlayers.length);
+      
+      return result;
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      console.error("=== getMockDraftDataForAI ERROR ===");
+      console.error("Execution time before error:", executionTime + "ms");
+      console.error("Error:", error);
+      
+      // Return minimal fallback data
+      return createMinimalMockDraftData("Mock League", new Date().getFullYear(), {
+        scoringType: "PPR",
+        rosterSize: 16,
+      });
+    }
+  },
+});
+
+// Helper function to create minimal mock draft data
+function createMinimalMockDraftData(
+  leagueName: string, 
+  seasonId: number, 
+  settings: any
+) {
+  return {
+    leagueName,
+    seasonId,
+    draftOrder: [],
+    draftType: "Snake",
+    leagueType: "Redraft",
+    scoringType: settings?.scoringType || "PPR",
+    rosterSize: settings?.rosterSize || 16,
+    totalTeams: 10,
+    teams: [],
+    availablePlayers: [
+      {
+        playerId: "sample1",
+        playerName: "CeeDee Lamb",
+        position: "WR",
+        proTeam: "DAL",
+        ownership: {
+          averageDraftPosition: 3.5,
+          auctionValueAverage: 55,
+        },
+      },
+      {
+        playerId: "sample2",
+        playerName: "Christian McCaffrey",
+        position: "RB",
+        proTeam: "SF",
+        ownership: {
+          averageDraftPosition: 1.2,
+          auctionValueAverage: 65,
+        },
+      },
+    ],
+    playerCount: 2,
+    metadata: {
+      dataFreshness: Date.now(),
+      draftablePlayersCount: 2,
+    },
+  };
+};

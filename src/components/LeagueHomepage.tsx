@@ -3,12 +3,12 @@
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { useState, Suspense } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ContentGenerator } from "./ContentGenerator";
 import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
-import { ArticleListSkeleton } from "./ui/ArticleSkeleton";
+
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
 import { CommissionerTeamSelection } from "./CommissionerTeamSelection";
@@ -188,14 +188,12 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                   </div>
                 )}
 
-                <Suspense fallback={<ArticleListSkeleton />}>
-                  <ArticleList 
-                    leagueId={league._id} 
-                    cursor={cursor}
-                    isCommissioner={league.role === "commissioner"}
-                    onShowContentGenerator={() => setShowContentGenerator(true)}
-                  />
-                </Suspense>
+                <ArticleList 
+                  leagueId={league._id} 
+                  cursor={cursor}
+                  isCommissioner={league.role === "commissioner"}
+                  onShowContentGenerator={() => setShowContentGenerator(true)}
+                />
                 
                 {/* Pagination Controls */}
                 {aiContentResult && aiContentResult.page && aiContentResult.page.length > 0 && (canGoNext || canGoPrevious) && (
