@@ -5,7 +5,15 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { Dialog, Button, Flex } from "@radix-ui/themes";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Team {
   _id: Id<"teams">;
@@ -43,9 +51,11 @@ interface TeamInviteManagerProps {
   league: League;
   teams: Team[];
   teamClaims: TeamClaim[];
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManagerProps) {
+export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, onClose }: TeamInviteManagerProps) {
   const [selectedTeamIds, setSelectedTeamIds] = useState<Set<Id<"teams">>>(new Set());
   const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
   const [isCreatingInvites, setIsCreatingInvites] = useState(false);
@@ -54,7 +64,6 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
     inviteUrl: string;
     email?: string;
   }>>([]);
-  const [isOpen, setIsOpen] = useState(true);
   
   const createInvitation = useMutation(api.teamInvitations.createInvitation);
   const invitations = useQuery(api.teamInvitations.getByLeague, {
@@ -138,14 +147,16 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
 
   if (createdInvites.length > 0) {
     return (
-      <Dialog.Root open={isOpen} onOpenChange={setIsOpen}>
-        <Dialog.Content maxWidth="600px">
-          <Dialog.Title className="text-2xl font-bold mb-2">
-            Invitations Created!
-          </Dialog.Title>
-          <Dialog.Description className="text-gray-600 mb-6">
-            Send these links to your league members to claim their teams
-          </Dialog.Description>
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">
+              Invitations Created!
+            </DialogTitle>
+            <DialogDescription className="text-gray-600">
+              Send these links to your league members to claim their teams
+            </DialogDescription>
+          </DialogHeader>
 
           <div className="space-y-4 mb-6 max-h-96 overflow-y-auto">
             {createdInvites.map((invite, index) => (
@@ -176,10 +187,9 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
                         });
                       }
                     }}
-                    variant="solid"
-                    color="red"
-                    size="2"
-                    className="cursor-pointer"
+                    variant="default"
+                    size="sm"
+                    className="bg-red-600 hover:bg-red-700 text-white"
                   >
                     Copy
                   </Button>
@@ -191,35 +201,38 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
             ))}
           </div>
 
-          <Flex gap="3" justify="end">
+          <DialogFooter>
             <Button
               onClick={() => setCreatedInvites([])}
-              variant="soft"
-              color="gray"
+              variant="outline"
               className="cursor-pointer"
             >
               Create More Invites
             </Button>
-            <Dialog.Close>
-              <Button variant="solid" color="red" className="cursor-pointer">
-                Continue to League
-              </Button>
-            </Dialog.Close>
-          </Flex>
-        </Dialog.Content>
-      </Dialog.Root>
+            <Button 
+              variant="default"
+              className="bg-red-600 hover:bg-red-700 text-white cursor-pointer"
+              onClick={onClose}
+            >
+              Continue to League
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={setIsOpen}>
-      <Dialog.Content maxWidth="800px">
-        <Dialog.Title className="text-2xl font-bold mb-2">
-          Invite League Members
-        </Dialog.Title>
-        <Dialog.Description className="text-gray-600 mb-6">
-          Select teams and invite members to join {league.name}
-        </Dialog.Description>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[800px]">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-bold">
+            Invite League Members
+          </DialogTitle>
+          <DialogDescription className="text-gray-600">
+            Select teams and invite members to join {league.name}
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-4">Available Teams</h3>
@@ -282,23 +295,24 @@ export function TeamInviteManager({ league, teams, teamClaims }: TeamInviteManag
           </div>
         </div>
 
-        <Flex gap="3" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray" className="cursor-pointer">
-              Skip for Now
-            </Button>
-          </Dialog.Close>
+        <DialogFooter>
+          <Button 
+            variant="outline"
+            className="cursor-pointer"
+            onClick={onClose}
+          >
+            Skip for Now
+          </Button>
           <Button
             onClick={handleCreateInvites}
             disabled={selectedTeamIds.size === 0 || isCreatingInvites}
-            variant="solid"
-            color="red"
-            className="cursor-pointer"
+            variant="default"
+            className="bg-red-600 hover:bg-red-700 text-white cursor-pointer"
           >
             {isCreatingInvites ? "Creating..." : `Create ${selectedTeamIds.size} Invite${selectedTeamIds.size !== 1 ? 's' : ''}`}
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

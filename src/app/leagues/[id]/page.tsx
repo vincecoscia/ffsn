@@ -7,8 +7,6 @@ import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { useUser } from "@clerk/nextjs";
 import { LeagueHomepage } from "@/components/LeagueHomepage";
-import { CommissionerTeamSelection } from "@/components/CommissionerTeamSelection";
-import { TeamInviteManager } from "@/components/TeamInviteManager";
 
 interface LeaguePageProps {
   params: Promise<{
@@ -70,12 +68,6 @@ export default function LeaguePage({ params }: LeaguePageProps) {
   const userHasClaimedTeam = teamClaims.some(claim => claim.userId === currentUserId);
   const isCurrentSeason = true; // For 2025 season
   
-  // Check if this is first time setup (no teams claimed for current season)
-  const noTeamsClaimed = teamClaims.length === 0;
-
-  // Determine which modals to show
-  const showCommissionerTeamSelection = isCommissioner && noTeamsClaimed && isCurrentSeason;
-  const showTeamInviteManager = isCommissioner && userHasClaimedTeam && isCurrentSeason && teamClaims.length < teams.length;
 
   return (
     <>
@@ -85,24 +77,9 @@ export default function LeaguePage({ params }: LeaguePageProps) {
         teams={teams}
         teamClaims={teamClaims}
         currentUserId={currentUserId}
+        isCommissioner={isCommissioner}
       />
-      
-      {/* Show Commissioner Team Selection Modal if needed */}
-      {showCommissionerTeamSelection && (
-        <CommissionerTeamSelection 
-          league={league}
-          teams={teams}
-        />
-      )}
-      
-      {/* Show Team Invite Manager Modal if needed */}
-      {showTeamInviteManager && (
-        <TeamInviteManager
-          league={league}
-          teams={teams}
-          teamClaims={teamClaims}
-        />
-      )}
+    
     </>
   );
 }

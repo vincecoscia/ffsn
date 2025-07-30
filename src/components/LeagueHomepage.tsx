@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { ContentGenerator } from "./ContentGenerator";
 import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
+import { TeamInviteManager } from "./TeamInviteManager";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
 import { CommissionerTeamSelection } from "./CommissionerTeamSelection";
 
@@ -53,13 +54,15 @@ interface LeagueHomepageProps {
   teams: Team[];
   teamClaims: TeamClaim[];
   currentUserId?: string;
+  isCommissioner: boolean;
 }
 
-export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: LeagueHomepageProps) {
+export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCommissioner }: LeagueHomepageProps) {
   const [showContentGenerator, setShowContentGenerator] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [cursor, setCursor] = useState<string | null>(null);
   const [showTeamClaimModal, setShowTeamClaimModal] = useState(false);
+  const [showTeamInviteManager, setShowTeamInviteManager] = useState(false);
   
   // Get featured story (most recent AI content with image)
   const featuredStory = useQuery(api.aiContent.getMostRecentWithImage, {
@@ -116,6 +119,11 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
     }
     return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
   });
+
+  // Check if all teams are claimed for the current season
+  const claimedTeamIds = new Set(teamClaims.map(claim => claim.teamId));
+  const allTeamsClaimed = teams.length > 0 && claimedTeamIds.size === teams.length;
+  const shouldShowInviteOption = isCommissioner && !allTeamsClaimed;
 
   return (
     <>
@@ -331,6 +339,21 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                       )}
                     </div>
                   </div>
+                  
+                  {/* Invite Players button for commissioners */}
+                  {shouldShowInviteOption && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <Button
+                        onClick={() => setShowTeamInviteManager(true)}
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-red-600 border-red-600 hover:bg-red-50 hover:border-red-700 hover:cursor-pointer"
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Invite Players
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : currentUserId && (
@@ -358,6 +381,19 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
                       </svg>
                       Claim Your Team
                     </Button>
+                    
+                    {/* Invite Players button for commissioners */}
+                    {shouldShowInviteOption && (
+                      <Button
+                        onClick={() => setShowTeamInviteManager(true)}
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-3 text-red-600 border-red-600 hover:bg-red-50 hover:border-red-700"
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Invite Players
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -438,6 +474,17 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId }: Lea
             league={league}
             teams={teams}
             onClose={() => setShowTeamClaimModal(false)}
+          />
+        )}
+
+        {/* Team Invite Manager Modal */}
+        {showTeamInviteManager && shouldShowInviteOption && (
+          <TeamInviteManager 
+            league={league}
+            teams={teams}
+            teamClaims={teamClaims}
+            isOpen={showTeamInviteManager}
+            onClose={() => setShowTeamInviteManager(false)}
           />
         )}
     </>
