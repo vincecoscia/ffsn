@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action, mutation, internalMutation } from "./_generated/server";
+import { action, mutation, internalMutation, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
@@ -21,6 +21,69 @@ const getTeamAbbreviation = (teamId: number): string => {
   };
   return teamMap[teamId] || 'FA';
 };
+
+// Generate X-Fantasy-Filter header for all matchup periods in a season
+const generateFantasyFilterHeader = (regularSeasonWeeks: number = 14, playoffWeeks: number = 4): string => {
+  const totalWeeks = regularSeasonWeeks + playoffWeeks;
+  const matchupPeriodIds = Array.from({ length: totalWeeks }, (_, i) => i + 1);
+  
+  return JSON.stringify({
+    schedule: {
+      filterMatchupPeriodIds: {
+        value: matchupPeriodIds
+      }
+    }
+  });
+};
+
+// Transform ESPN roster data to clean format
+const transformRosterData = (rosterData: any) => {
+  if (!rosterData || !rosterData.entries) {
+    console.log('No roster data found!!!');
+    return undefined;
+  }
+
+  console.log('Roster data found!!!');
+
+  console.log(rosterData);
+  // Ensure appliedStatTotal is a valid number, default to 0 if missing
+  const appliedStatTotal = typeof rosterData.appliedStatTotal === 'number' 
+    ? rosterData.appliedStatTotal 
+    : 0;
+
+  return {
+    appliedStatTotal,
+    players: rosterData.entries.map((entry: any) => {
+      const player = entry.playerPoolEntry?.player;
+      if (!player) return null;
+
+      // Get appliedStats from the second stats entry (index 1) if available
+      const appliedStats = player.stats && player.stats[0] ? player.stats[0].appliedStats : undefined;
+
+      const projectedPoints = player.stats && player.stats[1] ? player.stats[1].appliedTotal.toFixed(1) : undefined;
+
+      // Ensure appliedStatTotal is a valid number for the player too
+      const playerAppliedStatTotal = typeof entry.playerPoolEntry?.appliedStatTotal === 'number'
+        ? entry.playerPoolEntry.appliedStatTotal
+        : 0;
+
+      return {
+        lineupSlotId: entry.lineupSlotId,
+        espnId: player.id,
+        firstName: player.firstName,
+        lastName: player.lastName,
+        fullName: player.fullName,
+        position: getPositionName(player.defaultPositionId),
+        points: playerAppliedStatTotal,
+        appliedStats: appliedStats,
+        projectedPoints: projectedPoints,
+      };
+    }).filter((player: any) => player !== null),
+  };
+};
+
+// Matchup roster fetching is now in matchupRosters.ts to avoid circular dependencies
+
 
 export const syncLeagueData = action({
   args: {
@@ -44,8 +107,29 @@ export const syncLeagueData = action({
       const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${league.externalId}`;
       
       const headers: HeadersInit = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Origin': 'https://fantasy.espn.com',
+        'Referer': 'https://fantasy.espn.com/',
+        'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site',
+        'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
+        'X-Fantasy-Source': 'kona'
       };
+      
+      // Add fantasy filter for all matchup periods to get roster data
+      // Use league settings or reasonable defaults (most leagues are 14 regular + 4 playoff weeks)
+      const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
+      const playoffWeeks = league.settings?.playoffWeeks || 4;
+      headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
       
       if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
         headers['Cookie'] = `espn_s2=${league.espnData.espnS2}; SWID=${league.espnData.swid}`;
@@ -306,6 +390,9 @@ export const syncLeagueData = action({
                    matchup.winner === 'AWAY' ? 'away' as const : 
                    matchup.winner === 'TIE' ? 'tie' as const : undefined,
             playoffTier: matchup.playoffTierType,
+            // Transform and clean roster data from current scoring period
+            homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
+            awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
           }))
         });
       }
@@ -332,6 +419,24 @@ export const syncLeagueData = action({
       } catch (rosterError) {
         console.error('Error fetching rosters:', rosterError);
         // Don't fail the entire sync if roster fetching fails
+      }
+
+      // Fetch matchup rosters for all scoring periods
+      console.log('Fetching matchup rosters for all scoring periods...');
+      try {
+        const matchupRosterResult = await ctx.runAction(api.matchupRosters.fetchMatchupRosters, {
+          leagueId: args.leagueId,
+          seasonId: currentYear,
+        });
+        
+        if (matchupRosterResult.success) {
+          console.log(`Successfully fetched matchup rosters for ${matchupRosterResult.successfulPeriods}/${matchupRosterResult.totalPeriods} periods`);
+        } else {
+          console.warn('Failed to fetch matchup rosters:', matchupRosterResult.message);
+        }
+      } catch (matchupRosterError) {
+        console.error('Error fetching matchup rosters:', matchupRosterError);
+        // Don't fail the entire sync if matchup roster fetching fails
       }
 
       // Process transaction data if available
@@ -592,6 +697,10 @@ export const updateMatchups = mutation({
       awayPointsByScoringPeriod: v.optional(v.record(v.string(), v.number())),
       winner: v.optional(v.union(v.literal("home"), v.literal("away"), v.literal("tie"))),
       playoffTier: v.optional(v.string()),
+      
+      // Clean roster data from current scoring period
+      homeRoster: v.optional(v.any()),
+      awayRoster: v.optional(v.any()),
     })),
   },
   handler: async (ctx, args) => {
@@ -631,6 +740,8 @@ export const updateMatchups = mutation({
         awayPointsByScoringPeriod: matchupData.awayPointsByScoringPeriod,
         winner: matchupData.winner,
         playoffTier: matchupData.playoffTier,
+        homeRoster: matchupData.homeRoster,
+        awayRoster: matchupData.awayRoster,
         updatedAt: now,
       };
 
@@ -691,8 +802,28 @@ export const syncHistoricalData = action({
         const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${league.externalId}`;
         
         const headers: HeadersInit = {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip, deflate, br, zstd',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Origin': 'https://fantasy.espn.com',
+          'Referer': 'https://fantasy.espn.com/',
+          'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site',
+          'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
+          'X-Fantasy-Source': 'kona'
         };
+        
+        // Add fantasy filter for all matchup periods to get roster data
+        const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
+        const playoffWeeks = league.settings?.playoffWeeks || 4;
+        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
         
         if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
           // Decode URL-encoded espnS2 if needed
@@ -1015,6 +1146,9 @@ export const syncHistoricalData = action({
                      matchup.winner === 'AWAY' ? 'away' as const : 
                      matchup.winner === 'TIE' ? 'tie' as const : undefined,
               playoffTier: matchup.playoffTierType,
+              // Transform and clean roster data from current scoring period
+              homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
+              awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
             }))
           });
         }
@@ -1228,6 +1362,7 @@ export const syncAllLeagueData = action({
       matchupsCount?: number;
       playersCount?: number;
       rostersCount?: number;
+      matchupRostersCount?: number;
     }>;
     message: string;
     syncedAt: number;
@@ -1291,8 +1426,28 @@ export const syncAllLeagueData = action({
         const baseUrl: string = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${league.externalId}`;
         
         const headers: HeadersInit = {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip, deflate, br, zstd',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Origin': 'https://fantasy.espn.com',
+          'Referer': 'https://fantasy.espn.com/',
+          'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site',
+          'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
+          'X-Fantasy-Source': 'kona'
         };
+        
+        // Add fantasy filter for all matchup periods to get roster data
+        const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
+        const playoffWeeks = league.settings?.playoffWeeks || 4;
+        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
         
         if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
           // Decode URL-encoded espnS2 if needed
@@ -1756,6 +1911,9 @@ export const syncAllLeagueData = action({
                      matchup.winner === 'AWAY' ? 'away' as const : 
                      matchup.winner === 'TIE' ? 'tie' as const : undefined,
               playoffTier: matchup.playoffTierType,
+              // Transform and clean roster data from current scoring period
+              homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
+              awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
             }))
           });
         }
@@ -1788,6 +1946,26 @@ export const syncAllLeagueData = action({
           // Don't fail the entire sync if roster fetching fails
         }
 
+        // Fetch matchup rosters for each year after teams are synced
+        console.log(`Fetching matchup rosters for year ${year}...`);
+        let matchupRostersFetched = 0;
+        try {
+          const matchupRosterResult = await ctx.runAction(api.matchupRosters.fetchMatchupRosters, {
+            leagueId: args.leagueId,
+            seasonId: year,
+          });
+          
+          if (matchupRosterResult.success) {
+            matchupRostersFetched = matchupRosterResult.successfulPeriods;
+            console.log(`Successfully fetched matchup rosters for ${matchupRostersFetched}/${matchupRosterResult.totalPeriods} periods in ${year}`);
+          } else {
+            console.warn(`Failed to fetch matchup rosters for ${year}:`, matchupRosterResult.message);
+          }
+        } catch (matchupRosterError) {
+          console.error(`Error fetching matchup rosters for ${year}:`, matchupRosterError);
+          // Don't fail the entire sync if matchup roster fetching fails
+        }
+
         // Fetch player stats for each year after rosters are synced
         console.log(`Fetching player stats for year ${year}...`);
         let playerStatsSynced = 0;
@@ -1815,11 +1993,12 @@ export const syncAllLeagueData = action({
           matchupsCount: schedule.length,
           playersCount: year === currentYear ? players.length : 0,
           rostersCount: rostersFetched,
+          matchupRostersCount: matchupRostersFetched,
           playerStatsCount: playerStatsSynced
         });
         totalSynced++;
         
-        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${playerStatsSynced} player stats`);
+        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${matchupRostersFetched} matchup periods, ${playerStatsSynced} player stats`);
         
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1980,6 +2159,11 @@ export const fetchHistoricalRosters = action({
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         };
         
+        // Add fantasy filter for all matchup periods to get roster data
+        const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
+        const playoffWeeks = league.settings?.playoffWeeks || 4;
+        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
+        
         if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
           const espnS2 = decodeURIComponent(league.espnData.espnS2);
           headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
@@ -2128,6 +2312,11 @@ export const fetchDraftDataForSeason = action({
       const headers: HeadersInit = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
       };
+      
+      // Add fantasy filter for all matchup periods to get comprehensive data
+      const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
+      const playoffWeeks = league.settings?.playoffWeeks || 4;
+      headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
       
       if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
         const espnS2 = decodeURIComponent(league.espnData.espnS2);
@@ -2284,6 +2473,7 @@ export const syncAllDataWithRosters = action({
       matchupsCount?: number;
       playersCount?: number;
       rostersCount?: number;
+      matchupRostersCount?: number;
     }>;
     message: string;
     syncedAt: number;
@@ -2315,6 +2505,7 @@ export const syncAllDataWithRosters = action({
           enhancedResults.push({
             ...result,
             rostersCount: rosterResult.success ? rosterResult.totalRostersFetched : 0,
+            matchupRostersCount: 0, // This function doesn't fetch matchup rosters
           });
           
           console.log(`Rosters for ${result.year}: ${rosterResult.success ? `${rosterResult.totalRostersFetched} teams` : 'failed'}`);
@@ -2327,6 +2518,7 @@ export const syncAllDataWithRosters = action({
           enhancedResults.push({
             ...result,
             rostersCount: 0,
+            matchupRostersCount: 0,
           });
         }
       } else {

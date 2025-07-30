@@ -22,6 +22,7 @@ import type * as espn from "../espn.js";
 import type * as espnNews from "../espnNews.js";
 import type * as espnSync from "../espnSync.js";
 import type * as leagues from "../leagues.js";
+import type * as matchupRosters from "../matchupRosters.js";
 import type * as matchups from "../matchups.js";
 import type * as news from "../news.js";
 import type * as playerHistoricalSync from "../playerHistoricalSync.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   espnNews: typeof espnNews;
   espnSync: typeof espnSync;
   leagues: typeof leagues;
+  matchupRosters: typeof matchupRosters;
   matchups: typeof matchups;
   news: typeof news;
   playerHistoricalSync: typeof playerHistoricalSync;

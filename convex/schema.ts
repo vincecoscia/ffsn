@@ -279,6 +279,38 @@ export default defineSchema({
     awayPointsByScoringPeriod: v.optional(v.record(v.string(), v.number())),
     winner: v.optional(v.union(v.literal("home"), v.literal("away"), v.literal("tie"))),
     playoffTier: v.optional(v.string()),
+    
+    // Clean roster data from current scoring period
+    homeRoster: v.optional(v.object({
+      appliedStatTotal: v.number(),
+      players: v.array(v.object({
+        lineupSlotId: v.number(),
+        espnId: v.number(),
+        firstName: v.optional(v.string()),
+        lastName: v.optional(v.string()),
+        fullName: v.string(),
+        position: v.string(), // Converted from defaultPositionId using getPositionName
+        points: v.number(),
+        appliedStats: v.optional(v.record(v.string(), v.number())), // Fantasy points breakdown
+        projectedPoints: v.optional(v.number()),
+      })),
+    })),
+    
+    awayRoster: v.optional(v.object({
+      appliedStatTotal: v.number(),
+      players: v.array(v.object({
+        lineupSlotId: v.number(),
+        espnId: v.number(),
+        firstName: v.optional(v.string()),
+        lastName: v.optional(v.string()),
+        fullName: v.string(),
+        position: v.string(), // Converted from defaultPositionId using getPositionName
+        points: v.number(),
+        appliedStats: v.optional(v.record(v.string(), v.number())), // Fantasy points breakdown
+        projectedPoints: v.optional(v.number()),
+      })),
+    })),
+    
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
   })
