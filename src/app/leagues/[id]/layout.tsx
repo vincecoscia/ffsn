@@ -244,27 +244,76 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
               </div>
               <span className="text-white font-semibold">Fantasy</span>
             </div>
-            <nav className="flex items-center gap-6 text-sm">
-              <Link href={`/leagues/${league._id}`} className="text-white hover:text-gray-300 transition-colors cursor-pointer">
+            <nav className="flex items-center gap-2 text-sm">
+              <Link 
+                href={`/leagues/${league._id}`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
                 Home
               </Link>
-              <Link href={`/leagues/${league._id}/scores`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link 
+                href={`/leagues/${league._id}/scores`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}/scores`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
                 Scores
               </Link>
-              <Link href={`/leagues/${league._id}/schedule`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link 
+                href={`/leagues/${league._id}/schedule`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}/schedule`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
                 Schedule
               </Link>
-              <Link href={`/leagues/${league._id}/standings`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link 
+                href={`/leagues/${league._id}/standings`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}/standings`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
                 Standings
               </Link>
-              <Link href={`/leagues/${league._id}/teams`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link 
+                href={`/leagues/${league._id}/teams`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}/teams`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
                 Teams
               </Link>
-              <Link href={`/leagues/${league._id}/depth-charts`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+              <Link 
+                href={`/leagues/${league._id}/depth-charts`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}/depth-charts`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
                 Depth Charts
               </Link>
               {league.role === "commissioner" && (
-                <Link href={`/leagues/${league._id}/settings`} className="text-gray-300 hover:text-white transition-colors cursor-pointer">
+                <Link 
+                  href={`/leagues/${league._id}/settings`} 
+                  className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                    isActivePath(`/leagues/${league._id}/settings`)
+                      ? 'bg-white text-gray-800 shadow-sm'
+                      : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                  }`}
+                >
                   Settings
                 </Link>
               )}
