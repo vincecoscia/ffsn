@@ -2952,7 +2952,7 @@ export const syncPlayerTransactions = action({
             items: transaction.items || [],
             proposedDate: transaction.proposedDate || Date.now(),
             scoringPeriod: transaction.scoringPeriodId || args.currentScoringPeriod,
-            processedDate: transaction.processedDate || Date.now(),
+            processedDate: transaction.processedDate ? transaction.processedDate : null,
             status: transaction.status,
             type: transaction.type,
             teamId: transaction.teamId,

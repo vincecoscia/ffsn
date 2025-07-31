@@ -317,10 +317,13 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
                 </div>
                 <div className="p-6">
                   <div className="text-center">
-                    {userTeam.logo && (
-                      <img 
-                        src={userTeam.logo} 
-                        alt={`${userTeam.name} logo`}
+                    {(userTeam.logo || userTeam.customLogo) && (
+                      <TeamLogo 
+                        teamId={userTeam._id}
+                        teamName={userTeam.name}
+                        espnLogo={userTeam.logo}
+                        customLogo={userTeam.customLogo}
+                        size="md"
                         className="w-20 h-20 mx-auto mb-4 rounded-lg"
                       />
                     )}
