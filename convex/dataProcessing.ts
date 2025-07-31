@@ -340,18 +340,21 @@ export const updateManagerActivity = mutation({
     
     // Count transactions
     for (const trans of transactions) {
-      const current = activityByTeam.get(trans.teamId) || {
+      if (!trans.teamId) continue; // Skip if no team ID
+      
+      const teamIdStr = trans.teamId.toString(); // Convert number to string
+      const current = activityByTeam.get(teamIdStr) || {
         totalTransactions: 0,
         trades: 0,
         waiverClaims: 0,
       };
       
       current.totalTransactions++;
-      if (trans.transactionType === "waiver_claim") {
+      if (trans.type === "WAIVER") {
         current.waiverClaims++;
       }
       
-      activityByTeam.set(trans.teamId, current);
+      activityByTeam.set(teamIdStr, current);
     }
     
     // Count trades (each trade involves 2 teams)

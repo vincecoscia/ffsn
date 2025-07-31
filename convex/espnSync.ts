@@ -22,6 +22,7 @@ const getTeamAbbreviation = (teamId: number): string => {
   return teamMap[teamId] || 'FA';
 };
 
+
 // Generate X-Fantasy-Filter header for all matchup periods in a season
 const generateFantasyFilterHeader = (regularSeasonWeeks: number = 14, playoffWeeks: number = 4): string => {
   const totalWeeks = regularSeasonWeeks + playoffWeeks;
@@ -136,7 +137,7 @@ export const syncLeagueData = action({
       }
 
       // Get comprehensive league data including players, matchups, draft info, and transactions
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication`, {
+      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard`, {
         headers
       });
 
@@ -368,6 +369,26 @@ export const syncLeagueData = action({
             } : undefined,
           }))
         });
+
+        // Sync player transactions if available
+        console.log('Processing player transactions...');
+        try {
+          const transactionResult = await ctx.runAction(api.espnSync.syncPlayerTransactions, {
+            leagueId: args.leagueId,
+            seasonId: currentYear,
+            players: players,
+            currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
+          });
+          
+          if (transactionResult.success) {
+            console.log(`Successfully synced ${transactionResult.transactionsProcessed} transactions`);
+          } else {
+            console.warn('Failed to sync some transactions:', transactionResult.message);
+          }
+        } catch (transactionError) {
+          console.error('Error syncing player transactions:', transactionError);
+          // Don't fail the entire sync if transaction syncing fails
+        }
       }
 
       // Sync matchups data
@@ -439,25 +460,8 @@ export const syncLeagueData = action({
         // Don't fail the entire sync if matchup roster fetching fails
       }
 
-      // Process transaction data if available
-      if (communication.messages && communication.messages.length > 0) {
-        console.log(`Processing ${communication.messages.length} transaction messages...`);
-        try {
-          await ctx.runAction(api.espnSync.processTransactionData, {
-            leagueId: args.leagueId,
-            seasonId: currentYear,
-            messages: communication.messages,
-            teams: teams.map((t: any) => ({
-              id: t.id.toString(),
-              name: t.name || 'Unknown Team',
-              owner: getOwnerInfo(t).ownerName,
-            })),
-          });
-        } catch (transactionError) {
-          console.error('Error processing transactions:', transactionError);
-          // Don't fail the entire sync if transaction processing fails
-        }
-      }
+      // Note: Transaction processing is now handled via player transactions in the player sync section above
+      // The old communication message approach is deprecated
 
       // Run data processing pipeline after successful sync
       // Note: This would be called separately after sync completes
@@ -838,7 +842,7 @@ export const syncHistoricalData = action({
         }
 
         // Get historical league data including player information
-        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mRoster&view=mBoxscore&view=mPositionalRatings`, {
+        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mRoster&view=mBoxscore&view=mPositionalRatings&view=kona_playercard`, {
           headers
         });
 
@@ -1363,6 +1367,7 @@ export const syncAllLeagueData = action({
       playersCount?: number;
       rostersCount?: number;
       matchupRostersCount?: number;
+      transactionsCount?: number;
     }>;
     message: string;
     syncedAt: number;
@@ -1463,8 +1468,8 @@ export const syncAllLeagueData = action({
 
         // For current season, get more comprehensive data
         const viewParams = year === currentYear 
-          ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication'
-          : '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication';
+          ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard'
+          : '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard';
 
         const leagueResponse: Response = await fetch(`${baseUrl}${viewParams}`, {
           headers
@@ -1889,6 +1894,28 @@ export const syncAllLeagueData = action({
               } : undefined,
             }))
           });
+
+          // Sync player transactions for this season
+          console.log(`Processing player transactions for year ${year}...`);
+          let transactionsSynced = 0;
+          try {
+            const transactionResult = await ctx.runAction(api.espnSync.syncPlayerTransactions, {
+              leagueId: args.leagueId,
+              seasonId: year,
+              players: players,
+              currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
+            });
+            
+            if (transactionResult.success) {
+              transactionsSynced = transactionResult.transactionsProcessed;
+              console.log(`Successfully synced ${transactionResult.transactionsProcessed} transactions for ${year}`);
+            } else {
+              console.warn(`Failed to sync some transactions for ${year}:`, transactionResult.message);
+            }
+          } catch (transactionError) {
+            console.error(`Error syncing player transactions for ${year}:`, transactionError);
+            // Don't fail the entire sync if transaction syncing fails
+          }
         }
 
         // Sync matchups data
@@ -1969,6 +1996,7 @@ export const syncAllLeagueData = action({
         // Fetch player stats for each year after rosters are synced
         console.log(`Fetching player stats for year ${year}...`);
         let playerStatsSynced = 0;
+        let transactionsSynced = 0;
         try {
           const statsResult = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
             leagueId: args.leagueId,
@@ -1994,11 +2022,12 @@ export const syncAllLeagueData = action({
           playersCount: year === currentYear ? players.length : 0,
           rostersCount: rostersFetched,
           matchupRostersCount: matchupRostersFetched,
-          playerStatsCount: playerStatsSynced
+          playerStatsCount: playerStatsSynced,
+          transactionsCount: transactionsSynced
         });
         totalSynced++;
         
-        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${matchupRostersFetched} matchup periods, ${playerStatsSynced} player stats`);
+        console.log(`Successfully synced year ${year}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${matchupRostersFetched} matchup periods, ${playerStatsSynced} player stats, ${transactionsSynced} transactions`);
         
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -2474,6 +2503,7 @@ export const syncAllDataWithRosters = action({
       playersCount?: number;
       rostersCount?: number;
       matchupRostersCount?: number;
+      transactionsCount?: number;
     }>;
     message: string;
     syncedAt: number;
@@ -2558,76 +2588,77 @@ export const updateLeagueSync = mutation({
   },
 });
 
-// Process transaction data from ESPN communication messages
-export const processTransactionData = action({
-  args: {
-    leagueId: v.id("leagues"),
-    seasonId: v.number(),
-    messages: v.array(v.any()),
-    teams: v.array(v.object({
-      id: v.string(),
-      name: v.string(),
-      owner: v.string(),
-    })),
-  },
-  handler: async (ctx, args) => {
-    const processedTransactions = [];
-    const processedTrades = [];
-    
-    // Create team lookup map
-    const teamMap = new Map(args.teams.map(t => [t.id, t]));
-    
-    for (const message of args.messages) {
-      const messageType = message.messageTypeId;
-      const date = message.date || Date.now();
-      
-      // Process different transaction types
-      if (messageType === 244 || messageType === 188) { // Trade messages
-        const tradeData = await processTradeMessage(message, teamMap);
-        if (tradeData) {
-          processedTrades.push({
-            ...tradeData,
-            leagueId: args.leagueId,
-            seasonId: args.seasonId,
-            tradeDate: date,
-          });
-        }
-      } else if (messageType === 178 || messageType === 180 || messageType === 179) { 
-        // Waiver claim (178), Free agent add (180), Drop (179)
-        const transactionData = await processTransactionMessage(message, teamMap);
-        if (transactionData) {
-          processedTransactions.push({
-            ...transactionData,
-            leagueId: args.leagueId,
-            seasonId: args.seasonId,
-            transactionDate: date,
-          });
-        }
-      }
-    }
-    
-    // Store trades
-    if (processedTrades.length > 0) {
-      await ctx.runMutation(api.espnSync.storeTrades, {
-        trades: processedTrades,
-      });
-    }
-    
-    // Store transactions
-    if (processedTransactions.length > 0) {
-      await ctx.runMutation(api.espnSync.storeTransactions, {
-        transactions: processedTransactions,
-      });
-    }
-    
-    console.log(`Processed ${processedTrades.length} trades and ${processedTransactions.length} transactions`);
-    
-    return {
-      tradesProcessed: processedTrades.length,
-      transactionsProcessed: processedTransactions.length,
-    };
-  },
-});
+// DEPRECATED: Old transaction processing from communication messages
+// Now using player transactions directly
+// export const processTransactionData = action({
+//   args: {
+//     leagueId: v.id("leagues"),
+//     seasonId: v.number(),
+//     messages: v.array(v.any()),
+//     teams: v.array(v.object({
+//       id: v.string(),
+//       name: v.string(),
+//       owner: v.string(),
+//     })),
+//   },
+//   handler: async (ctx, args) => {
+//     const processedTransactions = [];
+//     const processedTrades = [];
+//     
+//     // Create team lookup map
+//     const teamMap = new Map(args.teams.map(t => [t.id, t]));
+//     
+//     for (const message of args.messages) {
+//       const messageType = message.messageTypeId;
+//       const date = message.date || Date.now();
+//       
+//       // Process different transaction types
+//       if (messageType === 244 || messageType === 188) { // Trade messages
+//         const tradeData = await processTradeMessage(message, teamMap);
+//         if (tradeData) {
+//           processedTrades.push({
+//             ...tradeData,
+//             leagueId: args.leagueId,
+//             seasonId: args.seasonId,
+//             tradeDate: date,
+//           });
+//         }
+//       } else if (messageType === 178 || messageType === 180 || messageType === 179) { 
+//         // Waiver claim (178), Free agent add (180), Drop (179)
+//         const transactionData = await processTransactionMessage(message, teamMap);
+//         if (transactionData) {
+//           processedTransactions.push({
+//             ...transactionData,
+//             leagueId: args.leagueId,
+//             seasonId: args.seasonId,
+//             transactionDate: date,
+//           });
+//         }
+//       }
+//     }
+//     
+//     // Store trades
+//     if (processedTrades.length > 0) {
+//       await ctx.runMutation(api.espnSync.storeTrades, {
+//         trades: processedTrades,
+//       });
+//     }
+//     
+//     // Store transactions
+//     if (processedTransactions.length > 0) {
+//       await ctx.runMutation(api.espnSync.storeTransactions, {
+//         transactions: processedTransactions,
+//       });
+//     }
+//     
+//     console.log(`Processed ${processedTrades.length} trades and ${processedTransactions.length} transactions`);
+//     
+//     return {
+//       tradesProcessed: processedTrades.length,
+//       transactionsProcessed: processedTransactions.length,
+//     };
+//   },
+// });
 
 // Helper function to process trade messages
 async function processTradeMessage(message: any, teamMap: Map<string, any>) {
@@ -2818,61 +2849,183 @@ export const storeTrades = mutation({
   },
 });
 
-// Store transactions in database
-export const storeTransactions = mutation({
+// DEPRECATED: Old transaction storage using simplified format
+// This mutation is no longer used - transactions are now stored via storePlayerTransactions
+// which uses the ESPN transaction format matching the schema
+// export const storeTransactions = mutation({
+//   args: {
+//     transactions: v.array(v.object({
+//       leagueId: v.id("leagues"),
+//       seasonId: v.number(),
+//       transactionDate: v.number(),
+//       transactionType: v.union(
+//         v.literal("add"),
+//         v.literal("drop"),
+//         v.literal("add_drop"),
+//         v.literal("waiver_claim"),
+//         v.literal("trade")
+//       ),
+//       teamId: v.string(),
+//       teamName: v.string(),
+//       manager: v.string(),
+//       playerAdded: v.optional(v.object({
+//         playerId: v.string(),
+//         playerName: v.string(),
+//         position: v.string(),
+//         team: v.string(),
+//       })),
+//       playerDropped: v.optional(v.object({
+//         playerId: v.string(),
+//         playerName: v.string(),
+//         position: v.string(),
+//         team: v.string(),
+//       })),
+//       waiverPriority: v.optional(v.number()),
+//       isSuccessful: v.optional(v.boolean()),
+//     })),
+//   },
+//   handler: async (ctx, args) => {
+//     const now = Date.now();
+//     
+//     for (const transaction of args.transactions) {
+//       // Check if transaction already exists
+//       const existingTransaction = await ctx.db
+//         .query("transactions")
+//         .withIndex("by_date", q => 
+//           q.eq("leagueId", transaction.leagueId)
+//            .eq("transactionDate", transaction.transactionDate)
+//         )
+//         .filter(q => 
+//           q.eq(q.field("teamId"), transaction.teamId)
+//         )
+//         .first();
+//       
+//       if (!existingTransaction) {
+//         await ctx.db.insert("transactions", {
+//           ...transaction,
+//           createdAt: now,
+//         });
+//       }
+//     }
+//   },
+// });
+
+// Sync player transactions from ESPN data
+export const syncPlayerTransactions = action({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    players: v.array(v.any()),
+    currentScoringPeriod: v.number(),
+  },
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    transactionsProcessed: number;
+    duplicatesSkipped: number;
+    message: string;
+  }> => {
+    const allTransactions = [];
+    const processedTransactionIds = new Set<string>();
+    
+    // Extract transactions from each player
+    for (const player of args.players) {
+      if (player.transactions && Array.isArray(player.transactions)) {
+        for (const transaction of player.transactions) {
+          // Skip if we've already processed this transaction ID
+          if (processedTransactionIds.has(transaction.id)) {
+            continue;
+          }
+          
+          processedTransactionIds.add(transaction.id);
+          
+
+          
+          allTransactions.push({
+            leagueId: args.leagueId,
+            seasonId: args.seasonId,
+            espnTransactionId: transaction.id,
+            bidAmount: transaction.bidAmount || 0,
+            executionType: transaction.executionType || 'UNKNOWN',
+            isActingAsTeamOwner: transaction.isActingAsTeamOwner || false,
+            isLeagueManager: transaction.isLeagueManager || false,
+            isPending: transaction.isPending || false,
+            items: transaction.items || [],
+            proposedDate: transaction.proposedDate || Date.now(),
+            scoringPeriod: transaction.scoringPeriodId || args.currentScoringPeriod,
+            processedDate: transaction.processedDate || Date.now(),
+            status: transaction.status,
+            type: transaction.type,
+            teamId: transaction.teamId,
+          });
+        }
+      }
+    }
+    
+    // Store unique transactions
+    const result = await ctx.runMutation(api.espnSync.storePlayerTransactions, {
+      transactions: allTransactions,
+    });
+    
+    return {
+      success: true,
+      transactionsProcessed: result.stored,
+      duplicatesSkipped: result.skipped,
+      message: `Processed ${allTransactions.length} transactions, stored ${result.stored} new transactions`,
+    };
+  },
+});
+
+// Store player transactions in database
+export const storePlayerTransactions = mutation({
   args: {
     transactions: v.array(v.object({
       leagueId: v.id("leagues"),
       seasonId: v.number(),
-      transactionDate: v.number(),
-      transactionType: v.union(
-        v.literal("add"),
-        v.literal("drop"),
-        v.literal("add_drop"),
-        v.literal("waiver_claim"),
-        v.literal("trade")
-      ),
-      teamId: v.string(),
-      teamName: v.string(),
-      manager: v.string(),
-      playerAdded: v.optional(v.object({
-        playerId: v.string(),
-        playerName: v.string(),
-        position: v.string(),
-        team: v.string(),
-      })),
-      playerDropped: v.optional(v.object({
-        playerId: v.string(),
-        playerName: v.string(),
-        position: v.string(),
-        team: v.string(),
-      })),
-      waiverPriority: v.optional(v.number()),
-      isSuccessful: v.optional(v.boolean()),
+      espnTransactionId: v.string(),
+      bidAmount: v.number(),
+      executionType: v.string(),
+      isActingAsTeamOwner: v.boolean(),
+      isLeagueManager: v.boolean(),
+      isPending: v.boolean(),
+      items: v.array(v.any()),
+      type: v.string(),
+      proposedDate: v.number(),
+      processedDate: v.optional(v.number()),
+      scoringPeriod: v.number(),
+      status: v.string(),
+      teamId: v.optional(v.number()),
     })),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ stored: number; skipped: number }> => {
     const now = Date.now();
+    let stored = 0;
+    let skipped = 0;
     
     for (const transaction of args.transactions) {
-      // Check if transaction already exists
+      // Skip transactions without a teamId as it's required by the schema
+      if (transaction.teamId === undefined) {
+        skipped++;
+        continue;
+      }
+      
+      // Check if transaction already exists by ESPN ID
       const existingTransaction = await ctx.db
         .query("transactions")
-        .withIndex("by_date", q => 
-          q.eq("leagueId", transaction.leagueId)
-           .eq("transactionDate", transaction.transactionDate)
-        )
-        .filter(q => 
-          q.eq(q.field("teamId"), transaction.teamId)
-        )
+        .withIndex("by_espn_id", q => q.eq("espnTransactionId", transaction.espnTransactionId))
         .first();
       
       if (!existingTransaction) {
         await ctx.db.insert("transactions", {
           ...transaction,
+          teamId: transaction.teamId, // Explicitly ensure teamId is number (not undefined)
           createdAt: now,
         });
+        stored++;
+      } else {
+        skipped++;
       }
     }
+    
+    return { stored, skipped };
   },
 });

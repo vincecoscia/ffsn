@@ -994,18 +994,24 @@ export const getWaiverWireDataForAI = query({
       }> = [];
       
       recentTransactions.forEach(transaction => {
-        if (transaction.transactionType === "add" || transaction.transactionType === "add_drop" || transaction.transactionType === "waiver_claim") {
-          if (transaction.playerAdded) {
-            transactionCounts[transaction.playerAdded.playerId] = 
-              (transactionCounts[transaction.playerAdded.playerId] || 0) + 1;
+        // Process transactions based on the new schema with items array
+        if (transaction.items && transaction.items.length > 0) {
+          for (const item of transaction.items) {
+            if (item.type === "ADD" && item.toTeamId !== 0) {
+              const playerId = item.playerId.toString();
+              transactionCounts[playerId] = (transactionCounts[playerId] || 0) + 1;
               
-            recentAdds.push({
-              playerId: transaction.playerAdded.playerId,
-              playerName: transaction.playerAdded.playerName,
-              position: transaction.playerAdded.position,
-              date: new Date(transaction.transactionDate).toISOString(),
-              teamName: transaction.teamName,
-            });
+              // Get team info from teams data
+              const team = basicLeagueData.teams.find((t: any) => t.externalId === item.toTeamId.toString());
+              
+              recentAdds.push({
+                playerId: playerId,
+                playerName: `Player ${playerId}`, // We'll need to look up player names separately
+                position: "Unknown", // Position data not in transaction items
+                date: new Date(transaction.processedDate || transaction.proposedDate).toISOString(),
+                teamName: team?.name || `Team ${item.toTeamId}`,
+              });
+            }
           }
         }
       });
@@ -1087,15 +1093,32 @@ export const getWaiverWireDataForAI = query({
         // Required fields for content generation
         recentMatchups: basicLeagueData.recentMatchups.slice(0, 5),
         trades: [],
-        transactions: recentTransactions.slice(0, 20).map(t => ({
-          teamId: t.teamId,
-          teamName: t.teamName,
-          type: t.transactionType,
-          playerAdded: t.playerAdded,
-          playerDropped: t.playerDropped,
-          date: new Date(t.transactionDate).toISOString(),
-          faabBid: t.faabBid,
-        })),
+        transactions: recentTransactions.slice(0, 20).map(t => {
+          // Extract player add/drop info from items array
+          const addItem = t.items?.find((item: any) => item.type === "ADD");
+          const dropItem = t.items?.find((item: any) => item.type === "DROP");
+          const team = basicLeagueData.teams.find((team: any) => team.externalId === t.teamId);
+          
+          return {
+            teamId: t.teamId,
+            teamName: team?.name || `Team ${t.teamId}`,
+            type: t.type,
+            playerAdded: addItem ? {
+              playerId: addItem.playerId.toString(),
+              playerName: `Player ${addItem.playerId}`, // Would need player lookup
+              position: "Unknown",
+              team: "Unknown"
+            } : undefined,
+            playerDropped: dropItem ? {
+              playerId: dropItem.playerId.toString(),
+              playerName: `Player ${dropItem.playerId}`, // Would need player lookup
+              position: "Unknown",
+              team: "Unknown"
+            } : undefined,
+            date: new Date(t.processedDate || t.proposedDate).toISOString(),
+            faabBid: t.bidAmount > 0 ? t.bidAmount : undefined,
+          };
+        }),
         rivalries: [],
         managerActivity: basicLeagueData.managerActivity,
         

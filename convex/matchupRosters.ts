@@ -118,7 +118,7 @@ export const fetchMatchupRosters = action({
       try {
         console.log(`Fetching rosters for matchup period ${matchupPeriod}...`);
         
-        const response = await fetch(`${baseUrl}?scoringPeriodId=${matchupPeriod}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=modular&view=mNav`, {
+        const response = await fetch(`${baseUrl}?scoringPeriodId=${matchupPeriod}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav`, {
           headers
         });
 

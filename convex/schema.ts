@@ -646,53 +646,49 @@ export default defineSchema({
     .index("by_team", ["leagueId", "teamA.teamId"])
     .index("by_status", ["status"]),
 
-  // All transactions (waivers, drops, adds)
+  // ESPN transactions with complete data model
   transactions: defineTable({
     leagueId: v.id("leagues"),
     seasonId: v.number(),
-    transactionDate: v.number(),
-    transactionType: v.union(
-      v.literal("add"),
-      v.literal("drop"),
-      v.literal("add_drop"),
-      v.literal("waiver_claim"),
-      v.literal("trade") // Reference to trades table
-    ),
+    espnTransactionId: v.string(), // ESPN's unique transaction ID
     
-    // Team making the transaction
-    teamId: v.string(),
-    teamName: v.string(),
-    manager: v.string(),
+    // Transaction metadata from ESPN
+    bidAmount: v.number(),
+    executionType: v.string(), // "EXECUTE", "PROCESS", etc.
+    isActingAsTeamOwner: v.boolean(),
+    isLeagueManager: v.boolean(),
+    isPending: v.boolean(),
     
-    // Players involved
-    playerAdded: v.optional(v.object({
-      playerId: v.string(),
-      playerName: v.string(),
-      position: v.string(),
-      team: v.string(), // NFL team
-    })),
-    playerDropped: v.optional(v.object({
-      playerId: v.string(),
-      playerName: v.string(),
-      position: v.string(),
-      team: v.string(), // NFL team
+    // Transaction items array - captures all player movements
+    items: v.array(v.object({
+      fromLineupSlotId: v.number(),
+      fromTeamId: v.number(), // 0 means free agent
+      isKeeper: v.boolean(),
+      overallPickNumber: v.number(),
+      playerId: v.number(),
+      toLineupSlotId: v.number(),
+      toTeamId: v.number(),
+      type: v.string(), // "ADD", "DROP", "MOVE", etc.
     })),
     
-    // Waiver details
-    waiverPriority: v.optional(v.number()),
-    faabBid: v.optional(v.number()),
-    isSuccessful: v.optional(v.boolean()),
+    // Transaction type classification
+    type: v.string(), // DRAFT, TRADE_ACCEPT, WAIVER, etc.
     
-    // Reference to trade if applicable
-    tradeId: v.optional(v.id("trades")),
+    // Additional metadata
+    proposedDate: v.number(),
+    processedDate: v.optional(v.number()),
+    status: v.string(),
+    scoringPeriod: v.number(),
+    teamId: v.number(), // Primary team involved
     
     createdAt: v.number(),
   })
     .index("by_league", ["leagueId"])
     .index("by_season", ["leagueId", "seasonId"])
-    .index("by_date", ["leagueId", "transactionDate"])
-    .index("by_team", ["leagueId", "teamId"])
-    .index("by_type", ["transactionType"]),
+    .index("by_espn_id", ["espnTransactionId"])
+    .index("by_date", ["leagueId", "proposedDate"])
+    .index("by_type", ["type"])
+    .index("by_scoring_period", ["leagueId", "seasonId", "scoringPeriod"]),
 
   // Team rivalries
   rivalries: defineTable({
