@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { useForm } from "react-hook-form";
@@ -10,6 +10,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { contentTemplates } from "@/lib/ai/content-templates";
 import { contentTypePersonaMap } from "@/lib/ai/persona-prompts";
+import { SeasonSelector } from "./SeasonSelector";
 import {
   Form,
   FormControl,
@@ -53,19 +54,26 @@ const personas = [
 const formSchema = z.object({
   contentType: z.string().min(1, "Please select a content type"),
   persona: z.string().min(1, "Please select a persona"),
+  seasonId: z.number().optional(),
+  week: z.number().optional(),
   customContext: z.string().optional(),
 });
 
 export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   const createGenerationRequest = useMutation(api.aiContent.createGenerationRequest);
+  const completedWeeks = useQuery(api.matchups.getCompletedWeeks, { leagueId });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       contentType: "",
       persona: "",
+      seasonId: undefined,
+      week: undefined,
       customContext: "",
     },
   });
@@ -80,6 +88,29 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     return personas.filter(p => recommended.includes(p.id));
   };
 
+  // Watch content type changes
+  const contentType = form.watch("contentType");
+  
+  // Handle content type change
+  useEffect(() => {
+    if (contentType === "weekly_recap" && completedWeeks && completedWeeks.length > 0) {
+      // Set default to most recent completed week
+      const mostRecentSeason = completedWeeks[0];
+      const mostRecentWeek = mostRecentSeason.weeks[mostRecentSeason.weeks.length - 1];
+      
+      setSelectedSeason(mostRecentSeason.seasonId);
+      setSelectedWeek(mostRecentWeek);
+      form.setValue("seasonId", mostRecentSeason.seasonId);
+      form.setValue("week", mostRecentWeek);
+    } else if (contentType !== "weekly_recap") {
+      // Clear season/week for other content types
+      setSelectedSeason(null);
+      setSelectedWeek(null);
+      form.setValue("seasonId", undefined);
+      form.setValue("week", undefined);
+    }
+  }, [contentType, completedWeeks, form]);
+
   const handleGenerate = async (values: z.infer<typeof formSchema>) => {
     setIsGenerating(true);
     try {
@@ -88,6 +119,8 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
         type: values.contentType,
         persona: values.persona,
         customContext: values.customContext || undefined,
+        seasonId: values.seasonId,
+        week: values.week,
       });
 
       toast.success("Content generation started!", {
@@ -249,6 +282,76 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
               )}
             />
 
+            {/* Season/Week Selection for Weekly Recap */}
+            {selectedContentType === "weekly_recap" && completedWeeks && (
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="seasonId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base font-semibold">Season</FormLabel>
+                      <FormControl>
+                        <SeasonSelector
+                          currentSeason={completedWeeks[0]?.seasonId || new Date().getFullYear()}
+                          selectedSeason={field.value || completedWeeks[0]?.seasonId || new Date().getFullYear()}
+                          onSeasonChange={(season) => {
+                            field.onChange(season);
+                            setSelectedSeason(season);
+                            // Reset week when season changes
+                            const seasonData = completedWeeks.find(s => s.seasonId === season);
+                            if (seasonData && seasonData.weeks.length > 0) {
+                              const defaultWeek = seasonData.weeks[seasonData.weeks.length - 1];
+                              setSelectedWeek(defaultWeek);
+                              form.setValue("week", defaultWeek);
+                            }
+                          }}
+                          availableSeasons={completedWeeks.map(s => s.seasonId)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="week"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base font-semibold">Week</FormLabel>
+                      <Select 
+                        onValueChange={(value) => {
+                          field.onChange(parseInt(value));
+                          setSelectedWeek(parseInt(value));
+                        }} 
+                        value={field.value?.toString()}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a week..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {completedWeeks
+                            .find(s => s.seasonId === selectedSeason)
+                            ?.weeks.map((week) => (
+                              <SelectItem key={week} value={week.toString()}>
+                                Week {week}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select a week with completed matchups to recap
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
             {/* Persona Selection */}
             <FormField
               control={form.control}
@@ -341,6 +444,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                           <span className="font-medium">Persona:</span>
                           <span className="text-sm">{personas.find(p => p.id === selectedPersona)?.name}</span>
                         </div>
+                        {selectedContentType === "weekly_recap" && selectedSeason && selectedWeek && (
+                          <div className="flex justify-between items-center">
+                            <span className="font-medium">Period:</span>
+                            <span className="text-sm">{selectedSeason} - Week {selectedWeek}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <div className="flex justify-between items-center">

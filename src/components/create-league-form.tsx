@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export function CreateLeagueForm() {
   const router = useRouter();
@@ -10,11 +12,13 @@ export function CreateLeagueForm() {
   };
 
   return (
-    <button
+    <Button
       onClick={handleCreateLeague}
-      className="bg-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors"
+      className="bg-red-600 hover:bg-red-700"
+      size="lg"
     >
+      <Plus className="h-5 w-5 mr-2" />
       Create New League
-    </button>
+    </Button>
   );
 }

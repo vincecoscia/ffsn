@@ -1327,3 +1327,244 @@ export const getTradeAnalysisDataForAI = query({
     }
   },
 });
+
+// Get data for a specific week's recap - with roster data
+export const getWeeklyRecapDataForAI = query({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    week: v.number(),
+  },
+  handler: async (ctx, args): Promise<{
+    leagueName: string;
+    currentWeek: number;
+    currentSeason: number;
+    teams: any;
+    recentMatchups: any[];
+    standingsAtWeek: any[];
+    rivalries: any;
+    playoffProbabilities: any;
+    trades: any[];
+    transactions: any[];
+    managerActivity: any;
+    standings: any[];
+    scoringType: string;
+    rosterSize: number;
+    metadata: {
+      dataFreshness: number;
+      week: number;
+      seasonId: number;
+    };
+  }> => {
+    console.log("=== getWeeklyRecapDataForAI START ===");
+    const startTime = Date.now();
+    
+    try {
+      const league = await ctx.db.get(args.leagueId);
+      if (!league) throw new Error("League not found");
+      
+      // Get basic league data
+      const basicLeagueData = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+        leagueId: args.leagueId,
+        currentWeek: args.week,
+      });
+      
+      // Get matchups for the specific week with full roster data
+      const weekMatchups = await ctx.db
+        .query("matchups")
+        .withIndex("by_league_period", q => 
+          q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week)
+        )
+        .filter(q => q.eq(q.field("seasonId"), args.seasonId))
+        .collect();
+      
+      // Get teams for this season
+      const teams = await ctx.db
+        .query("teams")
+        .withIndex("by_season", q => 
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .collect();
+      
+      // Create a map of teamId to team data
+      const teamMap = new Map(teams.map(team => [team.externalId, team]));
+      
+      // Enrich matchups with team names and detailed roster data
+      const enrichedMatchups = weekMatchups.map(matchup => {
+        const homeTeam = teamMap.get(matchup.homeTeamId);
+        const awayTeam = teamMap.get(matchup.awayTeamId);
+        
+        // Calculate memorable moments for this matchup
+        const homeRoster = matchup.homeRoster?.players || [];
+        const awayRoster = matchup.awayRoster?.players || [];
+        
+        // Find top performers
+        const allPlayers = [
+          ...homeRoster.map(p => ({ ...p, team: homeTeam?.name || matchup.homeTeamId })),
+          ...awayRoster.map(p => ({ ...p, team: awayTeam?.name || matchup.awayTeamId }))
+        ];
+        
+        const topPerformers = allPlayers
+          .sort((a, b) => b.points - a.points)
+          .slice(0, 5)
+          .map(player => ({
+            playerName: player.fullName,
+            position: player.position,
+            points: player.points,
+            projectedPoints: player.projectedPoints || 0,
+            team: player.team,
+            overPerformance: player.projectedPoints ? 
+              ((player.points - player.projectedPoints) / player.projectedPoints * 100).toFixed(1) : 0
+          }));
+        
+        // Calculate bench points
+        const homeBenchPoints = homeRoster
+          .filter(p => p.lineupSlotId === 20) // Bench slot ID
+          .reduce((sum, p) => sum + p.points, 0);
+        
+        const awayBenchPoints = awayRoster
+          .filter(p => p.lineupSlotId === 20)
+          .reduce((sum, p) => sum + p.points, 0);
+        
+        // Determine closeness and upset
+        const marginOfVictory = Math.abs(matchup.homeScore - matchup.awayScore);
+        const totalPoints = matchup.homeScore + matchup.awayScore;
+        const closeGameThreshold = totalPoints * 0.05; // 5% of total points
+        
+        let closeness = 'BLOWOUT';
+        if (marginOfVictory <= closeGameThreshold) closeness = 'NAIL-BITER';
+        else if (marginOfVictory <= closeGameThreshold * 2) closeness = 'CLOSE';
+        
+        const isUpset = matchup.homeProjectedScore && matchup.awayProjectedScore && (
+          (matchup.winner === 'home' && matchup.awayProjectedScore > matchup.homeProjectedScore + 10) ||
+          (matchup.winner === 'away' && matchup.homeProjectedScore > matchup.awayProjectedScore + 10)
+        );
+        
+        // Create memorable moment
+        let memorableMoment = '';
+        if (isUpset) {
+          memorableMoment = `Major upset! ${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} defied the odds`;
+        } else if (closeness === 'NAIL-BITER') {
+          memorableMoment = `Down to the wire! Decided by just ${marginOfVictory.toFixed(1)} points`;
+        } else if (Number(topPerformers[0]?.overPerformance) > 50) {
+          memorableMoment = `${topPerformers[0].playerName} exploded for ${topPerformers[0].points.toFixed(1)} points!`;
+        }
+        
+        return {
+          ...matchup,
+          teamA: homeTeam?.name || matchup.homeTeamId,
+          teamB: awayTeam?.name || matchup.awayTeamId,
+          teamAOwner: homeTeam?.owner || 'Unknown',
+          teamBOwner: awayTeam?.owner || 'Unknown',
+          scoreA: matchup.homeScore,
+          scoreB: matchup.awayScore,
+          projectedScoreA: matchup.homeProjectedScore,
+          projectedScoreB: matchup.awayProjectedScore,
+          topPerformers,
+          benchPointsA: homeBenchPoints,
+          benchPointsB: awayBenchPoints,
+          closeness,
+          isUpset,
+          memorableMoment,
+          homeRoster: homeRoster.map(p => ({
+            ...p,
+            teamName: homeTeam?.name || matchup.homeTeamId,
+          })),
+          awayRoster: awayRoster.map(p => ({
+            ...p,
+            teamName: awayTeam?.name || matchup.awayTeamId,
+          })),
+        };
+      });
+      
+      // Get all matchups up to this week for standings calculation
+      const allMatchupsToWeek = await ctx.db
+        .query("matchups")
+        .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+        .filter(q => q.lte(q.field("matchupPeriod"), args.week))
+        .collect();
+      
+      // Get standings at this point in the season
+      const standingsAtWeek = teams
+        .map(team => {
+          // Calculate record up to this week
+          const teamMatchups = allMatchupsToWeek.filter(m => 
+            (m.homeTeamId === team.externalId || m.awayTeamId === team.externalId) &&
+            m.winner
+          );
+          
+          let wins = 0, losses = 0, ties = 0;
+          teamMatchups.forEach(m => {
+            if (m.winner === 'tie') {
+              ties++;
+            } else if (
+              (m.winner === 'home' && m.homeTeamId === team.externalId) ||
+              (m.winner === 'away' && m.awayTeamId === team.externalId)
+            ) {
+              wins++;
+            } else {
+              losses++;
+            }
+          });
+          
+          return {
+            teamId: team._id,
+            teamName: team.name,
+            owner: team.owner,
+            wins,
+            losses,
+            ties,
+            winPercentage: (wins + ties * 0.5) / Math.max(1, wins + losses + ties),
+          };
+        })
+        .sort((a, b) => b.winPercentage - a.winPercentage);
+      
+      const result = {
+        // Basic league info
+        leagueName: league.name,
+        currentWeek: args.week,
+        currentSeason: args.seasonId,
+        teams: basicLeagueData.teams,
+        
+        // Week-specific data
+        recentMatchups: enrichedMatchups,
+        standingsAtWeek,
+        
+        // Context from basic data
+        rivalries: basicLeagueData.rivalries,
+        playoffProbabilities: basicLeagueData.playoffProbabilities,
+        
+        // Required fields for content generation
+        trades: [], // Not needed for weekly recap
+        transactions: basicLeagueData.transactions.slice(0, 10), // Recent transactions
+        managerActivity: basicLeagueData.managerActivity,
+        standings: standingsAtWeek,
+        
+        // Settings
+        scoringType: league.settings?.scoringType || "PPR",
+        rosterSize: league.settings?.rosterSize || 16,
+        
+        metadata: {
+          dataFreshness: Date.now(),
+          week: args.week,
+          seasonId: args.seasonId,
+        },
+      };
+      
+      const executionTime = Date.now() - startTime;
+      console.log("=== getWeeklyRecapDataForAI SUCCESS ===");
+      console.log("Execution time:", executionTime + "ms");
+      console.log("Week:", args.week);
+      console.log("Matchups found:", enrichedMatchups.length);
+      
+      return result;
+      
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      console.error("=== getWeeklyRecapDataForAI ERROR ===");
+      console.error("Execution time before error:", executionTime + "ms");
+      console.error("Error:", error);
+      throw error;
+    }
+  },
+});

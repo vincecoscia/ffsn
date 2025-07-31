@@ -7,6 +7,10 @@ import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface EspnTeam {
   id: string;
@@ -311,32 +315,36 @@ export default function SetupPage() {
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-gray-300 mb-2">
+                  <Label className="text-gray-300">
                     League Name *
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     type="text"
                     value={formData.leagueName}
                     onChange={(e) =>
                       setFormData({ ...formData, leagueName: e.target.value })
                     }
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
+                    className="bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2"
                     placeholder="My Fantasy League"
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 mb-2">
+                  <Label className="text-gray-300">
                     Platform
-                  </label>
-                  <select
+                  </Label>
+                  <Select
                     value={formData.platform}
-                    onChange={(e) =>
-                      setFormData({ ...formData, platform: e.target.value as "espn" })
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, platform: value as "espn" })
                     }
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
                   >
-                    <option value="espn">ESPN</option>
-                  </select>
+                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="espn">ESPN</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <p className="text-gray-500 text-sm mt-1">
                     Currently only ESPN leagues are supported
                   </p>
@@ -352,11 +360,11 @@ export default function SetupPage() {
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-gray-300 mb-2">
+                  <Label className="text-gray-300">
                     ESPN League ID *
-                  </label>
-                  <div className="flex gap-2">
-                    <input
+                  </Label>
+                  <div className="flex gap-2 mt-2">
+                    <Input
                       type="text"
                       value={formData.externalId}
                       onChange={(e) => {
@@ -364,16 +372,16 @@ export default function SetupPage() {
                         setEspnData(null);
                         setEspnError(null);
                       }}
-                      className="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
+                      className="flex-1 bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600"
                       placeholder="123456789"
                     />
-                    <button
+                    <Button
                       onClick={loadEspnData}
                       disabled={!formData.externalId || isLoadingEspnData}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="bg-blue-600 hover:bg-blue-700"
                     >
                       {isLoadingEspnData ? "Loading ESPN Data & History..." : "Fetch Data"}
-                    </button>
+                    </Button>
                   </div>
                   <p className="text-gray-500 text-sm mt-1">
                     You can find your League ID in your ESPN league URL
@@ -405,36 +413,36 @@ export default function SetupPage() {
                     
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-yellow-200 text-sm mb-1">
+                        <Label className="text-yellow-200 text-sm">
                           ESPN S2 Cookie
-                        </label>
-                        <input
+                        </Label>
+                        <Input
                           type="text"
                           value={authData.espnS2}
                           onChange={(e) => setAuthData({ ...authData, espnS2: e.target.value })}
-                          className="w-full bg-gray-700 text-white px-3 py-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                          className="w-full bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
                           placeholder="AEB..."
                         />
                       </div>
                       <div>
-                        <label className="block text-yellow-200 text-sm mb-1">
+                        <Label className="text-yellow-200 text-sm">
                           SWID Cookie
-                        </label>
-                        <input
+                        </Label>
+                        <Input
                           type="text"
                           value={authData.swid}
                           onChange={(e) => setAuthData({ ...authData, swid: e.target.value })}
-                          className="w-full bg-gray-700 text-white px-3 py-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                          className="w-full bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
                           placeholder="{...}"
                         />
                       </div>
-                      <button
+                      <Button
                         onClick={loadEspnData}
                         disabled={!formData.externalId || !authData.espnS2 || !authData.swid || isLoadingEspnData}
-                        className="w-full px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-sm"
                       >
                         {isLoadingEspnData ? "Loading ESPN Data & History..." : "Fetch Private League Data"}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -584,64 +592,76 @@ export default function SetupPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-gray-300 mb-2">
+                  <Label className="text-gray-300">
                     Scoring Type {espnData && <span className="text-xs text-green-400">(from ESPN)</span>}
-                  </label>
-                  <select
+                  </Label>
+                  <Select
                     value={formData.scoringType}
-                    onChange={(e) =>
-                      setFormData({ ...formData, scoringType: e.target.value })
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, scoringType: value })
                     }
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
                   >
-                    <option value="standard">Standard</option>
-                    <option value="ppr">PPR (Point Per Reception)</option>
-                    <option value="half-ppr">Half PPR</option>
-                  </select>
+                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="standard">Standard</SelectItem>
+                      <SelectItem value="ppr">PPR (Point Per Reception)</SelectItem>
+                      <SelectItem value="half-ppr">Half PPR</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
-                  <label className="block text-gray-300 mb-2">
+                  <Label className="text-gray-300">
                     Roster Size {espnData && <span className="text-xs text-green-400">(from ESPN)</span>}
-                  </label>
-                  <select
-                    value={formData.rosterSize}
-                    onChange={(e) =>
-                      setFormData({ ...formData, rosterSize: parseInt(e.target.value) })
+                  </Label>
+                  <Select
+                    value={formData.rosterSize.toString()}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, rosterSize: parseInt(value) })
                     }
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
                   >
-                    <option value="14">14 players</option>
-                    <option value="15">15 players</option>
-                    <option value="16">16 players</option>
-                    <option value="17">17 players</option>
-                    <option value="18">18 players</option>
-                    <option value="19">19 players</option>
-                    <option value="20">20 players</option>
-                  </select>
+                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="14">14 players</SelectItem>
+                      <SelectItem value="15">15 players</SelectItem>
+                      <SelectItem value="16">16 players</SelectItem>
+                      <SelectItem value="17">17 players</SelectItem>
+                      <SelectItem value="18">18 players</SelectItem>
+                      <SelectItem value="19">19 players</SelectItem>
+                      <SelectItem value="20">20 players</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
-                  <label className="block text-gray-300 mb-2">
+                  <Label className="text-gray-300">
                     Playoff Weeks {espnData && <span className="text-xs text-green-400">(from ESPN)</span>}
-                  </label>
-                  <select
-                    value={formData.playoffWeeks}
-                    onChange={(e) =>
-                      setFormData({ ...formData, playoffWeeks: parseInt(e.target.value) })
+                  </Label>
+                  <Select
+                    value={formData.playoffWeeks.toString()}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, playoffWeeks: parseInt(value) })
                     }
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
                   >
-                    <option value="1">1 week</option>
-                    <option value="2">2 weeks</option>
-                    <option value="3">3 weeks</option>
-                    <option value="4">4 weeks</option>
-                  </select>
+                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 week</SelectItem>
+                      <SelectItem value="2">2 weeks</SelectItem>
+                      <SelectItem value="3">3 weeks</SelectItem>
+                      <SelectItem value="4">4 weeks</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {espnData?.settings?.rosterComposition && (
                   <div>
-                    <label className="block text-gray-300 mb-2">
+                    <Label className="text-gray-300">
                       Roster Composition <span className="text-xs text-green-400">(from ESPN)</span>
-                    </label>
+                    </Label>
                     <div className="bg-gray-700 p-3 rounded-lg">
                       <div className="grid grid-cols-4 gap-2 text-sm">
                         {Object.entries(espnData.settings.rosterComposition).map(([pos, count]) => (
@@ -658,33 +678,34 @@ export default function SetupPage() {
           )}
 
           <div className="flex justify-between mt-8">
-            <button
+            <Button
               onClick={handleBack}
               disabled={step === 1}
-              className="px-6 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              variant="secondary"
+              className="bg-gray-700 hover:bg-gray-600"
             >
               Back
-            </button>
+            </Button>
             
             {step < 3 ? (
-              <button
+              <Button
                 onClick={handleNext}
                 disabled={
                   (step === 1 && !formData.leagueName) ||
                   (step === 2 && !formData.externalId)
                 }
-                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-red-600 hover:bg-red-700"
               >
                 Next
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-red-600 hover:bg-red-700"
               >
                 {isSubmitting ? "Creating League & Syncing Data..." : "Create League"}
-              </button>
+              </Button>
             )}
           </div>
 

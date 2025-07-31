@@ -10,6 +10,7 @@ import { SeasonSelector } from "@/components/SeasonSelector";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Minus } from "lucide-react";
+import { TeamLogo } from "@/components/TeamLogo";
 
 interface StandingsPageProps {
   params: Promise<{ id: string }>;
@@ -20,6 +21,7 @@ interface Team {
   name: string;
   abbreviation?: string;
   logo?: string;
+  customLogo?: Id<"_storage">;
   owner: string;
   divisionId?: number;
   record: {
@@ -186,9 +188,14 @@ export default function StandingsPage({ params }: StandingsPageProps) {
                 )}
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
-                    {team.logo && (
-                      <img className="h-10 w-10 rounded mr-3" src={team.logo} alt={`${team.name} logo`} />
-                    )}
+                    <TeamLogo 
+                      teamId={team._id}
+                      teamName={team.name}
+                      espnLogo={team.logo}
+                      customLogo={team.customLogo}
+                      size="md"
+                      className="mr-3"
+                    />
                     <div>
                       <div className="text-sm font-bold text-gray-900">{team.name}</div>
                       <div className="text-sm text-gray-500">{team.owner}</div>

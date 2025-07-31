@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useState, useRef } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -10,6 +10,7 @@ import HistoricalRosterManager from "./HistoricalRosterManager";
 import { DraftDataViewer } from "./DraftDataViewer";
 import { MatchupRefreshManager } from "./MatchupRefreshManager";
 import { DataProcessingManager } from "./DataProcessingManager";
+import { TeamLogo } from "./TeamLogo";
 
 interface League {
   _id: Id<"leagues">;
@@ -29,6 +30,7 @@ interface Team {
   name: string;
   abbreviation?: string;
   logo?: string;
+  customLogo?: Id<"_storage">;
   owner: string;
 }
 
@@ -71,8 +73,13 @@ export function LeagueSettingsPage({
   const [isCreatingInvites, setIsCreatingInvites] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [emailInputs, setEmailInputs] = useState<{[teamId: string]: string}>({});
+  const [uploadingLogoForTeam, setUploadingLogoForTeam] = useState<string | null>(null);
+  const fileInputRefs = useRef<{[teamId: string]: HTMLInputElement | null}>({});
 
   const createInvitation = useMutation(api.teamInvitations.createInvitation);
+  const generateUploadUrl = useMutation(api.teams.generateUploadUrl);
+  const updateCustomLogo = useMutation(api.teams.updateCustomLogo);
+  const removeCustomLogo = useMutation(api.teams.removeCustomLogo);
 
   // Get unclaimed teams
   const unclaimedTeams = teams.filter(team => {
@@ -141,6 +148,65 @@ export function LeagueSettingsPage({
       });
     } else {
       setSelectedTeamIds(prev => [...prev, teamId]);
+    }
+  };
+
+  const handleLogoUpload = async (teamId: string, file: File) => {
+    if (!file || !file.type.startsWith('image/')) {
+      toast.error("Please select a valid image file");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      toast.error("Image size must be less than 5MB");
+      return;
+    }
+
+    setUploadingLogoForTeam(teamId);
+    try {
+      // Get upload URL
+      const uploadUrl = await generateUploadUrl();
+      
+      // Upload the file
+      const result = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      
+      if (!result.ok) {
+        throw new Error("Failed to upload image");
+      }
+      
+      const { storageId } = await result.json();
+      
+      // Update team with custom logo
+      await updateCustomLogo({
+        teamId: teamId as Id<"teams">,
+        storageId,
+      });
+      
+      toast.success("Logo uploaded successfully!");
+      
+      // Clear the file input
+      if (fileInputRefs.current[teamId]) {
+        fileInputRefs.current[teamId]!.value = "";
+      }
+    } catch (error) {
+      console.error("Error uploading logo:", error);
+      toast.error("Failed to upload logo");
+    } finally {
+      setUploadingLogoForTeam(null);
+    }
+  };
+
+  const handleRemoveCustomLogo = async (teamId: string) => {
+    try {
+      await removeCustomLogo({ teamId: teamId as Id<"teams"> });
+      toast.success("Custom logo removed");
+    } catch (error) {
+      console.error("Error removing logo:", error);
+      toast.error("Failed to remove logo");
     }
   };
 
@@ -230,6 +296,83 @@ export function LeagueSettingsPage({
             </div>
           </div>
 
+          {/* Team Logo Management Section */}
+          <div className="bg-white rounded-lg shadow-sm">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-2xl font-bold text-gray-900">Team Logo Management</h2>
+              <p className="text-gray-600 mt-1">Manage custom logos for teams. Logo not showing up? ESPN&apos;s new restrictions for logos prevents new ones from loading after a certain date. Upload a custom logo here!</p>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {teams.map((team) => {
+                  const teamClaim = teamClaims.find(claim => claim.teamId === team._id);
+                  const isCommissioner = league.role === "commissioner";
+                  const canManageLogo = isCommissioner || teamClaim?.status === "active";
+                  
+                  return (
+                    <div key={team._id} className="p-4 border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="relative">
+                          <TeamLogo
+                            teamId={team._id}
+                            teamName={team.name}
+                            espnLogo={team.logo}
+                            customLogo={team.customLogo}
+                            size="md"
+                          />
+                          {team.customLogo && (
+                            <div className="absolute -top-1 -right-1 h-3 w-3 bg-green-500 rounded-full"></div>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-semibold text-gray-900">{team.name}</div>
+                          <div className="text-sm text-gray-600">{team.abbreviation}</div>
+                        </div>
+                      </div>
+                      
+                      {canManageLogo ? (
+                        <div className="space-y-2">
+                          <input
+                            ref={el => {fileInputRefs.current[team._id] = el}}
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleLogoUpload(team._id, file);
+                              }
+                            }}
+                            className="hidden"
+                            id={`logo-upload-${team._id}`}
+                          />
+                          <label
+                            htmlFor={`logo-upload-${team._id}`}
+                            className="block w-full px-3 py-2 text-sm text-center bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {uploadingLogoForTeam === team._id ? "Uploading..." : "Upload Custom Logo"}
+                          </label>
+                          {team.customLogo && (
+                            <button
+                              onClick={() => handleRemoveCustomLogo(team._id)}
+                              className="w-full px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                            >
+                              Remove Custom Logo
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500 text-center">
+                          {teamClaim ? "Claimed by user" : "Not your team"}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           {/* Team Invitations Section */}
           <div className="bg-white rounded-lg shadow-sm">
             <div className="border-b border-gray-200 px-6 py-4">
@@ -254,13 +397,13 @@ export function LeagueSettingsPage({
                         onClick={() => toggleTeamSelection(team._id)}
                       >
                         <div className="flex items-center gap-3 mb-3">
-                          {team.logo && (
-                            <img
-                              src={team.logo}
-                              alt={`${team.name} logo`}
-                              className="h-8 w-8 rounded"
-                            />
-                          )}
+                          <TeamLogo
+                            teamId={team._id}
+                            teamName={team.name}
+                            espnLogo={team.logo}
+                            customLogo={team.customLogo}
+                            size="sm"
+                          />
                           <div>
                             <div className="font-semibold text-gray-900">{team.name}</div>
                             <div className="text-sm text-gray-600">{team.abbreviation}</div>

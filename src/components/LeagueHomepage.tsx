@@ -13,6 +13,7 @@ import { TeamInviteManager } from "./TeamInviteManager";
 import { ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
 import { CommissionerTeamSelection } from "./CommissionerTeamSelection";
+import { TeamLogo } from "./TeamLogo";
 
 interface Team {
   _id: Id<"teams">;
@@ -21,6 +22,7 @@ interface Team {
   logo?: string;
   owner: string;
   externalId: string;
+  customLogo?: Id<"_storage">;
   record: {
     wins: number;
     losses: number;
@@ -271,9 +273,14 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            {team.logo && (
-                              <img className="h-10 w-10 rounded mr-3" src={team.logo} alt={`${team.name} logo`} />
-                            )}
+                            <TeamLogo 
+                              teamId={team._id}
+                              teamName={team.name}
+                              espnLogo={team.logo}
+                              customLogo={team.customLogo}
+                              size="md"
+                              className="mr-3"
+                            />
                             <div>
                               <div className="text-sm font-bold text-gray-900">{team.name}</div>
                               <div className="text-sm text-gray-500">{team.owner}</div>

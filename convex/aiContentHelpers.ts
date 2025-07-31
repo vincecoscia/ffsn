@@ -14,6 +14,7 @@ export const prepareAIContentData = internalAction({
     customContext: v.optional(v.string()),
     userId: v.string(),
     seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== prepareAIContentData START ===");
@@ -77,6 +78,20 @@ export const prepareAIContentData = internalAction({
         });
         
         leagueData = tradeAnalysisData;
+      } else if (args.contentType === 'weekly_recap') {
+        console.log("Fetching weekly recap data...");
+        
+        if (!args.seasonId || !args.week) {
+          throw new Error("seasonId and week are required for weekly_recap content");
+        }
+        
+        const weeklyRecapData = await ctx.runQuery(api.aiQueries.getWeeklyRecapDataForAI, {
+          leagueId: args.leagueId,
+          seasonId: args.seasonId,
+          week: args.week,
+        });
+        
+        leagueData = weeklyRecapData;
       } else {
         // Regular content generation
         leagueData = await ctx.runQuery(api.aiContent.getLeagueDataForGeneration, {
@@ -253,6 +268,8 @@ export const retryFailedGeneration = internalAction({
     persona: v.string(),
     customContext: v.optional(v.string()),
     userId: v.string(),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
     retryCount: v.number(),
   },
   handler: async (ctx, args) => {
@@ -280,6 +297,8 @@ export const retryFailedGeneration = internalAction({
       persona: args.persona,
       customContext: args.customContext,
       userId: args.userId,
+      seasonId: args.seasonId,
+      week: args.week,
     });
   },
 });

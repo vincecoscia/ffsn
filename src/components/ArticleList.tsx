@@ -46,8 +46,6 @@ export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGen
   // Extract the page data
   const aiContent = aiContentResult?.page || [];
 
-  console.log(aiContent)
-
   // Show loading state if data is still loading
   if (aiContentResult === undefined) {
     return (

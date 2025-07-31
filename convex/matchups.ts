@@ -787,3 +787,73 @@ export const getLowestScoresBySeason = query({
     }
   },
 });
+
+export const getCompletedWeeks = query({
+  args: { 
+    leagueId: v.id("leagues"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return [];
+    }
+
+    // Get all matchups for this league
+    const allMatchups = await ctx.db
+      .query("matchups")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", args.leagueId))
+      .collect();
+
+    // Group by season and week
+    const weeksBySeason = new Map<number, Set<number>>();
+    
+    allMatchups.forEach(matchup => {
+      // Only include weeks where the matchup has a winner (i.e., is completed)
+      if (matchup.winner) {
+        if (!weeksBySeason.has(matchup.seasonId)) {
+          weeksBySeason.set(matchup.seasonId, new Set());
+        }
+        weeksBySeason.get(matchup.seasonId)?.add(matchup.matchupPeriod);
+      }
+    });
+
+    // Transform to array format and check if all matchups in a week are complete
+    const result: { seasonId: number; weeks: number[] }[] = [];
+    
+    for (const [seasonId, weeksSet] of weeksBySeason.entries()) {
+      const weeks = Array.from(weeksSet).sort((a, b) => a - b);
+      
+      // For each week, verify ALL matchups are complete
+      const completedWeeks = [];
+      for (const week of weeks) {
+        const weekMatchups = allMatchups.filter(
+          m => m.seasonId === seasonId && m.matchupPeriod === week
+        );
+        
+        // Only include this week if ALL matchups have winners
+        if (weekMatchups.length > 0 && weekMatchups.every(m => m.winner)) {
+          completedWeeks.push(week);
+        }
+      }
+      
+      if (completedWeeks.length > 0) {
+        result.push({ seasonId, weeks: completedWeeks });
+      }
+    }
+    
+    // Sort by season (newest first)
+    return result.sort((a, b) => b.seasonId - a.seasonId);
+  },
+});

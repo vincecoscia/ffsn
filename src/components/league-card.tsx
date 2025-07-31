@@ -6,6 +6,7 @@ import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import { Button } from "@/components/ui/button";
 
 interface LeagueCardProps {
   league: {
@@ -87,14 +88,15 @@ export function LeagueCard({ league }: LeagueCardProps) {
         
         <div className="flex gap-2">
           {league.role === "commissioner" && (
-            <button
+            <Button
               onClick={handleDebugRefetch}
               disabled={isRefetching}
-              className="bg-orange-600 text-white px-3 py-2 rounded-md text-sm font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-orange-600 hover:bg-orange-700 text-sm font-semibold"
+              size="sm"
               title="Refresh league data from ESPN"
             >
               {isRefetching ? "Syncing..." : "🔄 Debug Refetch"}
-            </button>
+            </Button>
           )}
           
           <Link

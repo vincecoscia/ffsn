@@ -106,6 +106,7 @@ export default defineSchema({
     location: v.optional(v.string()),
     nickname: v.optional(v.string()),
     logo: v.optional(v.string()),
+    customLogo: v.optional(v.id("_storage")), // User-uploaded custom logo
     owner: v.string(),
     ownerInfo: v.optional(v.object({
       displayName: v.optional(v.string()),

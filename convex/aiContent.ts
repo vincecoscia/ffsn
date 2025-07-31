@@ -172,6 +172,8 @@ export const createGenerationRequest = mutation({
     type: v.string(),
     persona: v.string(),
     customContext: v.optional(v.string()),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -228,6 +230,8 @@ export const createGenerationRequest = mutation({
       persona: args.persona,
       customContext: args.customContext,
       userId: identity.subject,
+      seasonId: args.seasonId,
+      week: args.week,
     });
 
     return articleId;
@@ -243,6 +247,8 @@ export const generateContentAction = action({
     persona: v.string(),
     customContext: v.optional(v.string()),
     userId: v.string(),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== generateContentAction START (OPTIMIZED) ===");
@@ -250,9 +256,9 @@ export const generateContentAction = action({
     console.log("Persona:", args.persona);
     
     try {
-      // For mock drafts, use the new scheduled approach
-      if (args.contentType === 'mock_draft') {
-        console.log("Using scheduled approach for mock draft generation");
+      // For mock drafts and weekly recaps, use the new scheduled approach
+      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap') {
+        console.log(`Using scheduled approach for ${args.contentType} generation`);
         
         // Schedule data preparation step (which will chain the generation step)
         await ctx.scheduler.runAfter(0, internal.aiContentHelpers.prepareAIContentData, {
@@ -262,9 +268,11 @@ export const generateContentAction = action({
           persona: args.persona,
           customContext: args.customContext,
           userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
         });
         
-        console.log("Mock draft generation scheduled successfully");
+        console.log(`${args.contentType} generation scheduled successfully`);
         return;
       }
       
@@ -366,9 +374,9 @@ export const generateContentAction = action({
         error: error instanceof Error ? error.message : "Unknown error",
       });
       
-      // Schedule retry for mock drafts
-      if (args.contentType === 'mock_draft') {
-        console.log("Scheduling retry for failed mock draft generation");
+      // Schedule retry for mock drafts and weekly recaps
+      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap') {
+        console.log(`Scheduling retry for failed ${args.contentType} generation`);
         await ctx.scheduler.runAfter(2000, internal.aiContentHelpers.retryFailedGeneration, {
           articleId: args.articleId,
           leagueId: args.leagueId,
@@ -376,6 +384,8 @@ export const generateContentAction = action({
           persona: args.persona,
           customContext: args.customContext,
           userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
           retryCount: 1,
         });
       }

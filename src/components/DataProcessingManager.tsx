@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Cpu, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface DataProcessingManagerProps {
   leagueId: Id<"leagues">;
@@ -150,10 +151,11 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
         </div>
       </div>
 
-      <button
+      <Button
         onClick={handleProcessData}
         disabled={isProcessing}
-        className="w-full px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full bg-red-600 hover:bg-red-700"
+        size="lg"
       >
         {isProcessing ? (
           <>
@@ -166,7 +168,7 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
             Run Data Processing
           </>
         )}
-      </button>
+      </Button>
       
       <p className="text-xs text-gray-500 text-center">
         This process analyzes your league data to generate insights for AI-powered content creation.

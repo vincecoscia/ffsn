@@ -5,6 +5,9 @@ import { toast } from "sonner";
 import { Id } from "../../convex/_generated/dataModel";
 import { RefreshCw, Calendar, AlertTriangle } from "lucide-react";
 import { triggerHistoricalSync, getCurrentLeagueSync } from "../app/sync/actions";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface MatchupRefreshManagerProps {
   leagueId: Id<"leagues">;
@@ -82,64 +85,71 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
       </div>
 
       <div className="space-y-3">
-        <label className="block text-sm font-medium text-gray-700">
+        <Label className="text-sm font-medium text-gray-700">
           Refresh Type
-        </label>
+        </Label>
         <div className="grid grid-cols-2 gap-4">
-          <button
+          <Button
+            variant={refreshType === "current" ? "default" : "outline"}
             onClick={() => setRefreshType("current")}
-            className={`p-4 border-2 rounded-lg transition-all ${
+            className={`p-4 h-auto flex-col ${
               refreshType === "current"
-                ? "border-red-500 bg-red-50"
+                ? "border-red-500 bg-red-50 text-gray-900 hover:bg-red-100"
                 : "border-gray-200 hover:border-gray-300"
             }`}
           >
-            <Calendar className="h-6 w-6 mb-2 mx-auto text-gray-600" />
+            <Calendar className="h-6 w-6 mb-2 text-gray-600" />
             <div className="font-medium">Current Season</div>
             <div className="text-sm text-gray-600 mt-1">
               Sync only the current season&apos;s data
             </div>
-          </button>
+          </Button>
           
-          <button
+          <Button
+            variant={refreshType === "all" ? "default" : "outline"}
             onClick={() => setRefreshType("all")}
-            className={`p-4 border-2 rounded-lg transition-all ${
+            className={`p-4 h-auto flex-col ${
               refreshType === "all"
-                ? "border-red-500 bg-red-50"
+                ? "border-red-500 bg-red-50 text-gray-900 hover:bg-red-100"
                 : "border-gray-200 hover:border-gray-300"
             }`}
           >
-            <RefreshCw className="h-6 w-6 mb-2 mx-auto text-gray-600" />
+            <RefreshCw className="h-6 w-6 mb-2 text-gray-600" />
             <div className="font-medium">All Seasons</div>
             <div className="text-sm text-gray-600 mt-1">
               Sync current and historical league data
             </div>
-          </button>
+          </Button>
         </div>
       </div>
 
       {refreshType === "all" && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <Label className="text-sm font-medium text-gray-700">
             Historical Years to Sync
-          </label>
-          <select
-            value={historicalYears}
-            onChange={(e) => setHistoricalYears(Number(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+          </Label>
+          <Select
+            value={historicalYears.toString()}
+            onValueChange={(value) => setHistoricalYears(Number(value))}
           >
-            <option value={5}>Last 5 years</option>
-            <option value={10}>Last 10 years</option>
-            <option value={15}>Last 15 years</option>
-            <option value={20}>Last 20 years</option>
-          </select>
+            <SelectTrigger className="w-full mt-2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="5">Last 5 years</SelectItem>
+              <SelectItem value="10">Last 10 years</SelectItem>
+              <SelectItem value="15">Last 15 years</SelectItem>
+              <SelectItem value="20">Last 20 years</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )}
 
-      <button
+      <Button
         onClick={handleRefresh}
         disabled={isRefreshing}
-        className="w-full px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full bg-red-600 hover:bg-red-700"
+        size="lg"
       >
         {isRefreshing ? (
           <>
@@ -152,7 +162,7 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
             Sync {refreshType === "current" ? "Current Season" : "All"} League Data
           </>
         )}
-      </button>
+      </Button>
       
       <p className="text-xs text-gray-500 text-center">
         Last sync information is not currently tracked. Consider running a sync if league data seems outdated.
