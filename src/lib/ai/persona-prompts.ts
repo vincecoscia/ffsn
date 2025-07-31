@@ -226,10 +226,10 @@ export function getPersonaSettings(persona: string) {
 export const contentTypePersonaMap: Record<string, string[]> = {
   // Best matches from ffsn-content-types.md
   "mock_draft": ["mel-diaper"],
-  "draft_strategy_guide": ["stan-deviation"],
+  "draft_strategy_guide": ["any"],
   "team_name_power_rankings": ["chad-thunderhype"],
   "weekly_preview": ["any"], // Rotates
-  "weekly_recap": ["rick-two-beers"],
+  "weekly_recap": ["any"],
   "power_rankings": ["mel-diaper", "stan-deviation"],
   "waiver_wire_report": ["stan-deviation"],
   "trade_block_tuesday": ["vinny-marinara"],

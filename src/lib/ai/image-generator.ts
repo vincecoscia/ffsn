@@ -193,9 +193,9 @@ export async function generateArticleImage(
 // Determine if an article type should have an image
 export function shouldGenerateImage(contentType: string): boolean {
   const imageEnabledTypes = [
-    'weekly_recap',
-    'weekly_preview',
-    'power_rankings',
+    // 'weekly_recap',
+    // 'weekly_preview',
+    // 'power_rankings',
     'championship_preview',
     'playoff_preview',
     'season_finale',

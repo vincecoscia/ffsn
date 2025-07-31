@@ -62,17 +62,17 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
       {/* ESPN-style Header */}
       <header className="bg-red-600 shadow-lg">
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-6">
-              <Link href="/" className="flex items-center cursor-pointer">
+          <div className="flex items-center justify-between h-14 sm:h-16">
+            <div className="flex items-center gap-3 sm:gap-6 min-w-0 flex-1">
+              <Link href="/" className="flex items-center cursor-pointer flex-shrink-0">
                 <img
                   src="/FFSN.png"
                   alt="FFSN Logo"
-                  className="h-12 w-auto"
+                  className="h-8 sm:h-12 w-auto"
                 />
               </Link>
-              <span className="text-red-200">|</span>
-              <span className="text-white font-semibold">
+              <span className="text-red-200 hidden sm:inline">|</span>
+              <span className="text-white font-semibold text-sm sm:text-base truncate">
                 {league.name}
               </span>
             </div>
@@ -81,13 +81,13 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
       </header>
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-4 sm:py-8">
         <div className="max-w-4xl mx-auto">
           {/* Back Button - only show for authenticated users */}
           {isAuthenticated && authenticatedLeague && (
             <Link 
               href={`/leagues/${league._id}`}
-              className="inline-flex items-center gap-2 text-red-600 hover:text-red-800 mb-6 transition-colors"
+              className="inline-flex items-center gap-2 text-red-600 hover:text-red-800 mb-4 sm:mb-6 transition-colors px-4 sm:px-0"
             >
               <ArrowLeft size={16} />
               Back to League Home
@@ -95,10 +95,10 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
           )}
 
           {/* Article Header */}
-          <article className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <article className="bg-white rounded-none sm:rounded-lg shadow-sm overflow-hidden">
             {/* Banner Image */}
             {article.bannerImageUrl && (
-              <div className="relative w-full h-[400px] overflow-hidden">
+              <div className="relative w-full h-[200px] sm:h-[300px] lg:h-[400px] overflow-hidden">
                 <img 
                   src={article.bannerImageUrl} 
                   alt={article.title}
@@ -108,13 +108,13 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
               </div>
             )}
             
-            <div className="p-8">
-              <header className="mb-8">
-                <h1 className="text-4xl font-bold text-gray-900 mb-4 leading-tight">
+            <div className="p-4 sm:p-6 lg:p-8">
+              <header className="mb-6 sm:mb-8">
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-4 leading-tight">
                   {article.title}
                 </h1>
                 
-                <div className="flex items-center gap-6 text-gray-600 text-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-gray-600 text-sm">
                   <div className="flex items-center gap-2">
                     <User size={16} />
                     <span>By {article.persona}</span>
@@ -123,30 +123,37 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
                     <Clock size={16} />
                     <span>{publishedDate}</span>
                   </div>
-                  <div className="px-3 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full">
+                  <div className="inline-flex items-center px-3 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full w-fit">
                     {article.type.charAt(0).toUpperCase() + article.type.slice(1)}
                   </div>
                 </div>
               </header>
 
               {/* Article Content */}
-              <div className="prose prose-lg max-w-none">
+              <div className="prose prose-sm sm:prose-base lg:prose-lg max-w-none prose-headings:font-bold prose-headings:text-gray-900 prose-p:text-gray-800 prose-p:leading-relaxed prose-a:text-red-600 prose-a:no-underline hover:prose-a:underline prose-strong:text-gray-900 prose-ul:text-gray-800 prose-ol:text-gray-800 prose-li:text-gray-800">
                 <MarkdownPreview 
-                  content={article.content}
+                  content={(() => {
+                    const lines = article.content.split('\n');
+                    // Skip the first line if it's a markdown header (starts with #)
+                    if (lines.length > 0 && lines[0].trim().startsWith('#')) {
+                      return lines.slice(1).join('\n').trim();
+                    }
+                    return article.content;
+                  })()}
                   className="text-gray-800 leading-relaxed"
                 />
               </div>
 
               {/* Article Footer */}
-              <footer className="mt-8 pt-8 border-t border-gray-200">
-                <div className="flex items-center justify-between">
+              <footer className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="text-sm text-gray-500">
                     Published in <strong>{league.name}</strong>
                   </div>
                   {isAuthenticated && authenticatedLeague && (
                     <Link 
                       href={`/leagues/${league._id}`}
-                      className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors"
+                      className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors w-fit"
                     >
                       View more league stories →
                     </Link>
