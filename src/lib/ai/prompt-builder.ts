@@ -396,10 +396,25 @@ CURRENT CONTEXT:
 
 `;
 
-    // Add section requirements
+    // Add section requirements with playoff-specific adjustments
     prompt += `\nARTICLE SECTIONS (follow this structure):\n`;
     this.template.sections.forEach(section => {
-      if (section.required) {
+      let shouldInclude = section.required;
+      
+      // Handle playoff-specific sections for weekly recap
+      if (this.options.contentType === 'weekly_recap') {
+        const playoffData = (leagueData as any).playoffBreakdown;
+        
+        if (section.name === 'championship_game') {
+          shouldInclude = playoffData?.isChampionshipWeek || false;
+        } else if (section.name === 'playoff_games') {
+          shouldInclude = playoffData?.playoffGameCount > 0 && !playoffData?.isChampionshipWeek;
+        } else if (section.name === 'playoff_implications') {
+          shouldInclude = playoffData?.isPlayoffWeek || false;
+        }
+      }
+      
+      if (shouldInclude) {
         prompt += `- ${section.name} (${section.description}): ~${section.wordCount} words\n`;
       }
     });
@@ -464,48 +479,130 @@ CURRENT CONTEXT:
     return contextData;
   }
 
+  private formatMatchupDetails(matchup: any, isChampionshipGame = false, isPlayoffGame = false): string {
+    let details = `\n${matchup.teamA} (${matchup.scoreA}) vs ${matchup.teamB} (${matchup.scoreB})`;
+    
+    // Add projected scores for context
+    if (matchup.projectedScoreA && matchup.projectedScoreB) {
+      details += `\n  Projected: ${matchup.projectedScoreA.toFixed(1)} - ${matchup.projectedScoreB.toFixed(1)}`;
+    }
+    
+    // Add playoff tier information
+    if (matchup.playoffTier) {
+      details += ` [${matchup.playoffTier}]`;
+    }
+    
+    // Determine closeness and upsets with enhanced messaging
+    if (matchup.closeness) {
+      details += ` [${matchup.closeness.toUpperCase()}]`;
+    }
+    if (matchup.isUpset) {
+      if (isChampionshipGame) {
+        details += ' **CHAMPIONSHIP UPSET**';
+      } else if (isPlayoffGame) {
+        details += ' **PLAYOFF UPSET**';
+      } else {
+        details += ' **UPSET**';
+      }
+    }
+    
+    // Enhanced memorable moments
+    if (matchup.memorableMoment) {
+      details += `\n  💥 ${matchup.memorableMoment}`;
+    }
+    
+    details += '\n';
+    
+    // Top performers with enhanced detail for championship/playoff games
+    if (matchup.topPerformers && matchup.topPerformers.length > 0) {
+      const performerCount = isChampionshipGame ? 5 : (isPlayoffGame ? 4 : 3);
+      details += '  Top performers:\n';
+      matchup.topPerformers.slice(0, performerCount).forEach((perf: any) => {
+        const playerName = perf.playerName || perf.player || 'Unknown Player';
+        const position = perf.position ? ` (${perf.position})` : '';
+        const overPerf = perf.overPerformance ? ` (+${perf.overPerformance}% vs proj)` : '';
+        details += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts${overPerf}\n`;
+      });
+    }
+    
+    // Bench points analysis (especially important for close games)
+    if (matchup.benchPointsA !== undefined && matchup.benchPointsB !== undefined) {
+      details += `  Bench points: ${matchup.teamA} (${matchup.benchPointsA.toFixed(1)}) vs ${matchup.teamB} (${matchup.benchPointsB.toFixed(1)})\n`;
+      
+      // Highlight significant bench disparities
+      const benchDiff = Math.abs(matchup.benchPointsA - matchup.benchPointsB);
+      if (benchDiff > 20) {
+        const strongerBench = matchup.benchPointsA > matchup.benchPointsB ? matchup.teamA : matchup.teamB;
+        details += `  📊 ${strongerBench} had significantly stronger bench production (+${benchDiff.toFixed(1)} pts)\n`;
+      }
+    }
+    
+    return details;
+  }
+
   private buildWeeklyRecapData(data: LeagueDataContext): string {
     if (!data.recentMatchups || data.recentMatchups.length === 0) {
       return 'No matchup data available. Create fictional but realistic matchups.';
     }
 
-    let recap = 'THIS WEEK\'S MATCHUPS:\n';
-    data.recentMatchups.forEach(matchup => {
-      recap += `\n${matchup.teamA} (${matchup.scoreA}) vs ${matchup.teamB} (${matchup.scoreB})`;
+    let recap = '';
+    
+    // Check if we have playoff breakdown data
+    const hasPlayoffData = (data as any).playoffBreakdown;
+    if (hasPlayoffData) {
+      const playoffData = (data as any).playoffBreakdown;
       
-      // Add projected scores for context
-      if (matchup.projectedScoreA && matchup.projectedScoreB) {
-        recap += `\n  Projected: ${matchup.projectedScoreA.toFixed(1)} - ${matchup.projectedScoreB.toFixed(1)}`;
+      // Add playoff context header
+      if (playoffData.isChampionshipWeek) {
+        recap += '🏆 CHAMPIONSHIP WEEK 🏆\n\n';
+      } else if (playoffData.isPlayoffWeek) {
+        recap += '🏈 PLAYOFF WEEK 🏈\n\n';
+      } else {
+        recap += 'THIS WEEK\'S MATCHUPS:\n\n';
       }
       
-      // Determine closeness and upsets
-      if (matchup.closeness) {
-        recap += ` [${matchup.closeness.toUpperCase()}]`;
-      }
-      if (matchup.isUpset) {
-        recap += ' **UPSET**';
-      }
-      if (matchup.memorableMoment) {
-        recap += `\n  ${matchup.memorableMoment}`;
+      // CHAMPIONSHIP GAME (highest priority)
+      if (playoffData.isChampionshipWeek && playoffData.championshipGame) {
+        recap += '🏆 CHAMPIONSHIP GAME:\n';
+        recap += this.formatMatchupDetails(playoffData.championshipGame, true);
+        recap += '\n';
       }
       
-      recap += '\n';
-      
-      // Top performers with more detail
-      if (matchup.topPerformers && matchup.topPerformers.length > 0) {
-        recap += '  Top performers:\n';
-        matchup.topPerformers.slice(0, 3).forEach(perf => {
-          const playerName = perf.playerName || perf.player || 'Unknown Player';
-          const position = perf.position ? ` (${perf.position})` : '';
-          recap += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts\n`;
+      // PLAYOFF GAMES (WINNERS_BRACKET)
+      if (playoffData.playoffMatchups && playoffData.playoffMatchups.length > 0 && !playoffData.isChampionshipWeek) {
+        recap += '🏈 PLAYOFF GAMES (Winners Bracket):\n';
+        playoffData.playoffMatchups.forEach((matchup: any) => {
+          recap += this.formatMatchupDetails(matchup, false, true);
         });
+        recap += '\n';
       }
       
-      // Bench points analysis
-      if (matchup.benchPointsA !== undefined && matchup.benchPointsB !== undefined) {
-        recap += `  Bench points: ${matchup.teamA} (${matchup.benchPointsA.toFixed(1)}) vs ${matchup.teamB} (${matchup.benchPointsB.toFixed(1)})\n`;
+      // CONSOLATION GAMES
+      if (playoffData.consolationMatchups && playoffData.consolationMatchups.length > 0) {
+        const bracketType = playoffData.consolationMatchups[0]?.playoffTier === 'WINNERS_CONSOLATION_LADDER' 
+          ? 'Consolation Playoff' : 'Consolation';
+        recap += `📊 ${bracketType.toUpperCase()} GAMES:\n`;
+        playoffData.consolationMatchups.forEach((matchup: any) => {
+          recap += this.formatMatchupDetails(matchup);
+        });
+        recap += '\n';
       }
-    });
+      
+      // REGULAR SEASON GAMES (if any)
+      if (playoffData.regularSeasonMatchups && playoffData.regularSeasonMatchups.length > 0) {
+        recap += '📅 REGULAR SEASON GAMES:\n';
+        playoffData.regularSeasonMatchups.forEach((matchup: any) => {
+          recap += this.formatMatchupDetails(matchup);
+        });
+        recap += '\n';
+      }
+    } else {
+      // Fallback to original format if no playoff data
+      recap += 'THIS WEEK\'S MATCHUPS:\n';
+      data.recentMatchups.forEach(matchup => {
+        recap += this.formatMatchupDetails(matchup);
+      });
+    }
 
     // Add injury report with impact analysis
     if (data.injuryReport && data.injuryReport.length > 0) {

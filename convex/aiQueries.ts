@@ -1412,8 +1412,24 @@ export const getWeeklyRecapDataForAI = query({
       // Create a map of teamId to team data
       const teamMap = new Map(teams.map(team => [team.externalId, team]));
       
-      // Enrich matchups with team names and detailed roster data
-      const enrichedMatchups = weekMatchups.map(matchup => {
+      // Categorize matchups by playoff tier
+      const playoffMatchups = weekMatchups.filter(m => m.playoffTier === "WINNERS_BRACKET");
+      const consolationMatchups = weekMatchups.filter(m => 
+        m.playoffTier === "WINNERS_CONSOLATION_LADDER" || 
+        m.playoffTier === "LOSERS_CONSOLATION_LADDER"
+      );
+      const regularSeasonMatchups = weekMatchups.filter(m => !m.playoffTier);
+      
+      // Determine if this is a championship week (only one WINNERS_BRACKET game)
+      const isChampionshipWeek = playoffMatchups.length === 1;
+      
+      console.log(`Week ${args.week} analysis: ${playoffMatchups.length} playoff games, ${consolationMatchups.length} consolation games, ${regularSeasonMatchups.length} regular season games`);
+      if (isChampionshipWeek) {
+        console.log("Championship game detected!");
+      }
+      
+      // Helper function to enrich a matchup
+      const enrichMatchup = (matchup: any, isPlayoffGame = false, isChampionshipGame = false) => {
         const homeTeam = teamMap.get(matchup.homeTeamId);
         const awayTeam = teamMap.get(matchup.awayTeamId);
         
@@ -1423,13 +1439,13 @@ export const getWeeklyRecapDataForAI = query({
         
         // Find top performers
         const allPlayers = [
-          ...homeRoster.map(p => ({ ...p, team: homeTeam?.name || matchup.homeTeamId })),
-          ...awayRoster.map(p => ({ ...p, team: awayTeam?.name || matchup.awayTeamId }))
+          ...homeRoster.map((p: any) => ({ ...p, team: homeTeam?.name || matchup.homeTeamId })),
+          ...awayRoster.map((p: any) => ({ ...p, team: awayTeam?.name || matchup.awayTeamId }))
         ];
         
         const topPerformers = allPlayers
           .sort((a, b) => b.points - a.points)
-          .slice(0, 5)
+          .slice(0, isChampionshipGame ? 10 : 5) // More detail for championship
           .map(player => ({
             playerName: player.fullName,
             position: player.position,
@@ -1442,12 +1458,12 @@ export const getWeeklyRecapDataForAI = query({
         
         // Calculate bench points
         const homeBenchPoints = homeRoster
-          .filter(p => p.lineupSlotId === 20) // Bench slot ID
-          .reduce((sum, p) => sum + p.points, 0);
+          .filter((p: any) => p.lineupSlotId === 20) // Bench slot ID
+          .reduce((sum: number, p: any) => sum + p.points, 0);
         
         const awayBenchPoints = awayRoster
-          .filter(p => p.lineupSlotId === 20)
-          .reduce((sum, p) => sum + p.points, 0);
+          .filter((p: any) => p.lineupSlotId === 20)
+          .reduce((sum: number, p: any) => sum + p.points, 0);
         
         // Determine closeness and upset
         const marginOfVictory = Math.abs(matchup.homeScore - matchup.awayScore);
@@ -1463,14 +1479,32 @@ export const getWeeklyRecapDataForAI = query({
           (matchup.winner === 'away' && matchup.homeProjectedScore > matchup.awayProjectedScore + 10)
         );
         
-        // Create memorable moment
+        // Create memorable moment - enhanced for playoff/championship games
         let memorableMoment = '';
-        if (isUpset) {
-          memorableMoment = `Major upset! ${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} defied the odds`;
-        } else if (closeness === 'NAIL-BITER') {
-          memorableMoment = `Down to the wire! Decided by just ${marginOfVictory.toFixed(1)} points`;
-        } else if (Number(topPerformers[0]?.overPerformance) > 50) {
-          memorableMoment = `${topPerformers[0].playerName} exploded for ${topPerformers[0].points.toFixed(1)} points!`;
+        if (isChampionshipGame) {
+          if (isUpset) {
+            memorableMoment = `CHAMPIONSHIP UPSET! ${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} crowned champion against all odds!`;
+          } else if (closeness === 'NAIL-BITER') {
+            memorableMoment = `CHAMPIONSHIP THRILLER! Title decided by just ${marginOfVictory.toFixed(1)} points!`;
+          } else {
+            memorableMoment = `${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} claims the championship!`;
+          }
+        } else if (isPlayoffGame) {
+          if (isUpset) {
+            memorableMoment = `PLAYOFF UPSET! ${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} advances with a stunning victory!`;
+          } else if (closeness === 'NAIL-BITER') {
+            memorableMoment = `PLAYOFF THRILLER! ${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} survives by ${marginOfVictory.toFixed(1)} points!`;
+          } else {
+            memorableMoment = `${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} advances in the playoffs!`;
+          }
+        } else {
+          if (isUpset) {
+            memorableMoment = `Major upset! ${matchup.winner === 'home' ? homeTeam?.name : awayTeam?.name} defied the odds`;
+          } else if (closeness === 'NAIL-BITER') {
+            memorableMoment = `Down to the wire! Decided by just ${marginOfVictory.toFixed(1)} points`;
+          } else if (Number(topPerformers[0]?.overPerformance) > 50) {
+            memorableMoment = `${topPerformers[0].playerName} exploded for ${topPerformers[0].points.toFixed(1)} points!`;
+          }
         }
         
         return {
@@ -1489,16 +1523,37 @@ export const getWeeklyRecapDataForAI = query({
           closeness,
           isUpset,
           memorableMoment,
-          homeRoster: homeRoster.map(p => ({
+          isPlayoffGame,
+          isChampionshipGame,
+          playoffTier: matchup.playoffTier,
+          homeRoster: homeRoster.map((p: any) => ({
             ...p,
             teamName: homeTeam?.name || matchup.homeTeamId,
           })),
-          awayRoster: awayRoster.map(p => ({
+          awayRoster: awayRoster.map((p: any) => ({
             ...p,
             teamName: awayTeam?.name || matchup.awayTeamId,
           })),
         };
-      });
+      };
+      
+      // Enrich matchups with priority order: Championship > Playoff > Consolation > Regular
+      const enrichedPlayoffMatchups = playoffMatchups.map(m => 
+        enrichMatchup(m, true, isChampionshipWeek)
+      );
+      const enrichedConsolationMatchups = consolationMatchups.map(m => 
+        enrichMatchup(m, false, false)
+      );
+      const enrichedRegularMatchups = regularSeasonMatchups.map(m => 
+        enrichMatchup(m, false, false)
+      );
+      
+      // Combine all matchups with playoff games first
+      const enrichedMatchups = [
+        ...enrichedPlayoffMatchups,
+        ...enrichedConsolationMatchups,
+        ...enrichedRegularMatchups
+      ];
       
       // Get all matchups up to this week for standings calculation
       const allMatchupsToWeek = await ctx.db
@@ -1549,9 +1604,24 @@ export const getWeeklyRecapDataForAI = query({
         currentSeason: args.seasonId,
         teams: basicLeagueData.teams,
         
-        // Week-specific data
+        // Week-specific data with playoff prioritization
         recentMatchups: enrichedMatchups,
         standingsAtWeek,
+        
+        // NEW: Playoff-specific categorization for AI prioritization
+        playoffBreakdown: {
+          isPlayoffWeek: playoffMatchups.length > 0 || consolationMatchups.length > 0,
+          isChampionshipWeek,
+          playoffMatchups: enrichedPlayoffMatchups,
+          consolationMatchups: enrichedConsolationMatchups,
+          regularSeasonMatchups: enrichedRegularMatchups,
+          playoffGameCount: playoffMatchups.length,
+          consolationGameCount: consolationMatchups.length,
+          regularGameCount: regularSeasonMatchups.length,
+          championshipGame: isChampionshipWeek && enrichedPlayoffMatchups.length > 0 
+            ? enrichedPlayoffMatchups[0] 
+            : null,
+        },
         
         // Context from basic data
         rivalries: basicLeagueData.rivalries,
@@ -1571,6 +1641,12 @@ export const getWeeklyRecapDataForAI = query({
           dataFreshness: Date.now(),
           week: args.week,
           seasonId: args.seasonId,
+          isPlayoffWeek: playoffMatchups.length > 0 || consolationMatchups.length > 0,
+          isChampionshipWeek,
+          totalMatchups: weekMatchups.length,
+          playoffMatchups: playoffMatchups.length,
+          consolationMatchups: consolationMatchups.length,
+          regularSeasonMatchups: regularSeasonMatchups.length,
         },
       };
       
@@ -1578,7 +1654,11 @@ export const getWeeklyRecapDataForAI = query({
       console.log("=== getWeeklyRecapDataForAI SUCCESS ===");
       console.log("Execution time:", executionTime + "ms");
       console.log("Week:", args.week);
-      console.log("Matchups found:", enrichedMatchups.length);
+      console.log("Total matchups found:", enrichedMatchups.length);
+      console.log("Playoff games (WINNERS_BRACKET):", playoffMatchups.length);
+      console.log("Consolation games:", consolationMatchups.length);
+      console.log("Regular season games:", regularSeasonMatchups.length);
+      console.log("Is Championship Week:", isChampionshipWeek);
       
       return result;
       

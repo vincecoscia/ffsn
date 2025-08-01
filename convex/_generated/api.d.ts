@@ -20,6 +20,7 @@ import type * as crons from "../crons.js";
 import type * as dataProcessing from "../dataProcessing.js";
 import type * as espn from "../espn.js";
 import type * as espnNews from "../espnNews.js";
+import type * as espnStatsMapping from "../espnStatsMapping.js";
 import type * as espnSync from "../espnSync.js";
 import type * as leagues from "../leagues.js";
 import type * as matchupRosters from "../matchupRosters.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   dataProcessing: typeof dataProcessing;
   espn: typeof espn;
   espnNews: typeof espnNews;
+  espnStatsMapping: typeof espnStatsMapping;
   espnSync: typeof espnSync;
   leagues: typeof leagues;
   matchupRosters: typeof matchupRosters;

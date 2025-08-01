@@ -294,6 +294,7 @@ export default defineSchema({
         points: v.number(),
         appliedStats: v.optional(v.record(v.string(), v.number())), // Fantasy points breakdown
         projectedPoints: v.optional(v.number()),
+        projectedStats: v.optional(v.record(v.string(), v.number())),
       })),
     })),
     
@@ -309,6 +310,7 @@ export default defineSchema({
         points: v.number(),
         appliedStats: v.optional(v.record(v.string(), v.number())), // Fantasy points breakdown
         projectedPoints: v.optional(v.number()),
+        projectedStats: v.optional(v.record(v.string(), v.number())),
       })),
     })),
     
@@ -440,6 +442,10 @@ export default defineSchema({
     
     // Stats snapshot (raw ESPN data structure)
     stats: v.optional(v.any()), // ESPN returns complex array structure
+    
+    // Transformed stats for easier consumption
+    actualStats: v.optional(v.record(v.string(), v.number())), // Transformed actual stats using statSourceId: 0
+    projectedStats: v.optional(v.record(v.string(), v.number())), // Transformed projected stats using statSourceId: 1
     
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -573,6 +579,10 @@ export default defineSchema({
     
     // Calculated stats based on league's specific scoring rules
     stats: v.any(), // Same structure as playersEnhanced.stats but with league-specific calculations
+    
+    // Transformed stats for easier consumption (league-specific)
+    actualStats: v.optional(v.record(v.string(), v.number())), // Transformed actual stats using statSourceId: 0
+    projectedStats: v.optional(v.record(v.string(), v.number())), // Transformed projected stats using statSourceId: 1
     
     // Track last calculation
     calculatedAt: v.number(),

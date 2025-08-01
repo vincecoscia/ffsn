@@ -3,6 +3,7 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { getPositionAbbrev } from "./playerSyncInternal";
+import { transformStats } from "./espnStatsMapping";
 
 // Team abbreviation helper function
 const getTeamAbbreviation = (teamId: number): string => {
@@ -13,6 +14,27 @@ const getTeamAbbreviation = (teamId: number): string => {
     25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WAS', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU'
   };
   return teamMap[teamId] || 'FA';
+};
+
+// Helper function to process and transform player stats
+const processPlayerStats = (stats: any[] | undefined) => {
+  if (!stats || !Array.isArray(stats)) {
+    return {
+      actualStats: undefined,
+      projectedStats: undefined,
+      stats: stats
+    };
+  }
+
+  // Find actual stats (statSourceId: 0) and projected stats (statSourceId: 1) for the scoring period 0
+  const actualStatsEntry = stats.find((stat: any) => stat.statSourceId === 0 && stat.scoringPeriodId === 0);
+  const projectedStatsEntry = stats.find((stat: any) => stat.statSourceId === 1 && stat.scoringPeriodId === 0);
+
+  return {
+    actualStats: transformStats(actualStatsEntry?.stats),
+    projectedStats: transformStats(projectedStatsEntry?.stats),
+    stats: stats // Keep original stats array
+  };
 };
 
 // ESPN API endpoints
@@ -688,35 +710,41 @@ export const syncPlayersDefaultStats = action({
         // Filter out invalid players and map to our format
         const validPlayers = batch
           .filter((player: any) => player && player.id)
-          .map((player: any) => ({
-            espnId: player.id.toString(),
-            season,
-            fullName: player.fullName || `${player.firstName || ""} ${player.lastName || ""}`.trim() || "Unknown Player",
-            firstName: player.firstName,
-            lastName: player.lastName,
-            defaultPositionId: player.defaultPositionId || 0,
-            defaultPosition: getPositionAbbrev(player.defaultPositionId || 0),
-            eligibleSlots: player.eligibleSlots || [],
-            eligiblePositions: (player.eligibleSlots || []).map((slot: number) => getPositionAbbrev(slot)),
-            proTeamId: player.proTeamId || 0,
-            proTeamAbbrev: getTeamAbbreviation(player.proTeamId || 0),
-            active: player.active !== false,
-            injured: player.injured === true,
-            injuryStatus: player.injuryStatus,
-            droppable: player.droppable !== false,
-            universeId: player.universeId,
-            ownership: {
-              percentOwned: player.ownership?.percentOwned || 0,
-              percentStarted: player.ownership?.percentStarted || 0,
-              percentChange: player.ownership?.percentChange,
-              auctionValueAverage: player.ownership?.auctionValueAverage,
-              averageDraftPosition: player.ownership?.averageDraftPosition,
-            },
-            jersey: player.jersey || undefined,
-            seasonOutlook: player.seasonOutlook || undefined,
-            stats: player.stats, // PPR stats from default endpoint
-            draftRanksByRankType: player.draftRanksByRankType,
-          }));
+          .map((player: any) => {
+            const processedStats = processPlayerStats(player.stats);
+            
+            return {
+              espnId: player.id.toString(),
+              season,
+              fullName: player.fullName || `${player.firstName || ""} ${player.lastName || ""}`.trim() || "Unknown Player",
+              firstName: player.firstName,
+              lastName: player.lastName,
+              defaultPositionId: player.defaultPositionId || 0,
+              defaultPosition: getPositionAbbrev(player.defaultPositionId || 0),
+              eligibleSlots: player.eligibleSlots || [],
+              eligiblePositions: (player.eligibleSlots || []).map((slot: number) => getPositionAbbrev(slot)),
+              proTeamId: player.proTeamId || 0,
+              proTeamAbbrev: getTeamAbbreviation(player.proTeamId || 0),
+              active: player.active !== false,
+              injured: player.injured === true,
+              injuryStatus: player.injuryStatus,
+              droppable: player.droppable !== false,
+              universeId: player.universeId,
+              ownership: {
+                percentOwned: player.ownership?.percentOwned || 0,
+                percentStarted: player.ownership?.percentStarted || 0,
+                percentChange: player.ownership?.percentChange,
+                auctionValueAverage: player.ownership?.auctionValueAverage,
+                averageDraftPosition: player.ownership?.averageDraftPosition,
+              },
+              jersey: player.jersey || undefined,
+              seasonOutlook: player.seasonOutlook || undefined,
+              actualStats: processedStats.actualStats,
+              projectedStats: processedStats.projectedStats,
+              stats: processedStats.stats,
+              draftRanksByRankType: player.draftRanksByRankType,
+            };
+          });
         
         if (validPlayers.length > 0) {
           await ctx.runMutation(api.playerSyncInternal.upsertPlayersBatch, {
@@ -812,13 +840,16 @@ export const syncLeaguePlayerStats = action({
         .filter((playerData: ESPNLeaguePlayerData) => playerData.player.stats)
         .map((playerData: ESPNLeaguePlayerData) => {
           const player = playerData.player;
+          const processedStats = processPlayerStats(player.stats);
           
           return {
             leagueId,
             espnId: player.id.toString(),
             season,
             scoringType,
-            stats: player.stats, // League-specific stats from ESPN
+            stats: processedStats.stats,
+            actualStats: processedStats.actualStats,
+            projectedStats: processedStats.projectedStats,
             calculatedAt: Date.now(),
           };
         });

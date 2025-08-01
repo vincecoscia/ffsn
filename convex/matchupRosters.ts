@@ -2,6 +2,9 @@
 import { action, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { transformStats } from "./espnStatsMapping";
+
+
 
 // Helper function to transform roster data
 const transformRosterData = (rosterData: any) => {
@@ -24,10 +27,13 @@ const transformRosterData = (rosterData: any) => {
       const player = entry.playerPoolEntry?.player;
       if (!player) return null;
 
-      // Get appliedStats from the second stats entry (index 1) if available
-      const appliedStats = player.stats && player.stats[0] ? player.stats[0].appliedStats : undefined;
-
-      const projectedPoints = player.stats && player.stats[1] ? parseFloat(player.stats[1].appliedTotal.toFixed(1)) : undefined;
+      // Get appliedStats from the actual stats (statSourceId: 0) and projected stats (statSourceId: 1)
+      const actualStatsEntry = player.stats?.find((stat: any) => stat.statSourceId === 0);
+      const projectedStatsEntry = player.stats?.find((stat: any) => stat.statSourceId === 1);
+      
+      const appliedStats = transformStats(actualStatsEntry ? actualStatsEntry.appliedStats : undefined);
+      const projectedPoints = projectedStatsEntry ? parseFloat(projectedStatsEntry.appliedTotal.toFixed(1)) : undefined;
+      const projectedStats = transformStats(projectedStatsEntry ? projectedStatsEntry.appliedStats : undefined);
 
       // Ensure appliedStatTotal is a valid number for the player too
       const playerAppliedStatTotal = typeof entry.playerPoolEntry?.appliedStatTotal === 'number'
@@ -52,6 +58,7 @@ const transformRosterData = (rosterData: any) => {
         points: playerAppliedStatTotal,
         appliedStats: appliedStats,
         projectedPoints: projectedPoints,
+        projectedStats: projectedStats,
       };
     }).filter((player: any) => player !== null),
   };

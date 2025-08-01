@@ -26,32 +26,50 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     description: "Comprehensive review of all matchups with commentary",
     creditCost: 10,
     estimatedWords: 1200,
-    requiredData: ["matchup_results", "player_scores", "standings"],
-    optionalData: ["injuries", "weather", "upsets"],
+    requiredData: ["matchup_results", "player_scores", "standings", "playoff_tier"],
+    optionalData: ["injuries", "weather", "upsets", "playoff_implications"],
     sections: [
       {
         name: "introduction",
-        description: "Hook and week overview",
+        description: "Hook and week overview - prioritize playoff context if applicable",
         required: true,
         wordCount: 150
       },
       {
+        name: "championship_game",
+        description: "Championship game breakdown with in-depth analysis",
+        required: false, // Only when isChampionshipWeek
+        wordCount: 400
+      },
+      {
+        name: "playoff_games",
+        description: "Coverage of playoff matchups (WINNERS_BRACKET games)",
+        required: false, // Only when playoff games exist
+        wordCount: 350
+      },
+      {
         name: "game_of_the_week",
-        description: "Deep dive on the most interesting matchup",
+        description: "Deep dive on the most interesting non-championship matchup",
         required: true,
         wordCount: 300
       },
       {
-        name: "other_matchups",
-        description: "Quick hits on remaining games",
+        name: "other_matchups", 
+        description: "Quick hits on remaining games (consolation and regular season)",
         required: true,
-        wordCount: 400
+        wordCount: 300
       },
       {
         name: "studs_and_duds",
-        description: "Top and bottom performers",
+        description: "Top and bottom performers across all games",
         required: true,
         wordCount: 250
+      },
+      {
+        name: "playoff_implications",
+        description: "How results affect playoff picture (if applicable)",
+        required: false,
+        wordCount: 150
       },
       {
         name: "looking_ahead",
@@ -61,9 +79,11 @@ export const contentTemplates: Record<string, ContentTemplate> = {
       }
     ],
     examplePrompt: `Write a weekly recap for Week {week} of {leagueName}. 
+    {playoffContext}
     The biggest story was {teamA} defeating {teamB} {scoreA}-{scoreB}. 
     Top performer: {topPlayer} with {topScore} points.
-    Biggest bust: {bustPlayer} with only {bustScore} points.`
+    Biggest bust: {bustPlayer} with only {bustScore} points.
+    {playoffImplications}`
   },
 
   "weekly_preview": {

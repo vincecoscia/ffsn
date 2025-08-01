@@ -1,5 +1,25 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { transformStats } from "./espnStatsMapping";
+
+// Helper function to process and transform player stats
+const processPlayerStats = (stats: any[] | undefined, scoringPeriodId: number = 0) => {
+  if (!stats || !Array.isArray(stats)) {
+    return {
+      actualStats: undefined,
+      projectedStats: undefined,
+    };
+  }
+
+  // Find actual stats (statSourceId: 0) and projected stats (statSourceId: 1) for the specified scoring period
+  const actualStatsEntry = stats.find((stat: any) => stat.statSourceId === 0 && stat.scoringPeriodId === scoringPeriodId);
+  const projectedStatsEntry = stats.find((stat: any) => stat.statSourceId === 1 && stat.scoringPeriodId === scoringPeriodId);
+
+  return {
+    actualStats: transformStats(actualStatsEntry?.stats),
+    projectedStats: transformStats(projectedStatsEntry?.stats),
+  };
+};
 
 // Mutations
 export const upsertPlayersBatch = mutation({
@@ -32,6 +52,8 @@ export const upsertPlayersBatch = mutation({
       jersey: v.optional(v.string()),
       seasonOutlook: v.optional(v.string()),
       stats: v.optional(v.any()),
+      actualStats: v.optional(v.any()),
+      projectedStats: v.optional(v.any()),
       draftRanksByRankType: v.optional(v.any()),
     })),
   },
@@ -39,24 +61,32 @@ export const upsertPlayersBatch = mutation({
     const now = Date.now();
     
     for (const player of players) {
+      // Process stats if transformed fields aren't provided
+      let processedPlayer = { ...player };
+      if (!player.actualStats && !player.projectedStats && player.stats) {
+        const processed = processPlayerStats(player.stats);
+        processedPlayer.actualStats = processed.actualStats;
+        processedPlayer.projectedStats = processed.projectedStats;
+      }
+      
       // Check if player exists
       const existing = await ctx.db
         .query("playersEnhanced")
         .withIndex("by_espn_id_season", (q) => 
-          q.eq("espnId", player.espnId).eq("season", player.season)
+          q.eq("espnId", processedPlayer.espnId).eq("season", processedPlayer.season)
         )
         .first();
       
       if (existing) {
         // Update existing player
         await ctx.db.patch(existing._id, {
-          ...player,
+          ...processedPlayer,
           updatedAt: now,
         });
       } else {
         // Insert new player
         await ctx.db.insert("playersEnhanced", {
-          ...player,
+          ...processedPlayer,
           createdAt: now,
           updatedAt: now,
         });
@@ -271,6 +301,8 @@ export const upsertPlayerStatsBatch = mutation({
       season: v.number(),
       scoringType: v.string(),
       stats: v.any(),
+      actualStats: v.optional(v.any()),
+      projectedStats: v.optional(v.any()),
       calculatedAt: v.number(),
     })),
   },
@@ -278,26 +310,34 @@ export const upsertPlayerStatsBatch = mutation({
     const now = Date.now();
     
     for (const stat of playerStats) {
+      // Process stats if transformed fields aren't provided
+      let processedStat = { ...stat };
+      if (!stat.actualStats && !stat.projectedStats && stat.stats) {
+        const processed = processPlayerStats(stat.stats);
+        processedStat.actualStats = processed.actualStats;
+        processedStat.projectedStats = processed.projectedStats;
+      }
+      
       // Check if player stat exists
       const existing = await ctx.db
         .query("playerStats")
         .withIndex("by_league_player", (q) => 
-          q.eq("leagueId", stat.leagueId)
-           .eq("espnId", stat.espnId)
-           .eq("season", stat.season)
+          q.eq("leagueId", processedStat.leagueId)
+           .eq("espnId", processedStat.espnId)
+           .eq("season", processedStat.season)
         )
         .first();
       
       if (existing) {
         // Update existing stat
         await ctx.db.patch(existing._id, {
-          ...stat,
+          ...processedStat,
           updatedAt: now,
         });
       } else {
         // Insert new stat
         await ctx.db.insert("playerStats", {
-          ...stat,
+          ...processedStat,
           createdAt: now,
           updatedAt: now,
         });
