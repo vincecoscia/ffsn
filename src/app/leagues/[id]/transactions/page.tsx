@@ -8,6 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   TransactionsAllTab,
   TransactionsTradesTab,
@@ -92,7 +93,8 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
 
 
 
-  if (!userId || !league || !allTransactionsData || selectedSeason === null || !teamsData) {
+  // Early return only for critical missing data
+  if (!userId || !league || !allTransactionsData || selectedSeason === null) {
     return <div>Loading...</div>;
   }
   
@@ -103,8 +105,8 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
   const currentSeasonTransactions = dataToDisplay.groupedBySeasons[selectedSeason] || [];
   const draftTransactions = getDraftTransactions(currentSeasonTransactions);
   
-  // Get the actual team count for this season
-  const teamCount = teamsData.length;
+  // Get the actual team count for this season (with fallback while loading)
+  const teamCount = teamsData?.length || 12; // Default to 12 teams while loading
 
   return (
     <LeaguePageLayout 
@@ -133,28 +135,100 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
           </TabsList>
 
           <TabsContent value="all" className="mt-6">
-            <TransactionsAllTab 
-              transactions={currentSeasonTransactions}
-              selectedSeason={selectedSeason}
-              availableSeasons={allTransactionsData.seasons}
-            />
+            {!transactionsData && selectedSeason ? (
+              <div className="space-y-4">
+                {/* Week header skeleton */}
+                <Skeleton className="h-6 w-20" />
+                {/* Transaction card skeletons */}
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="border rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <TransactionsAllTab 
+                transactions={currentSeasonTransactions}
+                selectedSeason={selectedSeason}
+                availableSeasons={allTransactionsData.seasons}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="trades" className="mt-6">
-            <TransactionsTradesTab 
-              tradeData={tradeData}
-              selectedSeason={selectedSeason}
-            />
+            {!tradeData && selectedSeason ? (
+              <div className="space-y-4">
+                {/* Trade card skeletons */}
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <Skeleton className="h-5 w-24" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-3/4" />
+                      </div>
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-3/4" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <TransactionsTradesTab 
+                tradeData={tradeData}
+                selectedSeason={selectedSeason}
+              />
+            )}
           </TabsContent>
           
           <TabsContent value="draft" className="mt-6">
-            <TransactionsDraftTab 
-              draftTransactions={draftTransactions}
-              selectedSeason={selectedSeason}
-              teamCount={teamCount}
-              draftView={draftView}
-              onDraftViewChange={setDraftView}
-            />
+            {!teamsData && selectedSeason ? (
+              <div className="space-y-4">
+                {/* Draft header skeleton */}
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1">
+                    <Skeleton className="h-6 w-48" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                  <Skeleton className="h-10 w-64" />
+                </div>
+                {/* Draft pick skeletons */}
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="border rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center space-x-3">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <div className="space-y-1">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <TransactionsDraftTab 
+                draftTransactions={draftTransactions}
+                selectedSeason={selectedSeason}
+                teamCount={teamCount}
+                draftView={draftView}
+                onDraftViewChange={setDraftView}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>
