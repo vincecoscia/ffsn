@@ -33,6 +33,7 @@ import type * as rivalries from "../rivalries.js";
 import type * as teamClaims from "../teamClaims.js";
 import type * as teamInvitations from "../teamInvitations.js";
 import type * as teams from "../teams.js";
+import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 
 /**
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   teamClaims: typeof teamClaims;
   teamInvitations: typeof teamInvitations;
   teams: typeof teams;
+  transactions: typeof transactions;
   users: typeof users;
 }>;
 export declare const api: FilterApi<

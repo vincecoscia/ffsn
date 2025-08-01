@@ -16,7 +16,7 @@ import {
   SheetTrigger,
   SheetClose
 } from "@/components/ui/sheet";
-import { Menu, Home, Trophy, Calendar, BarChart3, Users, Target, Settings, Sparkles } from "lucide-react";
+import { Menu, Home, Trophy, Calendar, BarChart3, Users, Target, Settings, Sparkles, FileText } from "lucide-react";
 
 interface LeagueLayoutProps {
   children: React.ReactNode;
@@ -176,6 +176,19 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
                         </SheetClose>
                         <SheetClose asChild>
                           <Link 
+                            href={`/leagues/${league._id}/transactions`}
+                            className={`group flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 transform hover:scale-[1.02] ${
+                              isActivePath(`/leagues/${league._id}/transactions`)
+                                ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg shadow-red-500/25 border border-red-400/20'
+                                : 'text-slate-300 hover:text-white hover:bg-slate-800/50 backdrop-blur-sm border border-transparent hover:border-slate-700/50'
+                            }`}
+                          >
+                            <FileText className={`w-5 h-5 ${isActivePath(`/leagues/${league._id}/transactions`) ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                            <span className="text-base">Transactions</span>
+                          </Link>
+                        </SheetClose>
+                        <SheetClose asChild>
+                          <Link 
                             href={`/leagues/${league._id}/depth-charts`}
                             className={`group flex items-center gap-4 w-full px-4 py-3.5 rounded-xl font-medium transition-all duration-300 transform hover:scale-[1.02] ${
                               isActivePath(`/leagues/${league._id}/depth-charts`)
@@ -294,6 +307,16 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
                 }`}
               >
                 Teams
+              </Link>
+              <Link 
+                href={`/leagues/${league._id}/transactions`} 
+                className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 cursor-pointer ${
+                  isActivePath(`/leagues/${league._id}/transactions`)
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                }`}
+              >
+                Transactions
               </Link>
               <Link 
                 href={`/leagues/${league._id}/depth-charts`} 

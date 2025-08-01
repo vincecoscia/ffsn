@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
+import { TeamLogo } from "./TeamLogo";
 
 interface LeaguePageLayoutProps {
   children: React.ReactNode;
@@ -13,31 +14,33 @@ interface LeaguePageLayoutProps {
   title?: string;
 }
 
-export function LeaguePageLayout({ 
-  children, 
-  leagueId, 
+export function LeaguePageLayout({
+  children,
+  leagueId,
   currentUserId,
-  title
+  title,
 }: LeaguePageLayoutProps) {
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
-  
+
   // Get teams
-  const teams = useQuery(api.teams.getByLeagueAndSeason, { 
-    leagueId,
-    seasonId: 2025 
-  }) || [];
-  
+  const teams =
+    useQuery(api.teams.getByLeagueAndSeason, {
+      leagueId,
+      seasonId: 2025,
+    }) || [];
+
   // Get team claims
-  const teamClaims = useQuery(api.teamClaims.getByLeague, { 
-    leagueId,
-    seasonId: 2025 
-  }) || [];
+  const teamClaims =
+    useQuery(api.teamClaims.getByLeague, {
+      leagueId,
+      seasonId: 2025,
+    }) || [];
 
   // Get user's claimed team
-  const userTeam = teams.find(team => {
-    const claim = teamClaims.find(claim => 
-      claim.teamId === team._id && claim.userId === currentUserId
+  const userTeam = teams.find((team) => {
+    const claim = teamClaims.find(
+      (claim) => claim.teamId === team._id && claim.userId === currentUserId
     );
     return !!claim;
   });
@@ -68,16 +71,23 @@ export function LeaguePageLayout({
             </div>
             <div className="p-6">
               <div className="text-center">
-                {userTeam.logo && (
-                  <img 
-                    src={userTeam.logo} 
-                    alt={`${userTeam.name} logo`}
+                {(userTeam.logo || userTeam.customLogo) && (
+                  <TeamLogo
+                    teamId={userTeam._id}
+                    teamName={userTeam.name}
+                    espnLogo={userTeam.logo}
+                    customLogo={userTeam.customLogo}
+                    size="md"
                     className="w-20 h-20 mx-auto mb-4 rounded-lg"
                   />
                 )}
-                <h4 className="font-bold text-xl text-gray-900 mb-1">{userTeam.name}</h4>
+                <h4 className="font-bold text-xl text-gray-900 mb-1">
+                  {userTeam.name}
+                </h4>
                 {userTeam.abbreviation && (
-                  <p className="text-gray-600 text-sm mb-4">{userTeam.abbreviation}</p>
+                  <p className="text-gray-600 text-sm mb-4">
+                    {userTeam.abbreviation}
+                  </p>
                 )}
                 <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                   <div>
@@ -112,19 +122,27 @@ export function LeaguePageLayout({
           <div className="p-4 space-y-4">
             <div className="flex justify-between">
               <span className="text-gray-600 text-sm">Teams</span>
-              <span className="font-semibold text-gray-900">{teams.length}</span>
+              <span className="font-semibold text-gray-900">
+                {teams.length}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 text-sm">Scoring</span>
-              <span className="font-semibold text-gray-900 capitalize">{league.settings.scoringType}</span>
+              <span className="font-semibold text-gray-900 capitalize">
+                {league.settings.scoringType}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 text-sm">Your Role</span>
-              <span className="font-semibold text-gray-900 capitalize">{league.role}</span>
+              <span className="font-semibold text-gray-900 capitalize">
+                {league.role}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 text-sm">Platform</span>
-              <span className="font-semibold text-gray-900 uppercase">{league.platform}</span>
+              <span className="font-semibold text-gray-900 uppercase">
+                {league.platform}
+              </span>
             </div>
           </div>
         </div>

@@ -33,7 +33,7 @@ export function SeasonSelector({
       value={selectedSeason.toString()}
       onValueChange={(value) => onSeasonChange(parseInt(value))}
     >
-      <SelectTrigger className="w-[180px]">
+      <SelectTrigger className="w-[180px] bg-background border">
         <SelectValue placeholder="Select a season" />
       </SelectTrigger>
       <SelectContent>
