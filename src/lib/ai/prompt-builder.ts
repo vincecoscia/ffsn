@@ -1,6 +1,43 @@
 import { personaPrompts, getPersonaSettings } from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
 
+interface Matchup {
+  teamA: string;
+  teamB: string;
+  scoreA: number;
+  scoreB: number;
+  projectedScoreA?: number;
+  projectedScoreB?: number;
+  winner?: string;
+  week?: number;
+  isUpset?: boolean;
+  closeness?: "blowout" | "comfortable" | "close" | "nail-biter";
+  topPerformers?: Array<{
+    playerId?: string;
+    playerName?: string;
+    points: number;
+    teamId?: string;
+    position?: string;
+    player?: string;
+    team?: string;
+    overPerformance?: number;
+  }>;
+  benchPointsA?: number;
+  benchPointsB?: number;
+  memorableMoment?: string;
+  playoffTier?: string;
+}
+
+interface PlayoffBreakdown {
+  isChampionshipWeek?: boolean;
+  playoffGameCount?: number;
+  isPlayoffWeek?: boolean;
+  playoffMatchups?: Matchup[];
+  consolationMatchups?: Matchup[];
+  regularSeasonMatchups?: Matchup[];
+  championshipGame?: Matchup;
+}
+
 export interface PromptBuilderOptions {
   leagueId: string;
   contentType: string;
@@ -403,12 +440,12 @@ CURRENT CONTEXT:
       
       // Handle playoff-specific sections for weekly recap
       if (this.options.contentType === 'weekly_recap') {
-        const playoffData = (leagueData as any).playoffBreakdown;
+        const playoffData = (leagueData as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown }).playoffBreakdown;
         
         if (section.name === 'championship_game') {
           shouldInclude = playoffData?.isChampionshipWeek || false;
         } else if (section.name === 'playoff_games') {
-          shouldInclude = playoffData?.playoffGameCount > 0 && !playoffData?.isChampionshipWeek;
+          shouldInclude = (playoffData?.playoffGameCount || 0) > 0 && !playoffData?.isChampionshipWeek;
         } else if (section.name === 'playoff_implications') {
           shouldInclude = playoffData?.isPlayoffWeek || false;
         }
@@ -479,7 +516,7 @@ CURRENT CONTEXT:
     return contextData;
   }
 
-  private formatMatchupDetails(matchup: any, isChampionshipGame = false, isPlayoffGame = false): string {
+  private formatMatchupDetails(matchup: Matchup, isChampionshipGame = false, isPlayoffGame = false): string {
     let details = `\n${matchup.teamA} (${matchup.scoreA}) vs ${matchup.teamB} (${matchup.scoreB})`;
     
     // Add projected scores for context
@@ -517,7 +554,7 @@ CURRENT CONTEXT:
     if (matchup.topPerformers && matchup.topPerformers.length > 0) {
       const performerCount = isChampionshipGame ? 5 : (isPlayoffGame ? 4 : 3);
       details += '  Top performers:\n';
-      matchup.topPerformers.slice(0, performerCount).forEach((perf: any) => {
+      matchup.topPerformers.slice(0, performerCount).forEach((perf) => {
         const playerName = perf.playerName || perf.player || 'Unknown Player';
         const position = perf.position ? ` (${perf.position})` : '';
         const overPerf = perf.overPerformance ? ` (+${perf.overPerformance}% vs proj)` : '';
@@ -548,50 +585,50 @@ CURRENT CONTEXT:
     let recap = '';
     
     // Check if we have playoff breakdown data
-    const hasPlayoffData = (data as any).playoffBreakdown;
+    const hasPlayoffData = (data as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown }).playoffBreakdown;
     if (hasPlayoffData) {
-      const playoffData = (data as any).playoffBreakdown;
+      const playoffData = (data as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown }).playoffBreakdown;
       
       // Add playoff context header
-      if (playoffData.isChampionshipWeek) {
+      if (playoffData?.isChampionshipWeek) {
         recap += '🏆 CHAMPIONSHIP WEEK 🏆\n\n';
-      } else if (playoffData.isPlayoffWeek) {
+      } else if (playoffData?.isPlayoffWeek) {
         recap += '🏈 PLAYOFF WEEK 🏈\n\n';
       } else {
         recap += 'THIS WEEK\'S MATCHUPS:\n\n';
       }
       
       // CHAMPIONSHIP GAME (highest priority)
-      if (playoffData.isChampionshipWeek && playoffData.championshipGame) {
+      if (playoffData?.isChampionshipWeek && playoffData?.championshipGame) {
         recap += '🏆 CHAMPIONSHIP GAME:\n';
-        recap += this.formatMatchupDetails(playoffData.championshipGame, true);
+        recap += this.formatMatchupDetails(playoffData?.championshipGame, true);
         recap += '\n';
       }
       
       // PLAYOFF GAMES (WINNERS_BRACKET)
-      if (playoffData.playoffMatchups && playoffData.playoffMatchups.length > 0 && !playoffData.isChampionshipWeek) {
+      if (playoffData?.playoffMatchups && playoffData.playoffMatchups.length > 0 && !playoffData?.isChampionshipWeek) {
         recap += '🏈 PLAYOFF GAMES (Winners Bracket):\n';
-        playoffData.playoffMatchups.forEach((matchup: any) => {
+        playoffData?.playoffMatchups?.forEach((matchup) => {
           recap += this.formatMatchupDetails(matchup, false, true);
         });
         recap += '\n';
       }
       
       // CONSOLATION GAMES
-      if (playoffData.consolationMatchups && playoffData.consolationMatchups.length > 0) {
-        const bracketType = playoffData.consolationMatchups[0]?.playoffTier === 'WINNERS_CONSOLATION_LADDER' 
+      if (playoffData?.consolationMatchups && playoffData.consolationMatchups.length > 0) {
+        const bracketType = playoffData?.consolationMatchups?.[0]?.playoffTier === 'WINNERS_CONSOLATION_LADDER' 
           ? 'Consolation Playoff' : 'Consolation';
         recap += `📊 ${bracketType.toUpperCase()} GAMES:\n`;
-        playoffData.consolationMatchups.forEach((matchup: any) => {
+        playoffData?.consolationMatchups?.forEach((matchup) => {
           recap += this.formatMatchupDetails(matchup);
         });
         recap += '\n';
       }
       
       // REGULAR SEASON GAMES (if any)
-      if (playoffData.regularSeasonMatchups && playoffData.regularSeasonMatchups.length > 0) {
+      if (playoffData?.regularSeasonMatchups && playoffData.regularSeasonMatchups.length > 0) {
         recap += '📅 REGULAR SEASON GAMES:\n';
-        playoffData.regularSeasonMatchups.forEach((matchup: any) => {
+        playoffData?.regularSeasonMatchups?.forEach((matchup) => {
           recap += this.formatMatchupDetails(matchup);
         });
         recap += '\n';

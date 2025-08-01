@@ -12,9 +12,7 @@ import {
   TransactionsAllTab,
   TransactionsTradesTab,
   TransactionsDraftTab,
-  getDraftTransactions,
-  Transaction,
-  DraftView
+  getDraftTransactions
 } from "@/components/transactions";
 
 interface TransactionsPageProps {

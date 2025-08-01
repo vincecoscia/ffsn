@@ -24,7 +24,7 @@ export const TransactionsTradesTab: React.FC<TransactionsTradesTabProps> = ({
         <div className="text-center text-muted-foreground py-8">
           <div className="mb-2">No trades found for {selectedSeason} season.</div>
           <div className="text-xs">
-            Try selecting a different season or check the "All Transactions" tab.
+            Try selecting a different season or check the &quot;All Transactions&quot; tab.
           </div>
         </div>
       )}

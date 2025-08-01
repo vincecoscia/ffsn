@@ -55,7 +55,7 @@ export const groupDraftByRound = (draftPicks: DraftPick[], teamCount: number) =>
 export const groupDraftByTeam = (draftPicks: DraftPick[]): Record<string, TeamDraftData> => {
   const grouped = draftPicks.reduce((acc, pick) => {
     const team = pick.items[0]?.toTeam;
-    if (team) {
+    if (team && team._id) {
       const teamKey = team._id;
       if (!acc[teamKey]) {
         acc[teamKey] = {

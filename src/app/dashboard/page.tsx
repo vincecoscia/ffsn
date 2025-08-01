@@ -9,8 +9,7 @@ import Link from "next/link";
 import { useAuthSync } from "@/hooks/use-auth-sync";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Plus, Zap, Users, TrendingUp } from "lucide-react";
+import { Zap, Users, TrendingUp } from "lucide-react";
 
 export default function Dashboard() {
   const leagues = useQuery(api.leagues.getByUser);

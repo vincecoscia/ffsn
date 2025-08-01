@@ -6,8 +6,26 @@ export interface TransactionItem {
     position: string;
     team: string | undefined;
   } | null;
-  fromTeam: any;
-  toTeam: any;
+  fromTeam: {
+    name: string;
+    externalId?: string;
+    _id?: string;
+    abbreviation?: string;
+    owner?: string;
+    logo?: string;
+    customLogo?: Id<"_storage"> | string;
+    seasonId?: number;
+  } | null | undefined;
+  toTeam: {
+    name: string;
+    externalId?: string;
+    _id?: string;
+    abbreviation?: string;
+    owner?: string;
+    logo?: string;
+    customLogo?: Id<"_storage"> | string;
+    seasonId?: number;
+  } | null | undefined;
   fromTeamId: number;
   toTeamId: number;
   type: string;
@@ -21,8 +39,30 @@ export interface Transaction {
   processedDate?: number;
   proposedDate: number;
   items: TransactionItem[];
-  primaryTeam: any;
-  tradeDetails?: any[];
+  primaryTeam: {
+    name: string;
+    externalId?: string;
+    _id?: string;
+    abbreviation?: string;
+    owner?: string;
+    logo?: string;
+    customLogo?: Id<"_storage"> | string;
+    seasonId?: number;
+  } | null | undefined;
+  tradeDetails?: {
+    team: {
+      name: string;
+      externalId?: string;
+      _id?: string;
+      abbreviation?: string;
+      owner?: string;
+      logo?: string;
+      customLogo?: Id<"_storage"> | string;
+      seasonId?: number;
+    };
+    playersReceived: string[];
+    playersSent: string[];
+  }[];
   status: string;
   scoringPeriod: number;
   bidAmount?: number;
@@ -36,7 +76,16 @@ export interface DraftPick {
 }
 
 export interface TeamDraftData {
-  team: any;
+  team: {
+    name: string;
+    externalId?: string;
+    _id?: string;
+    abbreviation?: string;
+    owner?: string;
+    logo?: string;
+    customLogo?: Id<"_storage"> | string;
+    seasonId?: number;
+  };
   picks: DraftPick[];
 }
 
@@ -45,9 +94,26 @@ export interface TradeData {
   proposedDate: number;
   scoringPeriod: number;
   tradeDetails: {
-    team: any;
-    playersReceived: any[];
-    playersSent: any[];
+    team: {
+      name: string;
+      externalId?: string;
+      _id?: string;
+      abbreviation?: string;
+      owner?: string;
+      logo?: string;
+      customLogo?: Id<"_storage"> | string;
+      seasonId?: number;
+    };
+    playersReceived: {
+      name: string;
+      position: string;
+      team?: string;
+    }[];
+    playersSent: {
+      name: string;
+      position: string;
+      team?: string;
+    }[];
   }[];
 }
 

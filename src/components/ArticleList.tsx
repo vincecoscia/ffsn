@@ -6,7 +6,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Skeleton } from "./ui/skeleton";
 import { Calendar, Clock, ArrowRight } from "lucide-react";

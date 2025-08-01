@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -50,7 +50,7 @@ export function TeamLogo({
         src={logoUrl}
         alt={`${teamName} logo`}
         className={`${sizeClasses[size]} rounded object-cover ${className}`}
-        onError={(e) => {
+        onError={() => {
           if (logoUrl === espnLogo) {
             // ESPN logo failed to load
             setShowEspnLogo(false);

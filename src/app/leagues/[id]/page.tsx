@@ -65,8 +65,6 @@ export default function LeaguePage({ params }: LeaguePageProps) {
 
   const currentUserId = user?.id;
   const isCommissioner = league.role === "commissioner";
-  const userHasClaimedTeam = teamClaims.some(claim => claim.userId === currentUserId);
-  const isCurrentSeason = true; // For 2025 season
   
 
   return (

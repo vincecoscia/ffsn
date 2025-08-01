@@ -61,9 +61,9 @@ const formatCompactTransactionDescription = (transaction: Transaction) => {
               {idx < addedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
             </span>
           ))}
-          {transaction.type === "WAIVER" && (transaction as any).bidAmount > 0 && (
+          {transaction.type === "WAIVER" && transaction.bidAmount && transaction.bidAmount > 0 && (
             <span className="text-xs text-blue-600 font-medium ml-2">
-              (${(transaction as any).bidAmount} FAAB)
+              (${transaction.bidAmount} FAAB)
             </span>
           )}
         </div>

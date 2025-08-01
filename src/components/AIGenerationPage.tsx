@@ -7,11 +7,6 @@ import { Id } from "../../convex/_generated/dataModel";
 import { ContentGenerator } from "@/components/ContentGenerator";
 import { 
   Sparkles, 
-  FileText, 
-  Clock, 
-  TrendingUp, 
-  Trophy, 
-  AlertCircle, 
   Eye,
   EyeOff,
   Send,

@@ -13,7 +13,7 @@ interface TradeCardProps {
 
 export const TradeCard: React.FC<TradeCardProps> = ({ trade }) => {
   // Show the teams involved more clearly
-  const teamsInvolved = trade.tradeDetails?.map((detail: any) => detail.team?.name).filter(Boolean) || [];
+  const teamsInvolved = trade.tradeDetails?.map((detail) => detail.team?.name).filter(Boolean) || [];
   
   return (
     <Card className="mb-4">
@@ -37,7 +37,7 @@ export const TradeCard: React.FC<TradeCardProps> = ({ trade }) => {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {trade.tradeDetails?.map((detail: any, idx: number) => (
+          {trade.tradeDetails?.map((detail, idx: number) => (
             <div key={idx} className="space-y-2">
               <div className="flex items-center gap-2">
                 <Avatar className="w-8 h-8">
@@ -53,7 +53,7 @@ export const TradeCard: React.FC<TradeCardProps> = ({ trade }) => {
               {detail.playersReceived.length > 0 && (
                 <div className="pl-10">
                   <div className="text-sm font-medium text-green-600 mb-1">Receives:</div>
-                  {detail.playersReceived.map((player: any, pidx: number) => (
+                  {detail.playersReceived.map((player, pidx: number) => (
                     <div key={pidx} className="text-sm text-muted-foreground">
                       {player?.name || 'Unknown Player'} ({player?.position} - {player?.team})
                     </div>
@@ -64,7 +64,7 @@ export const TradeCard: React.FC<TradeCardProps> = ({ trade }) => {
               {detail.playersSent.length > 0 && (
                 <div className="pl-10">
                   <div className="text-sm font-medium text-red-600 mb-1">Sends:</div>
-                  {detail.playersSent.map((player: any, pidx: number) => (
+                  {detail.playersSent.map((player, pidx: number) => (
                     <div key={pidx} className="text-sm text-muted-foreground">
                       {player?.name || 'Unknown Player'} ({player?.position} - {player?.team})
                     </div>
