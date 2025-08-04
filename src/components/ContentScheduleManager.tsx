@@ -158,7 +158,17 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     }
   };
 
-  const handleUpdateGlobalSettings = async (updates: any) => {
+  const handleUpdateGlobalSettings = async (updates: {
+    contentEnabled?: boolean;
+    timezone?: string;
+    monthlyContentBudget?: number;
+    notifyCommissioner?: boolean;
+    notifyFailures?: boolean;
+    preferredPersonas?: string[];
+    contentStyle?: "professional" | "casual" | "humorous" | "analytical";
+    autoPublish?: boolean;
+    requireApproval?: boolean;
+  }) => {
     setIsLoading(true);
     try {
       await updatePreferences({ leagueId, ...updates });
@@ -169,22 +179,32 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     }
   };
 
-  const formatSchedule = (schedule: any) => {
+  const formatSchedule = (schedule: {
+    type: "weekly" | "relative" | "event_triggered" | "season_based";
+    dayOfWeek?: number;
+    hour?: number;
+    minute?: number;
+    relativeTo?: string;
+    offsetDays?: number;
+    trigger?: string;
+    delayMinutes?: number;
+    delayDays?: number;
+  }) => {
     switch (schedule.type) {
       case "weekly":
         const day = DAYS_OF_WEEK.find(d => d.value === schedule.dayOfWeek)?.label || "Unknown";
-        const time = `${schedule.hour.toString().padStart(2, '0')}:${schedule.minute.toString().padStart(2, '0')}`;
+        const time = `${(schedule.hour ?? 0).toString().padStart(2, '0')}:${(schedule.minute ?? 0).toString().padStart(2, '0')}`;
         return `${day} at ${time}`;
       case "relative":
-        const direction = schedule.offsetDays < 0 ? "before" : "after";
-        const days = Math.abs(schedule.offsetDays);
-        return `${days} day${days !== 1 ? 's' : ''} ${direction} ${schedule.relativeTo.replace('_', ' ')}`;
+        const direction = (schedule.offsetDays ?? 0) < 0 ? "before" : "after";
+        const days = Math.abs(schedule.offsetDays ?? 0);
+        return `${days} day${days !== 1 ? 's' : ''} ${direction} ${(schedule.relativeTo ?? '').replace('_', ' ')}`;
       case "event_triggered":
         const delay = schedule.delayMinutes ? ` (${schedule.delayMinutes} min delay)` : "";
-        return `When ${schedule.trigger.replace('_', ' ')}${delay}`;
+        return `When ${(schedule.trigger ?? '').replace('_', ' ')}${delay}`;
       case "season_based":
         const seasonDelay = schedule.delayDays ? ` + ${schedule.delayDays} days` : "";
-        return `${schedule.trigger.replace('_', ' ')}${seasonDelay}`;
+        return `${(schedule.trigger ?? '').replace('_', ' ')}${seasonDelay}`;
       default:
         return "Custom schedule";
     }
@@ -211,7 +231,7 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
             Global Content Settings
           </CardTitle>
           <CardDescription>
-            Master controls for your league's scheduled content generation
+            Master controls for your league&apos;s scheduled content generation
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
