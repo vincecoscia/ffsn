@@ -49,6 +49,7 @@ const personas = [
   { id: "vinny-marinara", name: "Vinny 'The Sauce' Marinara", tagline: "Trade Rumor Mogul", icon: "🕵️" },
   { id: "chad-thunderhype", name: "Chad Thunderhype", tagline: "The Glaze God", icon: "🎉" },
   { id: "rick-two-beers", name: "Rick 'Two Beers' O'Sullivan", tagline: "The Drunk Uncle", icon: "🍺" },
+  { id: "mike-harrison", name: "Mike Harrison", tagline: "The Professional Analyst", icon: "📝" },
 ];
 
 const formSchema = z.object({

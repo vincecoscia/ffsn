@@ -2844,11 +2844,27 @@ export const storeTrades = mutation({
         .first();
       
       if (!existingTrade) {
-        await ctx.db.insert("trades", {
+        const tradeId = await ctx.db.insert("trades", {
           ...trade,
           createdAt: now,
           updatedAt: now,
         });
+        
+        // Trigger trade analysis content generation
+        try {
+          await ctx.scheduler.runAfter(0, internal.contentScheduling.triggerEventBasedContent, {
+            leagueId: trade.leagueId,
+            eventType: "trade_occurred",
+            eventData: {
+              tradeId,
+              tradeDate: trade.tradeDate,
+              teamA: trade.teamA,
+              teamB: trade.teamB,
+            },
+          });
+        } catch (error) {
+          console.error("Failed to trigger trade analysis content:", error);
+        }
       }
     }
   },

@@ -26,4 +26,18 @@ crons.daily(
   internal.playerHistoricalSync.scheduledDailyAllLeaguesSync,
 );
 
+// Process scheduled content generation every 15 minutes
+crons.interval(
+  "process scheduled content",
+  { minutes: 15 },
+  internal.contentScheduling.processScheduledContentCron,
+);
+
+// Schedule weekly content generation - runs daily to check for new weekly content to schedule
+crons.daily(
+  "schedule weekly content",
+  { hourUTC: 2, minuteUTC: 0 }, // 2 AM UTC (10 PM ET previous day)
+  internal.contentScheduling.scheduleWeeklyContentCron,
+);
+
 export default crons;

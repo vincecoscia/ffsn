@@ -290,7 +290,7 @@ export const retryFailedGeneration = internalAction({
     await new Promise(resolve => setTimeout(resolve, waitTime));
     
     // Retry the generation process
-    await ctx.runAction(api.aiContent.generateContentAction, {
+    await ctx.runAction(internal.aiContent.generateContentAction, {
       articleId: args.articleId,
       leagueId: args.leagueId,
       contentType: args.contentType,

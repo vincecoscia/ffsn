@@ -91,6 +91,16 @@ export const create = mutation({
       joinedAt: Date.now(),
     });
 
+    // Set up default content schedules (opt-in by default)
+    try {
+      await ctx.scheduler.runAfter(0, internal.contentScheduling.createDefaultContentSchedules, {
+        leagueId,
+        timezone: "America/New_York", // Default timezone
+      });
+    } catch (error) {
+      console.error("Failed to create default content schedules:", error);
+    }
+
     return leagueId;
   },
 });

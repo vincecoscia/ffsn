@@ -841,4 +841,213 @@ export default defineSchema({
     .index("by_team_season", ["teamId", "season"])
     .index("by_week", ["season", "week"])
     .index("by_team_week", ["teamId", "season", "week"]),
+
+  // Content schedule configurations for leagues
+  contentSchedules: defineTable({
+    leagueId: v.id("leagues"),
+    contentType: v.union(
+      v.literal("weekly_recap"),
+      v.literal("weekly_preview"),
+      v.literal("trade_analysis"),
+      v.literal("power_rankings"),
+      v.literal("waiver_wire_report"),
+      v.literal("mock_draft"),
+      v.literal("rivalry_week_special"),
+      v.literal("emergency_hot_takes"),
+      v.literal("mid_season_awards"),
+      v.literal("championship_manifesto"),
+      v.literal("season_recap"),
+      v.literal("custom_roast"),
+      v.literal("season_welcome")
+    ),
+    
+    // Schedule configuration
+    enabled: v.boolean(),
+    timezone: v.string(), // e.g., "America/New_York"
+    
+    // Timing configuration based on content type
+    schedule: v.union(
+      // For weekly recurring content (waiver_wire_report, power_rankings, weekly_preview, weekly_recap)
+      v.object({
+        type: v.literal("weekly"),
+        dayOfWeek: v.number(), // 0=Sunday, 1=Monday, etc.
+        hour: v.number(), // 0-23
+        minute: v.number(), // 0-59
+      }),
+      // For relative scheduling (mock_draft - X days before draft)
+      v.object({
+        type: v.literal("relative"),
+        relativeTo: v.string(), // "draft_date", "season_end", etc.
+        offsetDays: v.number(), // negative for before, positive for after
+        hour: v.number(),
+        minute: v.number(),
+      }),
+      // For event-triggered content (trade_analysis - when trade happens)
+      v.object({
+        type: v.literal("event_triggered"),
+        trigger: v.string(), // "trade_occurred", "season_ended", etc.
+        delayMinutes: v.optional(v.number()), // optional delay after trigger
+      }),
+      // For season-based scheduling (season_recap - after season ends)
+      v.object({
+        type: v.literal("season_based"),
+        trigger: v.string(), // "season_end", "champion_determined"
+        delayDays: v.optional(v.number()),
+        hour: v.number(),
+        minute: v.number(),
+      })
+    ),
+    
+    // Persona preference for this content type
+    preferredPersona: v.optional(v.string()),
+    
+    // Additional configuration
+    customSettings: v.optional(v.object({
+      includeAnalysis: v.optional(v.boolean()),
+      focusAreas: v.optional(v.array(v.string())),
+      excludeTeams: v.optional(v.array(v.string())),
+    })),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_league_type", ["leagueId", "contentType"])
+    .index("by_enabled", ["enabled"]),
+
+  // Scheduled content generation jobs
+  scheduledContent: defineTable({
+    leagueId: v.id("leagues"),
+    contentScheduleId: v.id("contentSchedules"),
+    contentType: v.string(),
+    
+    // Scheduling details
+    scheduledFor: v.number(), // timestamp when content should be generated
+    status: v.union(
+      v.literal("pending"),
+      v.literal("generating"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("cancelled")
+    ),
+    
+    // Generation attempt tracking
+    attempts: v.number(),
+    maxAttempts: v.number(),
+    lastAttemptAt: v.optional(v.number()),
+    nextRetryAt: v.optional(v.number()),
+    
+    // Context data for generation
+    contextData: v.optional(v.object({
+      week: v.optional(v.number()),
+      seasonId: v.optional(v.number()),
+      triggerEvent: v.optional(v.string()),
+      tradeId: v.optional(v.id("trades")),
+      additionalContext: v.optional(v.any()),
+    })),
+    
+    // Results
+    generatedContentId: v.optional(v.id("aiContent")),
+    errorMessage: v.optional(v.string()),
+    generatedAt: v.optional(v.number()),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_scheduled_time", ["scheduledFor"])
+    .index("by_status", ["status"])
+    .index("by_league_status", ["leagueId", "status"])
+    .index("by_schedule_config", ["contentScheduleId"]),
+
+  // League content preferences - overall settings for each league
+  leagueContentPreferences: defineTable({
+    leagueId: v.id("leagues"),
+    
+    // Global content settings
+    contentEnabled: v.boolean(), // Master switch for all scheduled content
+    timezone: v.string(), // League's preferred timezone
+    
+    // Credit management
+    monthlyContentBudget: v.optional(v.number()), // Max credits to spend on scheduled content per month
+    currentMonthSpent: v.number(),
+    budgetResetDate: v.number(), // When to reset the monthly budget
+    
+    // Notification preferences
+    notifyCommissioner: v.boolean(), // Notify when content is generated
+    notifyFailures: v.boolean(), // Notify when generation fails
+    
+    // Content quality settings
+    preferredPersonas: v.optional(v.array(v.string())), // Preferred personas in order
+    contentStyle: v.optional(v.union(
+      v.literal("professional"),
+      v.literal("casual"),
+      v.literal("humorous"),
+      v.literal("analytical")
+    )),
+    
+    // Auto-publish settings
+    autoPublish: v.boolean(), // Automatically publish generated content
+    requireApproval: v.boolean(), // Require commissioner approval before publishing
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_content_enabled", ["contentEnabled"]),
+
+  // NFL season metadata for accurate season phase detection
+  nflSeasons: defineTable({
+    year: v.number(), // NFL season year (e.g., 2025 for 2025-2026 season)
+    
+    // Season phase boundaries (all timestamps in UTC)
+    phases: v.object({
+      preseason: v.object({
+        start: v.number(), // Late July - when preseason begins
+        end: v.number(),   // Early September - day before regular season
+      }),
+      regularSeason: v.object({
+        start: v.number(), // Early September - Week 1 Thursday
+        end: v.number(),   // Early January - after Week 18
+      }),
+      playoffs: v.object({
+        start: v.number(), // Mid January - Wild Card weekend
+        end: v.number(),   // Day before Super Bowl
+      }),
+      superBowl: v.object({
+        start: v.number(), // Super Bowl Sunday
+        end: v.number(),   // End of Super Bowl Sunday
+      }),
+      offseason: v.object({
+        start: v.number(), // Day after Super Bowl
+        end: v.number(),   // Day before preseason starts
+      }),
+    }),
+    
+    // Regular season week boundaries for accurate week detection
+    weekBoundaries: v.array(v.object({
+      week: v.number(),     // Week number (1-18)
+      start: v.number(),    // Week start (typically Tuesday after previous week)
+      end: v.number(),      // Week end (typically Monday night)
+      isPlayoffs: v.boolean(),
+    })),
+    
+    // Important dates
+    draftEligibilityWindow: v.object({
+      start: v.number(), // When fantasy drafts typically become available
+      end: v.number(),   // Last reasonable draft date before season
+    }),
+    
+    // Playoff structure
+    playoffStructure: v.object({
+      wildCardWeek: v.number(),     // Week 19
+      divisionalWeek: v.number(),   // Week 20  
+      championshipWeek: v.number(), // Week 21
+      superBowlWeek: v.number(),    // Week 22
+    }),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_year", ["year"]),
 });

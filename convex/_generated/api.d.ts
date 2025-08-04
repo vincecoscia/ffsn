@@ -16,6 +16,7 @@ import type {
 import type * as aiContent from "../aiContent.js";
 import type * as aiContentHelpers from "../aiContentHelpers.js";
 import type * as aiQueries from "../aiQueries.js";
+import type * as contentScheduling from "../contentScheduling.js";
 import type * as crons from "../crons.js";
 import type * as dataProcessing from "../dataProcessing.js";
 import type * as espn from "../espn.js";
@@ -26,6 +27,8 @@ import type * as leagues from "../leagues.js";
 import type * as matchupRosters from "../matchupRosters.js";
 import type * as matchups from "../matchups.js";
 import type * as news from "../news.js";
+import type * as nflSeasonBoundaries from "../nflSeasonBoundaries.js";
+import type * as nflSeasonSetup from "../nflSeasonSetup.js";
 import type * as playerHistoricalSync from "../playerHistoricalSync.js";
 import type * as playerSync from "../playerSync.js";
 import type * as playerSyncInternal from "../playerSyncInternal.js";
@@ -48,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   aiContent: typeof aiContent;
   aiContentHelpers: typeof aiContentHelpers;
   aiQueries: typeof aiQueries;
+  contentScheduling: typeof contentScheduling;
   crons: typeof crons;
   dataProcessing: typeof dataProcessing;
   espn: typeof espn;
@@ -58,6 +62,8 @@ declare const fullApi: ApiFromModules<{
   matchupRosters: typeof matchupRosters;
   matchups: typeof matchups;
   news: typeof news;
+  nflSeasonBoundaries: typeof nflSeasonBoundaries;
+  nflSeasonSetup: typeof nflSeasonSetup;
   playerHistoricalSync: typeof playerHistoricalSync;
   playerSync: typeof playerSync;
   playerSyncInternal: typeof playerSyncInternal;

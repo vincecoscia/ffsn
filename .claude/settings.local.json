@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "mcp__serena__initial_instructions",
@@ -23,9 +24,13 @@
       "mcp__serena__read_memory",
       "mcp__serena__replace_symbol_body",
       "Bash(grep:*)",
-      "mcp__serena__insert_before_symbol"
+      "mcp__serena__insert_before_symbol",
+      "mcp__serena__think_about_collected_information",
+      "mcp__serena__insert_after_symbol",
+      "mcp__serena__think_about_whether_you_are_done",
+      "Bash(npx eslint:*)",
+      "mcp__serena__think_about_task_adherence"
     ],
     "deny": []
-  },
-  "$schema": "https://json.schemastore.org/claude-code-settings.json"
+  }
 }

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { query, mutation, action, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, action, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
@@ -223,7 +223,7 @@ export const createGenerationRequest = mutation({
     });
 
     // Schedule the actual generation
-    await ctx.scheduler.runAfter(0, api.aiContent.generateContentAction, {
+    await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
       articleId,
       leagueId: args.leagueId,
       contentType: args.type,
@@ -238,8 +238,8 @@ export const createGenerationRequest = mutation({
   },
 });
 
-// Action to handle the actual AI generation
-export const generateContentAction = action({
+// Internal action to handle the actual AI generation
+export const generateContentAction = internalAction({
   args: {
     articleId: v.id("aiContent"),
     leagueId: v.id("leagues"),
@@ -391,7 +391,43 @@ export const generateContentAction = action({
       }
     }
   },
-});;
+});
+
+// Internal mutation to create an article for scheduled content
+export const createScheduledArticle = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    type: v.string(),
+    persona: v.string(),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Get template to check credit cost
+    const template = contentTemplates[args.type];
+    if (!template) {
+      const availableTypes = Object.keys(contentTemplates).join(', ');
+      throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
+    }
+
+    // Create a generation request in "generating" status
+    const articleId = await ctx.db.insert("aiContent", {
+      leagueId: args.leagueId,
+      type: args.type,
+      persona: args.persona,
+      title: "Generating...",
+      content: "",
+      metadata: {
+        week: 1, // Will be updated
+        featured_teams: [],
+        credits_used: template.creditCost,
+      },
+      status: "generating",
+      createdAt: Date.now(),
+    });
+
+    return articleId;
+  },
+});
 
 // Internal query for getLeagueDataForGeneration
 export const getLeagueDataForGenerationInternal = internalQuery({
