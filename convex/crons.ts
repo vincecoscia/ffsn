@@ -40,4 +40,11 @@ crons.daily(
   internal.contentScheduling.scheduleWeeklyContentCron,
 );
 
+// Daily cron to schedule season-based and relative content triggers
+crons.daily(
+  "schedule season/relative content",
+  { hourUTC: 3, minuteUTC: 0 },
+  internal.contentScheduling.scheduleSeasonAndRelativeContentCron,
+);
+
 export default crons;

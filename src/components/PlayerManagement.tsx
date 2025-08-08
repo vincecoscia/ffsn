@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -112,17 +112,17 @@ export function PlayerManagement({ leagueId, season = 2025 }: PlayerManagementPr
   }, [syncAllPlayers, syncLeaguePlayersComplete, leagueId, season]);
   
   // Initial sync check
-  useEffect(() => {
-    if (!syncStatus || !syncStatus.completedAt) {
-      // Prompt for initial sync
-      toast.info("Player database needs to be initialized", {
-        action: {
-          label: "Sync Now",
-          onClick: handleFullSync,
-        },
-      });
-    }
-  }, [syncStatus, handleFullSync]);
+  // useEffect(() => {
+  //   if (!syncStatus || !syncStatus.completedAt) {
+  //     // Prompt for initial sync
+  //     toast.info("Player database needs to be initialized", {
+  //       action: {
+  //         label: "Sync Now",
+  //         onClick: handleFullSync,
+  //       },
+  //     });
+  //   }
+  // }, [syncStatus, handleFullSync]);
   
   const handleLeagueSync = async () => {
     setIsSyncing(true);
@@ -163,9 +163,9 @@ export function PlayerManagement({ leagueId, season = 2025 }: PlayerManagementPr
       {/* Sync Status Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
+          <CardTitle className="flex md:items-center justify-between md:flex-row flex-col gap-2">
             <span>Player Database Status</span>
-            <div className="flex gap-2">
+            <div className="flex gap-2 md:flex-row flex-col">
               <Button
                 onClick={handleLeagueSync}
                 disabled={isSyncing}

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { generatePrompt, PromptBuilderOptions, LeagueDataContext } from './prompt-builder';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { enhancePromptWithComments, CommentIntegrationContext, validateCommentIntegration } from './comment-integration';
 
 interface AnthropicSettings {
   maxTokens: number;
@@ -25,6 +26,16 @@ export interface GenerationRequest {
   leagueData: LeagueDataContext;
   customContext?: string;
   userId: string;
+  commentResponses?: Array<{
+    userId: Id<"users">;
+    userName?: string;
+    teamName?: string;
+    processedResponse: string;
+    relevanceMetadata: {
+      extractedQuotes?: string[];
+      keyInsights?: string[];
+    };
+  }>;
 }
 
 // Zod schema for structured article output
@@ -108,7 +119,35 @@ export class ContentGenerationService {
       };
 
       console.log("Building prompts...");
-      const { systemPrompt, userPrompt, settings } = await generatePrompt(promptOptions);
+      const { systemPrompt, settings } = await generatePrompt(promptOptions);
+      let { userPrompt } = await generatePrompt(promptOptions);
+      
+      // Prepare comment context if available
+      let commentContext: CommentIntegrationContext | null = null;
+      if (request.commentResponses && request.commentResponses.length > 0) {
+        console.log(`Enhancing prompts with ${request.commentResponses.length} comment responses`);
+        
+        commentContext = {
+          commentResponses: request.commentResponses.map(r => ({
+            userId: r.userId,
+            userName: r.userName,
+            teamName: r.teamName,
+            rawResponse: r.processedResponse,
+            processedResponse: r.processedResponse,
+            responseType: "mixed" as const,
+            relevanceMetadata: {
+              topicRelevance: 90,
+              qualityScore: 80,
+              extractedQuotes: r.relevanceMetadata.extractedQuotes,
+              keyInsights: r.relevanceMetadata.keyInsights,
+            },
+          })),
+          contentType: request.contentType,
+          week: request.leagueData.currentWeek,
+        };
+        
+        userPrompt = enhancePromptWithComments(userPrompt, commentContext);
+      }
       
       console.log("Prompt built successfully");
       console.log("System prompt preview:", systemPrompt.substring(0, 200) + "...");
@@ -170,13 +209,12 @@ export class ContentGenerationService {
           .sort((a, b) => b.mentions - a.mentions)
           .slice(0, 5)
           .map(t => {
-            // Find the team by external ID to get the internal ID
+            // Prefer internal Convex ID if known; otherwise keep external as string for later mapping
             const team = request.leagueData.teams.find(team => 
               team.externalId === t.teamId || team.externalId === String(t.teamId)
             );
-            return team?.id || t.teamId; // Use internal ID if found, otherwise fallback
-          })
-          .filter(id => id && id.startsWith('j')); // Filter out any invalid IDs (Convex IDs start with 'j')
+            return team?.id || String(t.teamId);
+          });
           
         featuredPlayers = structuredData.featuredPlayers
           .sort((a, b) => b.mentions - a.mentions)
@@ -220,6 +258,20 @@ export class ContentGenerationService {
         tags: metadata.tags.length,
         generationTimeMs: metadata.generationTime,
       });
+
+      // Validate comment integration if comments were provided
+      if (commentContext) {
+        const validation = validateCommentIntegration(content, commentContext.commentResponses);
+        console.log("Comment integration validation:", {
+          integrated: validation.integrated,
+          integrationScore: validation.integrationScore,
+          missingQuotes: validation.missingQuotes.length,
+        });
+        
+        if (!validation.integrated) {
+          console.warn("Comments were not properly integrated into the content");
+        }
+      }
 
       console.log("=== ContentGenerationService.generateContent SUCCESS ===");
       
@@ -320,6 +372,7 @@ Make sure each section follows the template requirements and word counts.`;
     userPrompt: string,
     settings: AnthropicSettings
   ): Promise<AnthropicResponse> {
+    const debugPrompts = process.env.DEBUG_AI_PROMPTS === 'true';
     console.log("=== callClaude START ===");
     console.log("Model:", this.modelConfig.primary);
     console.log("Settings:", {
@@ -327,12 +380,14 @@ Make sure each section follows the template requirements and word counts.`;
       temperature: settings.temperature || 0.8,
     });
     
-    // Log full prompts for debugging (be careful with this in production)
-    console.log("=== FULL SYSTEM PROMPT ===");
-    console.log(systemPrompt);
-    console.log("=== FULL USER PROMPT ===");
-    console.log(userPrompt);
-    console.log("=== END PROMPTS ===");
+    if (debugPrompts) {
+      // Log full prompts only when explicitly enabled
+      console.log("=== FULL SYSTEM PROMPT ===");
+      console.log(systemPrompt);
+      console.log("=== FULL USER PROMPT ===");
+      console.log(userPrompt);
+      console.log("=== END PROMPTS ===");
+    }
     
     try {
       const response = await anthropic.messages.create({

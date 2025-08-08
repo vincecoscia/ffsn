@@ -249,6 +249,7 @@ export const generateContentAction = internalAction({
     userId: v.string(),
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
   },
   handler: async (ctx, args) => {
     console.log("=== generateContentAction START (OPTIMIZED) ===");
@@ -315,6 +316,21 @@ export const generateContentAction = internalAction({
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
       });
+
+      // Optionally auto-publish based on league preferences
+      try {
+        const preferences = await ctx.runQuery(internal.contentScheduling.getLeaguePreferences, {
+          leagueId: args.leagueId,
+        });
+        if (preferences?.autoPublish) {
+          await ctx.runMutation(api.aiContent.updateContentStatus, {
+            articleId: args.articleId,
+            status: "published",
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to apply auto-publish preference", e);
+      }
       
       // Generate banner image if applicable
       const { shouldGenerateImage, generateArticleImage } = await import("../src/lib/ai/image-generator");
@@ -361,6 +377,35 @@ export const generateContentAction = internalAction({
         }
       }
       
+      // Update scheduledContent final status on success
+      try {
+        if (args.scheduledContentId) {
+          await ctx.runMutation(internal.contentScheduling.updateScheduledContentStatus, {
+            scheduledContentId: args.scheduledContentId,
+            status: "completed",
+            generatedContentId: args.articleId,
+            generatedAt: Date.now(),
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to update scheduled content status to completed", e);
+      }
+
+      // Update monthly budget spend if applicable
+      try {
+        const preferences = await ctx.runQuery(internal.contentScheduling.getLeaguePreferences, {
+          leagueId: args.leagueId,
+        });
+        if (preferences?._id) {
+          await ctx.runMutation(internal.contentScheduling.updateMonthlySpending, {
+            preferencesId: preferences._id,
+            creditsUsed: generatedContent.metadata.creditsUsed,
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to update monthly content spending", e);
+      }
+
       console.log("=== generateContentAction SUCCESS ===");
     } catch (error) {
       console.error("=== generateContentAction ERROR ===");
@@ -373,6 +418,19 @@ export const generateContentAction = internalAction({
         status: "failed",
         error: error instanceof Error ? error.message : "Unknown error",
       });
+
+      // Update scheduled content status to failed
+      try {
+        if (args.scheduledContentId) {
+          await ctx.runMutation(internal.contentScheduling.updateScheduledContentStatus, {
+            scheduledContentId: args.scheduledContentId,
+            status: "failed",
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to update scheduled content status to failed", e);
+      }
       
       // Schedule retry for mock drafts and weekly recaps
       if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap') {
@@ -573,7 +631,8 @@ export const updateGeneratedContent = mutation({
       throw new Error("Article not found");
     }
 
-    // Convert team names to team IDs
+    // Convert provided metadata.featuredTeams (which may be team names, external IDs, or Convex IDs)
+    // to actual Convex team IDs
     let featuredTeamIds: Id<"teams">[] = [];
     if (args.metadata.featuredTeams.length > 0) {
       // Get all teams for this league
@@ -582,33 +641,42 @@ export const updateGeneratedContent = mutation({
         .withIndex("by_league", (q) => q.eq("leagueId", article.leagueId))
         .collect();
 
-      // Convert team names to IDs
+      // Convert various identifiers to Convex IDs
       featuredTeamIds = args.metadata.featuredTeams
-        .map(teamName => {
-          // Try exact match first
-          let team = teams.find(t => t.name.toLowerCase() === teamName.toLowerCase());
-          
-          // If no exact match, try partial match
-          if (!team) {
-            team = teams.find(t => 
-              t.name.toLowerCase().includes(teamName.toLowerCase()) ||
-              teamName.toLowerCase().includes(t.name.toLowerCase())
-            );
+        .map(identifier => {
+          const value = String(identifier);
+
+          // 1) If this looks like a Convex ID, try direct match
+          const maybeConvex = teams.find(t => t._id === (value as unknown as Id<"teams">));
+          if (maybeConvex) return maybeConvex._id;
+
+          // 2) If numeric/string external ID, match by externalId
+          const byExternal = teams.find(t => t.externalId === value);
+          if (byExternal) return byExternal._id;
+
+          // 3) Try exact name match
+          let byName = teams.find(t => t.name.toLowerCase() === value.toLowerCase());
+          if (byName) return byName._id;
+
+          // 4) Try partial name match
+          byName = teams.find(t =>
+            t.name.toLowerCase().includes(value.toLowerCase()) ||
+            value.toLowerCase().includes(t.name.toLowerCase())
+          );
+          if (byName) return byName._id;
+
+          // 5) Try abbreviation match (short strings)
+          if (value.length <= 4) {
+            const byAbbrev = teams.find(t => t.abbreviation?.toLowerCase() === value.toLowerCase());
+            if (byAbbrev) return byAbbrev._id;
           }
-          
-          // If still no match, try matching abbreviation
-          if (!team && teamName.length <= 4) {
-            team = teams.find(t => 
-              t.abbreviation?.toLowerCase() === teamName.toLowerCase()
-            );
-          }
-          
-          return team?._id;
+
+          return undefined;
         })
         .filter((id): id is Id<"teams"> => id !== undefined); // Remove undefined values
 
       console.log(`Converted team names to IDs:`, {
-        teamNames: args.metadata.featuredTeams,
+        identifiers: args.metadata.featuredTeams,
         teamIds: featuredTeamIds,
         teamsInLeague: teams.map(t => ({ name: t.name, abbreviation: t.abbreviation, id: t._id }))
       });

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { generateAIContent } from "../src/lib/ai/content-generation-service";
+import { CommentResponseData } from "../src/lib/ai/comment-integration";
 import { Id } from "./_generated/dataModel";
 
 // Step 1: Fetch and prepare data for AI generation
@@ -234,6 +235,69 @@ export const storePreparedData = internalMutation({
         preparationTime: args.executionTime,
       },
     });
+  },
+});
+
+// Fetch comment responses for a scheduled content
+export const getCommentResponsesForContent = internalQuery({
+  args: {
+    scheduledContentId: v.optional(v.id("scheduledContent")),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    week: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<CommentResponseData[]> => {
+    if (!args.scheduledContentId) {
+      return [];
+    }
+
+    // Get comment responses for this scheduled content
+    const responses = await ctx.db
+      .query("commentResponses")
+      .withIndex("by_scheduled_content", q => 
+        q.eq("scheduledContentId", args.scheduledContentId!)
+      )
+      .filter(q => 
+        q.and(
+          q.eq(q.field("integrationStatus"), "pending"),
+          q.gte(q.field("relevanceMetadata.qualityScore"), 50)
+        )
+      )
+      .collect();
+
+    // Enrich with user and team data
+    const enrichedResponses = await Promise.all(
+      responses.map(async (response) => {
+        const user = await ctx.db.get(response.userId);
+        const team = await ctx.db
+          .query("teams")
+          .withIndex("by_league", q => 
+            q.eq("leagueId", args.leagueId)
+          )
+          .filter(q => q.eq(q.field("owner"), response.userId))
+          .first();
+
+        return {
+          userId: response.userId,
+          userName: user?.name,
+          teamName: team?.name,
+          rawResponse: response.rawResponse,
+          processedResponse: response.processedResponse,
+          responseType: response.responseType,
+          relevanceMetadata: {
+            topicRelevance: response.relevanceMetadata.topicRelevance,
+            qualityScore: response.relevanceMetadata.qualityScore,
+            extractedQuotes: response.relevanceMetadata.extractedQuotes,
+            keyInsights: response.relevanceMetadata.keyInsights,
+          },
+        } as CommentResponseData;
+      })
+    );
+
+    // Sort by quality score descending
+    return enrichedResponses.sort((a, b) => 
+      b.relevanceMetadata.qualityScore - a.relevanceMetadata.qualityScore
+    );
   },
 });
 

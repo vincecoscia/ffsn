@@ -1050,4 +1050,338 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_year", ["year"]),
+
+  // Comment requests - AI reaches out to users for comments before article generation
+  commentRequests: defineTable({
+    // Core relationships
+    leagueId: v.id("leagues"),
+    scheduledContentId: v.id("scheduledContent"), // The article this comment is for
+    targetUserId: v.id("users"), // User being asked for comment
+    
+    // Request context
+    contentType: v.string(), // "weekly_recap", etc. (copied from scheduledContent)
+    articleContext: v.object({
+      week: v.optional(v.number()),
+      seasonId: v.optional(v.number()),
+      topic: v.optional(v.string()), // "Your team's performance", "Trade impact", etc.
+      focusAreas: v.optional(v.array(v.string())), // Specific topics to comment on
+    }),
+    
+    // Timing and lifecycle
+    status: v.union(
+      v.literal("pending"),      // Request created, not yet sent
+      v.literal("active"),       // Request sent, waiting for user response
+      v.literal("completed"),    // User provided response
+      v.literal("expired"),      // Passed expiration time without response
+      v.literal("declined"),     // User explicitly declined to comment
+      v.literal("cancelled")     // Request cancelled (e.g., article cancelled)
+    ),
+    
+    // Critical timing fields for automation
+    scheduledSendTime: v.number(),    // When to send the request (12-24 hours before)
+    expirationTime: v.number(),       // 15 minutes before article generation
+    articleGenerationTime: v.number(), // When the article will be generated
+    
+    // Conversation state management
+    conversationState: v.union(
+      v.literal("not_started"),          // No messages sent yet
+      v.literal("initial_request_sent"), // Initial request sent, awaiting response
+      v.literal("follow_up_needed"),     // AI should ask follow-up questions
+      v.literal("gathering_details"),    // In active conversation
+      v.literal("response_complete"),    // User finished providing input
+      v.literal("auto_ended")           // Conversation auto-ended due to time/completion
+    ),
+    
+    // AI context for maintaining conversation focus
+    aiContext: v.object({
+      initialPrompt: v.string(),              // The initial request prompt
+      conversationGoals: v.array(v.string()), // What info AI should gather
+      followUpQuestions: v.optional(v.array(v.string())), // Pre-planned follow-ups
+      currentFocus: v.optional(v.string()),   // Current conversation topic
+      userPersonality: v.optional(v.string()), // Detected user communication style
+    }),
+    
+    // Auto-end logic tracking
+    autoEndCriteria: v.object({
+      maxMessages: v.number(),           // Max messages in conversation (default: 10)
+      currentMessageCount: v.number(),   // Current count
+      minResponseLength: v.number(),     // Minimum response length to be "complete"
+      responseCompleteness: v.optional(v.number()), // AI assessment 0-100%
+      lastActivityTime: v.number(),      // Last message timestamp
+      inactivityTimeoutMinutes: v.number(), // Auto-end after inactivity (default: 30)
+    }),
+    
+    // Request metadata
+    priority: v.union(
+      v.literal("high"),    // Key players, commissioners
+      v.literal("medium"),  // Regular active users
+      v.literal("low")      // Less active users
+    ),
+    
+    // Notification tracking
+    notificationsSent: v.array(v.object({
+      type: v.union(
+        v.literal("initial_request"),
+        v.literal("reminder"),
+        v.literal("follow_up"),
+        v.literal("final_reminder")
+      ),
+      sentAt: v.number(),
+      method: v.union(v.literal("app_notification"), v.literal("email")),
+      delivered: v.boolean(),
+    })),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    expiredAt: v.optional(v.number()),
+  })
+    .index("by_scheduled_content", ["scheduledContentId"])
+    .index("by_user", ["targetUserId"])
+    .index("by_league", ["leagueId"])
+    .index("by_status", ["status"])
+    .index("by_send_time", ["scheduledSendTime"]) // For cron jobs to pick up
+    .index("by_expiration", ["expirationTime"])   // For cleanup/expiration jobs
+    .index("by_league_status", ["leagueId", "status"])
+    .index("by_user_status", ["targetUserId", "status"])
+    .index("by_priority_status", ["priority", "status"]),
+
+  // Comment conversations - actual message exchanges between AI and users
+  commentConversations: defineTable({
+    // Core relationships
+    commentRequestId: v.id("commentRequests"),
+    leagueId: v.id("leagues"), // Denormalized for efficient queries
+    userId: v.id("users"),     // Denormalized for efficient queries
+    
+    // Message content
+    messageType: v.union(
+      v.literal("ai_question"),    // AI asking user for input
+      v.literal("user_response"),  // User providing response
+      v.literal("ai_follow_up"),   // AI asking for clarification
+      v.literal("ai_confirmation"), // AI confirming understanding
+      v.literal("system_message")  // System notifications (auto-end, etc.)
+    ),
+    
+    content: v.string(), // The actual message content
+    
+    // Message metadata
+    messageOrder: v.number(), // Sequential order within conversation
+    isRead: v.boolean(),      // Has user seen this message
+    
+    // AI processing metadata (for AI messages)
+    aiMetadata: v.optional(v.object({
+      promptTemplate: v.optional(v.string()),     // Template used
+      generationModel: v.optional(v.string()),    // AI model used
+      processingTime: v.optional(v.number()),     // Generation time in ms
+      confidence: v.optional(v.number()),         // AI confidence 0-100%
+      intent: v.optional(v.string()),             // What AI was trying to achieve
+    })),
+    
+    // User response analysis (for user messages)
+    responseAnalysis: v.optional(v.object({
+      sentiment: v.optional(v.string()),          // "positive", "negative", "neutral"
+      completeness: v.optional(v.number()),       // 0-100% how complete response is
+      relevantTopics: v.optional(v.array(v.string())), // Extracted topics
+      needsFollowUp: v.optional(v.boolean()),     // Should AI ask follow-up?
+      suggestedFollowUps: v.optional(v.array(v.string())), // Potential questions
+    })),
+    
+    // Timing
+    createdAt: v.number(),
+    editedAt: v.optional(v.number()), // If user edited their response
+    
+    // Threading support (for complex conversations)
+    parentMessageId: v.optional(v.id("commentConversations")),
+    threadDepth: v.number(), // 0 for main thread, 1+ for nested
+  })
+    .index("by_comment_request", ["commentRequestId"])
+    .index("by_comment_request_order", ["commentRequestId", "messageOrder"])
+    .index("by_user", ["userId"])
+    .index("by_league", ["leagueId"])
+    .index("by_message_type", ["messageType"])
+    .index("by_unread", ["userId", "isRead"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_thread", ["parentMessageId", "threadDepth"]),
+
+  // Comment responses - processed final responses for article integration
+  commentResponses: defineTable({
+    // Core relationships
+    commentRequestId: v.id("commentRequests"),
+    leagueId: v.id("leagues"), // Denormalized
+    userId: v.id("users"),     // Denormalized
+    scheduledContentId: v.id("scheduledContent"), // For article integration
+    
+    // Processed response content
+    rawResponse: v.string(),        // Original user response(s) combined
+    processedResponse: v.string(),   // Cleaned/formatted for article use
+    
+    // Content categorization
+    responseType: v.union(
+      v.literal("opinion"),         // User opinion/commentary
+      v.literal("analysis"),        // User analysis of situation
+      v.literal("prediction"),      // User predictions
+      v.literal("story"),          // User anecdote/story
+      v.literal("question"),       // User asking questions
+      v.literal("mixed")           // Combination of above
+    ),
+    
+    // Relevance and quality metadata
+    relevanceMetadata: v.object({
+      topicRelevance: v.number(),     // 0-100% how relevant to article topic
+      qualityScore: v.number(),       // 0-100% content quality
+      originality: v.number(),        // 0-100% how unique/interesting
+      usabilityRating: v.union(       // How usable in article
+        v.literal("high"),    // Perfect for direct quote
+        v.literal("medium"),  // Good with light editing
+        v.literal("low"),     // Only useful for inspiration
+        v.literal("unusable") // Cannot be used
+      ),
+      extractedQuotes: v.optional(v.array(v.string())), // Quotable segments
+      keyInsights: v.optional(v.array(v.string())),     // Main insights
+      suggestedUsage: v.optional(v.string()),           // How to use in article
+    }),
+    
+    // Article integration tracking
+    integrationStatus: v.union(
+      v.literal("pending"),     // Available for use
+      v.literal("selected"),    // Chosen for article
+      v.literal("integrated"),  // Actually used in article
+      v.literal("rejected"),    // Not suitable for use
+      v.literal("archived")     // Archived after article completion
+    ),
+    
+    // Usage tracking
+    usedInArticle: v.optional(v.boolean()),
+    articleSection: v.optional(v.string()), // Which section it was used in
+    quoteAttribution: v.optional(v.string()), // How user should be credited
+    
+    // Response context
+    conversationSummary: v.optional(v.string()), // Summary of full conversation
+    userEngagementLevel: v.union(
+      v.literal("high"),    // Very engaged, detailed responses
+      v.literal("medium"),  // Good engagement
+      v.literal("low"),     // Minimal responses
+      v.literal("reluctant") // Provided response but seemed hesitant
+    ),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    processedAt: v.number(),
+    integratedAt: v.optional(v.number()),
+  })
+    .index("by_comment_request", ["commentRequestId"])
+    .index("by_scheduled_content", ["scheduledContentId"])
+    .index("by_user", ["userId"])
+    .index("by_league", ["leagueId"])
+    .index("by_integration_status", ["integrationStatus"])
+    .index("by_usability", ["relevanceMetadata.usabilityRating"])
+    .index("by_quality", ["relevanceMetadata.qualityScore"])
+    .index("by_league_integration", ["leagueId", "integrationStatus"]),
+
+  // User notifications - comprehensive notification system
+  userNotifications: defineTable({
+    // Core relationships
+    userId: v.id("users"),
+    leagueId: v.optional(v.id("leagues")), // Null for account-wide notifications
+    
+    // Notification content
+    type: v.union(
+      v.literal("comment_request"),        // New comment request
+      v.literal("comment_reminder"),       // Reminder about pending request
+      v.literal("comment_follow_up"),      // AI follow-up in conversation
+      v.literal("comment_thank_you"),      // Thanks for providing comment
+      v.literal("article_published"),     // Article with your comment published
+      v.literal("article_generated"),     // Scheduled article completed
+      v.literal("system_announcement"),   // System-wide announcements
+      v.literal("league_invitation"),     // League-related invites
+      v.literal("account_update")         // Account/subscription changes
+    ),
+    
+    title: v.string(),
+    message: v.string(),
+    
+    // Action/navigation
+    actionUrl: v.optional(v.string()),    // Where to navigate when clicked
+    actionText: v.optional(v.string()),   // Button text ("View Comment Request")
+    
+    // Related entities (for deep linking and context)
+    relatedEntityType: v.optional(v.union(
+      v.literal("comment_request"),
+      v.literal("scheduled_content"),
+      v.literal("ai_content"),
+      v.literal("league"),
+      v.literal("user")
+    )),
+    relatedEntityId: v.optional(v.string()), // ID of related entity
+    
+    // Status and tracking
+    status: v.union(
+      v.literal("unread"),
+      v.literal("read"),
+      v.literal("archived"),
+      v.literal("dismissed")
+    ),
+    
+    priority: v.union(
+      v.literal("urgent"),     // Immediate attention needed
+      v.literal("high"),       // Important but not urgent
+      v.literal("medium"),     // Normal priority
+      v.literal("low")         // FYI/nice-to-know
+    ),
+    
+    // Delivery tracking
+    deliveryChannels: v.array(v.union(
+      v.literal("in_app"),     // In-app notification
+      v.literal("email"),      // Email notification
+      v.literal("push")        // Push notification (future)
+    )),
+    
+    deliveryStatus: v.object({
+      inApp: v.optional(v.object({
+        delivered: v.boolean(),
+        deliveredAt: v.optional(v.number()),
+      })),
+      email: v.optional(v.object({
+        delivered: v.boolean(),
+        deliveredAt: v.optional(v.number()),
+        emailId: v.optional(v.string()), // External email service ID
+        bounced: v.optional(v.boolean()),
+        opened: v.optional(v.boolean()),
+        clicked: v.optional(v.boolean()),
+      })),
+      push: v.optional(v.object({
+        delivered: v.boolean(),
+        deliveredAt: v.optional(v.number()),
+        clicked: v.optional(v.boolean()),
+      })),
+    }),
+    
+    // User interaction
+    readAt: v.optional(v.number()),
+    clickedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+    
+    // Scheduling
+    scheduledFor: v.optional(v.number()), // For delayed notifications
+    expiresAt: v.optional(v.number()),    // Auto-expire old notifications
+    
+    // Grouping (for batching similar notifications)
+    groupKey: v.optional(v.string()),     // Group similar notifications
+    batchId: v.optional(v.string()),      // Batch processing ID
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_user_type", ["userId", "type"])
+    .index("by_league", ["leagueId"])
+    .index("by_priority", ["priority"])
+    .index("by_scheduled", ["scheduledFor"]) // For scheduled notifications
+    .index("by_expiration", ["expiresAt"])   // For cleanup
+    .index("by_group", ["groupKey"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_user_unread", ["userId", "status", "createdAt"]), // Efficient unread queries
+
 });

@@ -100,7 +100,7 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
           >
             <Calendar className="h-6 w-6 mb-2 text-gray-600" />
             <div className="font-medium">Current Season</div>
-            <div className="text-sm text-gray-600 mt-1">
+            <div className="text-sm text-gray-600 mt-1 hidden md:block">
               Sync only the current season&apos;s data
             </div>
           </Button>
@@ -116,7 +116,7 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
           >
             <RefreshCw className="h-6 w-6 mb-2 text-gray-600" />
             <div className="font-medium">All Seasons</div>
-            <div className="text-sm text-gray-600 mt-1">
+            <div className="text-sm text-gray-600 mt-1 hidden md:block">
               Sync current and historical league data
             </div>
           </Button>

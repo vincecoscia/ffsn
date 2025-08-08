@@ -17,6 +17,7 @@ import {
   SheetClose
 } from "@/components/ui/sheet";
 import { Menu, Home, Trophy, Calendar, BarChart3, Users, Target, Settings, Sparkles, FileText, Clock } from "lucide-react";
+import { NotificationDropdown } from "@/components/notifications";
 
 interface LeagueLayoutProps {
   children: React.ReactNode;
@@ -70,10 +71,19 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
                 </Link>
                 {league.role === "commissioner" && (
                   <Link href={`/leagues/${league._id}/settings`} className="text-white hover:text-red-200 transition-colors cursor-pointer">
-                    Settings
+                    <Settings className="h-5 w-5" />
+                    <span className="sr-only">Settings</span>
                   </Link>
                 )}
+                
+                {/* Notifications */}
+                <NotificationDropdown leagueId={league._id} />
               </nav>
+              
+              {/* Mobile Notifications */}
+              <div className="md:hidden">
+                <NotificationDropdown leagueId={league._id} />
+              </div>
               
               {/* Mobile Menu */}
               <Sheet>
