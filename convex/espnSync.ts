@@ -217,14 +217,15 @@ export const syncLeagueData = action({
           seasonData.draft = draftDetail.picks;
         }
 
-        // Only include draftInfo if draftDetail exists
-        if (draftDetail) {
-          seasonData.draftInfo = {
-            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
-            draftType: draftDetail.type,
-            timePerPick: draftDetail.timePerPick,
-          };
-        }
+        // Always include draftInfo to prevent it from becoming empty
+        // Set it to undefined if no draftDetail exists (will preserve existing value)
+        seasonData.draftInfo = draftDetail ? {
+          draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
+          draftType: draftDetail.type,
+          timePerPick: draftDetail.timePerPick,
+          drafted: draftDetail.drafted,
+          inProgress: draftDetail.inProgress,
+        } : undefined;
 
         await ctx.runMutation(api.espnSync.updateLeagueSeason, {
           leagueId: args.leagueId,
@@ -1091,10 +1092,13 @@ export const syncHistoricalData = action({
               },
               pointsFor: regularSeasonChamp.record?.overall?.pointsFor,
             } : undefined,
+            // Always provide draftInfo when draftDetail exists
             draftInfo: draftDetail ? {
-              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+              draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
               draftType: draftDetail.type,
               timePerPick: draftDetail.timePerPick,
+              drafted: draftDetail.drafted,
+              inProgress: draftDetail.inProgress,
             } : undefined,
           }
         });
@@ -1228,6 +1232,8 @@ export const updateLeagueSeason = mutation({
         draftDate: v.optional(v.number()),
         draftType: v.optional(v.string()),
         timePerPick: v.optional(v.number()),
+        drafted: v.optional(v.boolean()),
+        inProgress: v.optional(v.boolean()),
       })),
       draftSettings: v.optional(v.any()),
       draft: v.optional(v.array(v.object({
@@ -1258,16 +1264,33 @@ export const updateLeagueSeason = mutation({
     const now = Date.now();
 
     if (existingSeason) {
-      // Update existing season
-      await ctx.db.patch(existingSeason._id, {
+      // Update existing season - only update fields that are defined to preserve existing data
+      const updateData: any = {
         settings: args.seasonData.settings,
-        champion: args.seasonData.champion,
-        runnerUp: args.seasonData.runnerUp,
-        regularSeasonChampion: args.seasonData.regularSeasonChampion,
-        draftInfo: args.seasonData.draftInfo,
-        draftSettings: args.seasonData.draftSettings,
-        draft: args.seasonData.draft,
-      });
+      };
+      
+      // Only update optional fields if they are defined (not undefined)
+      if (args.seasonData.champion !== undefined) {
+        updateData.champion = args.seasonData.champion;
+      }
+      if (args.seasonData.runnerUp !== undefined) {
+        updateData.runnerUp = args.seasonData.runnerUp;
+      }
+      if (args.seasonData.regularSeasonChampion !== undefined) {
+        updateData.regularSeasonChampion = args.seasonData.regularSeasonChampion;
+      }
+      // IMPORTANT: Only update draftInfo if it's explicitly provided
+      if (args.seasonData.draftInfo !== undefined) {
+        updateData.draftInfo = args.seasonData.draftInfo;
+      }
+      if (args.seasonData.draftSettings !== undefined) {
+        updateData.draftSettings = args.seasonData.draftSettings;
+      }
+      if (args.seasonData.draft !== undefined) {
+        updateData.draft = args.seasonData.draft;
+      }
+      
+      await ctx.db.patch(existingSeason._id, updateData);
     } else {
       // Create new season record
       await ctx.db.insert("leagueSeasons", {
@@ -1531,7 +1554,8 @@ export const syncAllLeagueData = action({
         }
         
         // Check if we got valid data
-        if (!leagueData.settings || !leagueData.teams) {
+        // Allow proceeding if we have draftDetail even when teams are missing
+        if (!leagueData.settings && !leagueData.draftDetail) {
           console.warn(`Invalid data structure for year ${year}`);
           results.push({ 
             year, 
@@ -1562,18 +1586,18 @@ export const syncAllLeagueData = action({
           });
         }
 
-        // Skip processing if historical data is too incomplete
+        // Skip processing if historical data is too incomplete AND no draft info available
         if (year !== currentYear) {
           const hasAnyTeamData = teams.some((team: any) => 
             team.name || team.location || team.nickname || team.owners?.length > 0
           );
-          
-          if (!hasAnyTeamData && members.length === 0) {
-            console.warn(`Skipping year ${year} - no meaningful team or member data available`);
+          const hasDraftDetail = !!leagueData.draftDetail;
+          if (!hasAnyTeamData && members.length === 0 && !hasDraftDetail) {
+            console.warn(`Skipping year ${year} - no meaningful team/member data and no draft info available`);
             results.push({
               year,
               success: false,
-              error: 'Historical season data too incomplete - no team names or member data available'
+              error: 'Historical season data too incomplete - no team names, member data, or draft info available'
             });
             totalErrors++;
             continue;
@@ -1652,11 +1676,12 @@ export const syncAllLeagueData = action({
         }
 
         // Create/update league season record
-        if (teams.length > 0) {
+        // Persist season when we have settings or draft info, regardless of team availability
+        if (settings || draftDetail) {
           const seasonData: any = {
             settings: {
               name: settings?.name || league.name,
-              size: settings?.size || teams.length,
+              size: settings?.size || league.espnData?.size || teams.length || 10,
               scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
                           settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
               playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
@@ -1720,14 +1745,15 @@ export const syncAllLeagueData = action({
             };
           }
 
-          // Only include draftInfo if draftDetail exists
-          if (draftDetail) {
-            seasonData.draftInfo = {
-              draftDate: draftDetail.drafted === 1 ? 1 : undefined,
-              draftType: draftDetail.type,
-              timePerPick: draftDetail.timePerPick,
-            };
-          }
+          // Always include draftInfo to prevent it from becoming empty
+          // Set it to undefined if no draftDetail exists (will preserve existing value)
+          seasonData.draftInfo = draftDetail ? {
+            draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
+            draftType: draftDetail.type,
+            timePerPick: draftDetail.timePerPick,
+            drafted: draftDetail.drafted,
+            inProgress: draftDetail.inProgress,
+          } : undefined;
 
           // Only include draftSettings if it exists
           if (settings?.draftSettings) {
@@ -2417,11 +2443,14 @@ export const fetchDraftDataForSeason = action({
             regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
             rosterSettings: settings?.rosterSettings,
           },
-          draftInfo: {
-            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+          // Always provide draftInfo when we have draftDetail
+          draftInfo: draftDetail ? {
+            draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
             draftType: draftDetail.type,
             timePerPick: draftDetail.timePerPick,
-          },
+            drafted: draftDetail.drafted,
+            inProgress: draftDetail.inProgress,
+          } : undefined,
         };
 
         // Only include draftSettings if it exists
@@ -2443,9 +2472,11 @@ export const fetchDraftDataForSeason = action({
         // Update existing season with draft data
         const updateData: any = {
           draftInfo: {
-            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
+            draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
             draftType: draftDetail.type,
             timePerPick: draftDetail.timePerPick,
+            drafted: draftDetail.drafted,
+            inProgress: draftDetail.inProgress,
           },
         };
 
@@ -2462,11 +2493,6 @@ export const fetchDraftDataForSeason = action({
         await ctx.runMutation(api.espnSync.updateSeasonDraftData, {
           seasonId: existingSeason._id,
           ...updateData,
-          draftInfo: {
-            draftDate: draftDetail.drafted === 1 ? 1 : undefined,
-            draftType: draftDetail.type,
-            timePerPick: draftDetail.timePerPick,
-          },
         });
       }
 

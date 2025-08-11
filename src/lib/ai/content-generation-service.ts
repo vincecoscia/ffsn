@@ -113,7 +113,11 @@ export class ContentGenerationService {
         leagueId: request.leagueId,
         contentType: request.contentType,
         persona: request.persona,
-        leagueData: request.leagueData,
+        leagueData: {
+          ...request.leagueData,
+          // Surface memorable moments directly when present
+          memorableMoments: request.leagueData.memorableMoments || [],
+        },
         customContext: request.customContext,
         includeExamples: true,
       };
@@ -335,7 +339,10 @@ Make sure each section follows the template requirements and word counts.`;
         tools: [{
           name: "generate_article",
           description: "Generate a structured fantasy football article",
-          input_schema: zodToJsonSchema(GeneratedArticle) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+          input_schema: {
+            ...zodToJsonSchema(GeneratedArticle),
+            type: 'object'
+          } as const,
         }],
         tool_choice: { type: "tool", name: "generate_article" },
       });
@@ -343,7 +350,9 @@ Make sure each section follows the template requirements and word counts.`;
       console.log("Structured API call successful");
 
       // Extract the structured data from the tool use
-      const toolUse = response.content.find((c: any) => c.type === 'tool_use'); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const toolUse = response.content.find((c): c is { type: 'tool_use'; input: unknown; id: string; name: string } => 
+        typeof c === 'object' && c !== null && 'type' in c && c.type === 'tool_use'
+      );
       if (!toolUse || toolUse.type !== 'tool_use') {
         throw new Error('No structured output received');
       }

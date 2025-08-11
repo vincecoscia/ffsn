@@ -53,7 +53,7 @@ export function useDraftStatus(leagueId: Id<"leagues">, seasonId: number): Draft
     let isDraftComplete = false;
 
     // Method 1: Check draftInfo.draftDate
-    if (leagueSeason.draftInfo?.draftDate === 1) {
+    if (leagueSeason.draftInfo?.drafted) {
       isDraftComplete = true;
     }
 

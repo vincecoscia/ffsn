@@ -188,25 +188,8 @@ export default defineSchema({
   leagueSeasons: defineTable({
     leagueId: v.id("leagues"),
     seasonId: v.number(),
-    settings: v.object({
-      name: v.string(),
-      size: v.number(),
-      scoringType: v.string(),
-      playoffTeamCount: v.number(),
-      playoffWeeks: v.number(),
-      regularSeasonMatchupPeriods: v.number(),
-      rosterSettings: v.optional(v.object({
-        lineupSlotCounts: v.optional(v.record(v.string(), v.number())),
-        isBenchUnlimited: v.optional(v.boolean()),
-        isUsingUndroppableList: v.optional(v.boolean()),
-        lineupLocktimeType: v.optional(v.string()),
-        lineupSlotStatLimits: v.optional(v.record(v.string(), v.any())),
-        moveLimit: v.optional(v.number()),
-        positionLimits: v.optional(v.record(v.string(), v.number())),
-        rosterLocktimeType: v.optional(v.string()),
-        universeIds: v.optional(v.array(v.number())),
-      })),
-    }),
+    // Store full ESPN settings blob for the season
+    settings: v.any(),
     champion: v.optional(v.object({
       teamId: v.string(),
       teamName: v.string(),
@@ -240,11 +223,8 @@ export default defineSchema({
       }),
       pointsFor: v.optional(v.number()),
     })),
-    draftInfo: v.optional(v.object({
-      draftDate: v.optional(v.number()),
-      draftType: v.optional(v.string()),
-      timePerPick: v.optional(v.number()),
-    })),
+    // Store concise draft status info (e.g., { drafted: true, inProgress: false, completeDate: ... })
+    draftInfo: v.optional(v.any()),
     draftSettings: v.optional(v.any()), // Store ESPN's draftSettings object
     draft: v.optional(v.array(v.object({
       autoDraftTypeId: v.number(),

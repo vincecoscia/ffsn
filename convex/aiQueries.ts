@@ -95,6 +95,45 @@ export const getLeagueDataForAI = query({
         .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
         .collect(),
     ]);
+    // Infer league type (Redraft | Keeper | Dynasty)
+    let inferredLeagueType: string = "Redraft";
+    try {
+      // Get current season's draft settings from leagueSeasons
+      const currentLeagueSeason = leagueSeasons.find(ls => ls.seasonId === currentSeason);
+      
+      if (currentLeagueSeason?.draftSettings?.keeperCount) {
+        const keeperCount = currentLeagueSeason.draftSettings.keeperCount;
+        
+        if (keeperCount === 0) {
+          inferredLeagueType = "Redraft";
+        } else if (keeperCount >= 8) {
+          // High keeper count suggests Dynasty format
+          inferredLeagueType = "Dynasty";
+        } else {
+          // Moderate keeper count (1-7) suggests Keeper format
+          inferredLeagueType = "Keeper";
+        }
+      } else {
+        // Fallback: Check if any recent seasons had keepers
+        const hasKeepers = leagueSeasons
+          .slice(0, 3) // Check last 3 seasons
+          .some(ls => ls.draftSettings?.keeperCount && ls.draftSettings.keeperCount > 0);
+        
+        if (hasKeepers) {
+          // If any recent season had keepers, assume it's at least a Keeper league
+          const maxKeepers = Math.max(
+            ...leagueSeasons
+              .slice(0, 3)
+              .map(ls => ls.draftSettings?.keeperCount || 0)
+          );
+          
+          inferredLeagueType = maxKeepers >= 8 ? "Dynasty" : "Keeper";
+        }
+      }
+    } catch (e) {
+      // Default stays Redraft if inference fails
+    }
+
     
     // Calculate standings
     const standings = teams
@@ -379,6 +418,7 @@ export const getLeagueDataForAI = query({
       },
       currentWeek,
       currentSeason,
+      leagueType: inferredLeagueType,
       teams: enhancedTeams,
       standings,
       recentMatchups: enrichedMatchups,
@@ -872,6 +912,333 @@ export const getSeasonWelcomeDataForAI = query({
         leagueId: args.leagueId,
       });
       
+      // Collect memorable moments across recent seasons
+      const memorableMoments: Array<any> = [];
+
+      // We'll analyze the last 3 historical seasons for performance & moments
+      const seasonsToAnalyze = leagueSeasons
+        .filter(s => s.seasonId !== currentSeason)
+        .sort((a, b) => b.seasonId - a.seasonId)
+        .slice(0, 3);
+
+      for (const season of seasonsToAnalyze) {
+        const seasonId = season.seasonId;
+        try {
+          // Teams and standings for this season
+          const seasonTeams = await ctx.db
+            .query("teams")
+            .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+            .collect();
+
+          const seasonStandings = [...seasonTeams]
+            .sort((a, b) => {
+              if ((b.record?.wins || 0) !== (a.record?.wins || 0)) return (b.record?.wins || 0) - (a.record?.wins || 0);
+              return (b.record?.pointsFor || 0) - (a.record?.pointsFor || 0);
+            })
+            .map((t, idx) => ({
+              externalId: t.externalId,
+              name: t.name,
+              owner: t.owner,
+              rank: idx + 1,
+              playoffSeed: t.record?.playoffSeed,
+            }));
+
+          const playoffTeamsCount = season.settings?.playoffTeamCount || league.settings?.playoffTeamCount || 6;
+
+          // 1) Championship game moments (and detect unlikely champions by seed)
+          try {
+            // Prefer explicit CHAMPIONSHIP flag if present
+            const explicitChampionshipGames = await ctx.db
+              .query("matchups")
+              .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+              .filter(q => q.eq(q.field("playoffTier"), "CHAMPIONSHIP"))
+              .collect();
+
+            let championshipGames = explicitChampionshipGames;
+
+            if (!championshipGames || championshipGames.length === 0) {
+              // Fallback: last Winners Bracket game(s) of the season
+              const playoffGames = await ctx.db
+                .query("matchups")
+                .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+                .filter(q => q.eq(q.field("playoffTier"), "WINNERS_BRACKET"))
+                .collect();
+
+              if (playoffGames && playoffGames.length > 0) {
+                const maxPeriod = Math.max(...playoffGames.map(g => g.matchupPeriod));
+                championshipGames = playoffGames.filter(g => g.matchupPeriod === maxPeriod);
+              }
+            }
+
+            if (championshipGames && championshipGames.length > 0) {
+              // Usually one game; handle multiple just in case
+              for (const game of championshipGames) {
+                const margin = Math.abs(game.homeScore - game.awayScore);
+                const total = (game.homeScore || 0) + (game.awayScore || 0);
+                const closenessPct = total > 0 ? (margin / total) : 1;
+                const winnerIsHome = (game.winner === 'home') || (game.homeScore > game.awayScore);
+                const winnerTeamId = winnerIsHome ? game.homeTeamId : game.awayTeamId;
+                const loserTeamId = winnerIsHome ? game.awayTeamId : game.homeTeamId;
+
+                const winnerTeam = seasonTeams.find(t => t.externalId === winnerTeamId);
+                const loserTeam = seasonTeams.find(t => t.externalId === loserTeamId);
+
+                memorableMoments.push({
+                  type: 'championship',
+                  seasonId,
+                  description: closenessPct <= 0.05
+                    ? `Championship thriller: ${winnerTeam?.name || winnerTeamId} edged ${loserTeam?.name || loserTeamId} by ${margin.toFixed(1)} points`
+                    : `Champion crowned: ${winnerTeam?.name || winnerTeamId} defeated ${loserTeam?.name || loserTeamId} by ${margin.toFixed(1)} points`,
+                  details: {
+                    winner: winnerTeam?.name || winnerTeamId,
+                    winnerOwner: winnerTeam?.owner,
+                    loser: loserTeam?.name || loserTeamId,
+                    loserOwner: loserTeam?.owner,
+                    score: `${game.homeScore.toFixed(1)}-${game.awayScore.toFixed(1)}`,
+                    margin,
+                  },
+                });
+
+                // Unlikely champion: low playoff seed won it all
+                const winnerStanding = seasonStandings.find(s => s.externalId === winnerTeamId);
+                const seed = winnerStanding?.playoffSeed ?? winnerStanding?.rank;
+                if (seed && (seed > Math.ceil(playoffTeamsCount / 2) || seed >= 5)) {
+                  memorableMoments.push({
+                    type: 'unlikely_champion',
+                    seasonId,
+                    description: `Unlikely champion: ${winnerTeam?.name || winnerTeamId} won from seed #${seed}`,
+                    details: {
+                      team: winnerTeam?.name || winnerTeamId,
+                      owner: winnerTeam?.owner,
+                      seed,
+                      playoffTeams: playoffTeamsCount,
+                    }
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore championship computation errors per season
+          }
+
+          // 2) Close, playoff-implication matchups in final regular season week
+          try {
+            // Determine last regular-season week dynamically if possible (max matchupPeriod among non-playoff games)
+            const allSeasonMatchups = await ctx.db
+              .query("matchups")
+              .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+              .collect();
+            const regularSeasonGames = allSeasonMatchups.filter(m => !m.playoffTier);
+            const inferredLastRegularWeek = regularSeasonGames.length > 0
+              ? Math.max(...regularSeasonGames.map(g => g.matchupPeriod))
+              : undefined;
+            const configuredLastWeek = season.settings?.regularSeasonMatchupPeriods || league.settings?.regularSeasonMatchupPeriods || 13;
+            const lastRegularWeek = inferredLastRegularWeek || configuredLastWeek;
+
+            const finalWeekGames = regularSeasonGames.filter(g => g.matchupPeriod === lastRegularWeek);
+            if (finalWeekGames && finalWeekGames.length > 0) {
+              const cutoff = playoffTeamsCount;
+              const bubbleTeamIds = new Set<string>();
+              seasonStandings.forEach(s => {
+                if (s.rank === cutoff || s.rank === cutoff + 1 || s.rank === cutoff - 1) {
+                  bubbleTeamIds.add(s.externalId);
+                }
+              });
+              for (const g of finalWeekGames) {
+                const isBubbleGame = bubbleTeamIds.has(g.homeTeamId) || bubbleTeamIds.has(g.awayTeamId);
+                const margin = Math.abs(g.homeScore - g.awayScore);
+                const total = (g.homeScore || 0) + (g.awayScore || 0);
+                const isNailBiter = total > 0 && (margin / total) <= 0.05 || margin <= 5;
+                if (isBubbleGame && isNailBiter) {
+                  const home = seasonStandings.find(s => s.externalId === g.homeTeamId);
+                  const away = seasonStandings.find(s => s.externalId === g.awayTeamId);
+                  memorableMoments.push({
+                    type: 'playoff_clincher',
+                    seasonId,
+                    description: `Playoff-clinching nail-biter in Week ${lastRegularWeek}: ${g.homeScore > g.awayScore ? (home?.name || g.homeTeamId) : (away?.name || g.awayTeamId)} won by ${margin.toFixed(1)} points`,
+                    details: {
+                      week: lastRegularWeek,
+                      homeTeam: home?.name || g.homeTeamId,
+                      awayTeam: away?.name || g.awayTeamId,
+                      score: `${g.homeScore.toFixed(1)}-${g.awayScore.toFixed(1)}`,
+                      margin,
+                    }
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore per-season errors
+          }
+
+          // 2b) Major playoff upsets (non-championship) in Winners Bracket
+          try {
+            const winnersBracket = await ctx.db
+              .query("matchups")
+              .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+              .filter(q => q.eq(q.field("playoffTier"), "WINNERS_BRACKET"))
+              .collect();
+            if (winnersBracket && winnersBracket.length > 0) {
+              const maxPeriod = Math.max(...winnersBracket.map(g => g.matchupPeriod));
+              const earlierRounds = winnersBracket.filter(g => g.matchupPeriod < maxPeriod);
+              for (const g of earlierRounds) {
+                if (g.homeProjectedScore && g.awayProjectedScore) {
+                  const projectedWinnerIsHome = g.homeProjectedScore >= g.awayProjectedScore;
+                  const actualWinnerIsHome = (g.winner === 'home') || (g.homeScore > g.awayScore);
+                  const projDiff = Math.abs(g.homeProjectedScore - g.awayProjectedScore);
+                  if (projDiff >= 10 && projectedWinnerIsHome !== actualWinnerIsHome) {
+                    const home = seasonStandings.find(s => s.externalId === g.homeTeamId);
+                    const away = seasonStandings.find(s => s.externalId === g.awayTeamId);
+                    const margin = Math.abs(g.homeScore - g.awayScore);
+                    memorableMoments.push({
+                      type: 'playoff_upset',
+                      seasonId,
+                      description: `Playoff upset: ${(actualWinnerIsHome ? (home?.name || g.homeTeamId) : (away?.name || g.awayTeamId))} flipped projections by ${projDiff.toFixed(1)} pts and won by ${margin.toFixed(1)}`,
+                      details: {
+                        week: g.matchupPeriod,
+                        homeTeam: home?.name || g.homeTeamId,
+                        awayTeam: away?.name || g.awayTeamId,
+                        score: `${g.homeScore.toFixed(1)}-${g.awayScore.toFixed(1)}`,
+                        projectedHome: g.homeProjectedScore,
+                        projectedAway: g.awayProjectedScore,
+                        margin,
+                      }
+                    });
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
+
+          // Helper to get season-level actual vs projected totals for a player
+          const getSeasonPlayerInfo = async (espnId: string): Promise<{ actual?: number; projected?: number; name?: string; position?: string; } | undefined> => {
+            // Prefer league-specific stats if available
+            const leagueSpecific = await ctx.db
+              .query("playerStats")
+              .withIndex("by_league_player", q => q.eq("leagueId", args.leagueId).eq("espnId", espnId).eq("season", seasonId))
+              .first();
+            const statsSource = leagueSpecific?.stats;
+            const readFrom = async (): Promise<any | undefined> => {
+              if (Array.isArray(statsSource)) return statsSource;
+              const enhanced = await ctx.db
+                .query("playersEnhanced")
+                .withIndex("by_espn_id_season", q => q.eq("espnId", espnId).eq("season", seasonId))
+                .first();
+              return enhanced?.stats;
+            };
+            const enhancedForMeta = await ctx.db
+              .query("playersEnhanced")
+              .withIndex("by_espn_id_season", q => q.eq("espnId", espnId).eq("season", seasonId))
+              .first();
+            const stats = await readFrom();
+            if (!stats || !Array.isArray(stats)) return { name: enhancedForMeta?.fullName, position: enhancedForMeta?.defaultPosition };
+            const seasonActual = stats.find((s: any) => s.statSourceId === 0 && s.scoringPeriodId === 0);
+            const seasonProj = stats.find((s: any) => s.statSourceId === 1 && s.scoringPeriodId === 0);
+            return {
+              actual: seasonActual?.appliedTotal,
+              projected: seasonProj?.appliedTotal,
+              name: enhancedForMeta?.fullName,
+              position: enhancedForMeta?.defaultPosition,
+            };
+          };
+
+          // 3) Blockbuster trades (many players or high impact)
+          try {
+            const trades = await ctx.db
+              .query("trades")
+              .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+              .order("desc")
+              .take(50);
+            const rankedTrades: Array<{ trade: any; impactScore: number; totalPlayers: number; summary: string; }> = [];
+            for (const tr of trades) {
+              const totalPlayers = (tr.playersFromTeamA?.length || 0) + (tr.playersFromTeamB?.length || 0);
+              let impactScore = 0;
+              const names: string[] = [];
+              const all = [...(tr.playersFromTeamA || []), ...(tr.playersFromTeamB || [])];
+              for (const p of all) {
+                names.push(p.playerName);
+                const totals = await getSeasonPlayerInfo(p.playerId);
+                if (totals?.actual) impactScore += totals.actual;
+              }
+              const summary = `${tr.teamA?.teamName} ↔ ${tr.teamB?.teamName}: ${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
+              rankedTrades.push({ trade: tr, impactScore, totalPlayers, summary });
+            }
+            rankedTrades
+              .sort((a, b) => (b.totalPlayers - a.totalPlayers) || (b.impactScore - a.impactScore))
+              .slice(0, 3)
+              .forEach(rt => {
+                memorableMoments.push({
+                  type: 'blockbuster_trade',
+                  seasonId,
+                  description: `Blockbuster trade: ${rt.summary}`,
+                  details: {
+                    totalPlayers: rt.totalPlayers,
+                    impactScore: Number(rt.impactScore.toFixed(1)),
+                    tradeDate: rt.trade.tradeDate,
+                  }
+                });
+              });
+          } catch (e) {
+            // ignore
+          }
+
+          // 4) Great in-season waiver pickups (adds from FA with strong actual >> projected)
+          try {
+            const txns = await ctx.db
+              .query("transactions")
+              .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+              .order("desc")
+              .take(200);
+            const bestPickups: Array<{ playerId: string; playerName: string; teamId: string; teamName: string; diff: number; actual: number; projected: number; }> = [];
+            for (const t of txns) {
+              if (!t.items || !Array.isArray(t.items)) continue;
+              const addItem = t.items.find((it: any) => it.type === 'ADD' && it.fromTeamId === 0 && it.toTeamId !== 0);
+              if (!addItem) continue;
+              const playerId = addItem.playerId?.toString();
+              if (!playerId) continue;
+              const totals = await getSeasonPlayerInfo(playerId);
+              if (!totals?.actual || !totals?.projected) continue;
+              const diff = totals.actual - totals.projected;
+              // Only consider meaningful overperformance with solid total
+              if (diff >= 60 && totals.actual >= 150) {
+                const acquiringTeam = seasonTeams.find(tm => tm.externalId === addItem.toTeamId.toString());
+                bestPickups.push({
+                  playerId,
+                  playerName: totals.name || `Player ${playerId}`,
+                  teamId: addItem.toTeamId.toString(),
+                  teamName: acquiringTeam?.name || `Team ${addItem.toTeamId}`,
+                  diff,
+                  actual: totals.actual,
+                  projected: totals.projected,
+                });
+              }
+            }
+            bestPickups
+              .sort((a, b) => (b.diff - a.diff))
+              .slice(0, 5)
+              .forEach(pu => {
+                memorableMoments.push({
+                  type: 'waiver_pickup',
+                  seasonId,
+                  description: `Waiver gem: ${pu.playerName} added by ${pu.teamName} beat projections by ${pu.diff.toFixed(1)} pts (${pu.actual.toFixed(1)} vs ${pu.projected.toFixed(1)})`,
+                  details: {
+                    team: pu.teamName,
+                    actual: Number(pu.actual.toFixed(1)),
+                    projected: Number(pu.projected.toFixed(1)),
+                  }
+                });
+              });
+          } catch (e) {
+            // ignore
+          }
+
+        } catch (e) {
+          // Continue with other seasons
+        }
+      }
+
       const result: any = {
         // Basic league info
         leagueName: league.name,
@@ -925,6 +1292,8 @@ export const getSeasonWelcomeDataForAI = query({
           previousSeasonsCount: Object.keys(previousSeasons).length,
           totalSeasons: leagueSeasons.length,
         },
+        // New: compiled memorable moments for season welcome prompts
+        memorableMoments,
       };
       
       const executionTime = Date.now() - startTime;

@@ -978,14 +978,48 @@ export const getRelativeSchedules = internalQuery({
 export const scheduleSeasonAndRelativeContentCron = internalAction({
   args: {},
   handler: async (ctx) => {
+    console.log("=== scheduleSeasonAndRelativeContentCron START ===");
+    
+    // Get current NFL season phase for intelligent filtering
+    let currentSeasonPhase: string = "UNKNOWN";
+    try {
+      const seasonPhaseInfo = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonPhase, {});
+      currentSeasonPhase = seasonPhaseInfo?.phase || "UNKNOWN";
+      console.log(`Current NFL season phase: ${currentSeasonPhase}`);
+    } catch (error) {
+      console.warn("Failed to get NFL season phase:", error);
+    }
+    
     const seasonBased = await ctx.runQuery(internal.contentScheduling.getSeasonBasedSchedules, {});
     const relative = await ctx.runQuery(internal.contentScheduling.getRelativeSchedules, {});
 
     let scheduled = 0;
     let skipped = 0;
 
-    // Helper to dedupe and schedule
+    // Helper to dedupe and schedule with intelligent filtering
     const maybeSchedule = async (schedule: any, scheduledFor: number, extraContext?: any) => {
+      // Check if this content type should be scheduled based on current season phase and league state
+      const shouldScheduleResult = await shouldScheduleContentForLeague(ctx, schedule, currentSeasonPhase, scheduledFor);
+      
+      if (!shouldScheduleResult.should) {
+        console.log(`Skipping ${schedule.contentType} for league ${schedule.leagueId}: ${shouldScheduleResult.reason}`);
+        skipped += 1;
+        return;
+      }
+      
+      // Check for duplicate content
+      const existingCheck = await ctx.runQuery(internal.contentScheduling.checkExistingContent, {
+        leagueId: schedule.leagueId,
+        contentType: schedule.contentType,
+        seasonId: extraContext?.seasonId,
+      });
+
+      if (existingCheck.hasExistingContent || existingCheck.hasScheduledContent) {
+        console.log(`Skipping ${schedule.contentType} for league ${schedule.leagueId}: content already exists or scheduled`);
+        skipped += 1;
+        return;
+      }
+      
       // 4-hour dedupe window around target time
       const startTime = scheduledFor - 2 * 60 * 60 * 1000;
       const endTime = scheduledFor + 2 * 60 * 60 * 1000;
@@ -1007,6 +1041,7 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
         contextData: extraContext,
       });
       scheduled += 1;
+      console.log(`Scheduled ${schedule.contentType} for league ${schedule.leagueId} at ${new Date(scheduledFor)} (${shouldScheduleResult.reason})`);
     };
 
     // Process relative schedules (e.g., draft_date - offset)
@@ -1104,7 +1139,98 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
       }
     }
 
-    return { scheduled, skipped };
+    console.log(`=== scheduleSeasonAndRelativeContentCron COMPLETE ===`);
+    console.log(`Scheduled: ${scheduled}, Skipped: ${skipped}, Season Phase: ${currentSeasonPhase}`);
+    
+    return { scheduled, skipped, seasonPhase: currentSeasonPhase };
+  },
+});
+
+// Helper function to determine if content should be scheduled for a specific league
+async function shouldScheduleContentForLeague(
+  ctx: any, 
+  schedule: any, 
+  currentSeasonPhase: string, 
+  scheduledFor: number
+): Promise<{ should: boolean; reason: string }> {
+  const contentType = schedule.contentType;
+  
+  // Get league creation date
+  let league;
+  try {
+    league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+      leagueId: schedule.leagueId,
+    });
+  } catch (e) {
+    return { should: false, reason: "League not found" };
+  }
+  
+  if (!league) {
+    return { should: false, reason: "League not found" };
+  }
+  
+  const leagueCreatedAt = league.createdAt;
+  const now = Date.now();
+  const leagueAge = now - leagueCreatedAt;
+  const daysSinceCreation = leagueAge / (1000 * 60 * 60 * 24);
+  
+  // Season-specific content logic
+  switch (contentType) {
+    case "season_welcome":
+      // Only schedule during preseason/offseason, and only for new leagues or start of new season
+      if (currentSeasonPhase === "PRESEASON" || currentSeasonPhase === "OFFSEASON") {
+        // If league is brand new (less than 7 days old), allow season_welcome
+        if (daysSinceCreation < 7) {
+          return { should: true, reason: `new league in ${currentSeasonPhase} phase` };
+        }
+        // Otherwise, only at the true start of a new season
+        const currentYear = new Date().getFullYear();
+        const seasonStart = new Date(currentYear, 7, 1).getTime(); // August 1st
+        if (scheduledFor >= seasonStart && scheduledFor < seasonStart + (30 * 24 * 60 * 60 * 1000)) {
+          return { should: true, reason: `new season start in ${currentSeasonPhase} phase` };
+        }
+      }
+      return { should: false, reason: `wrong season phase for season_welcome: ${currentSeasonPhase}` };
+      
+    case "season_recap":
+      // Only schedule after Super Bowl
+      if (currentSeasonPhase === "OFFSEASON") {
+        return { should: true, reason: `season ended, ${currentSeasonPhase} phase` };
+      }
+      return { should: false, reason: `season not ended yet: ${currentSeasonPhase}` };
+      
+    case "championship_manifesto":
+      // Only schedule before/during playoffs
+      if (currentSeasonPhase === "PLAYOFFS" || currentSeasonPhase === "SUPER_BOWL") {
+        return { should: true, reason: `playoffs/championship time: ${currentSeasonPhase}` };
+      }
+      return { should: false, reason: `not playoff time: ${currentSeasonPhase}` };
+      
+    case "mid_season_awards":
+      // Only schedule during regular season (around week 8)
+      if (currentSeasonPhase === "REGULAR_SEASON") {
+        return { should: true, reason: `mid-season during ${currentSeasonPhase}` };
+      }
+      return { should: false, reason: `not regular season: ${currentSeasonPhase}` };
+      
+    case "mock_draft":
+      // Schedule based on league's draft date, regardless of NFL season
+      return { should: true, reason: "draft-dependent content, season-independent" };
+      
+    default:
+      // For unknown content types, be conservative - only schedule during active season
+      if (currentSeasonPhase === "REGULAR_SEASON" || currentSeasonPhase === "PLAYOFFS") {
+        return { should: true, reason: `unknown content type, allowing during active season: ${currentSeasonPhase}` };
+      }
+      return { should: false, reason: `unknown content type, blocking during inactive season: ${currentSeasonPhase}` };
+  }
+}
+
+// Helper query to get league by ID
+export const getLeagueById = internalQuery({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.leagueId);
   },
 });
 
@@ -1177,5 +1303,56 @@ export const getById = internalQuery({
   },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
+  },
+});
+
+// Check if content already exists for a league/season/content type combination
+export const checkExistingContent = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    seasonId: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const currentYear = new Date().getFullYear();
+    const targetSeason = args.seasonId || currentYear;
+    
+    // Check aiContent table for existing content of this type for this league/season
+    const existingContent = await ctx.db
+      .query("aiContent")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("type"), args.contentType),
+          q.gte(q.field("createdAt"), new Date(targetSeason, 0, 1).getTime()), // Start of season year
+          q.lt(q.field("createdAt"), new Date(targetSeason + 1, 0, 1).getTime()) // Start of next year
+        )
+      )
+      .first();
+
+    // Also check scheduled content table for pending/generating content
+    const scheduledContent = await ctx.db
+      .query("scheduledContent")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("contentType"), args.contentType),
+          q.or(
+            q.eq(q.field("status"), "pending"),
+            q.eq(q.field("status"), "generating")
+          ),
+          // Check if contextData contains this season
+          q.gte(q.field("createdAt"), new Date(targetSeason, 0, 1).getTime()),
+          q.lt(q.field("createdAt"), new Date(targetSeason + 1, 0, 1).getTime())
+        )
+      )
+      .first();
+
+    return {
+      hasExistingContent: !!existingContent,
+      hasScheduledContent: !!scheduledContent,
+      existingContent,
+      scheduledContent,
+    };
   },
 });

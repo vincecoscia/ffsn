@@ -238,6 +238,91 @@ export const createGenerationRequest = mutation({
   },
 });
 
+// Mutation to regenerate content using user credits
+export const regenerateContentWithCredits = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    type: v.string(),
+    persona: v.string(),
+    customContext: v.optional(v.string()),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      throw new Error("Not a member of this league");
+    }
+
+    // Get template to check credit cost
+    const template = contentTemplates[args.type];
+    if (!template) {
+      const availableTypes = Object.keys(contentTemplates).join(', ');
+      throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
+    }
+
+    // Check if user has sufficient credits
+    const userCredits = await ctx.runQuery(api.credits.checkSufficientCredits, {
+      userId: identity.subject,
+      requiredAmount: template.creditCost,
+    });
+
+    if (!userCredits.hasSufficientCredits) {
+      throw new Error(`Insufficient credits. Required: ${template.creditCost}, Available: ${userCredits.currentBalance}`);
+    }
+
+    // Deduct credits first
+    await ctx.runMutation(api.credits.deductCredits, {
+      userId: identity.subject,
+      amount: template.creditCost,
+      description: `Manual ${args.type} content generation`,
+      leagueId: args.leagueId,
+    });
+
+    // Create a generation request in "generating" status
+    const articleId = await ctx.db.insert("aiContent", {
+      leagueId: args.leagueId,
+      type: args.type,
+      persona: args.persona,
+      title: "Generating...",
+      content: "",
+      metadata: {
+        week: 1, // Will be updated
+        featured_teams: [],
+        credits_used: template.creditCost,
+      },
+      status: "generating",
+      createdAt: Date.now(),
+    });
+
+    // Schedule the actual generation
+    await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
+      articleId,
+      leagueId: args.leagueId,
+      contentType: args.type,
+      persona: args.persona,
+      customContext: args.customContext,
+      userId: identity.subject,
+      seasonId: args.seasonId,
+      week: args.week,
+    });
+
+    return articleId;
+  },
+});
+
 // Internal action to handle the actual AI generation
 export const generateContentAction = internalAction({
   args: {
@@ -257,8 +342,8 @@ export const generateContentAction = internalAction({
     console.log("Persona:", args.persona);
     
     try {
-      // For mock drafts and weekly recaps, use the new scheduled approach
-      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap') {
+      // For mock drafts, weekly recaps, and season welcome, use the scheduled data-prep approach
+      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap' || args.contentType === 'season_welcome') {
         console.log(`Using scheduled approach for ${args.contentType} generation`);
         
         // Schedule data preparation step (which will chain the generation step)
@@ -299,7 +384,8 @@ export const generateContentAction = internalAction({
         leagueId: args.leagueId,
         contentType: args.contentType,
         persona: args.persona,
-        leagueData,
+        // Use prepared data for season_welcome; fallback to enriched
+        leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
         customContext: args.customContext,
         userId: args.userId,
       }, apiKey);
@@ -316,6 +402,33 @@ export const generateContentAction = internalAction({
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
       });
+
+      // Deduct credits from user for system-generated content (if userId is "system", find the league owner)
+      try {
+        let creditUserId = args.userId;
+        if (args.userId === "system") {
+          // Find the league commissioner to deduct credits from
+          const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+            leagueId: args.leagueId,
+          });
+          if (league?.commissionerUserId) {
+            creditUserId = league.commissionerUserId; // Use league commissioner
+          }
+        }
+        
+        if (creditUserId !== "system") {
+          await ctx.runMutation(internal.credits.deductCreditsInternal, {
+            userId: creditUserId,
+            amount: generatedContent.metadata.creditsUsed,
+            description: `AI content generation: ${args.contentType}`,
+            leagueId: args.leagueId,
+            relatedContentId: args.articleId,
+          });
+        }
+      } catch (creditError) {
+        console.warn("Failed to deduct credits for content generation:", creditError);
+        // Don't fail the entire generation process if credit deduction fails
+      }
 
       // Optionally auto-publish based on league preferences
       try {
@@ -508,7 +621,7 @@ async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any
     console.log("=== getLeagueDataForGeneration START ===");
     console.log("League ID:", args.leagueId);
     
-    // Use our enhanced query to get all enriched data
+      // Use our enhanced query to get all enriched data
     const enrichedData = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
       leagueId: args.leagueId,
     });
@@ -530,12 +643,13 @@ async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any
     console.log("League found:", league.name);
 
     // Transform enriched data to match the expected format for AI generation
-    const result = {
+      const result = {
       // Core league info
       league: enrichedData.league,
       leagueName: enrichedData.league.name,
       currentWeek: enrichedData.currentWeek,
       currentSeason: enrichedData.currentSeason,
+        leagueType: enrichedData.leagueType,
       
       // Teams with all enhanced data
       teams: enrichedData.teams,

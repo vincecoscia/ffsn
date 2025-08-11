@@ -252,6 +252,11 @@ export interface LeagueDataContext {
   }>;
   draftType?: string; // "Snake", "Auction", "Manual"
   leagueType?: string; // "Dynasty", "Keeper", "Redraft"
+  memorableMoments?: Array<{
+    seasonId: number;
+    type: string;
+    description: string;
+  }>;
   draftSettings?: {
     type?: string;
     orderType?: string;
@@ -1201,6 +1206,9 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     welcomeData += `- Number of Teams: ${data.teams.length}\n`;
     welcomeData += `- Scoring Type: ${data.scoringType || 'PPR'}\n`;
     welcomeData += `- Roster Size: ${data.rosterSize || 16}\n`;
+    if (data.leagueType) {
+      welcomeData += `- League Type: ${data.leagueType}\n`;
+    }
     
     if (data.leagueHistory) {
       welcomeData += `- League Founded: ${data.leagueHistory.foundedYear}\n`;
@@ -1361,6 +1369,17 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
       welcomeData += '\n\nNOTE: No previous season data available. This appears to be the first season!\n';
     }
     
+    // Memorable moments section if present
+    if (data.memorableMoments && Array.isArray(data.memorableMoments) && data.memorableMoments.length > 0) {
+      welcomeData += `\nMEMORABLE MOMENTS (Recent Seasons):\n`;
+      const moments = data.memorableMoments;
+      moments
+        .slice(0, 12)
+        .forEach(m => {
+          welcomeData += `- ${m.seasonId}: ${m.description}\n`;
+        });
+    }
+
     welcomeData += '\n\nUse this information to create an engaging season welcome package that gets managers excited for the new season!';
     
     console.log("Season welcome data length:", welcomeData.length);

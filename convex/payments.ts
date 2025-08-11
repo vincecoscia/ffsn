@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 
 // Process league creation payment - grant commissioner credits and create league
 export const processLeaguePayment = internalMutation({
@@ -55,6 +55,55 @@ export const processLeaguePayment = internalMutation({
           },
         });
       }
+    }
+
+    // Auto-generate season_welcome content for the new league
+    try {
+      // Check if season_welcome content already exists for this league/season
+      const existingCheck = await ctx.runQuery(internal.contentScheduling.checkExistingContent, {
+        leagueId: leagueId!,
+        contentType: "season_welcome",
+        seasonId: seasonYear,
+      });
+
+      if (!existingCheck.hasExistingContent && !existingCheck.hasScheduledContent) {
+        // Check if user has sufficient credits
+        const userCredits = await ctx.runQuery(api.credits.checkSufficientCredits, {
+          userId,
+          requiredAmount: 5, // season_welcome typically costs 5 credits
+        });
+
+        if (userCredits.hasSufficientCredits) {
+          console.log(`Auto-generating season_welcome content for league ${leagueId}`);
+          
+          // Create the article first
+          const articleId = await ctx.runMutation(internal.aiContent.createScheduledArticle, {
+            leagueId: leagueId!,
+            type: "season_welcome",
+            persona: "analyst", // Default persona
+            userId: userId,
+          });
+
+          // Schedule immediate generation of season_welcome
+          await ctx.scheduler.runAfter(5000, internal.aiContent.generateContentAction, {
+            articleId,
+            leagueId: leagueId!,
+            contentType: "season_welcome",
+            persona: "analyst",
+            userId: userId,
+            seasonId: seasonYear,
+          });
+
+          console.log(`Season welcome content generation scheduled for league ${leagueId}`);
+        } else {
+          console.log(`User ${userId} has insufficient credits for auto season_welcome generation. Required: 5, Available: ${userCredits.currentBalance}`);
+        }
+      } else {
+        console.log(`Season welcome content already exists or is scheduled for league ${leagueId}`);
+      }
+    } catch (error) {
+      console.error("Error auto-generating season welcome content:", error);
+      // Don't fail the entire payment process if content generation fails
     }
 
     console.log(`League payment processed: $${payment.amount / 100} for user ${userId}`);

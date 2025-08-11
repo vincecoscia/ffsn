@@ -196,12 +196,12 @@ export function shouldGenerateImage(contentType: string): boolean {
     // 'weekly_recap',
     // 'weekly_preview',
     // 'power_rankings',
-    'championship_preview',
+    // 'championship_preview',
     'playoff_preview',
-    'season_finale',
-    'season_welcome',
-    'trade_deadline',
-    'midseason_awards'
+    // 'season_finale',
+    // 'season_welcome',
+    // 'trade_deadline',
+    // 'midseason_awards'
   ];
   
   return imageEnabledTypes.includes(contentType);

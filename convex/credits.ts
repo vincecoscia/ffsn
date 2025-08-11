@@ -132,6 +132,58 @@ export const deductCredits = mutation({
   },
 });
 
+// Internal function to deduct credits (for system-generated content)
+export const deductCreditsInternal = internalMutation({
+  args: {
+    userId: v.string(),
+    amount: v.number(),
+    description: v.string(),
+    leagueId: v.optional(v.id("leagues")),
+    relatedContentId: v.optional(v.id("aiContent")),
+  },
+  handler: async (ctx, args) => {
+    // Check if user has sufficient credits
+    const userCredits = await ctx.db
+      .query("userCredits")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!userCredits || userCredits.balance < args.amount) {
+      throw new Error(`Insufficient credits. Required: ${args.amount}, Available: ${userCredits?.balance || 0}`);
+    }
+
+    const now = Date.now();
+    const newBalance = userCredits.balance - args.amount;
+
+    // Create transaction record
+    const transactionId = await ctx.db.insert("creditTransactions", {
+      userId: args.userId,
+      leagueId: args.leagueId,
+      type: "spent",
+      amount: -args.amount, // Negative for spending
+      description: args.description,
+      relatedContentId: args.relatedContentId,
+      balanceAfter: newBalance,
+      createdAt: now,
+    });
+
+    // Update user credits
+    await ctx.db.patch(userCredits._id, {
+      balance: newBalance,
+      totalSpent: userCredits.totalSpent + args.amount,
+      lastTransactionId: transactionId,
+      updatedAt: now,
+    });
+
+    console.log(`Deducted ${args.amount} credits from user ${args.userId} (system). New balance: ${newBalance}`);
+
+    return {
+      newBalance,
+      transactionId,
+    };
+  },
+});
+
 // Check if user has sufficient credits
 export const checkSufficientCredits = query({
   args: {
