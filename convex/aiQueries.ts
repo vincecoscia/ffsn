@@ -1008,7 +1008,7 @@ export const getWaiverWireDataForAI = query({
                 playerId: playerId,
                 playerName: `Player ${playerId}`, // We'll need to look up player names separately
                 position: "Unknown", // Position data not in transaction items
-                date: new Date(transaction.processedDate || transaction.proposedDate).toISOString(),
+                date: new Date(transaction.proposedDate).toISOString(),
                 teamName: team?.name || `Team ${item.toTeamId}`,
               });
             }
@@ -1115,7 +1115,7 @@ export const getWaiverWireDataForAI = query({
               position: "Unknown",
               team: "Unknown"
             } : undefined,
-            date: new Date(t.processedDate || t.proposedDate).toISOString(),
+            date: new Date(t.proposedDate).toISOString(),
             faabBid: t.bidAmount > 0 ? t.bidAmount : undefined,
           };
         }),

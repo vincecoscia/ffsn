@@ -28,7 +28,7 @@ When any of these task types arise, IMMEDIATELY delegate using the Task tool:
 
 ### Authentication & Payments
 - **security-auditor**: Use PROACTIVELY for Clerk authentication flows, user management, session security
-- **payment-integration**: Use PROACTIVELY for Stripe integration, payment flows, webhook handling, subscription management
+- **stripe-nextjs-expert**: Use PROACTIVELY for Stripe integration, payment flows, webhook handling, subscription management
 
 ### Code Quality & Architecture
 - **code-reviewer**: Use PROACTIVELY after ANY code changes - MUST BE USED for all commits, TypeScript type checking
@@ -64,8 +64,8 @@ When users mention any of these, IMMEDIATELY delegate:
 
 ### Authentication & Payments
 - "Clerk" or "authentication" → security-auditor
-- "Stripe" or "payment" → payment-integration
-- "webhook" or "subscription" → payment-integration
+- "Stripe" or "payment" → stripe-nextjs-expert
+- "webhook" or "subscription" → stripe-nextjs-expert
 - "security" or "authorization" → security-auditor
 
 ### Code Quality & Testing
@@ -81,7 +81,7 @@ For complex tasks, orchestrate multiple specialists:
    - convex-specialist (database functions) → frontend-developer (Next.js components) → test-automator → code-reviewer
 
 2. **Payment Integration**: 
-   - payment-integration (Stripe setup) → convex-specialist (payment data models) → security-auditor → test-automator
+   - stripe-nextjs-expert (Stripe setup) → convex-specialist (payment data models) → security-auditor → test-automator
 
 3. **Authentication Setup**: 
    - security-auditor (Clerk integration) → convex-specialist (user data schema) → frontend-developer (auth UI) → test-automator
@@ -113,7 +113,7 @@ Remember these delegation patterns:
 - **ALL Convex work ALWAYS goes to convex-specialist** (highest priority)
 - All TypeScript issues ALWAYS go to python-pro
 - All Clerk auth flows ALWAYS go to security-auditor
-- All Stripe payments ALWAYS go to payment-integration
+- All Stripe payments ALWAYS go to stripe-nextjs-expert
 - All Next.js components ALWAYS go to frontend-developer
 - All performance concerns ALWAYS go to performance-engineer
 - All code reviews ALWAYS go to code-reviewer
@@ -122,7 +122,7 @@ Remember these delegation patterns:
 
 ## Convex-Specific Integration Notes
 - The convex-specialist should be involved in ANY task mentioning Convex, even indirectly
-- When payment features need database work → payment-integration THEN convex-specialist
+- When payment features need database work → stripe-nextjs-expert THEN convex-specialist
 - When auth features need user data → security-auditor THEN convex-specialist  
 - Always use convex-specialist before frontend-developer for data-heavy features
 - Real-time features MUST start with convex-specialist for subscription setup

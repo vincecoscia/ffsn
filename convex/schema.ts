@@ -75,11 +75,14 @@ export default defineSchema({
     }))),
     subscription: v.object({
       tier: v.string(),
-      status: v.string(),
+      status: v.string(), // "pending", "paid", "cancelled"
       stripeCustomerId: v.optional(v.string()),
       stripeSubscriptionId: v.optional(v.string()),
       creditsRemaining: v.number(),
       creditsMonthly: v.number(),
+      paymentStatus: v.union(v.literal("pending"), v.literal("completed"), v.literal("failed")),
+      paidAt: v.optional(v.number()),
+      seasonYear: v.number(), // e.g., 2025
     }),
     lastSync: v.number(),
     createdAt: v.number(),
@@ -388,6 +391,7 @@ export default defineSchema({
     seasonId: v.number(),
     userId: v.string(), // Clerk user ID
     status: v.union(v.literal("active"), v.literal("pending")),
+    credits: v.number(), // User's credit balance
     createdAt: v.number(),
   })
     .index("by_league", ["leagueId"])
@@ -686,7 +690,6 @@ export default defineSchema({
     
     // Additional metadata
     proposedDate: v.number(),
-    processedDate: v.optional(v.number()),
     status: v.string(),
     scoringPeriod: v.number(),
     teamId: v.number(), // Primary team involved
@@ -1383,5 +1386,143 @@ export default defineSchema({
     .index("by_group", ["groupKey"])
     .index("by_created_at", ["createdAt"])
     .index("by_user_unread", ["userId", "status", "createdAt"]), // Efficient unread queries
+
+  // Stripe payment tracking - all Stripe transactions
+  stripePayments: defineTable({
+    // Stripe identifiers
+    paymentIntentId: v.string(),
+    checkoutSessionId: v.optional(v.string()),
+    stripeCustomerId: v.optional(v.string()),
+    
+    // Payment details
+    amount: v.number(), // Amount in cents
+    currency: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+      v.literal("refunded")
+    ),
+    
+    // User and league context
+    userId: v.string(), // Clerk user ID
+    leagueId: v.optional(v.id("leagues")),
+    paymentType: v.union(
+      v.literal("league_creation"),
+      v.literal("credits_purchase")
+    ),
+    
+    // Metadata
+    description: v.string(),
+    metadata: v.optional(v.object({
+      seasonYear: v.optional(v.number()),
+      creditsPurchased: v.optional(v.number()),
+      isCommissionerPayment: v.optional(v.boolean()),
+      appliedCouponId: v.optional(v.string()),
+      appliedPromotionCodeId: v.optional(v.string()),
+      discountAmount: v.optional(v.number()),
+    })),
+    
+    // Webhook tracking
+    webhookProcessed: v.boolean(),
+    webhookProcessedAt: v.optional(v.number()),
+    
+    // Timing
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_payment_intent", ["paymentIntentId"])
+    .index("by_checkout_session", ["checkoutSessionId"])
+    .index("by_user", ["userId"])
+    .index("by_league", ["leagueId"])
+    .index("by_status", ["status"])
+    .index("by_payment_type", ["paymentType"])
+    .index("by_webhook_status", ["webhookProcessed"]),
+
+  // Credit transactions - audit trail for all credit movements
+  creditTransactions: defineTable({
+    // User context
+    userId: v.string(), // Clerk user ID
+    leagueId: v.optional(v.id("leagues")),
+    
+    // Transaction details
+    type: v.union(
+      v.literal("earned"), // Initial credits, join bonus
+      v.literal("spent"), // AI content generation
+      v.literal("purchased"), // Credit purchase
+      v.literal("refunded"), // Credit refund
+      v.literal("bonus") // Special bonuses
+    ),
+    amount: v.number(), // Credits (positive for earned, negative for spent)
+    
+    // Context
+    description: v.string(),
+    relatedPaymentId: v.optional(v.id("stripePayments")),
+    relatedContentId: v.optional(v.id("aiContent")), // If spent on AI content
+    
+    // Balance tracking
+    balanceAfter: v.number(), // User's balance after this transaction
+    
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_league", ["leagueId"])
+    .index("by_type", ["type"])
+    .index("by_payment", ["relatedPaymentId"])
+    .index("by_user_type", ["userId", "type"])
+    .index("by_created_at", ["createdAt"]),
+
+  // League payment tracking - season-based payment records
+  leaguePayments: defineTable({
+    leagueId: v.id("leagues"),
+    stripePaymentId: v.id("stripePayments"),
+    
+    // Season context
+    seasonYear: v.number(), // e.g., 2025
+    
+    // Payment details
+    amount: v.number(), // Amount in cents ($99.99 = 9999)
+    currency: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("refunded")
+    ),
+    
+    // Commissioner who paid
+    paidByUserId: v.string(), // Clerk user ID
+    
+    // Timing
+    paidAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_league", ["leagueId"])
+    .index("by_season", ["seasonYear"])
+    .index("by_league_season", ["leagueId", "seasonYear"])
+    .index("by_payment", ["stripePaymentId"])
+    .index("by_commissioner", ["paidByUserId"]),
+
+  // User credit balances - centralized credit tracking per user
+  userCredits: defineTable({
+    userId: v.string(), // Clerk user ID
+    
+    // Current balance
+    balance: v.number(), // Current credit balance
+    
+    // Lifetime stats
+    totalEarned: v.number(),
+    totalSpent: v.number(),
+    totalPurchased: v.number(),
+    
+    // Last transaction reference for validation
+    lastTransactionId: v.optional(v.id("creditTransactions")),
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"]),
 
 });

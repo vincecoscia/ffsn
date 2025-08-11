@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CreditCard, Check, AlertCircle } from "lucide-react";
 
 interface EspnTeam {
   id: string;
@@ -96,11 +97,15 @@ export default function SetupPage() {
   const [isLoadingEspnData, setIsLoadingEspnData] = useState(false);
   const [espnError, setEspnError] = useState<string | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   
+  const { user } = useUser();
   const createLeague = useMutation(api.leagues.create);
   const completeOnboarding = useMutation(api.users.completeOnboarding);
   const fetchEspnData = useAction(api.espn.fetchLeagueData);
   const syncAllLeagueData = useAction(api.espnSync.syncAllLeagueData);
+  const createLeagueCheckout = useAction(api.stripe.createLeagueCheckoutSession);
   const router = useRouter();
 
   const loadEspnData = async () => {
@@ -149,19 +154,26 @@ export default function SetupPage() {
     if (step === 2 && formData.externalId && !espnData) {
       await loadEspnData();
     }
-    if (step < 3) setStep(step + 1);
+    if (step < 4) setStep(step + 1);
   };
 
   const handleBack = () => {
     if (step > 1) setStep(step - 1);
   };
 
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
-    setSyncProgress({ step: 1, totalSteps: 6, message: "Creating league...", percentage: 10 });
-    
+  const handlePayment = async () => {
+    if (!user?.primaryEmailAddress?.emailAddress || !user?.id) {
+      setPaymentError("User information not available. Please sign in again.");
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    setPaymentError(null);
+
     try {
-      // Step 1: Create the basic league record
+      // Step 1: Create the league with all ESPN data BEFORE payment
+      console.log("Creating league with ESPN data before payment...");
+      
       const leagueId = await createLeague({
         name: formData.leagueName,
         platform: formData.platform,
@@ -181,74 +193,34 @@ export default function SetupPage() {
           size: espnData.size,
           lastSyncedAt: Date.now(),
           isPrivate: espnData.isPrivate || false,
-          espnS2: espnData.espnS2,
-          swid: espnData.swid,
+          espnS2: authData.espnS2 || undefined,
+          swid: authData.swid || undefined,
         } : undefined,
         history: espnData?.history,
       });
 
-      // Step 2: Show progress for league creation
-      setSyncProgress({ step: 2, totalSteps: 6, message: "League created! Fetching teams...", percentage: 20 });
+      console.log(`League created with ID: ${leagueId}`);
 
-      // Step 3: Run comprehensive data sync to populate leagueSeasons and teams tables
-      console.log('🔄 Starting comprehensive league data sync...');
-      
-      // Update progress for sync start
-      setSyncProgress({ step: 3, totalSteps: 6, message: "Syncing team data and owners...", percentage: 30 });
-      
-      // Since we can't modify the backend sync function easily, we'll simulate progress updates
-      // In a real implementation, the backend would send progress updates
-      const syncPromise = syncAllLeagueData({
-        leagueId,
-        includeCurrentSeason: true,
-        historicalYears: 5, // Sync up to 5 years of historical data
+      // Step 2: Create Stripe checkout session with the league ID
+      const result = await createLeagueCheckout({
+        leagueId: leagueId,
+        leagueName: formData.leagueName,
+        userEmail: user.primaryEmailAddress.emailAddress,
+        userId: user.id,
       });
 
-      // Simulate progress updates while sync is happening
-      const progressInterval = setInterval(() => {
-        setSyncProgress(prev => {
-          if (!prev) return null;
-          const messages = [
-            "Syncing team data and owners...",
-            "Fetching player rosters...",
-            "Loading matchup history...",
-            "Processing historical seasons...",
-            "Analyzing league statistics..."
-          ];
-          const newStep = Math.min(prev.step + 1, 5);
-          const messageIndex = Math.min(newStep - 3, messages.length - 1);
-          return {
-            ...prev,
-            step: newStep,
-            message: messages[messageIndex],
-            percentage: Math.min(20 + (newStep - 2) * 15, 80)
-          };
-        });
-      }, 2000);
-
-      const syncResult = await syncPromise;
-      clearInterval(progressInterval);
-
-      if (syncResult.success) {
-        setSyncProgress({ step: 6, totalSteps: 6, message: "Sync complete! Finalizing setup...", percentage: 90 });
-        console.log(`✅ League sync completed: ${syncResult.totalSynced}/${syncResult.totalYearsRequested} seasons synced`);
+      if (result.success && result.url) {
+        // Redirect to Stripe Checkout
+        window.location.href = result.url;
       } else {
-        console.warn('⚠️ League sync had some issues, but league was created successfully');
+        setPaymentError(result.error || "Failed to create payment session");
+        // TODO: Consider deleting the created league if payment fails
       }
-
-      // Step 4: Mark onboarding as complete
-      setSyncProgress({ step: 6, totalSteps: 6, message: "All done! Redirecting...", percentage: 100 });
-      await completeOnboarding();
-      
-      // Small delay to show 100% completion
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      router.push("/dashboard");
     } catch (error) {
-      console.error("Failed to create league:", error);
-      setSyncProgress(null);
+      console.error("Payment error:", error);
+      setPaymentError("Failed to process payment. Please try again.");
     } finally {
-      setIsSubmitting(false);
+      setIsProcessingPayment(false);
     }
   };
 
@@ -279,7 +251,7 @@ export default function SetupPage() {
         {/* Progress indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-center space-x-4">
-            {[1, 2, 3].map((num) => (
+            {[1, 2, 3, 4].map((num) => (
               <div key={num} className="flex items-center">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
@@ -290,9 +262,9 @@ export default function SetupPage() {
                 >
                   {num}
                 </div>
-                {num < 3 && (
+                {num < 4 && (
                   <div
-                    className={`w-16 h-1 mx-2 ${
+                    className={`w-12 h-1 mx-2 ${
                       num < step ? "bg-red-600" : "bg-gray-700"
                     }`}
                   />
@@ -302,7 +274,7 @@ export default function SetupPage() {
           </div>
           <div className="flex justify-center mt-2">
             <span className="text-gray-400 text-sm">
-              Step {step} of 3
+              Step {step} of 4
             </span>
           </div>
         </div>
@@ -324,7 +296,7 @@ export default function SetupPage() {
                     onChange={(e) =>
                       setFormData({ ...formData, leagueName: e.target.value })
                     }
-                    className="bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2"
+                    className=" !bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2"
                     placeholder="My Fantasy League"
                   />
                 </div>
@@ -338,7 +310,7 @@ export default function SetupPage() {
                       setFormData({ ...formData, platform: value as "espn" })
                     }
                   >
-                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                    <SelectTrigger className="w-full !bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -372,7 +344,7 @@ export default function SetupPage() {
                         setEspnData(null);
                         setEspnError(null);
                       }}
-                      className="flex-1 bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600"
+                      className="flex-1 !bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600"
                       placeholder="123456789"
                     />
                     <Button
@@ -420,7 +392,7 @@ export default function SetupPage() {
                           type="text"
                           value={authData.espnS2}
                           onChange={(e) => setAuthData({ ...authData, espnS2: e.target.value })}
-                          className="w-full bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
+                          className="w-full !bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
                           placeholder="AEB..."
                         />
                       </div>
@@ -432,7 +404,7 @@ export default function SetupPage() {
                           type="text"
                           value={authData.swid}
                           onChange={(e) => setAuthData({ ...authData, swid: e.target.value })}
-                          className="w-full bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
+                          className="w-full !bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
                           placeholder="{...}"
                         />
                       </div>
@@ -677,22 +649,105 @@ export default function SetupPage() {
             </div>
           )}
 
+          {step === 4 && (
+            <div>
+              <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+                <CreditCard className="w-6 h-6 mr-2" />
+                Payment & League Creation
+              </h2>
+
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-red-900/50 to-gray-800/50 border border-red-500/30 p-6 rounded-lg">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-white mb-2">
+                        Fantasy League: {formData.leagueName}
+                      </h3>
+                      <p className="text-gray-300 text-sm">
+                        Full season access for {new Date().getFullYear()} + AI-generated content
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl font-bold text-white">$99.99</div>
+                      <div className="text-sm text-gray-400">one-time payment</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center text-green-400">
+                        <Check className="w-4 h-4 mr-2" />
+                        <span className="text-sm">Full season league access</span>
+                      </div>
+                      <div className="flex items-center text-green-400">
+                        <Check className="w-4 h-4 mr-2" />
+                        <span className="text-sm">1,000 credits for AI content</span>
+                      </div>
+                      <div className="flex items-center text-green-400">
+                        <Check className="w-4 h-4 mr-2" />
+                        <span className="text-sm">Weekly recaps & previews</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center text-green-400">
+                        <Check className="w-4 h-4 mr-2" />
+                        <span className="text-sm">Trade analysis & power rankings</span>
+                      </div>
+                      <div className="flex items-center text-green-400">
+                        <Check className="w-4 h-4 mr-2" />
+                        <span className="text-sm">Custom team roasts & content</span>
+                      </div>
+                      <div className="flex items-center text-green-400">
+                        <Check className="w-4 h-4 mr-2" />
+                        <span className="text-sm">League members get 100 bonus credits</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-600 pt-4">
+                    <p className="text-xs text-gray-400">
+                      Secure payment processed by Stripe • Cancel anytime • 30-day money-back guarantee
+                    </p>
+                  </div>
+                </div>
+
+                {paymentError && (
+                  <div className="bg-red-900/50 border border-red-500 p-4 rounded-lg flex items-start">
+                    <AlertCircle className="w-5 h-5 text-red-400 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-red-200 text-sm font-medium">Payment Error</p>
+                      <p className="text-red-300 text-sm mt-1">{paymentError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-blue-900/50 border border-blue-500 p-4 rounded-lg">
+                  <p className="text-blue-200 text-sm">
+                    🚀 <strong>What happens next?</strong> After payment, we&apos;ll create your league, sync all ESPN data, 
+                    and grant you 1,000 credits. Your league members will receive join invitations with 100 bonus credits each.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-between mt-8">
             <Button
               onClick={handleBack}
-              disabled={step === 1}
+              disabled={step === 1 || isProcessingPayment || isSubmitting}
               variant="secondary"
               className="bg-gray-700 hover:bg-gray-600"
             >
               Back
             </Button>
             
-            {step < 3 ? (
+            {step < 4 ? (
               <Button
                 onClick={handleNext}
                 disabled={
                   (step === 1 && !formData.leagueName) ||
-                  (step === 2 && !formData.externalId)
+                  (step === 2 && !formData.externalId) ||
+                  (step === 3 && !espnData)
                 }
                 className="bg-red-600 hover:bg-red-700"
               >
@@ -700,11 +755,21 @@ export default function SetupPage() {
               </Button>
             ) : (
               <Button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="bg-red-600 hover:bg-red-700"
+                onClick={handlePayment}
+                disabled={isProcessingPayment || !user}
+                className="bg-green-600 hover:bg-green-700 text-lg px-8 py-3 font-bold"
               >
-                {isSubmitting ? "Creating League & Syncing Data..." : "Create League"}
+                {isProcessingPayment ? (
+                  <>
+                    <CreditCard className="w-5 h-5 mr-2 animate-pulse" />
+                    Processing Payment...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-5 h-5 mr-2" />
+                    Pay $99.99 & Create League
+                  </>
+                )}
               </Button>
             )}
           </div>
@@ -723,6 +788,12 @@ export default function SetupPage() {
                   <span className="text-green-400">✓ Complete</span>
                 )}
               </div>
+            </div>
+          )}
+
+          {syncProgress && syncProgress.percentage < 100 && (
+            <div className="mt-3 bg-blue-900/50 border border-blue-500 p-3 rounded-md text-blue-100 text-xs">
+              ⏱️ This sync can take up to 5 minutes depending on your league size.
             </div>
           )}
         </div>

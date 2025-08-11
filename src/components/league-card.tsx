@@ -18,7 +18,8 @@ interface LeagueCardProps {
     };
     subscription: {
       tier: string;
-      creditsRemaining: number;
+        status?: string;
+        paymentStatus?: "pending" | "completed" | "failed";
     };
     role: "commissioner" | "member";
   };
@@ -73,17 +74,22 @@ export function LeagueCard({ league }: LeagueCardProps) {
           </div>
         </div>
         
-        <div className="text-right">
-          <div className="text-sm text-gray-400">Credits</div>
-          <div className="text-lg font-bold text-white">
-            {league.subscription.creditsRemaining}
+        {!(league.subscription.status === "paid") && (
+          <div className="text-right">
+            <div className="text-sm text-gray-400">Status</div>
+            <div className="text-lg font-bold text-white capitalize">
+              {league.subscription.paymentStatus || "pending"}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="flex justify-between items-center">
         <div className="text-sm text-gray-400">
           Subscription: <span className="capitalize text-white">{league.subscription.tier}</span>
+          {league.subscription.status === "paid" && (
+            <span className="ml-2 text-green-400">(active)</span>
+          )}
         </div>
         
         <div className="flex gap-2">

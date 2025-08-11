@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 // Generate a secure random token for invitations
 function generateInviteToken(): string {
@@ -278,6 +279,7 @@ export const claimInvitation = mutation({
       seasonId: invitation.seasonId,
       userId: identity.subject,
       status: "active",
+      credits: 0,
       createdAt: Date.now(),
     });
     
@@ -287,6 +289,7 @@ export const claimInvitation = mutation({
       seasonId: invitation.seasonId,
       userId: identity.subject,
       status: "active",
+      credits: 0, // Initialize with 0 credits
       createdAt: Date.now(),
     });
 
@@ -331,6 +334,34 @@ export const claimInvitation = mutation({
     }
     
     console.log("✅ Team claim verified:", verifyTeamClaim._id);
+
+    // Grant join bonus credits (100) for members
+    try {
+      // Avoid double-grant by checking if a credit transaction already exists
+      const existingJoinCredit = await ctx.db
+        .query("creditTransactions")
+        .withIndex("by_league", (q) => q.eq("leagueId", invitation.leagueId))
+        .filter((q) => q.eq(q.field("userId"), identity.subject))
+        .filter((q) => q.eq(q.field("type"), "earned"))
+        .filter((q) => q.eq(q.field("description"), "League join bonus - 100 credits"))
+        .first();
+
+      if (!existingJoinCredit) {
+        // Grant 100 credits to the joining user
+        await ctx.runMutation(internal.credits.grantCredits, {
+          userId: identity.subject,
+          amount: 100,
+          type: "earned",
+          description: "League join bonus - 100 credits",
+          leagueId: invitation.leagueId,
+        });
+        console.log("✅ Granted 100 join bonus credits to:", identity.subject);
+      } else {
+        console.log("ℹ️ Join bonus already granted for user in this league");
+      }
+    } catch (e) {
+      console.error("Failed to grant join credits:", e);
+    }
 
     console.log("🎉 Invitation claimed successfully! Returning league ID:", invitation.leagueId);
     return invitation.leagueId;

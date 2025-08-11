@@ -67,8 +67,8 @@ export default function Home() {
                   </SignInButton>
                   <SignUpButton>
                     <Button className="bg-red-600 hover:bg-red-700 shadow-lg text-sm sm:text-base px-3 sm:px-4">
-                      <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
-                      <span className="hidden sm:inline ml-2">Get Started</span>
+                      <Sparkles className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline">Join Beta</span>
                       <span className="sm:hidden">Start</span>
                     </Button>
                   </SignUpButton>
@@ -278,7 +278,7 @@ export default function Home() {
                     <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-red-400" />
                   </div>
                   <h2 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white mb-3 sm:mb-4 px-2 sm:px-0">
-                    Ready to Join the Beta Revolution?
+                    Ready to Join the FFSN Revolution?
                   </h2>
                   <p className="text-base sm:text-lg lg:text-xl text-gray-300 mb-6 sm:mb-8 px-2 sm:px-0">
                     Be among the first to experience the future of fantasy football. Join our exclusive beta and help shape the platform that&apos;s revolutionizing fantasy leagues everywhere.

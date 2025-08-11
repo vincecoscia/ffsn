@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { internal } from "./_generated/api";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -126,8 +127,33 @@ export const claimTeam = mutation({
       seasonId: args.seasonId,
       userId: identity.subject,
       status: "active",
+      credits: 0, // Initialize with 0 credits
       createdAt: Date.now(),
     });
+
+    // Grant 100 credits to members when they claim a team
+    try {
+      // Avoid double-grant for this league/user combination
+      const existingJoinCredit = await ctx.db
+        .query("creditTransactions")
+        .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+        .filter((q) => q.eq(q.field("userId"), identity.subject))
+        .filter((q) => q.eq(q.field("type"), "earned"))
+        .filter((q) => q.eq(q.field("description"), "League join bonus - 100 credits"))
+        .first();
+
+      if (!existingJoinCredit) {
+        await ctx.runMutation(internal.credits.grantCredits, {
+          userId: identity.subject,
+          amount: 100,
+          type: "earned",
+          description: "League join bonus - 100 credits",
+          leagueId: args.leagueId,
+        });
+      }
+    } catch (e) {
+      console.error("Failed to grant join credits on claim:", e);
+    }
 
     return claimId;
   },
