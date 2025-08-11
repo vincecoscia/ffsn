@@ -21,6 +21,7 @@ import {
 
 export default function Home() {
   // useAuthSync(); // Ensure user is synced between Clerk and Convex
+  const basePrice = 99.99;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900 relative overflow-hidden">
@@ -97,7 +98,7 @@ export default function Home() {
           <div className="max-w-5xl mx-auto">
             <div className="mb-6 sm:mb-8 flex flex-col items-center gap-3 sm:gap-4">
               <Badge className="bg-orange-600/20 text-orange-300 border-orange-600/30 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold">
-                🚀 NOW IN BETA - EARLY ACCESS
+                🚀 NOW IN BETA - USE CODE "BETA50" FOR 50% OFF DURING CHECKOUT
               </Badge>
               <Badge className="bg-red-600/20 text-red-300 border-red-600/30 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm">
                 <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
@@ -125,15 +126,10 @@ export default function Home() {
                 <SignUpButton>
                   <Button size="lg" className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-bold shadow-2xl hover:shadow-red-500/25 transition-all transform hover:scale-105">
                     <Zap className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    Join Beta - Free Access
+                    Join Beta!
                     <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-2" />
                   </Button>
                 </SignUpButton>
-                <SignInButton>
-                  <Button variant="outline" size="lg" className="w-full sm:w-auto border-gray-600 text-gray-300 hover:bg-white/10 hover:text-white px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg">
-                    View Demo
-                  </Button>
-                </SignInButton>
               </SignedOut>
               
               <SignedIn>
@@ -150,7 +146,7 @@ export default function Home() {
             <div className="flex flex-wrap justify-center gap-4 sm:gap-8 text-xs sm:text-sm text-gray-400 px-4 sm:px-0">
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
-                <span>Free Beta Access</span>
+                <span>Beta Access</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
@@ -158,7 +154,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
-                <span>Early Adopter Benefits</span>
+                <span>Early Adopter Discount</span>
               </div>
             </div>
           </div>
@@ -268,6 +264,63 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Pricing Section */}
+        <section id="pricing" className="container mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-20">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-10 sm:mb-14">
+              <Badge className="bg-green-600/20 text-green-300 border-green-600/30 mb-4 sm:mb-6 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm">
+                Simple Pricing
+              </Badge>
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white mb-3 sm:mb-4">
+                One Price. One League.
+              </h2>
+              <p className="text-base sm:text-lg text-gray-300">
+                $99.99 for a single league — use code <span className="font-semibold text-white">BETA50</span> for 50% off during beta.
+              </p>
+            </div>
+
+            <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50">
+              <CardContent className="p-6 sm:p-8">
+                <div className="flex flex-col md:flex-row items-stretch gap-6 sm:gap-8">
+                  {/* Price */}
+                  <div className="flex-1 text-center md:text-left">
+                    <div className="mb-2 text-gray-300 uppercase tracking-wide text-xs sm:text-sm">Single League</div>
+                    <div className="flex items-end justify-center md:justify-start gap-3">
+                      <div className="text-4xl sm:text-5xl lg:text-6xl font-black text-white">
+                        ${basePrice.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-gray-400 text-sm sm:text-base">Use code BETA50 at checkout to save 50%.</div>
+                  </div>
+
+                  {/* Promo / CTA */}
+                  <div className="flex-1">
+                    <div className="">
+                      <SignedOut>
+                        <SignUpButton>
+                          <Button className="w-full bg-red-600 hover:bg-red-700">
+                            Get Started
+                            <ArrowRight className="h-4 w-4 ml-2" />
+                          </Button>
+                        </SignUpButton>
+                      </SignedOut>
+                      <SignedIn>
+                        <Link href="/dashboard/credits" className="block">
+                          <Button className="w-full bg-red-600 hover:bg-red-700">
+                            Purchase Credits
+                            <ArrowRight className="h-4 w-4 ml-2" />
+                          </Button>
+                        </Link>
+                      </SignedIn>
+                      <p className="text-xs text-gray-400 mt-2">Coupon applied during checkout. One license covers your whole league.</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
         {/* CTA Section */}
         <section className="container mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-20">
           <div className="max-w-4xl mx-auto text-center">
@@ -289,7 +342,7 @@ export default function Home() {
                   <SignUpButton>
                     <Button size="lg" className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-8 sm:px-12 py-3 sm:py-4 text-lg sm:text-xl font-bold shadow-2xl hover:shadow-red-500/25 transition-all transform hover:scale-105">
                       <Zap className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                      Join Beta Now - Free
+                      Join Beta Now
                       <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6 ml-2" />
                     </Button>
                   </SignUpButton>
@@ -306,7 +359,7 @@ export default function Home() {
                 </SignedIn>
                 
                 <p className="text-xs sm:text-sm text-gray-400 mt-4 sm:mt-6 px-2 sm:px-0">
-                  Free beta access • No credit card required • Help shape the future of fantasy football
+                  Beta access • Help shape the future of fantasy football
                 </p>
               </CardContent>
             </Card>

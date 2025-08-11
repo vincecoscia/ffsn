@@ -8,6 +8,7 @@ import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { useAuthSync } from "@/hooks/use-auth-sync";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Zap, Users, TrendingUp } from "lucide-react";
 
@@ -75,6 +76,12 @@ export default function Dashboard() {
               <TrendingUp className="h-4 w-4" />
               <span>Dashboard</span>
             </div>
+            <Button asChild size="sm" variant="secondary">
+              <Link href="/dashboard/credits" className="cursor-pointer">
+                <Zap className="h-4 w-4" />
+                Buy credits
+              </Link>
+            </Button>
             <UserButton />
           </div>
         </div>

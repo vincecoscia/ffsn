@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-import { Zap, CreditCard, History, Plus, AlertCircle, Check } from "lucide-react";
+import { Zap, CreditCard, History, Plus, AlertCircle, Check, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 const CREDIT_PACKAGES = [
   {
@@ -99,8 +100,18 @@ export default function CreditsPage() {
   };
 
   return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900">
     <div className="container mx-auto px-6 py-8 max-w-6xl">
       <div className="mb-8">
+
+        <div className="flex justify-between items-center">
+        <Button variant="secondary" className="mb-4 !bg-gray-700 !hover:bg-gray-600 text-white flex items-center">
+          <Link href="/dashboard" className="text-white flex items-center">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Dashboard
+          </Link>
+        </Button>
+        </div>
         <h1 className="text-3xl font-bold text-white mb-2 flex items-center">
           <Zap className="w-8 h-8 mr-3 text-yellow-400" />
           Credits
@@ -292,8 +303,9 @@ export default function CreditsPage() {
               <p className="text-gray-400">No credit transactions yet</p>
             </div>
           )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

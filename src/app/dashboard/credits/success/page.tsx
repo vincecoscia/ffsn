@@ -175,13 +175,6 @@ function CreditsPurchaseSuccessContent() {
             Go to Dashboard
           </Button>
           
-          <Button 
-            onClick={() => router.push("/dashboard/credits")}
-            variant="outline"
-            className="w-full"
-          >
-            View Credit Balance
-          </Button>
         </div>
       </main>
     </div>
