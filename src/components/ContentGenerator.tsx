@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { TradeRumorDialog, type TradeRumorData } from "./TradeRumorDialog";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -64,9 +65,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
+  const [showTradeRumorDialog, setShowTradeRumorDialog] = useState(false);
+
 
   const createGenerationRequest = useMutation(api.aiContent.createGenerationRequest);
   const completedWeeks = useQuery(api.matchups.getCompletedWeeks, { leagueId });
+  const currentUserTeam = useQuery(api.teams.getCurrentUserTeam, { leagueId });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -113,6 +117,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   }, [contentType, completedWeeks, form]);
 
   const handleGenerate = async (values: z.infer<typeof formSchema>) => {
+    // If it's a trade rumor, show the dialog first
+    if (values.contentType === "trade_rumor_mill") {
+      setShowTradeRumorDialog(true);
+      return;
+    }
+    
     setIsGenerating(true);
     try {
       await createGenerationRequest({
@@ -132,6 +142,55 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       form.reset();
     } catch (error) {
       toast.error("Failed to generate content", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleTradeRumorConfirm = async (rumorData: TradeRumorData) => {
+    setIsGenerating(true);
+
+    
+    try {
+      // Build context string for the trade rumor
+      const contextParts = [];
+      
+      if (rumorData.rumorType === "my_trade") {
+        contextParts.push("Rumor source wants to trade their player(s).");
+      } else {
+        contextParts.push("Rumor about another team's trade offer.");
+      }
+      
+      if (rumorData.targetTeamId) {
+        contextParts.push(`Offering team ID: ${rumorData.targetTeamId}`);
+      }
+      
+      contextParts.push(`Players involved: ${rumorData.playersInvolved.join(", ")}`);
+      
+      if (rumorData.additionalContext) {
+        contextParts.push(`Additional context: ${rumorData.additionalContext}`);
+      }
+      
+      await createGenerationRequest({
+        leagueId,
+        type: "trade_rumor_mill",
+        persona: "vinny-marinara", // Always use Vinny for trade rumors
+        customContext: contextParts.join(" | "),
+        tradeRumorData: rumorData, // Pass the structured data
+      });
+
+      toast.success("Trade rumor leaked!", {
+        description: "Vinny is working on spreading the word...",
+      });
+
+      // Reset form and dialog state
+      form.reset();
+
+      setShowTradeRumorDialog(false);
+    } catch (error) {
+      toast.error("Failed to leak trade rumor", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
@@ -228,6 +287,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                           <div className="flex items-center justify-between w-full">
                             <span>Emergency Hot Takes</span>
                             <Badge variant="secondary" className="ml-2">5 credits</Badge>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="trade_rumor_mill">
+                          <div className="flex items-center justify-between w-full">
+                            <span>Trade Rumor Leak</span>
+                            <Badge variant="secondary" className="ml-2">8 credits</Badge>
                           </div>
                         </SelectItem>
                       </SelectGroup>
@@ -483,6 +548,11 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
                   Generating Content...
                 </>
+              ) : form.watch("contentType") === "trade_rumor_mill" ? (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Configure Trade Rumor
+                </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
@@ -493,6 +563,15 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
           </form>
         </Form>
       </CardContent>
+      
+      {/* Trade Rumor Dialog */}
+      <TradeRumorDialog
+        open={showTradeRumorDialog}
+        onOpenChange={setShowTradeRumorDialog}
+        leagueId={leagueId}
+        currentTeamId={currentUserTeam?._id}
+        onConfirm={handleTradeRumorConfirm}
+      />
     </Card>
   );
 }

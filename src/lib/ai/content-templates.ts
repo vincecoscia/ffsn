@@ -342,6 +342,35 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     This affects {affectedTeams} and changes the outlook for {affectedPlayers}. 
     Immediate fantasy implications: {fantasyImpact}.`
   },
+  "trade_rumor_mill": {
+    id: "trade_rumor_mill",
+    name: "Trade Rumor Leak",
+    description: "Vinny 'The Sauce' shares mysterious insider information about potential trades",
+    creditCost: 8,
+    estimatedWords: 700,
+    requiredData: ["trade_details"],
+    optionalData: ["team_needs", "player_performance"],
+    sections: [
+      {
+        name: "the_whispers",
+        description: "Setting up the mysterious source and rumor",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "trade_details",
+        description: "The juicy details about who's involved",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "league_implications",
+        description: "How this could shake up the league",
+        required: true,
+        wordCount: 200
+      }
+    ]
+  },
 
   "mid_season_awards": {
     id: "mid_season_awards",

@@ -288,6 +288,13 @@ export const getLeagueDataForAI = query({
         },
       }));
     
+    // Debug roster availability
+    console.log("Team roster check:", {
+      totalTeams: teams.length,
+      teamsWithRosters: teams.filter(t => t.roster && t.roster.length > 0).length,
+      firstTeamRosterSize: teams[0]?.roster?.length || 0
+    });
+    
     // Enhance team data with calculated metrics
     const enhancedTeams = teams.map(team => {
       // Transform matchups for calculations
@@ -319,6 +326,43 @@ export const getLeagueDataForAI = query({
       const standing = standings.find(s => s.teamId === team.externalId);
       const playoffSeed = standing?.playoffSeed || standing?.rank;
       
+      // Enrich roster with player stats from playersEnhanced
+      const enrichedRoster = team.roster.map((rosterPlayer: any) => {
+        // Find the enhanced player data
+        const enhancedPlayer = playersEnhanced.find((p: any) => 
+          p.espnId === rosterPlayer.playerId && p.season === currentSeason
+        );
+        
+        // Get stats from playerStats if available
+        const playerStats = enhancedPlayer ? {
+          seasonStats: {
+            appliedTotal: enhancedPlayer.actualStats?.["120"] || 0, // Total fantasy points
+            projectedTotal: enhancedPlayer.projectedStats?.["120"] || 0,
+            averagePoints: (enhancedPlayer.actualStats?.["102"] || 0) > 0 
+              ? (enhancedPlayer.actualStats?.["120"] || 0) / (enhancedPlayer.actualStats?.["102"] || 1)
+              : 0,
+            gamesPlayed: enhancedPlayer.actualStats?.["102"] || 0,
+          },
+          recentPerformance: {
+            avgPoints: 0, // Would need to calculate from recent games
+            trend: "stable" as const,
+          }
+        } : null;
+        
+        return {
+          ...rosterPlayer,
+          playerId: rosterPlayer.playerId, // This is the ESPN ID
+          espnId: rosterPlayer.playerId, // Make it clear this is ESPN ID
+          fullName: enhancedPlayer?.fullName || rosterPlayer.playerName,
+          playerName: enhancedPlayer?.fullName || rosterPlayer.playerName,
+          position: enhancedPlayer?.defaultPosition || rosterPlayer.position,
+          team: enhancedPlayer?.proTeamAbbrev || rosterPlayer.team,
+          injured: enhancedPlayer?.injured || false,
+          injuryStatus: enhancedPlayer?.injuryStatus,
+          stats: playerStats,
+        };
+      });
+      
       return {
         id: team._id,
         name: team.name,
@@ -326,7 +370,7 @@ export const getLeagueDataForAI = query({
         logo: team.logo,
         abbreviation: team.abbreviation,
         record: team.record,
-        roster: team.roster,
+        roster: enrichedRoster,
         playoffSeed,
         strengthOfSchedule,
         recentForm,

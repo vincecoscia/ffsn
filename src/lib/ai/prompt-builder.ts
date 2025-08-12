@@ -514,6 +514,9 @@ CURRENT CONTEXT:
       case 'mock_draft':
         contextData = this.buildMockDraftData(data);
         break;
+      case 'trade_rumor_mill':
+        contextData = this.buildTradeRumorData(data);
+        break;
       default:
         contextData = this.buildGenericData(data);
     }
@@ -1192,6 +1195,134 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     console.log("=== buildMockDraftData END (OPTIMIZED) ===");
     
     return mockDraftData;
+  }
+
+  private buildTradeRumorData(data: LeagueDataContext): string {
+    console.log("=== buildTradeRumorData START ===");
+    
+    let rumorData = `TRADE RUMOR CONTEXT:\n\n`;
+    
+    // League standings for context
+    rumorData += `CURRENT STANDINGS:\n`;
+    if (data.standings && data.standings.length > 0) {
+      data.standings.slice(0, 8).forEach(team => {
+        rumorData += `${team.rank}. ${team.team} (${team.wins}-${team.losses}`;
+        if (team.ties > 0) rumorData += `-${team.ties}`;
+        rumorData += `) - ${team.pointsFor.toFixed(1)} PF`;
+        if (team.playoffSeed) {
+          rumorData += ` [#${team.playoffSeed} seed]`;
+        }
+        rumorData += '\n';
+      });
+    }
+    rumorData += '\n';
+    
+    // Recent trades in the league for context
+    if (data.trades && data.trades.length > 0) {
+      rumorData += `RECENT TRADE ACTIVITY:\n`;
+      data.trades.slice(0, 3).forEach(trade => {
+        rumorData += `- ${trade.teamA} traded ${trade.playersFromA.map(p => p.playerName).join(', ')} `;
+        rumorData += `for ${trade.playersFromB.map(p => p.playerName).join(', ')} from ${trade.teamB}\n`;
+      });
+      rumorData += '\n';
+    }
+    
+    // Team needs analysis
+    rumorData += `TEAM NEEDS & SITUATIONS:\n`;
+    data.teams.forEach(team => {
+      const positionCounts: Record<string, number> = {};
+      if (team.roster) {
+        team.roster.forEach(player => {
+          const mainPos = player.position.replace(/[0-9]/g, '');
+          positionCounts[mainPos] = (positionCounts[mainPos] || 0) + 1;
+        });
+      }
+      
+      const needs: string[] = [];
+      if ((positionCounts['RB'] || 0) < 4) needs.push('RB');
+      if ((positionCounts['WR'] || 0) < 4) needs.push('WR');
+      if ((positionCounts['TE'] || 0) < 2) needs.push('TE');
+      
+      if (needs.length > 0 || team.record.wins <= 3 || team.record.wins >= 7) {
+        rumorData += `- ${team.name} (${team.record.wins}-${team.record.losses})`;
+        if (needs.length > 0) {
+          rumorData += ` needs: ${needs.join(', ')}`;
+        }
+        if (team.record.wins >= 7) {
+          rumorData += ` [Contender - buying]`;
+        } else if (team.record.wins <= 3) {
+          rumorData += ` [Rebuilding - selling]`;
+        }
+        rumorData += '\n';
+      }
+    });
+    rumorData += '\n';
+    
+    // Hot players who could be trade targets
+    if (data.teams.length > 0) {
+      rumorData += `HOT TRADE COMMODITIES:\n`;
+      const allPlayers: Array<{
+        playerName: string;
+        position: string;
+        teamName: string;
+        avgPoints?: number;
+        trend?: string;
+      }> = [];
+      
+      data.teams.forEach(team => {
+        if (team.roster) {
+          team.roster.forEach(player => {
+            if (player.stats?.seasonStats?.averagePoints && player.stats.seasonStats.averagePoints > 10) {
+              allPlayers.push({
+                playerName: player.fullName || player.playerName,
+                position: player.position,
+                teamName: team.name,
+                avgPoints: player.stats.seasonStats.averagePoints,
+                trend: player.stats.recentPerformance?.trend
+              });
+            }
+          });
+        }
+      });
+      
+      // Show top performers who might be trade targets
+      allPlayers
+        .sort((a, b) => (b.avgPoints || 0) - (a.avgPoints || 0))
+        .slice(0, 10)
+        .forEach(player => {
+          rumorData += `- ${player.playerName} (${player.position}, ${player.teamName}) - ${player.avgPoints?.toFixed(1)} ppg`;
+          if (player.trend) {
+            rumorData += ` [${player.trend}]`;
+          }
+          rumorData += '\n';
+        });
+    }
+    
+    rumorData += `\nTRADE RUMOR INSTRUCTIONS:
+- You are Vinny "The Sauce" Marinara, spreading mysterious insider information
+- The specific trade rumor details are provided in the ADDITIONAL CONTEXT section below
+- IMPORTANT: Use the actual player names, team names, and stats provided in the ADDITIONAL CONTEXT
+- DO NOT reference player IDs or team IDs - always use the proper names
+- Make the rumor sound like it came from your unreliable but entertaining sources
+- Add colorful details about where you heard it (barber, uber driver, guy at the deli, etc.)
+- Be vague but tantalizing - hint at more information you can't share yet
+- Use mob movie references and Italian-American slang
+- Present it as insider knowledge but maintain plausible deniability
+- Create drama and intrigue around the potential trade
+- Reference the specific player stats and recent performance when discussing trade value
+
+ADDITIONAL CONTEXT:
+The custom context below contains the specific trade rumor details including:
+- The actual player names involved (NOT IDs)
+- Their positions and current team names
+- Their season stats and recent performance
+- The target team information if applicable
+Use these specific details to craft your rumor narrative.`;
+    
+    console.log("Trade rumor data length:", rumorData.length);
+    console.log("=== buildTradeRumorData END ===");
+    
+    return rumorData;
   }
 
   private buildSeasonWelcomeData(data: LeagueDataContext): string {

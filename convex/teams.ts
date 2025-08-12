@@ -31,6 +31,37 @@ export const getByLeague = query({
   },
 });
 
+export const getTeamsByLeague = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .collect();
+    
+    return teams;
+  },
+});
+
+export const getCurrentUserTeam = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    
+    const userId = identity.subject;
+    
+    // Find team owned by current user in this league
+    const team = await ctx.db
+      .query("teams")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => q.eq(q.field("owner"), userId))
+      .first();
+    
+    return team;
+  },
+});
+
 export const getByLeagueAndSeason = query({
   args: { 
     leagueId: v.id("leagues"),

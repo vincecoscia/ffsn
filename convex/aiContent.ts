@@ -174,6 +174,12 @@ export const createGenerationRequest = mutation({
     customContext: v.optional(v.string()),
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
+    tradeRumorData: v.optional(v.object({
+      rumorType: v.union(v.literal("my_trade"), v.literal("other_offer")),
+      targetTeamId: v.optional(v.id("teams")),
+      playersInvolved: v.array(v.string()), // Player IDs as strings from roster
+      additionalContext: v.optional(v.string()),
+    })),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -232,6 +238,7 @@ export const createGenerationRequest = mutation({
       userId: identity.subject,
       seasonId: args.seasonId,
       week: args.week,
+      tradeRumorData: args.tradeRumorData,
     });
 
     return articleId;
@@ -335,6 +342,12 @@ export const generateContentAction = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     scheduledContentId: v.optional(v.id("scheduledContent")),
+    tradeRumorData: v.optional(v.object({
+      rumorType: v.union(v.literal("my_trade"), v.literal("other_offer")),
+      targetTeamId: v.optional(v.id("teams")),
+      playersInvolved: v.array(v.string()), // Player IDs as strings from roster
+      additionalContext: v.optional(v.string()),
+    })),
   },
   handler: async (ctx, args) => {
     console.log("=== generateContentAction START (OPTIMIZED) ===");
@@ -379,6 +392,149 @@ export const generateContentAction = internalAction({
 
       console.log("Calling AI generation service...");
       
+      // Enrich trade rumor data if present
+      let enrichedCustomContext = args.customContext;
+      
+      console.log("Trade rumor data check:", {
+        hasTradeRumorData: !!args.tradeRumorData,
+        contentType: args.contentType,
+        playersInvolved: args.tradeRumorData?.playersInvolved || []
+      });
+      
+      if (args.tradeRumorData && args.contentType === 'trade_rumor_mill') {
+        console.log("Enriching trade rumor data...");
+        
+        // Get the full player data for the involved players
+        console.log("Processing players:", args.tradeRumorData.playersInvolved);
+        console.log("Number of teams to search:", leagueData.teams.length);
+        
+        // Debug: Log first team's roster structure
+        if (leagueData.teams.length > 0 && leagueData.teams[0].roster && leagueData.teams[0].roster.length > 0) {
+          const samplePlayer = leagueData.teams[0].roster[0];
+          console.log("Sample roster player structure:", {
+            playerId: samplePlayer.playerId,
+            espnId: samplePlayer.espnId,
+            playerName: samplePlayer.playerName || samplePlayer.fullName,
+            keys: Object.keys(samplePlayer).slice(0, 10) // First 10 keys
+          });
+        }
+        
+        const enrichedPlayers = await Promise.all(
+          args.tradeRumorData.playersInvolved.map(async (playerId) => {
+            console.log(`\n=== Looking for player with ID: "${playerId}" (type: ${typeof playerId}) ===`);
+            
+            // Find the player in the league data
+            for (const team of leagueData.teams) {
+              if (team.roster && Array.isArray(team.roster)) {
+                // Convert playerId to string for consistent comparison
+                const targetId = String(playerId).trim();
+                
+                const player = team.roster.find((p: any) => {
+                  // Convert all IDs to strings for comparison
+                  const pPlayerId = p.playerId ? String(p.playerId).trim() : '';
+                  const pEspnId = p.espnId ? String(p.espnId).trim() : '';
+                  
+                  // Check for match
+                  const matches = pPlayerId === targetId || pEspnId === targetId;
+                  
+                  if (matches) {
+                    console.log(`✓ Found match in team ${team.name}! Player:`, {
+                      playerName: p.fullName || p.playerName,
+                      playerId: p.playerId,
+                      espnId: p.espnId,
+                      position: p.position,
+                      hasStats: !!p.stats
+                    });
+                  }
+                  
+                  return matches;
+                });
+                
+                if (player) {
+                  const enrichedPlayer = {
+                    playerName: player.fullName || player.playerName,
+                    position: player.position,
+                    teamName: team.name,
+                    stats: player.stats?.seasonStats || null,
+                    recentPerformance: player.stats?.recentPerformance || null
+                  };
+                  console.log("Returning enriched player:", enrichedPlayer);
+                  return enrichedPlayer;
+                }
+              } else {
+                console.log(`Team ${team.name} has no roster or roster is not an array`);
+              }
+            }
+            
+            // If we didn't find the player, log some sample IDs from rosters to debug
+            console.log(`❌ Player ${playerId} not found in any roster`);
+            console.log("Sample player IDs from first team's roster:");
+            if (leagueData.teams[0]?.roster?.length > 0) {
+              const sampleIds = leagueData.teams[0].roster.slice(0, 3).map((p: any) => ({
+                playerId: p.playerId,
+                espnId: p.espnId,
+                name: p.playerName || p.fullName
+              }));
+              console.log(sampleIds);
+            }
+            return null;
+          })
+        );
+        
+        // Filter out any null results
+        const validPlayers = enrichedPlayers.filter(p => p !== null);
+        
+        // Get target team information if provided
+        let targetTeamInfo = null;
+        if (args.tradeRumorData.targetTeamId) {
+          const targetTeam = leagueData.teams.find((t: any) => t.id === args.tradeRumorData!.targetTeamId);
+          if (targetTeam) {
+            targetTeamInfo = {
+              teamName: targetTeam.name,
+              record: targetTeam.record,
+              standing: targetTeam.standing
+            };
+          }
+        }
+        
+        // Build enriched context with better formatting
+        let tradeRumorContext = `${args.customContext || ''}
+
+TRADE RUMOR DETAILS:
+Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to trade their player(s)' : 'Manager received trade offer'}
+`;
+
+        if (targetTeamInfo) {
+          tradeRumorContext += `Target Team: ${targetTeamInfo.teamName} (${targetTeamInfo.record.wins}-${targetTeamInfo.record.losses})\n`;
+        }
+
+        if (validPlayers.length > 0) {
+          tradeRumorContext += `\nPlayers Involved:\n`;
+          validPlayers.forEach((player, idx) => {
+            tradeRumorContext += `${idx + 1}. ${player.playerName} - ${player.position} (${player.teamName})\n`;
+            if (player.stats) {
+              tradeRumorContext += `   Stats: ${player.stats.appliedTotal.toFixed(1)} total pts, ${player.stats.averagePoints.toFixed(1)} PPG\n`;
+            }
+          });
+        } else {
+          // Fallback if no players were enriched - use IDs
+          tradeRumorContext += `\nPlayers Involved (IDs): ${args.tradeRumorData.playersInvolved.join(', ')}\n`;
+        }
+
+        if (args.tradeRumorData.additionalContext) {
+          tradeRumorContext += `\nAdditional Context: ${args.tradeRumorData.additionalContext}\n`;
+        }
+
+        enrichedCustomContext = tradeRumorContext;
+        
+        console.log("Trade rumor enriched with player data:", {
+          playersFound: validPlayers.length,
+          targetTeam: targetTeamInfo?.teamName || 'N/A',
+          contextLength: enrichedCustomContext.length
+        });
+        console.log("Final enriched context preview:", enrichedCustomContext.substring(0, 500));
+      }
+      
       // Call AI generation service
       const generatedContent = await generateAIContent({
         leagueId: args.leagueId,
@@ -386,7 +542,7 @@ export const generateContentAction = internalAction({
         persona: args.persona,
         // Use prepared data for season_welcome; fallback to enriched
         leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
-        customContext: args.customContext,
+        customContext: enrichedCustomContext,
         userId: args.userId,
       }, apiKey);
       

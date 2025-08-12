@@ -282,7 +282,7 @@ export const contentTypePersonaMap: Record<string, string[]> = {
   "championship_manifesto": ["chad-thunderhype"],
   "season_recap": ["mel-diaper"],
   "hall_of_shame": ["rick-two-beers"],
-  "custom_roast": ["user-choice"],
+  "custom_roast": ["any"],
   "trade_rumor_mill": ["vinny-marinara"],
   "player_glazing": ["chad-thunderhype"],
   "emergency_hot_takes": ["mel-diaper"],

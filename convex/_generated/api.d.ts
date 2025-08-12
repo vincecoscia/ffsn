@@ -39,6 +39,7 @@ import type * as payments from "../payments.js";
 import type * as playerHistoricalSync from "../playerHistoricalSync.js";
 import type * as playerSync from "../playerSync.js";
 import type * as playerSyncInternal from "../playerSyncInternal.js";
+import type * as players from "../players.js";
 import type * as rivalries from "../rivalries.js";
 import type * as stripe from "../stripe.js";
 import type * as teamClaims from "../teamClaims.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   playerHistoricalSync: typeof playerHistoricalSync;
   playerSync: typeof playerSync;
   playerSyncInternal: typeof playerSyncInternal;
+  players: typeof players;
   rivalries: typeof rivalries;
   stripe: typeof stripe;
   teamClaims: typeof teamClaims;
