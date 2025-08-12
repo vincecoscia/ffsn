@@ -367,6 +367,78 @@ export default function Home() {
         </section>
       </main>
       
+      {/* Footer */}
+      <footer className="relative z-10 border-t border-gray-700/30 bg-gray-900/50 backdrop-blur-md mt-20">
+        <div className="container mx-auto px-4 sm:px-6 py-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Brand */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-1.5 bg-red-600/20 rounded-lg">
+                  <img
+                    src="/FFSN.png"
+                    alt="FFSN Logo"
+                    className="h-6 w-auto"
+                  />
+                </div>
+                <h3 className="text-lg font-bold text-white">FFSN</h3>
+              </div>
+              <p className="text-sm text-gray-400">
+                Your AI-powered fantasy football companion
+              </p>
+            </div>
+            
+            {/* Quick Links */}
+            <div>
+              <h4 className="text-white font-semibold mb-3">Quick Links</h4>
+              <ul className="space-y-2 text-sm">
+                <li>
+                  <Link href="/dashboard" className="text-gray-400 hover:text-white transition-colors">
+                    Dashboard
+                  </Link>
+                </li>
+                <li>
+                  <Link href="#features" className="text-gray-400 hover:text-white transition-colors">
+                    Features
+                  </Link>
+                </li>
+                <li>
+                  <Link href="#pricing" className="text-gray-400 hover:text-white transition-colors">
+                    Pricing
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            
+            {/* Legal */}
+            <div>
+              <h4 className="text-white font-semibold mb-3">Legal</h4>
+              <ul className="space-y-2 text-sm">
+                <li>
+                  <Link href="/terms" className="text-gray-400 hover:text-white transition-colors">
+                    Terms of Service
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/privacy" className="text-gray-400 hover:text-white transition-colors">
+                    Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/contact" className="text-gray-400 hover:text-white transition-colors">
+                    Contact Us
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="border-t border-gray-700/30 mt-8 pt-8 text-center text-sm text-gray-400">
+            <p>&copy; {new Date().getFullYear()} FFSN. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
+      
       {/* Custom CSS for animations */}
       <style jsx>{`
         @keyframes blob {

@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 interface AIGenerationPageProps {
   leagueId: Id<"leagues">;
@@ -142,38 +143,42 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6 sm:px-4">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         <div className="p-2 bg-red-100 rounded-lg">
           <Sparkles className="h-6 w-6 text-red-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Content Generation</h1>
-          <p className="text-gray-600">Create and manage AI-generated content for {league.name}</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">AI Content Generation</h1>
+          <p className="text-sm sm:text-base text-gray-600">Create and manage AI-generated content for {league.name}</p>
         </div>
       </div>
 
       {/* Tabs for different sections */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="generate" className="flex items-center gap-2">
+        {/* Responsive, scrollable tab list on mobile */}
+        <ScrollArea className="w-full">
+          <TabsList className="w-max inline-flex gap-2 px-1">
+            <TabsTrigger value="generate" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
             <Sparkles className="h-4 w-4" />
             Generate
-          </TabsTrigger>
-          <TabsTrigger value="generating" className="flex items-center gap-2">
+            </TabsTrigger>
+            <TabsTrigger value="generating" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
             <RotateCcw className="h-4 w-4" />
             In Progress ({generatingArticles.length})
-          </TabsTrigger>
-          <TabsTrigger value="review" className="flex items-center gap-2">
+            </TabsTrigger>
+            <TabsTrigger value="review" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
             <Eye className="h-4 w-4" />
             Review ({draftArticles.length})
-          </TabsTrigger>
-          <TabsTrigger value="published" className="flex items-center gap-2">
+            </TabsTrigger>
+            <TabsTrigger value="published" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
             <Send className="h-4 w-4" />
             Published ({publishedArticles.length})
-          </TabsTrigger>
-        </TabsList>
+            </TabsTrigger>
+          </TabsList>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
 
         {/* Generate Content Tab */}
         <TabsContent value="generate" className="space-y-6">
@@ -207,8 +212,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
           ) : (
             generatingArticles.map((article) => (
               <Card key={article._id}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         <h3 className="font-semibold">{article.title}</h3>
@@ -221,7 +226,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                         Started {new Date(article.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600" />
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 self-start md:self-auto" />
                   </div>
                 </CardContent>
               </Card>
@@ -243,8 +248,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
           ) : (
             draftArticles.map((article) => (
               <Card key={article._id}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         <h3 className="font-semibold">{article.title}</h3>
@@ -257,7 +262,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                         Generated {new Date(article.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <Button
                         variant="outline"
                         size="sm"
@@ -284,7 +289,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                   </div>
                   
                   {selectedArticle?._id === article._id && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
                       <div className="prose prose-sm max-w-none">
                         <div dangerouslySetInnerHTML={{ __html: article.content.replace(/\n/g, '<br>') }} />
                       </div>
@@ -310,8 +315,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
           ) : (
             publishedArticles.map((article) => (
               <Card key={article._id}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         <h3 className="font-semibold">{article.title}</h3>
@@ -324,7 +329,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                         Published {article.publishedAt ? new Date(article.publishedAt).toLocaleString() : "Unknown"}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <Button
                         variant="outline"
                         size="sm"
@@ -337,7 +342,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                   </div>
                   
                   {selectedArticle?._id === article._id && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
                       <div className="prose prose-sm max-w-none">
                         <div dangerouslySetInnerHTML={{ __html: article.content.replace(/\n/g, '<br>') }} />
                       </div>
@@ -362,7 +367,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
           <CardContent>
             <div className="space-y-3">
               {errorArticles.map((article) => (
-                <div key={article._id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                <div key={article._id} className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-3 bg-red-50 rounded-lg">
                   <div>
                     <p className="font-medium text-red-900">{article.title}</p>
                     <p className="text-sm text-red-700">

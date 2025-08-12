@@ -208,16 +208,16 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       <CardHeader className="text-center">
         <div className="flex items-center justify-center gap-2 mb-2">
           <Sparkles className="h-6 w-6 text-primary" />
-          <CardTitle className="text-2xl font-bold">AI Content Generator</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl font-bold">AI Content Generator</CardTitle>
         </div>
-        <CardDescription>
+        <CardDescription className="text-sm sm:text-base">
           Generate engaging fantasy football content with AI-powered personas
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-8">
+      <CardContent className="space-y-6 sm:space-y-8">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleGenerate)} className="space-y-8">
+          <form onSubmit={form.handleSubmit(handleGenerate)} className="space-y-6 sm:space-y-8">
             {/* Content Type Selection */}
             <FormField
               control={form.control}
@@ -230,109 +230,123 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                   </FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger className="h-12">
-                        <SelectValue placeholder="Choose what type of content to generate..." />
+                      <SelectTrigger className="h-11 sm:h-12 w-full sm:max-w-xs">
+                        <SelectValue placeholder="Select Content Type" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent className="max-h-[60vh] overflow-y-auto sm:min-w-[20rem]">
                       <SelectGroup>
-                        <SelectLabel>Weekly Content</SelectLabel>
-                        <SelectItem value="weekly_recap">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Weekly Recap</span>
-                            <Badge variant="secondary" className="ml-2">10 credits</Badge>
-                          </div>
+                      <SelectLabel>Weekly Content</SelectLabel>
+                        <SelectItem
+                          value="weekly_recap"
+                          textValue="Weekly Recap"
+                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
+                        >
+                          Weekly Recap
                         </SelectItem>
-                        <SelectItem value="weekly_preview">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Weekly Preview</span>
-                            <Badge variant="secondary" className="ml-2">10 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="weekly_preview"
+                          textValue="Weekly Preview"
+                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
+                        >
+                          Weekly Preview
                         </SelectItem>
-                        <SelectItem value="power_rankings">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Power Rankings</span>
-                            <Badge variant="secondary" className="ml-2">8 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="power_rankings"
+                          textValue="Power Rankings"
+                          rightAdornment={<Badge variant="secondary">8 credits</Badge>}
+                        >
+                          Power Rankings
                         </SelectItem>
-                        <SelectItem value="waiver_wire_report">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Waiver Wire Report</span>
-                            <Badge variant="secondary" className="ml-2">12 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="waiver_wire_report"
+                          textValue="Waiver Wire Report"
+                          rightAdornment={<Badge variant="secondary">12 credits</Badge>}
+                        >
+                          Waiver Wire Report
                         </SelectItem>
-                        <SelectItem value="mock_draft">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Mock Draft</span>
-                            <Badge variant="secondary" className="ml-2">15 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="mock_draft"
+                          textValue="Mock Draft"
+                          rightAdornment={<Badge variant="secondary">15 credits</Badge>}
+                        >
+                          Mock Draft
                         </SelectItem>
                       </SelectGroup>
                       
                       <SelectGroup>
                         <SelectLabel>Special Content</SelectLabel>
-                        <SelectItem value="trade_analysis">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Trade Analysis</span>
-                            <Badge variant="secondary" className="ml-2">5 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="trade_analysis"
+                          textValue="Trade Analysis"
+                          rightAdornment={<Badge variant="secondary">5 credits</Badge>}
+                        >
+                          Trade Analysis
                         </SelectItem>
-                        <SelectItem value="rivalry_week_special">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Rivalry Week Special</span>
-                            <Badge variant="secondary" className="ml-2">10 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="rivalry_week_special"
+                          textValue="Rivalry Week Special"
+                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
+                        >
+                          Rivalry Week Special
                         </SelectItem>
-                        <SelectItem value="emergency_hot_takes">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Emergency Hot Takes</span>
-                            <Badge variant="secondary" className="ml-2">5 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="emergency_hot_takes"
+                          textValue="Emergency Hot Takes"
+                          rightAdornment={<Badge variant="secondary">5 credits</Badge>}
+                        >
+                          Emergency Hot Takes
                         </SelectItem>
-                        <SelectItem value="trade_rumor_mill">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Trade Rumor Leak</span>
-                            <Badge variant="secondary" className="ml-2">8 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="trade_rumor_mill"
+                          textValue="Trade Rumor Leak"
+                          rightAdornment={<Badge variant="secondary">8 credits</Badge>}
+                        >
+                          Trade Rumor Leak
                         </SelectItem>
                       </SelectGroup>
                       
                       <SelectGroup>
                         <SelectLabel>Season Content</SelectLabel>
-                        <SelectItem value="mid_season_awards">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Mid-Season Awards</span>
-                            <Badge variant="secondary" className="ml-2">12 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="mid_season_awards"
+                          textValue="Mid-Season Awards"
+                          rightAdornment={<Badge variant="secondary">12 credits</Badge>}
+                        >
+                          Mid-Season Awards
                         </SelectItem>
-                        <SelectItem value="championship_manifesto">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Championship Manifesto</span>
-                            <Badge variant="secondary" className="ml-2">10 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="championship_manifesto"
+                          textValue="Championship Manifesto"
+                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
+                        >
+                          Championship Manifesto
                         </SelectItem>
-                        <SelectItem value="season_recap">
-                          <div className="flex items-center justify-between w-full">
-                            <span>Season Recap</span>
-                            <Badge variant="secondary" className="ml-2">20 credits</Badge>
-                          </div>
+                        <SelectItem
+                          value="season_recap"
+                          textValue="Season Recap"
+                          rightAdornment={<Badge variant="secondary">20 credits</Badge>}
+                        >
+                          Season Recap
                         </SelectItem>
                       </SelectGroup>
                       
                       {isCommissioner && (
                         <SelectGroup>
                           <SelectLabel>Premium Content</SelectLabel>
-                          <SelectItem value="custom_roast">
-                            <div className="flex items-center justify-between w-full">
-                              <span>Custom Roast</span>
-                              <Badge variant="destructive" className="ml-2">25 credits</Badge>
-                            </div>
+                          <SelectItem
+                            value="custom_roast"
+                            textValue="Custom Roast"
+                            rightAdornment={<Badge variant="destructive">25 credits</Badge>}
+                          >
+                            Custom Roast
                           </SelectItem>
-                          <SelectItem value="season_welcome">
-                            <div className="flex items-center justify-between w-full">
-                              <span>Season Welcome Package</span>
-                              <Badge variant="destructive" className="ml-2">30 credits</Badge>
-                            </div>
+                          <SelectItem
+                            value="season_welcome"
+                            textValue="Season Welcome Package"
+                            rightAdornment={<Badge variant="destructive">30 credits</Badge>}
+                          >
+                            Season Welcome Package
                           </SelectItem>
                         </SelectGroup>
                       )}
@@ -442,11 +456,11 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                           />
                           <Label
                             htmlFor={persona.id}
-                            className="flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 w-full"
+                            className="flex items-start gap-3 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 w-full break-words leading-tight"
                           >
                             <span className="text-2xl">{persona.icon}</span>
                             <div className="flex-1 text-left">
-                              <div className="font-semibold">{persona.name}</div>
+                              <div className="font-semibold text-sm sm:text-base">{persona.name}</div>
                               <div className="text-sm text-muted-foreground">
                                 {persona.tagline}
                               </div>
@@ -502,27 +516,27 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                           <span className="font-medium">Content Type:</span>
                           <span className="text-sm">{selectedTemplate.name}</span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                           <span className="font-medium">Persona:</span>
                           <span className="text-sm">{personas.find(p => p.id === selectedPersona)?.name}</span>
                         </div>
                         {selectedContentType === "weekly_recap" && selectedSeason && selectedWeek && (
-                          <div className="flex justify-between items-center">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                             <span className="font-medium">Period:</span>
                             <span className="text-sm">{selectedSeason} - Week {selectedWeek}</span>
                           </div>
                         )}
                       </div>
                       <div className="space-y-2">
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                           <span className="font-medium">Estimated Length:</span>
                           <span className="text-sm">~{selectedTemplate.estimatedWords} words</span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                           <span className="font-medium">Credits Required:</span>
                           <Badge variant="outline" className="flex items-center gap-1">
                             <CreditCard className="h-3 w-3" />
