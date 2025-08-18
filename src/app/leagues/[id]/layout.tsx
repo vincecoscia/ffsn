@@ -117,7 +117,7 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
                     </div>
                     
                     {/* Modern Navigation Section */}
-                    <nav className="flex-1 px-5 py-6 relative">
+                    <nav className="flex-1 px-5 py-6 relative overflow-y-auto">
                       <div className="space-y-1.5">
                         <SheetClose asChild>
                           <Link 
