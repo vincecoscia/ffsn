@@ -41,13 +41,9 @@ const generateFantasyFilterHeader = (regularSeasonWeeks: number = 14, playoffWee
 // Transform ESPN roster data to clean format
 const transformRosterData = (rosterData: any) => {
   if (!rosterData || !rosterData.entries) {
-    console.log('No roster data found!!!');
     return undefined;
   }
 
-  console.log('Roster data found!!!');
-
-  console.log(rosterData);
   // Ensure appliedStatTotal is a valid number, default to 0 if missing
   const appliedStatTotal = typeof rosterData.appliedStatTotal === 'number' 
     ? rosterData.appliedStatTotal 
@@ -64,7 +60,8 @@ const transformRosterData = (rosterData: any) => {
       const projectedStatsEntry = player.stats?.find((stat: any) => stat.statSourceId === 1);
       
       const appliedStats = transformStats(actualStatsEntry ? actualStatsEntry.appliedStats : undefined);
-      const projectedPoints = projectedStatsEntry ? projectedStatsEntry.appliedTotal.toFixed(1) : undefined;
+      // Convert projected points to number instead of string
+      const projectedPoints = projectedStatsEntry ? parseFloat(projectedStatsEntry.appliedTotal.toFixed(1)) : undefined;
       const projectedStats = transformStats(projectedStatsEntry ? projectedStatsEntry.appliedStats : undefined);
 
       // Ensure appliedStatTotal is a valid number for the player too
@@ -3073,5 +3070,505 @@ export const storePlayerTransactions = mutation({
     }
     
     return { stored, skipped };
+  },
+});
+
+// Sync current season data for all leagues - optimized for frequent updates
+export const syncAllLeaguesCurrentSeason = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{
+    success: boolean;
+    totalLeagues: number;
+    totalSynced: number;
+    totalErrors: number;
+    results: Array<{
+      leagueId: string;
+      leagueName: string;
+      success: boolean;
+      error?: string;
+      teamsCount?: number;
+      matchupsCount?: number;
+      playersCount?: number;
+      rostersCount?: number;
+      matchupRostersCount?: number;
+      transactionsCount?: number;
+    }>;
+    message: string;
+    syncedAt: number;
+  }> => {
+    console.log("Starting current season sync for all leagues");
+    
+    // Get all leagues
+    const allLeagues = await ctx.runQuery(api.leagues.listLeagues, {});
+    
+    if (allLeagues.length === 0) {
+      return {
+        success: true,
+        totalLeagues: 0,
+        totalSynced: 0,
+        totalErrors: 0,
+        results: [],
+        message: "No leagues found to sync",
+        syncedAt: Date.now(),
+      };
+    }
+    
+    console.log(`Found ${allLeagues.length} leagues to sync current season data`);
+    
+    const results = [];
+    let totalSynced = 0;
+    let totalErrors = 0;
+    const currentYear = new Date().getFullYear();
+    
+    for (const league of allLeagues) {
+      try {
+        console.log(`Syncing current season for league: ${league.name} (${league._id})`);
+        
+        // Skip leagues without ESPN data
+        if (!league.espnData) {
+          console.warn(`Skipping league ${league.name} - no ESPN data`);
+          results.push({
+            leagueId: league._id,
+            leagueName: league.name,
+            success: false,
+            error: "No ESPN data configured for this league"
+          });
+          totalErrors++;
+          continue;
+        }
+        
+        // Validate ESPN credentials if league is private
+        if (league.espnData.isPrivate) {
+          const credentialsCheck = await validateEspnCredentials(
+            league.externalId, 
+            league.espnData.espnS2, 
+            league.espnData.swid
+          );
+          
+          if (!credentialsCheck.isValid) {
+            console.error(`ESPN credentials invalid for league ${league.name}:`, credentialsCheck.error);
+            results.push({
+              leagueId: league._id,
+              leagueName: league.name,
+              success: false,
+              error: `ESPN credentials invalid: ${credentialsCheck.error}`
+            });
+            totalErrors++;
+            continue;
+          }
+        }
+        
+        const baseUrl: string = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${league.externalId}`;
+        
+        const headers: HeadersInit = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip, deflate, br, zstd',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Origin': 'https://fantasy.espn.com',
+          'Referer': 'https://fantasy.espn.com/',
+          'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site',
+          'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
+          'X-Fantasy-Source': 'kona'
+        };
+        
+        // Add fantasy filter for all matchup periods to get roster data
+        const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
+        const playoffWeeks = league.settings?.playoffWeeks || 4;
+        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
+        
+        if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
+          // Decode URL-encoded espnS2 if needed
+          const espnS2 = decodeURIComponent(league.espnData.espnS2);
+          headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
+        }
+
+        // Get comprehensive current season data
+        const viewParams = '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard';
+
+        const leagueResponse: Response = await fetch(`${baseUrl}${viewParams}`, {
+          headers
+        });
+
+        if (!leagueResponse.ok) {
+          const responseText = await leagueResponse.text();
+          console.error(`ESPN API Error for league ${league.name}:`, {
+            status: leagueResponse.status,
+            statusText: leagueResponse.statusText,
+            url: baseUrl + viewParams,
+            hasAuth: !!(league.espnData.espnS2 && league.espnData.swid),
+            isPrivate: league.espnData.isPrivate,
+            responseText: responseText.slice(0, 200)
+          });
+          results.push({
+            leagueId: league._id,
+            leagueName: league.name,
+            success: false,
+            error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueResponse.status === 401 ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}`
+          });
+          totalErrors++;
+          continue;
+        }
+
+        const leagueData = await leagueResponse.json();
+        
+        // Check if we got valid data
+        if (!leagueData.settings && !leagueData.draftDetail) {
+          console.warn(`Invalid data structure for league ${league.name} current season`);
+          results.push({
+            leagueId: league._id,
+            leagueName: league.name,
+            success: false,
+            error: 'Invalid data structure returned from ESPN'
+          });
+          totalErrors++;
+          continue;
+        }
+
+        const teams = leagueData.teams || [];
+        const members = leagueData.members || [];
+        const settings = leagueData.settings;
+        const schedule = leagueData.schedule || [];
+        const players = leagueData.players || [];
+        const draftDetail = leagueData.draftDetail;
+
+        // Create a map of member IDs to member data for easy lookup
+        const memberMap = new Map();
+        members.forEach((member: any) => {
+          memberMap.set(member.id, member);
+        });
+
+        // Helper function to get owner info with fallback logic
+        const getOwnerInfo = (team: any) => {
+          // First try to get owner from team.owners array
+          if (team.owners?.[0]) {
+            const owner = team.owners[0];
+            
+            // Check if owner is just a string ID (historical data) or an object (current data)
+            if (typeof owner === 'string') {
+              // Owner is just an ID, need to look up in members
+              const member = memberMap.get(owner);
+              if (member) {
+                return {
+                  ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
+                  ownerInfo: {
+                    displayName: member.displayName,
+                    firstName: member.firstName,
+                    lastName: member.lastName,
+                    id: member.id?.toString() || owner,
+                  }
+                };
+              }
+            } else if (owner.displayName || owner.firstName || owner.lastName) {
+              // Owner is an object with properties
+              return {
+                ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
+                ownerInfo: {
+                  displayName: owner.displayName,
+                  firstName: owner.firstName,
+                  lastName: owner.lastName,
+                  id: owner.id?.toString(),
+                }
+              };
+            }
+          }
+          
+          // Fallback to member data using primaryOwner
+          if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
+            const member = memberMap.get(team.primaryOwner);
+            return {
+              ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
+              ownerInfo: {
+                displayName: member.displayName,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                id: member.id?.toString(),
+              }
+            };
+          }
+          
+          // Last resort - try to find member by matching team name
+          const matchingMember = members.find((m: any) => 
+            team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
+          );
+          if (matchingMember) {
+            return {
+              ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
+              ownerInfo: {
+                displayName: matchingMember.displayName,
+                firstName: matchingMember.firstName,
+                lastName: matchingMember.lastName,
+                id: matchingMember.id?.toString(),
+              }
+            };
+          }
+          
+          return {
+            ownerName: 'Unknown',
+            ownerInfo: undefined
+          };
+        };
+
+        // Store/update current season data
+        if (settings || draftDetail) {
+          const seasonData: any = {
+            settings: {
+              name: settings?.name || league.name,
+              size: settings?.size || league.espnData?.size || teams.length || 10,
+              scoringType: settings?.scoringSettings?.scoringType === 1 ? 'ppr' : 
+                          settings?.scoringSettings?.scoringType === 2 ? 'half-ppr' : 'standard',
+              playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
+              playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+              regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+              rosterSettings: settings?.rosterSettings,
+            },
+          };
+
+          // Always include draftInfo to prevent it from becoming empty
+          // Set it to undefined if no draftDetail exists (will preserve existing value)
+          seasonData.draftInfo = draftDetail ? {
+            draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
+            draftType: draftDetail.type,
+            timePerPick: draftDetail.timePerPick,
+            drafted: draftDetail.drafted,
+            inProgress: draftDetail.inProgress,
+          } : undefined;
+
+          // Only include draftSettings if it exists
+          if (settings?.draftSettings) {
+            seasonData.draftSettings = settings.draftSettings;
+          }
+
+          // Only include draft picks if draft has actually occurred
+          if (draftDetail?.drafted === 1 && draftDetail.picks) {
+            seasonData.draft = draftDetail.picks;
+          }
+
+          await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+            leagueId: league._id,
+            seasonId: currentYear,
+            seasonData,
+          });
+        }
+
+        // First, fetch current roster data for all teams to include in the team updates
+        const teamRosters = new Map();
+        
+        // Try to get roster data from the current ESPN response first
+        for (const team of teams) {
+          if (team.roster?.entries) {
+            // Process roster from current ESPN data
+            const rosterData = team.roster.entries.map((entry: any) => ({
+              playerId: entry.playerId?.toString() || '',
+              playerName: entry.playerPoolEntry?.player?.fullName || 'Unknown',
+              position: entry.playerPoolEntry?.player?.defaultPositionId ? getPositionName(entry.playerPoolEntry.player.defaultPositionId) : 'UNKNOWN',
+              team: entry.playerPoolEntry?.player?.proTeamId ? getTeamAbbreviation(entry.playerPoolEntry.player.proTeamId) : 'FA',
+              acquisitionType: entry.acquisitionType,
+              lineupSlotId: entry.lineupSlotId,
+              playerStats: entry.playerPoolEntry?.player?.stats ? {
+                appliedTotal: entry.playerPoolEntry.player.stats.appliedTotal,
+                projectedTotal: entry.playerPoolEntry.player.stats.projectedTotal,
+              } : undefined,
+            }));
+            teamRosters.set(team.id.toString(), rosterData);
+            console.log(`Found roster data for team ${team.name || team.id}: ${rosterData.length} players`);
+          }
+        }
+        
+        console.log(`Captured roster data for ${teamRosters.size} out of ${teams.length} teams for league ${league.name}`);
+
+        // Update teams with current data including rosters
+        await ctx.runMutation(api.espnSync.updateTeams, {
+          leagueId: league._id,
+          seasonId: currentYear,
+          teamsData: teams.map((team: any) => {
+            const { ownerName, ownerInfo } = getOwnerInfo(team);
+            return {
+              externalId: team.id.toString(),
+              name: team.name || (team.location && team.nickname ? `${team.location} ${team.nickname}` : 'Unknown Team'),
+              abbreviation: team.abbrev,
+              location: team.location,
+              nickname: team.nickname,
+              logo: team.logo || team.logoURL || team.logoUrl || undefined,
+              owner: ownerName,
+              ownerInfo: ownerInfo,
+              record: {
+                wins: team.record?.overall?.wins || 0,
+                losses: team.record?.overall?.losses || 0,
+                ties: team.record?.overall?.ties || 0,
+                pointsFor: team.record?.overall?.pointsFor || 0,
+                pointsAgainst: team.record?.overall?.pointsAgainst || 0,
+                playoffSeed: team.playoffSeed,
+                divisionRecord: team.record?.division ? {
+                  wins: team.record.division.wins || 0,
+                  losses: team.record.division.losses || 0,
+                  ties: team.record.division.ties || 0,
+                } : undefined,
+              },
+              roster: teamRosters.get(team.id.toString()) || [], // Use fetched roster data or empty array
+              divisionId: team.divisionId,
+            };
+          })
+        });
+
+        // Sync players data if available
+        let transactionsSynced = 0;
+        if (players.length > 0) {
+          await ctx.runMutation(api.espnSync.updatePlayers, {
+            playersData: players.map((player: any) => ({
+              externalId: player.id?.toString() || '',
+              fullName: player.fullName || 'Unknown Player',
+              firstName: player.firstName,
+              lastName: player.lastName,
+              defaultPosition: getPositionName(player.defaultPositionId),
+              eligiblePositions: player.eligibleSlots?.map((slot: number) => getPositionName(slot)) || [],
+              proTeamId: player.proTeamId,
+              proTeamAbbrev: getTeamAbbreviation(player.proTeamId),
+              injuryStatus: player.injuryStatus,
+              stats: player.stats ? {
+                seasonStats: {
+                  appliedTotal: player.stats.appliedTotal,
+                  projectedTotal: player.stats.projectedTotal,
+                  averagePoints: player.stats.averagePoints,
+                }
+              } : undefined,
+              ownership: player.ownership ? {
+                percentOwned: player.ownership.percentOwned,
+                percentChange: player.ownership.percentChange,
+                percentStarted: player.ownership.percentStarted,
+              } : undefined,
+            }))
+          });
+
+          // Sync player transactions for current season
+          try {
+            const transactionResult = await ctx.runAction(api.espnSync.syncPlayerTransactions, {
+              leagueId: league._id,
+              seasonId: currentYear,
+              players: players,
+              currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
+            });
+            
+            if (transactionResult.success) {
+              transactionsSynced = transactionResult.transactionsProcessed;
+            }
+          } catch (transactionError) {
+            console.error(`Error syncing player transactions for league ${league.name}:`, transactionError);
+          }
+        }
+
+        // Sync matchups data
+        if (schedule.length > 0) {
+          await ctx.runMutation(api.espnSync.updateMatchups, {
+            leagueId: league._id,
+            seasonId: currentYear,
+            matchupsData: schedule.map((matchup: any) => ({
+              matchupPeriod: matchup.matchupPeriodId,
+              scoringPeriod: matchup.id,
+              homeTeamId: matchup.home?.teamId?.toString() || '',
+              awayTeamId: matchup.away?.teamId?.toString() || '',
+              homeScore: matchup.home?.totalPoints || 0,
+              awayScore: matchup.away?.totalPoints || 0,
+              homeProjectedScore: matchup.home?.totalProjectedPoints,
+              awayProjectedScore: matchup.away?.totalProjectedPoints,
+              homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
+              awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
+              winner: matchup.winner === 'HOME' ? 'home' as const : 
+                     matchup.winner === 'AWAY' ? 'away' as const : 
+                     matchup.winner === 'TIE' ? 'tie' as const : undefined,
+              playoffTier: matchup.playoffTierType,
+              // Transform and clean roster data from current scoring period
+              homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
+              awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
+            }))
+          });
+        }
+
+        // Update league sync timestamp
+        await ctx.runMutation(api.espnSync.updateLeagueSync, {
+          leagueId: league._id,
+          currentScoringPeriod: settings?.scoringSettings?.matchupPeriods?.length || league.espnData.currentScoringPeriod,
+        });
+
+        // Fetch rosters for current season as fallback if not already captured
+        let rostersFetched = teamRosters.size;
+        
+        // If we didn't get roster data from the main API call, fetch it separately
+        if (teamRosters.size === 0) {
+          try {
+            const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+              leagueId: league._id,
+              seasonId: currentYear,
+            });
+            
+            if (rosterResult.success) {
+              rostersFetched = rosterResult.totalRostersFetched;
+            }
+          } catch (rosterError) {
+            console.error(`Error fetching rosters for league ${league.name}:`, rosterError);
+          }
+        }
+
+        // Fetch matchup rosters for current season
+        let matchupRostersFetched = 0;
+        try {
+          const matchupRosterResult = await ctx.runAction(api.matchupRosters.fetchMatchupRosters, {
+            leagueId: league._id,
+            seasonId: currentYear,
+          });
+          
+          if (matchupRosterResult.success) {
+            matchupRostersFetched = matchupRosterResult.successfulPeriods;
+          }
+        } catch (matchupRosterError) {
+          console.error(`Error fetching matchup rosters for league ${league.name}:`, matchupRosterError);
+        }
+
+        results.push({
+          leagueId: league._id,
+          leagueName: league.name,
+          success: true,
+          teamsCount: teams.length,
+          matchupsCount: schedule.length,
+          playersCount: players.length,
+          rostersCount: rostersFetched,
+          matchupRostersCount: matchupRostersFetched,
+          transactionsCount: transactionsSynced
+        });
+        totalSynced++;
+        
+        console.log(`Successfully synced current season for league ${league.name}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${matchupRostersFetched} matchup periods, ${transactionsSynced} transactions`);
+        
+        // Add small delay to prevent rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        console.error(`Failed to sync current season for league ${league.name}:`, error);
+        results.push({
+          leagueId: league._id,
+          leagueName: league.name,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        totalErrors++;
+      }
+    }
+
+    return {
+      success: totalSynced > 0,
+      totalLeagues: allLeagues.length,
+      totalSynced,
+      totalErrors,
+      results,
+      message: `Current season sync completed: ${totalSynced}/${allLeagues.length} leagues synced successfully`,
+      syncedAt: Date.now(),
+    };
   },
 });

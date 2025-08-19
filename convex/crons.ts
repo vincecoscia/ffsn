@@ -47,4 +47,11 @@ crons.daily(
   internal.contentScheduling.scheduleSeasonAndRelativeContentCron,
 );
 
+// Sync current season data for all leagues every 4 hours
+crons.interval(
+  "sync current season data for all leagues",
+  { hours: 4 },
+  internal.espnSync.syncAllLeaguesCurrentSeason,
+);
+
 export default crons;
