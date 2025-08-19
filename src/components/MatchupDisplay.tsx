@@ -16,6 +16,23 @@ interface Team {
   };
 }
 
+interface Player {
+  lineupSlotId: number;
+  espnId: number;
+  firstName?: string;
+  lastName?: string;
+  fullName: string;
+  position: string;
+  points: number;
+  projectedPoints?: number;
+  projectedStats?: Record<string, number>;
+}
+
+interface Roster {
+  appliedStatTotal: number;
+  players: Player[];
+}
+
 interface Matchup {
   _id: string;
   homeTeamId: string;
@@ -26,6 +43,8 @@ interface Matchup {
   awayProjectedScore?: number;
   winner?: 'home' | 'away' | 'tie';
   matchupPeriod: number;
+  homeRoster?: Roster;
+  awayRoster?: Roster;
 }
 
 interface MatchupDisplayProps {
@@ -46,6 +65,32 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
 
   const getTeamByExternalId = (externalId: string): Team | null => {
     return teamMap.get(externalId) || null;
+  };
+
+  // Calculate projected score from roster data
+  const calculateProjectedScore = (roster?: Roster): number => {
+    if (!roster || !roster.players) {
+      return 0;
+    }
+    
+    return roster.players
+      .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+      .reduce((total, player) => {
+        return total + (player.projectedPoints || 0);
+      }, 0);
+  };
+
+  // Calculate actual score from roster data
+  const calculateActualScore = (roster?: Roster): number => {
+    if (!roster || !roster.players) {
+      return 0;
+    }
+    
+    return roster.players
+      .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+      .reduce((total, player) => {
+        return total + (player.points || 0);
+      }, 0);
   };
 
   if (matchups.length === 0) {
@@ -83,6 +128,24 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
             const homeWins = matchup.winner === 'home';
             const awayWins = matchup.winner === 'away';
 
+            // Calculate projected scores from roster data if available, otherwise use stored values
+            const homeProjectedScore = matchup.homeRoster 
+              ? calculateProjectedScore(matchup.homeRoster)
+              : (matchup.homeProjectedScore || 0);
+            
+            const awayProjectedScore = matchup.awayRoster 
+              ? calculateProjectedScore(matchup.awayRoster)
+              : (matchup.awayProjectedScore || 0);
+
+            // Calculate actual scores from roster data if available, otherwise use stored values
+            const homeActualScore = matchup.homeRoster 
+              ? calculateActualScore(matchup.homeRoster)
+              : matchup.homeScore;
+            
+            const awayActualScore = matchup.awayRoster 
+              ? calculateActualScore(matchup.awayRoster)
+              : matchup.awayScore;
+
             return (
               <div key={matchup._id} className="flex-shrink-0 w-64 border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
                 {/* Status indicator */}
@@ -111,10 +174,17 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
                         {awayTeam.record.ties > 0 && `-${awayTeam.record.ties}`}
                       </div>
                     </div>
-                    <div className={`text-lg font-bold ${
-                      isComplete ? (awayWins ? 'text-green-700' : 'text-gray-600') : 'text-blue-600'
-                    }`}>
-                      {isComplete ? matchup.awayScore.toFixed(1) : (matchup.awayProjectedScore?.toFixed(1) || '0.0')}
+                    <div className="text-right">
+                      {/* Projected Score - Small text on top */}
+                      <div className="text-xs text-gray-500">
+                        {awayProjectedScore.toFixed(1)}
+                      </div>
+                      {/* Actual Score - Large text below */}
+                      <div className={`text-lg font-bold ${
+                        isComplete ? (awayWins ? 'text-green-700' : 'text-gray-600') : 'text-blue-600'
+                      }`}>
+                        {awayActualScore.toFixed(1)}
+                      </div>
                     </div>
                   </div>
 
@@ -131,10 +201,17 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
                         {homeTeam.record.ties > 0 && `-${homeTeam.record.ties}`}
                       </div>
                     </div>
-                    <div className={`text-lg font-bold ${
-                      isComplete ? (homeWins ? 'text-green-700' : 'text-gray-600') : 'text-blue-600'
-                    }`}>
-                      {isComplete ? matchup.homeScore.toFixed(1) : (matchup.homeProjectedScore?.toFixed(1) || '0.0')}
+                    <div className="text-right">
+                      {/* Projected Score - Small text on top */}
+                      <div className="text-xs text-gray-500">
+                        {homeProjectedScore.toFixed(1)}
+                      </div>
+                      {/* Actual Score - Large text below */}
+                      <div className={`text-lg font-bold ${
+                        isComplete ? (homeWins ? 'text-green-700' : 'text-gray-600') : 'text-blue-600'
+                      }`}>
+                        {homeActualScore.toFixed(1)}
+                      </div>
                     </div>
                   </div>
                 </div>
