@@ -31,18 +31,34 @@ export const TransactionsDraftTab: React.FC<TransactionsDraftTabProps> = ({
     <div className="space-y-4">
       {draftTransactions.length > 0 ? (
         <>
-          <div className="flex items-center justify-between">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
             <div>
               <h3 className="text-lg font-semibold">Draft Results - {selectedSeason}</h3>
               <p className="text-sm text-muted-foreground">
                 {draftTransactions.length} picks made
               </p>
             </div>
+            
+            {/* Draft view options - hidden on mobile */}
+            <div className="hidden sm:block">
+              <Tabs value={draftView} onValueChange={(value) => onDraftViewChange(value as DraftView)}>
+                <TabsList>
+                  <TabsTrigger value="full">Full Draft</TabsTrigger>
+                  <TabsTrigger value="round">By Round</TabsTrigger>
+                  <TabsTrigger value="team">By Team</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </div>
+
+          {/* Draft view options - shown on mobile below header */}
+          <div className="sm:hidden">
             <Tabs value={draftView} onValueChange={(value) => onDraftViewChange(value as DraftView)}>
-              <TabsList>
-                <TabsTrigger value="full">Full Draft</TabsTrigger>
-                <TabsTrigger value="round">By Round</TabsTrigger>
-                <TabsTrigger value="team">By Team</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="full" className="text-xs">Full Draft</TabsTrigger>
+                <TabsTrigger value="round" className="text-xs">By Round</TabsTrigger>
+                <TabsTrigger value="team" className="text-xs">By Team</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>

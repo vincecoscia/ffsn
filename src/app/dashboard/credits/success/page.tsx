@@ -12,7 +12,6 @@ import { CheckCircle, Zap, AlertCircle, CreditCard } from "lucide-react";
 
 function CreditsPurchaseSuccessContent() {
   const [isLoading, setIsLoading] = useState(true);
-  const [paymentVerified, setPaymentVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creditsGranted, setCreditsGranted] = useState<number | null>(null);
 
@@ -32,7 +31,6 @@ function CreditsPurchaseSuccessContent() {
       const metadata = paymentResult.session?.metadata;
       const creditsAmount = metadata?.creditsPurchased ? parseInt(metadata.creditsPurchased) : 0;
 
-      setPaymentVerified(true);
       setCreditsGranted(creditsAmount);
 
     } catch (error) {
@@ -41,7 +39,7 @@ function CreditsPurchaseSuccessContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [verifyPayment, setPaymentVerified, setCreditsGranted, setError, setIsLoading]);
+  }, [verifyPayment, setCreditsGranted, setError, setIsLoading]);
 
   useEffect(() => {
     const sessionId = searchParams?.get("session_id");

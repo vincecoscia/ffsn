@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useAction, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -19,19 +19,17 @@ interface SyncProgress {
 }
 
 function PaymentSuccessContent() {
-  const [isLoading, setIsLoading] = useState(true);
+  const [, setIsLoading] = useState(true);
   const [paymentVerified, setPaymentVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leagueCreated, setLeagueCreated] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
-  const [leagueId, setLeagueId] = useState<string | null>(null);
+  const [, setLeagueId] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user } = useUser();
   
   const verifyPayment = useAction(api.stripe.verifyPaymentCompleted);
-  const createLeague = useMutation(api.leagues.create);
   const completeOnboarding = useMutation(api.users.completeOnboarding);
   const syncAllLeagueData = useAction(api.espnSync.syncAllLeagueData);
   const linkPaymentToLeague = useMutation(api.payments.linkPaymentToLeague);
@@ -98,7 +96,7 @@ function PaymentSuccessContent() {
         percentage: 60 
       });
 
-      const syncResult = await syncAllLeagueData({
+      await syncAllLeagueData({
         leagueId: leagueId as Id<"leagues">,
         includeCurrentSeason: true,
         historicalYears: 5,

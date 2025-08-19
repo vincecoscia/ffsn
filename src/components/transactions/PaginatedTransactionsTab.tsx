@@ -96,31 +96,42 @@ export const PaginatedTransactionsTab: React.FC<PaginatedTransactionsTabProps> =
   }
 
   return (
-    <div className="space-y-6">
-      {/* Week Navigation */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className="space-y-4">
+      {/* Week Navigation - Mobile Optimized */}
+      <div className="space-y-3">
+        {/* Week Info Header */}
+        {selectedWeek && (
+          <div className="text-left">
+            <h3 className="text-lg font-semibold">Week {selectedWeek}</h3>
+            <p className="text-sm text-muted-foreground">{selectedSeason} Season</p>
+          </div>
+        )}
+        
+        {/* Navigation Controls */}
+        <div className="flex items-center justify-start gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={goToPreviousWeek}
             disabled={!canGoToPrevious}
+            className="flex-shrink-0"
           >
-            <ChevronLeft className="h-4 w-4" />
-            Previous Week
+            <ChevronLeft className="h-4 w-4 sm:mr-1" />
+            <span className="hidden sm:inline">Prev</span>
           </Button>
           
           <Select
             value={selectedWeek?.toString() || ""}
             onValueChange={(value) => setSelectedWeek(Number(value))}
           >
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-24 sm:w-32">
               <SelectValue placeholder="Week" />
             </SelectTrigger>
             <SelectContent>
               {regularTransactionWeeks.map((weekData) => (
                 <SelectItem key={weekData.week} value={weekData.week.toString()}>
-                  Week {weekData.week} ({weekData.total - weekData.draft})
+                  <span className="sm:hidden">W{weekData.week}</span>
+                  <span className="hidden sm:inline">Week {weekData.week}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -131,21 +142,16 @@ export const PaginatedTransactionsTab: React.FC<PaginatedTransactionsTabProps> =
             size="sm"
             onClick={goToNextWeek}
             disabled={!canGoToNext}
+            className="flex-shrink-0"
           >
-            Next Week
-            <ChevronRight className="h-4 w-4" />
+            <span className="hidden sm:inline">Next</span>
+            <ChevronRight className="h-4 w-4 sm:ml-1" />
           </Button>
         </div>
-
-        {selectedWeek && (
-          <div className="text-sm text-muted-foreground">
-            Week {selectedWeek} of {selectedSeason} season
-          </div>
-        )}
       </div>
 
       {/* Transactions Content */}
-      <ScrollArea className="h-[calc(100vh-300px)]">
+      <ScrollArea className="h-[calc(100vh-280px)] sm:h-[calc(100vh-300px)]">
         {!weekTransactions && selectedWeek ? (
           <div className="space-y-4">
             {Array.from({ length: 3 }).map((_, i) => (

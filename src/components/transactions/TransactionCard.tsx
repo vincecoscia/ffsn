@@ -49,55 +49,61 @@ const formatCompactTransactionDescription = (transaction: Transaction) => {
   return (
     <div className="text-sm space-y-1">
       {addedPlayers.length > 0 && (
-        <div>
+        <div className="flex flex-wrap items-start gap-1">
           <span className="text-green-600 font-medium">Added:</span>
-          {addedPlayers.map((item: TransactionItem, idx: number) => (
-            <span key={idx} className="ml-1">
-              <span className="font-medium text-foreground">{item.player?.name || "Unknown"}</span>
-              <span className="text-muted-foreground"> ({item.player?.position})</span>
-              {item.toTeam && (
-                <span className="text-muted-foreground"> → {item.toTeam.name}</span>
-              )}
-              {idx < addedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
-            </span>
-          ))}
-          {transaction.type === "WAIVER" && transaction.bidAmount && transaction.bidAmount > 0 && (
-            <span className="text-xs text-blue-600 font-medium ml-2">
-              (${transaction.bidAmount} FAAB)
-            </span>
-          )}
+          <div className="flex flex-wrap gap-x-2 gap-y-1">
+            {addedPlayers.map((item: TransactionItem, idx: number) => (
+              <span key={idx} className="inline-flex items-center">
+                <span className="font-medium text-foreground">{item.player?.name || "Unknown"}</span>
+                <span className="text-muted-foreground text-xs ml-1">({item.player?.position})</span>
+                {item.toTeam && (
+                  <span className="text-muted-foreground text-xs hidden sm:inline"> → {item.toTeam.name}</span>
+                )}
+                {idx < addedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
+              </span>
+            ))}
+            {transaction.type === "WAIVER" && transaction.bidAmount && transaction.bidAmount > 0 && (
+              <span className="text-xs text-blue-600 font-medium">
+                ${transaction.bidAmount} FAAB
+              </span>
+            )}
+          </div>
         </div>
       )}
       
       {droppedPlayers.length > 0 && (
-        <div>
+        <div className="flex flex-wrap items-start gap-1">
           <span className="text-red-600 font-medium">Dropped:</span>
-          {droppedPlayers.map((item: TransactionItem, idx: number) => (
-            <span key={idx} className="ml-1">
-              <span className="font-medium text-foreground">{item.player?.name || "Unknown"}</span>
-              <span className="text-muted-foreground"> ({item.player?.position})</span>
-              {item.fromTeam && (
-                <span className="text-muted-foreground"> from {item.fromTeam.name}</span>
-              )}
-              {idx < droppedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
-            </span>
-          ))}
+          <div className="flex flex-wrap gap-x-2 gap-y-1">
+            {droppedPlayers.map((item: TransactionItem, idx: number) => (
+              <span key={idx} className="inline-flex items-center">
+                <span className="font-medium text-foreground">{item.player?.name || "Unknown"}</span>
+                <span className="text-muted-foreground text-xs ml-1">({item.player?.position})</span>
+                {item.fromTeam && (
+                  <span className="text-muted-foreground text-xs hidden sm:inline"> from {item.fromTeam.name}</span>
+                )}
+                {idx < droppedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
+              </span>
+            ))}
+          </div>
         </div>
       )}
       
       {movedPlayers.length > 0 && (
-        <div>
+        <div className="flex flex-wrap items-start gap-1">
           <span className="text-blue-600 font-medium">Moved:</span>
-          {movedPlayers.map((item: TransactionItem, idx: number) => (
-            <span key={idx} className="ml-1">
-              <span className="font-medium text-foreground">{item.player?.name || "Unknown"}</span>
-              <span className="text-muted-foreground"> ({item.player?.position})</span>
-              {item.fromTeam && item.toTeam && (
-                <span className="text-muted-foreground"> {item.fromTeam.name} → {item.toTeam.name}</span>
-              )}
-              {idx < movedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
-            </span>
-          ))}
+          <div className="flex flex-wrap gap-x-2 gap-y-1">
+            {movedPlayers.map((item: TransactionItem, idx: number) => (
+              <span key={idx} className="inline-flex items-center">
+                <span className="font-medium text-foreground">{item.player?.name || "Unknown"}</span>
+                <span className="text-muted-foreground text-xs ml-1">({item.player?.position})</span>
+                {item.fromTeam && item.toTeam && (
+                  <span className="text-muted-foreground text-xs hidden sm:inline"> {item.fromTeam.name} → {item.toTeam.name}</span>
+                )}
+                {idx < movedPlayers.length - 1 && <span className="text-muted-foreground">, </span>}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -105,24 +111,28 @@ const formatCompactTransactionDescription = (transaction: Transaction) => {
 };
 
 export const TransactionCard: React.FC<TransactionCardProps> = ({ transaction }) => (
-  <div className="border rounded-lg p-3 mb-2 bg-card hover:bg-accent/50 transition-colors">
-    <div className="flex items-start justify-between">
-      <div className="flex items-start gap-3 min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
+  <div className="border rounded-lg p-3 mb-3 bg-card hover:bg-accent/50 transition-colors">
+    {/* Mobile-first layout */}
+    <div className="space-y-2">
+      {/* Header with type and meta info */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
           {getTransactionIcon(transaction.type)}
           <Badge variant="secondary" className="text-xs">
             {getTransactionTypeLabel(transaction.type)}
           </Badge>
         </div>
         
-        <div className="min-w-0 flex-1">
-          {formatCompactTransactionDescription(transaction)}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-medium">W{transaction.scoringPeriod}</span>
+          <span className="hidden sm:inline">•</span>
+          <span>{format(new Date(transaction.proposedDate), "MMM d")}</span>
         </div>
       </div>
       
-      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 pt-0.5">
-        <span className="font-medium">W{transaction.scoringPeriod}</span>
-        <span>{format(new Date(transaction.proposedDate), "MMM d")}</span>
+      {/* Transaction details */}
+      <div className="pl-0 sm:pl-6">
+        {formatCompactTransactionDescription(transaction)}
       </div>
     </div>
   </div>

@@ -5,8 +5,6 @@ import { useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -71,12 +69,6 @@ interface EspnData {
   history: HistoricalSeason[];
 }
 
-interface SyncProgress {
-  step: number;
-  totalSteps: number;
-  message: string;
-  percentage: number;
-}
 
 export default function SetupPage() {
   const [step, setStep] = useState(1);
@@ -93,20 +85,15 @@ export default function SetupPage() {
     swid: "",
   });
   const [espnData, setEspnData] = useState<EspnData | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingEspnData, setIsLoadingEspnData] = useState(false);
   const [espnError, setEspnError] = useState<string | null>(null);
-  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   
   const { user } = useUser();
   const createLeague = useMutation(api.leagues.create);
-  const completeOnboarding = useMutation(api.users.completeOnboarding);
   const fetchEspnData = useAction(api.espn.fetchLeagueData);
-  const syncAllLeagueData = useAction(api.espnSync.syncAllLeagueData);
   const createLeagueCheckout = useAction(api.stripe.createLeagueCheckoutSession);
-  const router = useRouter();
 
   const loadEspnData = async () => {
     if (!formData.externalId) return;
@@ -734,7 +721,7 @@ export default function SetupPage() {
           <div className="flex justify-between mt-8">
             <Button
               onClick={handleBack}
-              disabled={step === 1 || isProcessingPayment || isSubmitting}
+              disabled={step === 1 || isProcessingPayment}
               variant="secondary"
               className="bg-gray-700 hover:bg-gray-600"
             >
@@ -774,28 +761,7 @@ export default function SetupPage() {
             )}
           </div>
 
-          {/* Progress Bar Section */}
-          {syncProgress && (
-            <div className="mt-6 space-y-3 bg-gray-700/50 p-4 rounded-lg border border-gray-600">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-300">{syncProgress.message}</span>
-                <span className="text-gray-400">{syncProgress.percentage}%</span>
-              </div>
-              <Progress value={syncProgress.percentage} className="h-3" />
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span>Step {syncProgress.step} of {syncProgress.totalSteps}</span>
-                {syncProgress.percentage === 100 && (
-                  <span className="text-green-400">✓ Complete</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {syncProgress && syncProgress.percentage < 100 && (
-            <div className="mt-3 bg-blue-900/50 border border-blue-500 p-3 rounded-md text-blue-100 text-xs">
-              ⏱️ This sync can take up to 5 minutes depending on your league size.
-            </div>
-          )}
+          {/* Progress Bar Section - removed as syncProgress state was unused */}
         </div>
 
         <div className="mt-6 text-center">

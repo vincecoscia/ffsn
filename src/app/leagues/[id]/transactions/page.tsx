@@ -10,7 +10,6 @@ import { SeasonSelector } from "@/components/SeasonSelector";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  TransactionsAllTab,
   TransactionsTradesTab,
   TransactionsDraftTab,
   getDraftTransactions
@@ -117,7 +116,7 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
   }
   
   // Process draft transactions - use new dedicated query or fallback to old method
-  const draftTransactions = (draftData as any) || (allTransactionsData ? getDraftTransactions(allTransactionsData.groupedBySeasons[selectedSeason] || []) : []);
+  const draftTransactions = draftData || (allTransactionsData ? getDraftTransactions(allTransactionsData.groupedBySeasons[selectedSeason] || []) : []);
   
   // Get the actual team count for this season (with fallback while loading)
   const teamCount = teamsData?.length || 12; // Default to 12 teams while loading
@@ -128,34 +127,33 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
       currentUserId={userId}
       title="Transactions"
     >
-      <div className="space-y-6">
-        {/* Season Selector */}
-        <div className="flex items-center gap-4">
+      <div className="space-y-4">
+        {/* Season Selector - Mobile Optimized */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
           <SeasonSelector
             currentSeason={(availableSeasons && availableSeasons[0]) || new Date().getFullYear()}
             selectedSeason={selectedSeason!}
             onSeasonChange={setSelectedSeason}
             availableSeasons={availableSeasons || []}
           />
-
         </div>
 
-        {/* Tabs for different transaction views */}
-        <Tabs defaultValue="all" className="w-full">
-          <TabsList>
-            <TabsTrigger value="all">All Transactions</TabsTrigger>
-            <TabsTrigger value="trades">Trades</TabsTrigger>
-            <TabsTrigger value="draft">Draft</TabsTrigger>
-          </TabsList>
+                 {/* Tabs for different transaction views - Mobile Optimized */}
+         <Tabs defaultValue="all" className="w-full">
+           <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:grid-cols-none sm:inline-flex sm:justify-start">
+             <TabsTrigger value="all" className="text-xs sm:text-sm sm:flex-none">All</TabsTrigger>
+             <TabsTrigger value="trades" className="text-xs sm:text-sm sm:flex-none">Trades</TabsTrigger>
+             <TabsTrigger value="draft" className="text-xs sm:text-sm sm:flex-none">Draft</TabsTrigger>
+           </TabsList>
 
-          <TabsContent value="all" className="mt-6">
+          <TabsContent value="all" className="mt-4 sm:mt-6">
             <PaginatedTransactionsTab 
               leagueId={leagueId}
               selectedSeason={selectedSeason}
             />
           </TabsContent>
 
-          <TabsContent value="trades" className="mt-6">
+          <TabsContent value="trades" className="mt-4 sm:mt-6">
             {!tradeData && selectedSeason ? (
               <div className="space-y-4">
                 {/* Trade card skeletons */}
@@ -188,7 +186,7 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
             )}
           </TabsContent>
           
-          <TabsContent value="draft" className="mt-6">
+          <TabsContent value="draft" className="mt-4 sm:mt-6">
             {(!draftData && !teamsData) && selectedSeason ? (
               <div className="space-y-4">
                 {/* Draft header skeleton */}
