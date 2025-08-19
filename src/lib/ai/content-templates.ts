@@ -602,6 +602,72 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         wordCount: 200
       }
     ]
+  },
+
+  "draft_rankings": {
+    id: "draft_rankings",
+    name: "Post-Draft Rankings & Grades",
+    description: "Comprehensive draft analysis with letter grades for all teams based on draft position, player selections, and projected stats",
+    creditCost: 15,
+    estimatedWords: 1800,
+    requiredData: ["draft_results", "team_rosters", "player_projections", "draft_order", "league_settings"],
+    optionalData: ["keeper_info", "draft_strategy", "adp_data", "bench_depth"],
+    sections: [
+      {
+        name: "introduction",
+        description: "Overview of draft, methodology for grading, and key factors considered",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "grade_a_teams",
+        description: "Teams that crushed their draft with optimal picks and great value",
+        required: true,
+        wordCount: 400
+      },
+      {
+        name: "grade_b_teams",
+        description: "Solid drafts with good foundation but some questionable picks",
+        required: true,
+        wordCount: 350
+      },
+      {
+        name: "grade_c_teams",
+        description: "Average drafts with mixed results and missed opportunities",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "grade_d_f_teams",
+        description: "Poor drafts with major reaches, busts, or strategic errors",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "best_picks",
+        description: "Top value picks and steals of the draft across all teams",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "worst_picks",
+        description: "Biggest reaches and questionable selections",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "projected_standings",
+        description: "Predicted finish based on projected starter points and bench depth",
+        required: true,
+        wordCount: 150
+      }
+    ],
+    examplePrompt: `Write draft rankings and grades for {leagueName} by Mel Diaper. 
+    Analyze each team's draft based on their draft position, player selections, and projected stats.
+    Only count starters (lineupSlotId !== 20) for primary analysis, but consider bench depth for position groups.
+    Grade teams A through F based on: value picks, reaching for players, overall roster construction, 
+    projected points for starters, and positional depth.
+    Include total projected points for starters and highlight best/worst picks.`
   }
 };
 

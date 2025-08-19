@@ -6,6 +6,7 @@ export { TradeCard } from "./TradeCard";
 export { TransactionsAllTab } from "./TransactionsAllTab";
 export { TransactionsTradesTab } from "./TransactionsTradesTab";
 export { TransactionsDraftTab } from "./TransactionsDraftTab";
+export { PaginatedTransactionsTab } from "./PaginatedTransactionsTab";
 
 // Types
 export type {

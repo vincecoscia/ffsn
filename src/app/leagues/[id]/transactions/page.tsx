@@ -15,6 +15,7 @@ import {
   TransactionsDraftTab,
   getDraftTransactions
 } from "@/components/transactions";
+import { PaginatedTransactionsTab } from "@/components/transactions/PaginatedTransactionsTab";
 
 interface TransactionsPageProps {
   params: Promise<{ id: string }>;
@@ -28,16 +29,17 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
   
-  // Get available seasons for the league
-  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
-  
-  // Extract season IDs and sort them in descending order
+  // First, get all transactions to see which seasons have data
+  const allTransactionsData = useQuery(api.transactions.getTransactionsBySeason, {
+    leagueId,
+    // No seasonId = get all seasons
+  });
+
+  // Extract season IDs from transaction data and sort them in descending order
   const availableSeasons = React.useMemo(() => {
-    if (!leagueSeasons) return undefined;
-    return leagueSeasons
-      .map(season => season.seasonId)
-      .sort((a, b) => b - a);
-  }, [leagueSeasons]);
+    if (!allTransactionsData) return undefined;
+    return allTransactionsData.seasons || [];
+  }, [allTransactionsData]);
   
   // State for selected season - start with most recent season
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
@@ -52,20 +54,6 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
     }
   }, [availableSeasons, selectedSeason]);
   
-  // First, get all transactions to see which seasons have data
-  const allTransactionsData = useQuery(api.transactions.getTransactionsBySeason, {
-    leagueId,
-    // No seasonId = get all seasons
-  });
-  
-  // Get transactions data for selected season
-  const transactionsData = useQuery(api.transactions.getTransactionsBySeason, 
-    selectedSeason ? {
-      leagueId,
-      seasonId: selectedSeason,
-    } : "skip"
-  );
-  
   // Get teams for the selected season to determine team count for draft rounds
   const teamsData = useQuery(api.teams.getByLeagueAndSeason,
     selectedSeason ? {
@@ -74,36 +62,62 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
     } : "skip"
   );
   
-  // Get trade transactions specifically
+  // Get trade transactions specifically (now requires seasonId)
   const tradeData = useQuery(api.transactions.getTradeTransactions, 
     selectedSeason ? {
       leagueId,
       seasonId: selectedSeason,
     } : "skip"
   );
+
+  // Get draft transactions specifically
+  const draftData = useQuery(api.transactions.getDraftTransactions,
+    selectedSeason ? {
+      leagueId,
+      seasonId: selectedSeason,
+    } : "skip"
+  );
   
-  // Set selectedSeason to the most recent season that has transaction data
-  React.useEffect(() => {
-    if (allTransactionsData && allTransactionsData.seasons && allTransactionsData.seasons.length > 0 && selectedSeason === null) {
-      // Use the most recent season that actually has transaction data
-      setSelectedSeason(allTransactionsData.seasons[0]);
-    }
-  }, [allTransactionsData, selectedSeason]);
+
   
 
 
 
   // Early return only for critical missing data
-  if (!userId || !league || !allTransactionsData || selectedSeason === null) {
+  if (!userId || !league) {
     return <div>Loading...</div>;
   }
+
+  // If we have no transactions data yet, show loading
+  if (!allTransactionsData) {
+    return <div>Loading transactions...</div>;
+  }
+
+  // If there are no transactions at all, show empty state
+  if (allTransactionsData.transactions.length === 0) {
+    return (
+      <LeaguePageLayout 
+        leagueId={leagueId}
+        currentUserId={userId}
+        title="Transactions"
+      >
+        <div className="text-center py-12">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No Transactions Found</h3>
+          <p className="text-gray-500">
+            No transaction data is available for this league yet. Transactions will appear here once the league data is synced.
+          </p>
+        </div>
+      </LeaguePageLayout>
+    );
+  }
+
+  // If we have transactions but no selectedSeason yet, show loading
+  if (selectedSeason === null) {
+    return <div>Loading season data...</div>;
+  }
   
-  // Use the appropriate data source
-  const dataToDisplay = transactionsData || allTransactionsData;
-  
-  // Process the current season's transactions
-  const currentSeasonTransactions = dataToDisplay.groupedBySeasons[selectedSeason] || [];
-  const draftTransactions = getDraftTransactions(currentSeasonTransactions);
+  // Process draft transactions - use new dedicated query or fallback to old method
+  const draftTransactions = (draftData as any) || (allTransactionsData ? getDraftTransactions(allTransactionsData.groupedBySeasons[selectedSeason] || []) : []);
   
   // Get the actual team count for this season (with fallback while loading)
   const teamCount = teamsData?.length || 12; // Default to 12 teams while loading
@@ -121,7 +135,7 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
             currentSeason={(availableSeasons && availableSeasons[0]) || new Date().getFullYear()}
             selectedSeason={selectedSeason!}
             onSeasonChange={setSelectedSeason}
-            availableSeasons={allTransactionsData.seasons || availableSeasons}
+            availableSeasons={availableSeasons || []}
           />
 
         </div>
@@ -135,29 +149,10 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
           </TabsList>
 
           <TabsContent value="all" className="mt-6">
-            {!transactionsData && selectedSeason ? (
-              <div className="space-y-4">
-                {/* Week header skeleton */}
-                <Skeleton className="h-6 w-20" />
-                {/* Transaction card skeletons */}
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="border rounded-lg p-4 space-y-2">
-                    <div className="flex justify-between items-start">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-3 w-16" />
-                    </div>
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-3/4" />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <TransactionsAllTab 
-                transactions={currentSeasonTransactions}
-                selectedSeason={selectedSeason}
-                availableSeasons={allTransactionsData.seasons}
-              />
-            )}
+            <PaginatedTransactionsTab 
+              leagueId={leagueId}
+              selectedSeason={selectedSeason}
+            />
           </TabsContent>
 
           <TabsContent value="trades" className="mt-6">
@@ -194,7 +189,7 @@ export default function TransactionsPage({ params }: TransactionsPageProps) {
           </TabsContent>
           
           <TabsContent value="draft" className="mt-6">
-            {!teamsData && selectedSeason ? (
+            {(!draftData && !teamsData) && selectedSeason ? (
               <div className="space-y-4">
                 {/* Draft header skeleton */}
                 <div className="flex justify-between items-center">
