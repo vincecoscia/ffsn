@@ -156,12 +156,12 @@ export default function TeamsPage({ params }: TeamsPageProps) {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="teams" className="flex items-center gap-2">
+        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-none sm:inline-flex sm:justify-start">
+          <TabsTrigger value="teams" className="flex items-center gap-2 sm:flex-none">
             <Users className="h-4 w-4" />
             Teams
           </TabsTrigger>
-          <TabsTrigger value="rivalries" className="flex items-center gap-2">
+          <TabsTrigger value="rivalries" className="flex items-center gap-2 sm:flex-none">
             <Swords className="h-4 w-4" />
             Rivalries
           </TabsTrigger>

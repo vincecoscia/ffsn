@@ -40,7 +40,6 @@ export function SeasonSelector({
         {seasons.map((season) => (
           <SelectItem key={season} value={season.toString()}>
             {season} Season
-            {season === currentSeason && " (Current)"}
           </SelectItem>
         ))}
       </SelectContent>
