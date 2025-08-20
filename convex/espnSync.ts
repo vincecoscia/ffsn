@@ -1329,14 +1329,42 @@ export const updateSeasonDraftData = mutation({
       draftDate: v.optional(v.number()),
       draftType: v.optional(v.string()),
       timePerPick: v.optional(v.number()),
+      drafted: v.optional(v.boolean()),
+      inProgress: v.optional(v.boolean()),
     })),
   },
   handler: async (ctx, args) => {
+    // Get the existing season data to check if draft status changed
+    const existingSeason = await ctx.db.get(args.seasonId);
+    const wasPreviouslyDrafted = existingSeason?.draftInfo?.drafted === true;
+    const isNowDrafted = args.draftInfo?.drafted === true;
+    
+    // Update the season data
     await ctx.db.patch(args.seasonId, {
       draftSettings: args.draftSettings,
       draft: args.draft,
       draftInfo: args.draftInfo,
     });
+    
+    // If draft just completed (wasn't drafted before, but is now), trigger draft rankings generation
+    if (!wasPreviouslyDrafted && isNowDrafted && existingSeason?.leagueId) {
+      console.log(`Draft completed for league ${existingSeason.leagueId}, season ${existingSeason.seasonId}`);
+      
+      try {
+        await ctx.scheduler.runAfter(0, internal.contentScheduling.triggerEventBasedContent, {
+          leagueId: existingSeason.leagueId,
+          eventType: "draft_completed",
+          eventData: {
+            seasonId: existingSeason.seasonId,
+            draftDate: args.draftInfo?.draftDate,
+            draftType: args.draftInfo?.draftType,
+          },
+        });
+        console.log(`Successfully triggered draft_completed event for league ${existingSeason.leagueId}`);
+      } catch (error) {
+        console.error(`Failed to trigger draft_completed event:`, error);
+      }
+    }
   },
 });
 

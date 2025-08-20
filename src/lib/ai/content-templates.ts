@@ -620,28 +620,10 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         wordCount: 200
       },
       {
-        name: "grade_a_teams",
-        description: "Teams that crushed their draft with optimal picks and great value",
+        name: "team_by_team_grades",
+        description: "Individual analysis of each team's draft with personalized grades and commentary",
         required: true,
-        wordCount: 400
-      },
-      {
-        name: "grade_b_teams",
-        description: "Solid drafts with good foundation but some questionable picks",
-        required: true,
-        wordCount: 350
-      },
-      {
-        name: "grade_c_teams",
-        description: "Average drafts with mixed results and missed opportunities",
-        required: true,
-        wordCount: 300
-      },
-      {
-        name: "grade_d_f_teams",
-        description: "Poor drafts with major reaches, busts, or strategic errors",
-        required: true,
-        wordCount: 300
+        wordCount: 1000
       },
       {
         name: "best_picks",

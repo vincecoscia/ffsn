@@ -280,6 +280,64 @@ export interface LeagueDataContext {
     nextOpponentRank?: number;
     restOfSeasonDifficulty?: "easy" | "medium" | "hard";
   }>;
+  // Draft rankings specific data
+  draftPicks?: Array<{
+    teamName: string;
+    teamAbbreviation: string;
+    teamOwner: string;
+    pickNumber: number;
+    roundNumber: number;
+    roundPickNumber: number;
+    playerName: string;
+    playerPosition: string;
+    playerTeam: string;
+    playerProjectedPoints: number | null;
+    playerADP: number | null;
+    perceivedValue: number;
+  }>;
+  teamGrades?: Array<{
+    teamName: string;
+    teamOwner: string;
+    grade: "A+" | "A" | "A-" | "B+" | "B" | "B-" | "C+" | "C" | "C-" | "D+" | "D" | "F";
+    gradeScore: number;
+    strategy: {
+      strategy: "Hero RB" | "Hero WR" | "Balanced" | "Zero RB" | "Zero WR" | "TE Premium" | "QB Early" | "Unknown";
+      confidence: number;
+      reasoning: string;
+    };
+    bestPicks: Array<{
+      teamName: string;
+      teamAbbreviation: string;
+      teamOwner: string;
+      pickNumber: number;
+      roundNumber: number;
+      roundPickNumber: number;
+      playerName: string;
+      playerPosition: string;
+      playerTeam: string;
+      playerProjectedPoints: number | null;
+      playerADP: number | null;
+      perceivedValue: number;
+    }>;
+    worstPicks: Array<{
+      teamName: string;
+      teamAbbreviation: string;
+      teamOwner: string;
+      pickNumber: number;
+      roundNumber: number;
+      roundPickNumber: number;
+      playerName: string;
+      playerPosition: string;
+      playerTeam: string;
+      playerProjectedPoints: number | null;
+      playerADP: number | null;
+      perceivedValue: number;
+    }>;
+    projectedStarterPoints: number;
+    benchDepthScore: number;
+    reasoning: string;
+  }>;
+  totalTeams?: number;
   [key: string]: unknown;
 }
 
@@ -382,6 +440,26 @@ export class PromptBuilder {
         case 'rivalry_history':
           if (!data.rivalries || data.rivalries.length === 0) {
             missing.push('rivalry_history');
+          }
+          break;
+        case 'draft_results':
+          if (!data.draftPicks || data.draftPicks.length === 0) {
+            missing.push('draft_results (draftPicks)');
+          }
+          break;
+        case 'team_rosters':
+          if (!data.teams || data.teams.length === 0) {
+            missing.push('team_rosters (teams)');
+          }
+          break;
+        case 'player_projections':
+          if (!data.draftPicks || !data.draftPicks.some(pick => pick.playerProjectedPoints !== null)) {
+            missing.push('player_projections');
+          }
+          break;
+        case 'league_settings':
+          if (!data.scoringType && !data.totalTeams && !data.draftType) {
+            missing.push('league_settings');
           }
           break;
       }
@@ -513,6 +591,9 @@ CURRENT CONTEXT:
         break;
       case 'mock_draft':
         contextData = this.buildMockDraftData(data);
+        break;
+      case 'draft_rankings':
+        contextData = this.buildDraftRankingsData(data);
         break;
       case 'trade_rumor_mill':
         contextData = this.buildTradeRumorData(data);
@@ -1195,6 +1276,155 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     console.log("=== buildMockDraftData END (OPTIMIZED) ===");
     
     return mockDraftData;
+  }
+
+  private buildDraftRankingsData(data: LeagueDataContext): string {
+    console.log("=== buildDraftRankingsData START ===");
+    
+    let draftData = `POST-DRAFT RANKINGS & ANALYSIS:\n\n`;
+    
+    // League Information
+    draftData += `LEAGUE SETTINGS:\n`;
+    draftData += `- ${data.leagueName}\n`;
+    draftData += `- ${data.totalTeams} teams | ${data.scoringType || 'PPR'} scoring\n`;
+    draftData += `- ${data.draftType || 'Snake'} draft format\n\n`;
+    
+    // Team-by-Team Draft Analysis
+    if (data.teamGrades && data.teamGrades.length > 0) {
+      draftData += `TEAM-BY-TEAM DRAFT ANALYSIS:\n`;
+      data.teamGrades
+        .sort((a, b) => b.gradeScore - a.gradeScore)
+        .forEach((team, index) => {
+          draftData += `${index + 1}. ${team.teamName} (${team.teamOwner}) - GRADE: ${team.grade}\n`;
+          draftData += `   Score: ${team.gradeScore.toFixed(1)}/100\n`;
+          draftData += `   Strategy: ${team.strategy.strategy} (${Math.round(team.strategy.confidence * 100)}% confidence)\n`;
+          draftData += `   Projected Starter Points: ${team.projectedStarterPoints.toFixed(0)}\n`;
+          draftData += `   Best Pick: ${team.bestPicks[0]?.playerName} (${team.bestPicks[0]?.playerPosition}) at pick ${team.bestPicks[0]?.pickNumber}\n`;
+          if (team.worstPicks.length > 0 && team.worstPicks[0].perceivedValue < -20) {
+            draftData += `   Biggest Reach: ${team.worstPicks[0].playerName} at pick ${team.worstPicks[0].pickNumber}\n`;
+          }
+          draftData += `   Reasoning: ${team.reasoning}\n`;
+          draftData += `\n`;
+        });
+      draftData += `\n`;
+    }
+    
+    // Draft Pick Details (Top 3 rounds for space efficiency)
+    if (data.draftPicks && data.draftPicks.length > 0) {
+      const topRoundPicks = data.draftPicks.filter(pick => pick.roundNumber <= 3);
+      
+      if (topRoundPicks.length > 0) {
+        draftData += `TOP 3 ROUNDS BREAKDOWN:\n`;
+        
+        // Group by round
+        const picksByRound = topRoundPicks.reduce((acc, pick) => {
+          if (!acc[pick.roundNumber]) acc[pick.roundNumber] = [];
+          acc[pick.roundNumber].push(pick);
+          return acc;
+        }, {} as Record<number, typeof topRoundPicks>);
+        
+        Object.entries(picksByRound)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .forEach(([round, picks]) => {
+            draftData += `\nRound ${round}:\n`;
+            picks.sort((a, b) => a.pickNumber - b.pickNumber)
+              .forEach(pick => {
+                draftData += `${pick.pickNumber}. ${pick.playerName} (${pick.playerPosition}, ${pick.playerTeam}) → ${pick.teamName}`;
+                
+                if (pick.playerADP) {
+                  const adpDiff = pick.playerADP - pick.pickNumber;
+                  if (adpDiff > 10) {
+                    draftData += ` [VALUE: ADP ${pick.playerADP.toFixed(1)}]`;
+                  } else if (adpDiff < -10) {
+                    draftData += ` [REACH: ADP ${pick.playerADP.toFixed(1)}]`;
+                  }
+                }
+                
+                if (pick.playerProjectedPoints) {
+                  draftData += ` | Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
+                }
+                
+                draftData += `\n`;
+              });
+          });
+        draftData += `\n`;
+      }
+      
+      // Best Value Picks
+      const bestValuePicks = data.draftPicks
+        .filter(pick => pick.perceivedValue > 25)
+        .sort((a, b) => b.perceivedValue - a.perceivedValue)
+        .slice(0, 10);
+      
+      if (bestValuePicks.length > 0) {
+        draftData += `BEST VALUE PICKS:\n`;
+        bestValuePicks.forEach(pick => {
+          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
+          if (pick.playerADP) {
+            draftData += ` (ADP: ${pick.playerADP.toFixed(1)})`;
+          }
+          draftData += ` - Value Score: ${pick.perceivedValue.toFixed(1)}\n`;
+        });
+        draftData += `\n`;
+      }
+      
+      // Biggest Reaches
+      const biggestReaches = data.draftPicks
+        .filter(pick => pick.perceivedValue < -25)
+        .sort((a, b) => a.perceivedValue - b.perceivedValue)
+        .slice(0, 5);
+      
+      if (biggestReaches.length > 0) {
+        draftData += `BIGGEST REACHES:\n`;
+        biggestReaches.forEach(pick => {
+          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
+          if (pick.playerADP) {
+            draftData += ` (ADP: ${pick.playerADP.toFixed(1)})`;
+          }
+          draftData += ` - Reach Score: ${pick.perceivedValue.toFixed(1)}\n`;
+        });
+        draftData += `\n`;
+      }
+    }
+    
+    // Draft Strategy Analysis
+    if (data.teamGrades) {
+      draftData += `STRATEGY BREAKDOWN:\n`;
+      const strategies = data.teamGrades.reduce((acc, team) => {
+        const strategy = team.strategy.strategy;
+        if (!acc[strategy]) acc[strategy] = [];
+        acc[strategy].push(team);
+        return acc;
+      }, {} as Record<string, typeof data.teamGrades>);
+      
+      Object.entries(strategies).forEach(([strategy, teams]) => {
+        draftData += `${strategy}: ${teams.map(t => t.teamName).join(', ')} (${teams.length} teams)\n`;
+      });
+      draftData += `\n`;
+    }
+    
+    draftData += `GRADING METHODOLOGY:\n`;
+    draftData += `- Grades based on: projected starter points (40%), perceived pick value vs ADP (40%), bench depth (20%)\n`;
+    draftData += `- Strategy analysis considers first 5 picks and position distribution\n`;
+    draftData += `- Value picks are those drafted significantly later than ADP with good projections\n`;
+    draftData += `- Reaches are picks made significantly earlier than ADP\n`;
+    draftData += `- Consider league scoring system (${data.scoringType}) when evaluating positional value\n\n`;
+    
+    draftData += `DRAFT RANKINGS INSTRUCTIONS:\n`;
+    draftData += `- Write as Mel Diaper with his characteristic blunt, opinionated style\n`;
+    draftData += `- Focus on ACTUAL draft results and grades, not predictions\n`;
+    draftData += `- Go through EACH TEAM INDIVIDUALLY and give them their personalized grade and analysis\n`;
+    draftData += `- Don't group teams by grade (no "A+ teams", "B teams" sections) - analyze each team separately\n`;
+    draftData += `- Use the provided team-by-team data with specific reasoning for each team's grade\n`;
+    draftData += `- Be critical of bad picks but give credit where due\n`;
+    draftData += `- Include specific analysis of each team's strategy, best picks, and biggest reaches\n`;
+    draftData += `- Reference the grading methodology but don't be overly technical\n`;
+    draftData += `- Make it entertaining while being informative with personalized takes for each team\n`;
+    
+    console.log("Draft rankings data length:", draftData.length);
+    console.log("=== buildDraftRankingsData END ===");
+    
+    return draftData;
   }
 
   private buildTradeRumorData(data: LeagueDataContext): string {

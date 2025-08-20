@@ -355,8 +355,8 @@ export const generateContentAction = internalAction({
     console.log("Persona:", args.persona);
     
     try {
-      // For mock drafts, weekly recaps, and season welcome, use the scheduled data-prep approach
-      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap' || args.contentType === 'season_welcome') {
+      // For mock drafts, weekly recaps, draft rankings, and season welcome, use the scheduled data-prep approach
+      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap' || args.contentType === 'season_welcome' || args.contentType === 'draft_rankings') {
         console.log(`Using scheduled approach for ${args.contentType} generation`);
         
         // Schedule data preparation step (which will chain the generation step)

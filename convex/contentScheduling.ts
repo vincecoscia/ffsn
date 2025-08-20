@@ -110,6 +110,13 @@ const DEFAULT_SCHEDULES = {
       minute: 0,
     },
   },
+  draft_rankings: {
+    schedule: {
+      type: "event_triggered" as const,
+      trigger: "draft_completed",
+      delayMinutes: 60, // 1 hour after draft completion
+    },
+  },
 };
 
 // Create default content schedules for a league (opt-in by default)
@@ -556,6 +563,8 @@ export const triggerEventBasedContent = internalAction({
         contextData: {
           triggerEvent: args.eventType,
           eventData: args.eventData,
+          // Extract seasonId from eventData for draft_completed events
+          seasonId: args.eventData?.seasonId,
         },
       });
 

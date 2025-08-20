@@ -93,6 +93,63 @@ export const prepareAIContentData = internalAction({
         });
         
         leagueData = weeklyRecapData;
+      } else if (args.contentType === 'draft_rankings') {
+        console.log("Fetching draft rankings data...");
+        
+        // Determine seasonId - use provided seasonId or fall back to league's current season
+        let seasonId = args.seasonId;
+        if (!seasonId) {
+          console.log("No seasonId provided, determining from league data...");
+          const league = await ctx.runQuery(api.leagues.getById, { id: args.leagueId });
+          seasonId = league?.espnData?.seasonId || new Date().getFullYear();
+          console.log(`Using seasonId: ${seasonId}`);
+        }
+        
+        const draftRankingsData = await ctx.runQuery(internal.draftRankingsHelpers.getSimplifiedDraftData, {
+          leagueId: args.leagueId,
+          seasonId: seasonId,
+        });
+        
+        // Convert to expected league data format
+        leagueData = {
+          leagueName: draftRankingsData.leagueInfo.name,
+          currentWeek: 0,
+          currentSeason: seasonId,
+          scoringType: draftRankingsData.leagueInfo.scoringType,
+          totalTeams: draftRankingsData.leagueInfo.teamCount,
+          draftType: draftRankingsData.leagueInfo.draftType,
+          // Draft-specific data
+          draftPicks: draftRankingsData.draftPicks,
+          teamGrades: draftRankingsData.teamGrades,
+          // Use the draft order from draftRankingsData (from leagueSeasons.draftSettings.pickOrder)
+          draftOrder: draftRankingsData.draftOrder.length > 0 
+            ? draftRankingsData.draftOrder 
+            : draftRankingsData.draftPicks.map(pick => ({
+                position: pick.pickNumber,
+                teamId: pick.teamName, // fallback
+                teamName: pick.teamName,
+                manager: pick.teamOwner,
+              })).sort((a, b) => a.position - b.position),
+          // Create teams data from teamGrades for roster information
+          teams: draftRankingsData.teamGrades.map(grade => ({
+            name: grade.teamName,
+            owner: grade.teamOwner,
+            abbreviation: grade.teamName.substring(0, 3).toUpperCase(),
+            projectedPoints: grade.projectedStarterPoints,
+            draftGrade: grade.grade,
+            gradeScore: grade.gradeScore,
+            strategy: grade.strategy.strategy,
+            bestPicks: grade.bestPicks,
+            worstPicks: grade.worstPicks,
+            benchDepthScore: grade.benchDepthScore,
+          })),
+          recentMatchups: [],
+          trades: [],
+          transactions: [],
+          rivalries: [],
+          managerActivity: [],
+          standings: [],
+        };
       } else {
         // Regular content generation
         leagueData = await ctx.runQuery(api.aiContent.getLeagueDataForGeneration, {

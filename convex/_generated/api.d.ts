@@ -24,6 +24,7 @@ import type * as contentSchedulingIntegration from "../contentSchedulingIntegrat
 import type * as credits from "../credits.js";
 import type * as crons from "../crons.js";
 import type * as dataProcessing from "../dataProcessing.js";
+import type * as draftRankingsHelpers from "../draftRankingsHelpers.js";
 import type * as espn from "../espn.js";
 import type * as espnNews from "../espnNews.js";
 import type * as espnStatsMapping from "../espnStatsMapping.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   credits: typeof credits;
   crons: typeof crons;
   dataProcessing: typeof dataProcessing;
+  draftRankingsHelpers: typeof draftRankingsHelpers;
   espn: typeof espn;
   espnNews: typeof espnNews;
   espnStatsMapping: typeof espnStatsMapping;

@@ -107,7 +107,16 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       setSelectedWeek(mostRecentWeek);
       form.setValue("seasonId", mostRecentSeason.seasonId);
       form.setValue("week", mostRecentWeek);
-    } else if (contentType !== "weekly_recap") {
+    } else if (contentType === "draft_rankings") {
+      // For draft rankings, use current year instead of most recent completed season
+      // since we want to analyze the current season's draft, not last season's
+      const currentYear = new Date().getFullYear();
+      
+      setSelectedSeason(currentYear);
+      setSelectedWeek(null); // No week needed for draft rankings
+      form.setValue("seasonId", currentYear);
+      form.setValue("week", undefined);
+    } else if (contentType !== "weekly_recap" && contentType !== "draft_rankings") {
       // Clear season/week for other content types
       setSelectedSeason(null);
       setSelectedWeek(null);
@@ -272,6 +281,13 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                         >
                           Mock Draft
                         </SelectItem>
+                        <SelectItem
+                          value="draft_rankings"
+                          textValue="Post-Draft Rankings & Grades"
+                          rightAdornment={<Badge variant="secondary">15 credits</Badge>}
+                        >
+                          Post-Draft Rankings & Grades
+                        </SelectItem>
                       </SelectGroup>
                       
                       <SelectGroup>
@@ -362,8 +378,11 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
               )}
             />
 
-            {/* Season/Week Selection for Weekly Recap */}
-            {selectedContentType === "weekly_recap" && completedWeeks && (
+            {/* Season/Week Selection for Weekly Recap and Draft Rankings */}
+            {(selectedContentType === "weekly_recap" || selectedContentType === "draft_rankings") && (
+              (selectedContentType === "weekly_recap" && completedWeeks) || 
+              selectedContentType === "draft_rankings"
+            ) && (
               <div className="space-y-4">
                 <FormField
                   control={form.control}
@@ -373,20 +392,31 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                       <FormLabel className="text-base font-semibold">Season</FormLabel>
                       <FormControl>
                         <SeasonSelector
-                          currentSeason={completedWeeks[0]?.seasonId || new Date().getFullYear()}
-                          selectedSeason={field.value || completedWeeks[0]?.seasonId || new Date().getFullYear()}
+                          currentSeason={selectedContentType === "draft_rankings" 
+                            ? new Date().getFullYear() 
+                            : (completedWeeks && completedWeeks[0]?.seasonId || new Date().getFullYear())
+                          }
+                          selectedSeason={field.value || (selectedContentType === "draft_rankings" 
+                            ? new Date().getFullYear() 
+                            : (completedWeeks && completedWeeks[0]?.seasonId || new Date().getFullYear()))
+                          }
                           onSeasonChange={(season) => {
                             field.onChange(season);
                             setSelectedSeason(season);
-                            // Reset week when season changes
-                            const seasonData = completedWeeks.find(s => s.seasonId === season);
-                            if (seasonData && seasonData.weeks.length > 0) {
-                              const defaultWeek = seasonData.weeks[seasonData.weeks.length - 1];
-                              setSelectedWeek(defaultWeek);
-                              form.setValue("week", defaultWeek);
+                            // Reset week when season changes (only for weekly_recap)
+                            if (selectedContentType === "weekly_recap" && completedWeeks) {
+                              const seasonData = completedWeeks.find(s => s.seasonId === season);
+                              if (seasonData && seasonData.weeks.length > 0) {
+                                const defaultWeek = seasonData.weeks[seasonData.weeks.length - 1];
+                                setSelectedWeek(defaultWeek);
+                                form.setValue("week", defaultWeek);
+                              }
                             }
                           }}
-                          availableSeasons={completedWeeks.map(s => s.seasonId)}
+                          availableSeasons={selectedContentType === "draft_rankings"
+                            ? Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
+                            : (completedWeeks ? completedWeeks.map(s => s.seasonId) : [])
+                          }
                         />
                       </FormControl>
                       <FormMessage />
@@ -394,12 +424,13 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="week"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-base font-semibold">Week</FormLabel>
+                {selectedContentType === "weekly_recap" && (
+                  <FormField
+                    control={form.control}
+                    name="week"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-base font-semibold">Week</FormLabel>
                       <Select 
                         onValueChange={(value) => {
                           field.onChange(parseInt(value));
@@ -414,7 +445,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                         </FormControl>
                         <SelectContent>
                           {completedWeeks
-                            .find(s => s.seasonId === selectedSeason)
+                            ?.find(s => s.seasonId === selectedSeason)
                             ?.weeks.map((week) => (
                               <SelectItem key={week} value={week.toString()}>
                                 Week {week}
@@ -429,6 +460,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                     </FormItem>
                   )}
                 />
+                )}
               </div>
             )}
 
@@ -528,6 +560,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                             <span className="font-medium">Period:</span>
                             <span className="text-sm">{selectedSeason} - Week {selectedWeek}</span>
+                          </div>
+                        )}
+                        {selectedContentType === "draft_rankings" && selectedSeason && (
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
+                            <span className="font-medium">Season:</span>
+                            <span className="text-sm">{selectedSeason} Draft</span>
                           </div>
                         )}
                       </div>
