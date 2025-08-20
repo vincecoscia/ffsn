@@ -16,6 +16,7 @@ export interface SimplifiedDraftPick {
   playerProjectedPoints: number | null;
   playerADP: number | null;
   perceivedValue: number; // Formula-based value assessment
+  isRookie?: boolean; // True if player is a rookie (eligibleSlots contains 25)
 }
 
 export interface DraftStrategy {
@@ -210,6 +211,11 @@ async function getSimplifiedDraftDataImpl(ctx: any, args: {
           // Get ADP from ownership data
           const adp = player.ownership?.averageDraftPosition || null;
 
+          // Determine if player is a rookie (eligibleSlots contains 25)
+          const isRookie = player.eligibleSlots && Array.isArray(player.eligibleSlots) 
+            ? player.eligibleSlots.includes(25) 
+            : false;
+
           // Calculate perceived value (how good this pick was relative to ADP and draft position)
           const perceivedValue = calculatePerceivedValue(
             item.overallPickNumber || 999,
@@ -231,6 +237,7 @@ async function getSimplifiedDraftDataImpl(ctx: any, args: {
             playerProjectedPoints: projectedPoints,
             playerADP: adp,
             perceivedValue,
+            isRookie, // Determined from eligibleSlots containing 25
           });
         }
       });

@@ -294,6 +294,7 @@ export interface LeagueDataContext {
     playerProjectedPoints: number | null;
     playerADP: number | null;
     perceivedValue: number;
+    isRookie?: boolean; // True if player is a rookie
   }>;
   teamGrades?: Array<{
     teamName: string;
@@ -1297,7 +1298,10 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         .forEach((team, index) => {
           draftData += `${index + 1}. ${team.teamName} (${team.teamOwner}) - GRADE: ${team.grade}\n`;
           draftData += `   Score: ${team.gradeScore.toFixed(1)}/100\n`;
-          draftData += `   Strategy: ${team.strategy.strategy} (${Math.round(team.strategy.confidence * 100)}% confidence)\n`;
+          // Only mention strategy if confidence is very high (>80%)
+          if (team.strategy.confidence > 0.8) {
+            draftData += `   Strategy: ${team.strategy.strategy}\n`;
+          }
           draftData += `   Projected Starter Points: ${team.projectedStarterPoints.toFixed(0)}\n`;
           draftData += `   Best Pick: ${team.bestPicks[0]?.playerName} (${team.bestPicks[0]?.playerPosition}) at pick ${team.bestPicks[0]?.pickNumber}\n`;
           if (team.worstPicks.length > 0 && team.worstPicks[0].perceivedValue < -20) {
@@ -1350,38 +1354,118 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         draftData += `\n`;
       }
       
-      // Best Value Picks
-      const bestValuePicks = data.draftPicks
-        .filter(pick => pick.perceivedValue > 25)
-        .sort((a, b) => b.perceivedValue - a.perceivedValue)
-        .slice(0, 10);
+      // Hot Take Best Picks - Mix of high projected points and value
+      const hotTakeBestPicks: Array<NonNullable<typeof data.draftPicks>[0]> = [];
       
-      if (bestValuePicks.length > 0) {
-        draftData += `BEST VALUE PICKS:\n`;
-        bestValuePicks.forEach(pick => {
-          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
-          if (pick.playerADP) {
-            draftData += ` (ADP: ${pick.playerADP.toFixed(1)})`;
+      // Get top projected players by position who were drafted
+      const positionGroups = ['QB', 'RB', 'WR', 'TE'];
+      positionGroups.forEach(position => {
+        if (data.draftPicks) {
+          const positionPicks = data.draftPicks
+            .filter(pick => pick.playerPosition === position && pick.playerProjectedPoints !== null)
+            .sort((a, b) => (b.playerProjectedPoints || 0) - (a.playerProjectedPoints || 0));
+          
+          // Add top 2 projected players for this position
+          if (positionPicks.length > 0) {
+            hotTakeBestPicks.push(...positionPicks.slice(0, 2));
           }
-          draftData += ` - Value Score: ${pick.perceivedValue.toFixed(1)}\n`;
+        }
+      });
+      
+      // Add some high-value picks (steals)
+      if (data.draftPicks) {
+        const valueSteals = data.draftPicks
+          .filter(pick => pick.perceivedValue > 30)
+          .sort((a, b) => b.perceivedValue - a.perceivedValue)
+          .slice(0, 3);
+        hotTakeBestPicks.push(...valueSteals);
+        
+        // Add rookie sleepers (players marked as rookies, or late ADP with decent projections)
+        const rookieSleepers = data.draftPicks
+          .filter(pick => 
+            (pick.isRookie || 
+             (pick.playerADP && pick.playerADP > 100 && pick.playerProjectedPoints && pick.playerProjectedPoints > 150)) &&
+            pick.perceivedValue > 0
+          )
+          .sort((a, b) => (b.playerProjectedPoints || 0) - (a.playerProjectedPoints || 0))
+          .slice(0, 2);
+        hotTakeBestPicks.push(...rookieSleepers);
+      }
+      
+      // Remove duplicates and limit
+      const uniqueBestPicks = hotTakeBestPicks
+        .filter((pick, index, arr) => arr.findIndex(p => p.playerName === pick.playerName) === index)
+        .slice(0, 8);
+      
+      if (uniqueBestPicks.length > 0) {
+        draftData += `HOT TAKE BEST PICKS:\n`;
+        uniqueBestPicks.forEach(pick => {
+          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
+          if (pick.playerProjectedPoints) {
+            draftData += ` - Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
+          }
+          if (pick.playerADP && pick.pickNumber > pick.playerADP + 10) {
+            draftData += ` (STEAL: ADP ${pick.playerADP.toFixed(1)})`;
+          }
+          if (pick.isRookie) {
+            draftData += ` [ROOKIE SLEEPER]`;
+          }
+          draftData += `\n`;
         });
         draftData += `\n`;
       }
       
-      // Biggest Reaches
-      const biggestReaches = data.draftPicks
-        .filter(pick => pick.perceivedValue < -25)
-        .sort((a, b) => a.perceivedValue - b.perceivedValue)
-        .slice(0, 5);
+      // Hot Take Worst Picks - Mix of reaches and low projections
+      const hotTakeWorstPicks: Array<NonNullable<typeof data.draftPicks>[0]> = [];
       
-      if (biggestReaches.length > 0) {
-        draftData += `BIGGEST REACHES:\n`;
-        biggestReaches.forEach(pick => {
-          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
-          if (pick.playerADP) {
-            draftData += ` (ADP: ${pick.playerADP.toFixed(1)})`;
+      if (data.draftPicks) {
+        // Get extreme reaches (drafted much earlier than ADP)
+        const extremeReaches = data.draftPicks
+          .filter(pick => pick.playerADP && pick.pickNumber < pick.playerADP - 20)
+          .sort((a, b) => (a.playerADP || 0) - (b.playerADP || 0) - (b.pickNumber - a.pickNumber))
+          .slice(0, 4);
+        hotTakeWorstPicks.push(...extremeReaches);
+        
+        // Get players with lowest projected points by position (drafted too early for their projection)
+        positionGroups.forEach(position => {
+          const positionPicks = data.draftPicks!
+            .filter(pick => pick.playerPosition === position && pick.playerProjectedPoints !== null && pick.pickNumber <= 120)
+            .sort((a, b) => (a.playerProjectedPoints || 0) - (b.playerProjectedPoints || 0));
+          
+          // Add bottom 1-2 projected players for this position (if drafted reasonably early)
+          if (positionPicks.length > 2) {
+            const worstProjected = positionPicks.slice(0, position === 'QB' || position === 'TE' ? 1 : 2);
+            hotTakeWorstPicks.push(...worstProjected);
           }
-          draftData += ` - Reach Score: ${pick.perceivedValue.toFixed(1)}\n`;
+        });
+        
+        // Add some terrible value picks
+        const terribleValue = data.draftPicks
+          .filter(pick => pick.perceivedValue < -30)
+          .sort((a, b) => a.perceivedValue - b.perceivedValue)
+          .slice(0, 3);
+        hotTakeWorstPicks.push(...terribleValue);
+      }
+      
+      // Remove duplicates and limit
+      const uniqueWorstPicks = hotTakeWorstPicks
+        .filter((pick, index, arr) => arr.findIndex(p => p.playerName === pick.playerName) === index)
+        .slice(0, 6);
+      
+      if (uniqueWorstPicks.length > 0) {
+        draftData += `HOT TAKE QUESTIONABLE PICKS:\n`;
+        uniqueWorstPicks.forEach(pick => {
+          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
+          if (pick.playerProjectedPoints) {
+            draftData += ` - Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
+          }
+          if (pick.playerADP && pick.pickNumber < pick.playerADP - 15) {
+            draftData += ` (REACH: ADP ${pick.playerADP.toFixed(1)})`;
+          }
+          if (pick.perceivedValue < -30) {
+            draftData += ` [YIKES]`;
+          }
+          draftData += `\n`;
         });
         draftData += `\n`;
       }
@@ -1417,7 +1501,12 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `- Don't group teams by grade (no "A+ teams", "B teams" sections) - analyze each team separately\n`;
     draftData += `- Use the provided team-by-team data with specific reasoning for each team's grade\n`;
     draftData += `- Be critical of bad picks but give credit where due\n`;
-    draftData += `- Include specific analysis of each team's strategy, best picks, and biggest reaches\n`;
+    draftData += `- Include specific analysis of each team's strategy (when provided), best picks, and biggest reaches\n`;
+    draftData += `- NEVER mention confidence levels or percentages related to draft strategy analysis\n`;
+    draftData += `- The "Hot Take Best Picks" section highlights elite projections, steals, and rookie sleepers\n`;
+    draftData += `- Rookies are identified by the isRookie field, determined from ESPN's eligibility data\n`;
+    draftData += `- The "Hot Take Questionable Picks" section focuses on reaches and low-projection players drafted early\n`;
+    draftData += `- Make bold, entertaining takes on these picks - don't just list them, give hot takes!\n`;
     draftData += `- Reference the grading methodology but don't be overly technical\n`;
     draftData += `- Make it entertaining while being informative with personalized takes for each team\n`;
     
