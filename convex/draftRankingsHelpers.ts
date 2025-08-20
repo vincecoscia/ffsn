@@ -291,12 +291,24 @@ function calculatePerceivedValue(
 ): number {
   let value = 0;
 
-  // ADP value component (50% of total) - amplified linear scaling
+  // ADP value component (50% of total) - corrected logic
   if (adp !== null) {
-    const adpDifference = adp - draftPosition;
-    // Positive if picked later than ADP (good value), negative if picked earlier (reach)
-    // Use smaller divisor and higher multiplier for maximum linear impact
-    value += (adpDifference / (teamCount * 5)) * 55; // Higher linear impact
+    // STEAL: drafted later than ADP (draftPosition > adp) = positive value
+    // REACH: drafted earlier than ADP (draftPosition < adp) = negative value
+    // Example: ADP 2.2, picked at 11 = STEAL (11 > 2.2), should be positive
+    // Example: ADP 50.3, picked at 25 = REACH (25 < 50.3), should be negative
+    
+    // Simple approach: if drafted later than ADP, it's good value (positive)
+    // Moderate impact to allow points-based variance to dominate
+    if (draftPosition > adp) {
+      // Steal: positive value proportional to how much later
+      const stealValue = (draftPosition - adp) / (teamCount * 7) * 40; // Slightly reduced impact to favor points
+      value += stealValue;
+    } else {
+      // Reach: negative value proportional to how much earlier
+      const reachValue = (adp - draftPosition) / (teamCount * 7) * 40; // Slightly reduced impact to favor points
+      value -= reachValue;
+    }
   }
 
   // Note: Projected points component will be calculated later with position averages
@@ -458,24 +470,45 @@ function generateTeamGrades(picks: SimplifiedDraftPick[], teamCount: number, sco
     // Calculate overall grade score (pass all picks for league-wide comparison)
     const gradeScore = calculateGradeScore(teamPicks, projectedStarterPoints, benchDepthScore, updatedPicks);
     
-    // Convert numerical score to letter grade
-    const grade = convertToLetterGrade(gradeScore);
-
-    // Generate reasoning
-    const reasoning = generateGradeReasoning(teamPicks, strategy, gradeScore, bestPicks, worstPicks);
-
+    // Store team data without grade for now (will assign dynamically)
     grades.push({
       teamName,
       teamOwner: teamPicks[0].teamOwner,
-      grade,
+      grade: "C" as any, // Temporary, will be updated
       gradeScore,
       strategy,
       bestPicks,
       worstPicks,
       projectedStarterPoints,
       benchDepthScore,
-      reasoning,
+      reasoning: "", // Will be generated after grade assignment
     });
+  });
+
+  // Calculate league-wide statistics for dynamic grading
+  const allScores = grades.map(g => g.gradeScore);
+  const avgScore = allScores.reduce((sum, score) => sum + score, 0) / allScores.length;
+  const variance = allScores.reduce((sum, score) => sum + Math.pow(score - avgScore, 2), 0) / allScores.length;
+  const stdDev = Math.sqrt(variance);
+  
+  console.log(`=== DYNAMIC GRADING STATS ===`);
+  console.log(`Average score: ${avgScore.toFixed(2)}`);
+  console.log(`Standard deviation: ${stdDev.toFixed(2)}`);
+  console.log(`Score range: ${Math.min(...allScores).toFixed(2)} - ${Math.max(...allScores).toFixed(2)}`);
+
+  // Now assign dynamic grades and generate reasoning
+  grades.forEach(teamGrade => {
+    const grade = convertToLetterGrade(teamGrade.gradeScore, avgScore, stdDev);
+    const reasoning = generateGradeReasoning(
+      updatedPicks.filter(p => p.teamName === teamGrade.teamName),
+      teamGrade.strategy,
+      teamGrade.gradeScore,
+      teamGrade.bestPicks,
+      teamGrade.worstPicks
+    );
+    
+    teamGrade.grade = grade;
+    teamGrade.reasoning = reasoning;
   });
 
   // Sort grades by score (highest first)
@@ -593,10 +626,10 @@ function calculateGradeScore(
   benchDepthScore: number,
   allLeaguePicks: SimplifiedDraftPick[]
 ): number {
-  // Average perceived value of all picks (45% weight) - create differentiation with higher baseline
+  // Average perceived value of all picks (25% weight) - extreme variance
   const avgPerceivedValue = picks.reduce((sum, pick) => sum + pick.perceivedValue, 0) / picks.length;
-  // Use higher baseline (65) to bring grades up while maintaining variance
-  const valueScore = Math.max(30, Math.min(100, 65 + (avgPerceivedValue * 1.2))); // Higher baseline, moderate amplification
+  // Very low baseline with extreme amplification for maximum volatility
+  const valueScore = Math.max(15, Math.min(100, 60 + (avgPerceivedValue * 3.0))); // Very low baseline, extreme amplification
 
   // Projected points component (30% weight) - dynamic range based on actual draft data
   // Calculate all teams' starter points for comparison using ALL league picks
@@ -637,8 +670,8 @@ function calculateGradeScore(
   
   if (stdDev > 0) { // Avoid division by zero
     zScore = (projectedStarterPoints - avgTeamStarterPoints) / stdDev;
-    const cappedZScore = Math.max(-3, Math.min(3, zScore)); // Cap at ±3 std devs for wider range
-    pointsScore = Math.max(0, Math.min(100, 75 + (cappedZScore * 8.33))); // 75 ± 25 points (8.33 * 3 = 25)
+    const cappedZScore = Math.max(-4, Math.min(4, zScore)); // Cap at ±4 std devs for extreme values
+    pointsScore = Math.max(10, Math.min(100, 75 + (cappedZScore * 25))); // 75 ± 100 points, extremely wide range, very low floor
     console.log(`Z-Score: ${zScore}, Capped Z-Score: ${cappedZScore}, Final Points Score: ${pointsScore}`);
   } else {
     console.log(`Standard deviation is 0, using default points score: ${pointsScore}`);
@@ -646,29 +679,34 @@ function calculateGradeScore(
   
   console.log(`=== END POINTS SCORE DEBUG ===`);
 
-  // Bench depth (20% weight) - increase weight to boost scores
-  const depthScore = Math.max(40, benchDepthScore); // Higher floor for depth score
+  // Bench depth (15% weight) - very low floor for extreme variance
+  const depthScore = Math.max(20, benchDepthScore); // Very low floor for extreme variance
 
-  // Weighted average with adjusted weights to bring scores up
-  const finalScore = (valueScore * 0.45) + (pointsScore * 0.35) + (depthScore * 0.20);
+  // Weighted average with extreme emphasis on projected points for maximum volatility
+  const finalScore = (valueScore * 0.20) + (pointsScore * 0.70) + (depthScore * 0.10);
 
   return Math.max(0, Math.min(100, finalScore));
 }
 
-// Convert numerical score to letter grade (adjusted for 77-90 score range)
-function convertToLetterGrade(score: number): TeamDraftGrade["grade"] {
-  if (score >= 90) return "A+";  // Top 5% - truly exceptional drafts
-  if (score >= 87) return "A";   // Next 10% - excellent drafts
-  if (score >= 85) return "A-";  // Next 15% - great drafts
-  if (score >= 83) return "B+";  // Next 20% - very good drafts
-  if (score >= 81) return "B";   // Next 20% - good drafts
-  if (score >= 79) return "B-";  // Next 15% - above average
-  if (score >= 77) return "C+";  // Next 10% - average
-  if (score >= 75) return "C";   // Next 3% - below average
-  if (score >= 72) return "C-";  // Next 1.5% - poor
-  if (score >= 69) return "D+";  // Next 0.5% - bad
-  if (score >= 65) return "D";   // Bottom 0.3% - terrible
-  return "F";                    // Bottom 0.2% - disaster
+// Convert numerical score to letter grade using dynamic thresholds
+function convertToLetterGrade(score: number, avgScore: number, stdDev: number): TeamDraftGrade["grade"] {
+  // Use z-score to determine grade relative to league average
+  const zScore = stdDev > 0 ? (score - avgScore) / stdDev : 0;
+  
+  // Dynamic grading based on standard deviations from average
+  // C is exactly average (z-score = 0)
+  if (zScore >= 2.5) return "A+";   // 2.5+ std devs above average (~1% of teams)
+  if (zScore >= 1.5) return "A";    // 1.5-2.5 std devs above average (~6% of teams)
+  if (zScore >= 0.8) return "A-";   // 0.8-1.5 std devs above average (~15% of teams)
+  if (zScore >= 0.3) return "B+";   // 0.3-0.8 std devs above average (~20% of teams)
+  if (zScore >= -0.3) return "B";   // -0.3 to 0.3 std devs (around average, ~24% of teams)
+  if (zScore >= -0.8) return "B-";  // -0.8 to -0.3 std devs below average (~20% of teams)
+  if (zScore >= -1.5) return "C+";  // -1.5 to -0.8 std devs below average (~15% of teams)
+  if (zScore >= -2.5) return "C";   // -2.5 to -1.5 std devs below average (~6% of teams)
+  if (zScore >= -3.5) return "C-";  // -3.5 to -2.5 std devs below average (~1% of teams)
+  if (zScore >= -4.5) return "D+";  // -4.5 to -3.5 std devs below average (~0.5% of teams)
+  if (zScore >= -5.5) return "D";   // -5.5 to -4.5 std devs below average (~0.2% of teams)
+  return "F";                       // Below -5.5 std devs (disaster teams)
 }
 
 // Generate reasoning text for grade

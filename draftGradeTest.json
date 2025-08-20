@@ -3,1709 +3,35 @@
     {
       "bestPicks": [
         {
-          "perceivedValue": 51.08,
-          "pickNumber": 110,
-          "playerName": "Cedric Tillman"
-        },
-        {
-          "perceivedValue": 45.45,
-          "pickNumber": 10,
-          "playerName": "Malik Nabers"
-        },
-        {
-          "perceivedValue": 44.53,
-          "pickNumber": 11,
-          "playerName": "De'Von Achane"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 24.19,
-        "depthScore": 58.35,
-        "finalScore": 82.71,
-        "pointsScore": 82.07,
-        "projectedStarterPoints": 2500.7826581,
-        "valueScore": 94.03
-      },
-      "grade": "A",
-      "gradeScore": 88.51536385559233,
-      "pickDetails": [
-        {
-          "adp": 11.83865626403233,
-          "perceivedValue": 20.77,
-          "pickNumber": 10,
-          "playerName": "Malik Nabers",
-          "position": "WR",
-          "projectedPoints": 300.13065162
-        },
-        {
-          "adp": 15.521975122925975,
-          "perceivedValue": 23.6,
-          "pickNumber": 11,
-          "playerName": "De'Von Achane",
-          "position": "RB",
-          "projectedPoints": 306.27508904
-        },
-        {
-          "adp": 43.21511924875251,
-          "perceivedValue": 30.79,
-          "pickNumber": 30,
-          "playerName": "Alvin Kamara",
-          "position": "RB",
-          "projectedPoints": 264.77266021
-        },
-        {
-          "adp": 44.62727961606466,
-          "perceivedValue": 31.12,
-          "pickNumber": 31,
-          "playerName": "Omarion Hampton",
-          "position": "RB",
-          "projectedPoints": 259.0143894
-        },
-        {
-          "adp": 71.20494614361328,
-          "perceivedValue": 37.08,
-          "pickNumber": 50,
-          "playerName": "Calvin Ridley",
-          "position": "WR",
-          "projectedPoints": 230.22790999
-        },
-        {
-          "adp": 68.08460420186462,
-          "perceivedValue": 32.42,
-          "pickNumber": 51,
-          "playerName": "Courtland Sutton",
-          "position": "WR",
-          "projectedPoints": 228.29596053
-        },
-        {
-          "adp": 89.08517063313874,
-          "perceivedValue": 32.24,
-          "pickNumber": 70,
-          "playerName": "Rome Odunze",
-          "position": "WR",
-          "projectedPoints": 217.43261293
-        },
-        {
-          "adp": 61.907399299474605,
-          "perceivedValue": 1.12,
-          "pickNumber": 71,
-          "playerName": "T.J. Hockenson",
-          "position": "TE",
-          "projectedPoints": 187.14357041
-        },
-        {
-          "adp": 93.13579490867413,
-          "perceivedValue": 12.2,
-          "pickNumber": 90,
-          "playerName": "Brock Purdy",
-          "position": "QB",
-          "projectedPoints": 306.16773724
-        },
-        {
-          "adp": 121.91358890884598,
-          "perceivedValue": 42.63,
-          "pickNumber": 91,
-          "playerName": "Jauan Jennings",
-          "position": "WR",
-          "projectedPoints": 201.32207673
-        },
-        {
-          "adp": 162.4745506797337,
-          "perceivedValue": 63.97,
-          "pickNumber": 110,
-          "playerName": "Cedric Tillman",
-          "position": "WR",
-          "projectedPoints": 168.19761419
-        },
-        {
-          "adp": 140.90068366281616,
-          "perceivedValue": 39.02,
-          "pickNumber": 111,
-          "playerName": "Jayden Higgins",
-          "position": "WR",
-          "projectedPoints": 156.36007714
-        },
-        {
-          "adp": 168.74476719710364,
-          "perceivedValue": 46.37,
-          "pickNumber": 130,
-          "playerName": "Dylan Sampson",
-          "position": "RB",
-          "projectedPoints": 60.09723063
-        },
-        {
-          "adp": 144.6638881404643,
-          "perceivedValue": 18.66,
-          "pickNumber": 131,
-          "playerName": "Jake Ferguson",
-          "position": "TE",
-          "projectedPoints": 149.18067302
-        },
-        {
-          "adp": 170.54224854063762,
-          "perceivedValue": 23.85,
-          "pickNumber": 150,
-          "playerName": "Romeo Doubs",
-          "position": "WR",
-          "projectedPoints": 128.50173431
-        },
-        {
-          "adp": 142.41978238915482,
-          "perceivedValue": -8.31,
-          "pickNumber": 151,
-          "playerName": "Jake Elliott",
-          "position": "K",
-          "projectedPoints": 141.1222846
-        },
-        {
-          "adp": 138.16669792714603,
-          "perceivedValue": -36.27,
-          "pickNumber": 170,
-          "playerName": "Lions D/ST",
-          "position": "D/ST",
-          "projectedPoints": 118.23107455
-        }
-      ],
-      "strategy": {
-        "confidence": 0.6,
-        "reasoning": "Balanced approach with mix of RB and WR early",
-        "strategy": "Balanced"
-      },
-      "teamName": "Prolapsed Peehole",
-      "teamOwner": "Vincent Coscia",
-      "worstPicks": [
-        {
-          "perceivedValue": 4.5,
-          "pickNumber": 71,
-          "playerName": "T.J. Hockenson"
-        },
-        {
-          "perceivedValue": -0.34,
-          "pickNumber": 150,
-          "playerName": "Romeo Doubs"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 50.22,
-          "pickNumber": 7,
-          "playerName": "Puka Nacua"
-        },
-        {
-          "perceivedValue": 49.65,
-          "pickNumber": 14,
-          "playerName": "Chase Brown"
-        },
-        {
-          "perceivedValue": 41.3,
-          "pickNumber": 87,
-          "playerName": "Tyler Warren"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 21.11,
-        "depthScore": 54.62,
-        "finalScore": 78.81,
-        "pointsScore": 77.82,
-        "projectedStarterPoints": 2470.72922314,
-        "valueScore": 90.33
-      },
-      "grade": "A-",
-      "gradeScore": 86.9088952318202,
-      "pickDetails": [
-        {
-          "adp": 10.271963403682083,
-          "perceivedValue": 22.72,
-          "pickNumber": 7,
-          "playerName": "Puka Nacua",
-          "position": "WR",
-          "projectedPoints": 310.04218211
-        },
-        {
-          "adp": 27.641072992209075,
-          "perceivedValue": 33.26,
-          "pickNumber": 14,
-          "playerName": "Chase Brown",
-          "position": "RB",
-          "projectedPoints": 280.99772956
-        },
-        {
-          "adp": 32.13999449923382,
-          "perceivedValue": 22.28,
-          "pickNumber": 27,
-          "playerName": "Kyren Williams",
-          "position": "RB",
-          "projectedPoints": 279.20874936
-        },
-        {
-          "adp": 39.14050291872474,
-          "perceivedValue": 21.4,
-          "pickNumber": 34,
-          "playerName": "Jaxon Smith-Njigba",
-          "position": "WR",
-          "projectedPoints": 240.05149443
-        },
-        {
-          "adp": 54.08679423205375,
-          "perceivedValue": 21.92,
-          "pickNumber": 47,
-          "playerName": "James Conner",
-          "position": "RB",
-          "projectedPoints": 249.77860236
-        },
-        {
-          "adp": 77.01949371351594,
-          "perceivedValue": 38.57,
-          "pickNumber": 54,
-          "playerName": "George Pickens",
-          "position": "WR",
-          "projectedPoints": 219.57405943
-        },
-        {
-          "adp": 80.44448435930107,
-          "perceivedValue": 26.41,
-          "pickNumber": 67,
-          "playerName": "Aaron Jones Sr.",
-          "position": "RB",
-          "projectedPoints": 212.99938763
-        },
-        {
-          "adp": 58.76783396726764,
-          "perceivedValue": -6.01,
-          "pickNumber": 74,
-          "playerName": "Baker Mayfield",
-          "position": "QB",
-          "projectedPoints": 310.38639776
-        },
-        {
-          "adp": 121.13264664608477,
-          "perceivedValue": 46.67,
-          "pickNumber": 87,
-          "playerName": "Tyler Warren",
-          "position": "TE",
-          "projectedPoints": 166.36178186
-        },
-        {
-          "adp": 122.90151493890289,
-          "perceivedValue": 40.04,
-          "pickNumber": 94,
-          "playerName": "Michael Pittman Jr.",
-          "position": "WR",
-          "projectedPoints": 201.32883864
-        },
-        {
-          "adp": 149.61126422200644,
-          "perceivedValue": 53.5,
-          "pickNumber": 107,
-          "playerName": "Zach Charbonnet",
-          "position": "RB",
-          "projectedPoints": 113.0617428
-        },
-        {
-          "adp": 117.43334455430858,
-          "perceivedValue": 9.53,
-          "pickNumber": 114,
-          "playerName": "Chase McLaughlin",
-          "position": "K",
-          "projectedPoints": 146.32717363
-        },
-        {
-          "adp": 98.04774382030135,
-          "perceivedValue": -27.72,
-          "pickNumber": 127,
-          "playerName": "Steelers D/ST",
-          "position": "D/ST",
-          "projectedPoints": 132.5523234
-        },
-        {
-          "adp": 170.4267977121303,
-          "perceivedValue": 43.32,
-          "pickNumber": 134,
-          "playerName": "Blake Corum",
-          "position": "RB",
-          "projectedPoints": 52.44370166
-        },
-        {
-          "adp": 170.1385567866725,
-          "perceivedValue": 27.08,
-          "pickNumber": 147,
-          "playerName": "DeMario Douglas",
-          "position": "WR",
-          "projectedPoints": 139.82868936
-        },
-        {
-          "adp": 170.14171928938285,
-          "perceivedValue": 18.51,
-          "pickNumber": 154,
-          "playerName": "Ollie Gordon II",
-          "position": "RB",
-          "projectedPoints": 33.45522557
-        },
-        {
-          "adp": 138.10639790740493,
-          "perceivedValue": -32.66,
-          "pickNumber": 167,
-          "playerName": "Kyle Pitts Sr.",
-          "position": "TE",
-          "projectedPoints": 142.82677928
-        }
-      ],
-      "strategy": {
-        "confidence": 0.6,
-        "reasoning": "Balanced approach with mix of RB and WR early",
-        "strategy": "Balanced"
-      },
-      "teamName": "Chodie mcgruber",
-      "teamOwner": "Matthew  Colominas ",
-      "worstPicks": [
-        {
-          "perceivedValue": -11.57,
-          "pickNumber": 74,
-          "playerName": "Baker Mayfield"
-        },
-        {
-          "perceivedValue": -47.94,
-          "pickNumber": 167,
-          "playerName": "Kyle Pitts Sr."
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 44.73,
-          "pickNumber": 23,
-          "playerName": "Brock Bowers"
-        },
-        {
-          "perceivedValue": 44.62,
-          "pickNumber": 3,
-          "playerName": "Saquon Barkley"
-        },
-        {
-          "perceivedValue": 40.54,
-          "pickNumber": 78,
-          "playerName": "Deebo Samuel"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 21.65,
-        "depthScore": 55.03,
-        "finalScore": 75.44,
-        "pointsScore": 67.12,
-        "projectedStarterPoints": 2395.0647745700003,
-        "valueScore": 90.98
-      },
-      "grade": "A-",
-      "gradeScore": 86.33646601802646,
-      "pickDetails": [
-        {
-          "adp": 3.627521638096521,
-          "perceivedValue": 20.32,
-          "pickNumber": 3,
-          "playerName": "Saquon Barkley",
-          "position": "RB",
-          "projectedPoints": 325.10760551
-        },
-        {
-          "adp": 20.160162104211455,
-          "perceivedValue": 20.13,
-          "pickNumber": 18,
-          "playerName": "Josh Jacobs",
-          "position": "RB",
-          "projectedPoints": 282.39331205
-        },
-        {
-          "adp": 20.820640916974927,
-          "perceivedValue": 14.73,
-          "pickNumber": 23,
-          "playerName": "Brock Bowers",
-          "position": "TE",
-          "projectedPoints": 261.25265613
-        },
-        {
-          "adp": 35.9416255051639,
-          "perceivedValue": 12.99,
-          "pickNumber": 38,
-          "playerName": "Davante Adams",
-          "position": "WR",
-          "projectedPoints": 256.96187957
-        },
-        {
-          "adp": 45.419366969953806,
-          "perceivedValue": 17.29,
-          "pickNumber": 43,
-          "playerName": "Garrett Wilson",
-          "position": "WR",
-          "projectedPoints": 239.60651178
-        },
-        {
-          "adp": 62.899802984974094,
-          "perceivedValue": 18.14,
-          "pickNumber": 58,
-          "playerName": "Zay Flowers",
-          "position": "WR",
-          "projectedPoints": 232.11459792
-        },
-        {
-          "adp": 79.7704203057994,
-          "perceivedValue": 30.57,
-          "pickNumber": 63,
-          "playerName": "Isiah Pacheco",
-          "position": "RB",
-          "projectedPoints": 211.1462341
-        },
-        {
-          "adp": 108.64021665918276,
-          "perceivedValue": 43.95,
-          "pickNumber": 78,
-          "playerName": "Deebo Samuel",
-          "position": "WR",
-          "projectedPoints": 201.48722312
-        },
-        {
-          "adp": 104.94059139181391,
-          "perceivedValue": 33.76,
-          "pickNumber": 83,
-          "playerName": "Jaylen Warren",
-          "position": "RB",
-          "projectedPoints": 204.18225157
-        },
-        {
-          "adp": 122.01402118332501,
-          "perceivedValue": 34.17,
-          "pickNumber": 98,
-          "playerName": "Keon Coleman",
-          "position": "WR",
-          "projectedPoints": 180.81250282
-        },
-        {
-          "adp": 139.17915356982488,
-          "perceivedValue": 46.92,
-          "pickNumber": 103,
-          "playerName": "Darnell Mooney",
-          "position": "WR",
-          "projectedPoints": 160.52994011
-        },
-        {
-          "adp": 162.9553057245754,
-          "perceivedValue": 54.7,
-          "pickNumber": 118,
-          "playerName": "Cam Ward",
-          "position": "QB",
-          "projectedPoints": 255.52250173
-        },
-        {
-          "adp": 108.23035711229153,
-          "perceivedValue": -11.62,
-          "pickNumber": 123,
-          "playerName": "Jake Bates",
-          "position": "K",
-          "projectedPoints": 144.81764308
-        },
-        {
-          "adp": 170.44816398926795,
-          "perceivedValue": 38.44,
-          "pickNumber": 138,
-          "playerName": "Adonai Mitchell",
-          "position": "WR",
-          "projectedPoints": 84.448032
-        },
-        {
-          "adp": 138.85496274319232,
-          "perceivedValue": -2.43,
-          "pickNumber": 143,
-          "playerName": "Seahawks D/ST",
-          "position": "D/ST",
-          "projectedPoints": 119.61989854
-        },
-        {
-          "adp": 158.88370004490346,
-          "perceivedValue": 1.22,
-          "pickNumber": 158,
-          "playerName": "Xavier Legette",
-          "position": "WR",
-          "projectedPoints": 155.64764453
-        },
-        {
-          "adp": 158.5968981369737,
-          "perceivedValue": -5.22,
-          "pickNumber": 163,
-          "playerName": "Hunter Henry",
-          "position": "TE",
-          "projectedPoints": 146.63054924
-        }
-      ],
-      "strategy": {
-        "confidence": 0.7,
-        "reasoning": "Avoided WR in early rounds, focusing on other positions first",
-        "strategy": "Zero WR"
-      },
-      "teamName": "GLORY ASSHOLE",
-      "teamOwner": "Gabe Coscia",
-      "worstPicks": [
-        {
-          "perceivedValue": -15.24,
-          "pickNumber": 158,
-          "playerName": "Xavier Legette"
-        },
-        {
-          "perceivedValue": -18.9,
-          "pickNumber": 163,
-          "playerName": "Hunter Henry"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 42.38,
-          "pickNumber": 12,
-          "playerName": "Brian Thomas Jr."
-        },
-        {
-          "perceivedValue": 42.36,
-          "pickNumber": 9,
-          "playerName": "Amon-Ra St. Brown"
-        },
-        {
-          "perceivedValue": 39.12,
-          "pickNumber": 69,
-          "playerName": "Stefon Diggs"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 21.27,
-        "depthScore": 50.99,
-        "finalScore": 75.48,
-        "pointsScore": 70.13,
-        "projectedStarterPoints": 2416.36636044,
-        "valueScore": 90.53
-      },
-      "grade": "A-",
-      "gradeScore": 86.07191308306544,
-      "pickDetails": [
-        {
-          "adp": 10.455556802873822,
-          "perceivedValue": 20.48,
-          "pickNumber": 9,
-          "playerName": "Amon-Ra St. Brown",
-          "position": "WR",
-          "projectedPoints": 290.32407673
-        },
-        {
-          "adp": 18.88089852322925,
-          "perceivedValue": 26.07,
-          "pickNumber": 12,
-          "playerName": "Brian Thomas Jr.",
-          "position": "WR",
-          "projectedPoints": 270.74629093
-        },
-        {
-          "adp": 28.46087679575704,
-          "perceivedValue": 15.78,
-          "pickNumber": 29,
-          "playerName": "Jayden Daniels",
-          "position": "QB",
-          "projectedPoints": 368.02141648
-        },
-        {
-          "adp": 33.576539661869376,
-          "perceivedValue": 17.73,
-          "pickNumber": 32,
-          "playerName": "James Cook",
-          "position": "RB",
-          "projectedPoints": 268.47125955
-        },
-        {
-          "adp": 62.00099348899865,
-          "perceivedValue": 28.18,
-          "pickNumber": 49,
-          "playerName": "DJ Moore",
-          "position": "WR",
-          "projectedPoints": 238.44847131
-        },
-        {
-          "adp": 57.5841654738851,
-          "perceivedValue": 19.64,
-          "pickNumber": 52,
-          "playerName": "TreVeyon Henderson",
-          "position": "RB",
-          "projectedPoints": 222.15635945
-        },
-        {
-          "adp": 97.40689163551454,
-          "perceivedValue": 42.62,
-          "pickNumber": 69,
-          "playerName": "Stefon Diggs",
-          "position": "WR",
-          "projectedPoints": 201.14884859
-        },
-        {
-          "adp": 98.90004490345757,
-          "perceivedValue": 40.59,
-          "pickNumber": 72,
-          "playerName": "Matthew Golden",
-          "position": "WR",
-          "projectedPoints": 204.02630636
-        },
-        {
-          "adp": 124.7041086663673,
-          "perceivedValue": 48.15,
-          "pickNumber": 89,
-          "playerName": "Emeka Egbuka",
-          "position": "WR",
-          "projectedPoints": 180.23903261
-        },
-        {
-          "adp": 115.05585024276613,
-          "perceivedValue": 33.86,
-          "pickNumber": 92,
-          "playerName": "Quinshon Judkins",
-          "position": "RB",
-          "projectedPoints": 172.78429843
-        },
-        {
-          "adp": 140.7890769273947,
-          "perceivedValue": 41.34,
-          "pickNumber": 109,
-          "playerName": "Tank Bigsby",
-          "position": "RB",
-          "projectedPoints": 142.62273204
-        },
-        {
-          "adp": 137.96856196677143,
-          "perceivedValue": 34.57,
-          "pickNumber": 112,
-          "playerName": "Rashid Shaheed",
-          "position": "WR",
-          "projectedPoints": 184.48253738
-        },
-        {
-          "adp": 167.37196405417694,
-          "perceivedValue": 46.08,
-          "pickNumber": 129,
-          "playerName": "Jacory Croskey-Merritt",
-          "position": "RB",
-          "projectedPoints": 86.03522013
-        },
-        {
-          "adp": 91.51816446814482,
-          "perceivedValue": -41.03,
-          "pickNumber": 132,
-          "playerName": "Evan Engram",
-          "position": "TE",
-          "projectedPoints": 169.09182027
-        },
-        {
-          "adp": 159.77272854841516,
-          "perceivedValue": 13.23,
-          "pickNumber": 149,
-          "playerName": "Jaydon Blue",
-          "position": "RB",
-          "projectedPoints": 102.49011326
-        },
-        {
-          "adp": 149.47303595584808,
-          "perceivedValue": -1.78,
-          "pickNumber": 152,
-          "playerName": "Patriots D/ST",
-          "position": "D/ST",
-          "projectedPoints": 115.07793408
-        },
-        {
-          "adp": 148.32583429852738,
-          "perceivedValue": -23.87,
-          "pickNumber": 169,
-          "playerName": "Jason Sanders",
-          "position": "K",
-          "projectedPoints": 140.60094835
-        }
-      ],
-      "strategy": {
-        "confidence": 0.7,
-        "reasoning": "Heavy WR investment early with minimal RB commitment",
-        "strategy": "Hero WR"
-      },
-      "teamName": "Tua Deez Nuts",
-      "teamOwner": "brett brosius",
-      "worstPicks": [
-        {
-          "perceivedValue": -2.38,
-          "pickNumber": 149,
-          "playerName": "Jaydon Blue"
-        },
-        {
-          "perceivedValue": -45.25,
-          "pickNumber": 132,
-          "playerName": "Evan Engram"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 44.73,
-          "pickNumber": 28,
-          "playerName": "Trey McBride"
-        },
-        {
-          "perceivedValue": 42.85,
-          "pickNumber": 8,
-          "playerName": "Christian McCaffrey"
-        },
-        {
-          "perceivedValue": 41.54,
-          "pickNumber": 113,
-          "playerName": "Trey Benson"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 20.85,
-        "depthScore": 55.02,
-        "finalScore": 79.27,
-        "pointsScore": 79.31,
-        "projectedStarterPoints": 2481.31067485,
-        "valueScore": 90.02
-      },
-      "grade": "A-",
-      "gradeScore": 85.14847107686657,
-      "pickDetails": [
-        {
-          "adp": 8.079413101926953,
-          "perceivedValue": 19.09,
-          "pickNumber": 8,
-          "playerName": "Christian McCaffrey",
-          "position": "RB",
-          "projectedPoints": 322.07492895
-        },
-        {
-          "adp": 15.654117950819211,
-          "perceivedValue": 21.29,
-          "pickNumber": 13,
-          "playerName": "Nico Collins",
-          "position": "WR",
-          "projectedPoints": 278.55371588
-        },
-        {
-          "adp": 26.39128384750101,
-          "perceivedValue": 14.73,
-          "pickNumber": 28,
-          "playerName": "Trey McBride",
-          "position": "TE",
-          "projectedPoints": 259.27721576
-        },
-        {
-          "adp": 28.28374092804742,
-          "perceivedValue": 10.69,
-          "pickNumber": 33,
-          "playerName": "Tee Higgins",
-          "position": "WR",
-          "projectedPoints": 264.53247825
-        },
-        {
-          "adp": 53.01879220247083,
-          "perceivedValue": 19.52,
-          "pickNumber": 48,
-          "playerName": "Xavier Worthy",
-          "position": "WR",
-          "projectedPoints": 242.64838526
-        },
-        {
-          "adp": 57.62773636588159,
-          "perceivedValue": 18.47,
-          "pickNumber": 53,
-          "playerName": "Breece Hall",
-          "position": "RB",
-          "projectedPoints": 223.39421217
-        },
-        {
-          "adp": 88.3180264376526,
-          "perceivedValue": 33.85,
-          "pickNumber": 68,
-          "playerName": "RJ Harvey",
-          "position": "RB",
-          "projectedPoints": 202.5260186
-        },
-        {
-          "adp": 85.57009025797616,
-          "perceivedValue": 24.7,
-          "pickNumber": 73,
-          "playerName": "Tony Pollard",
-          "position": "RB",
-          "projectedPoints": 210.36769233
-        },
-        {
-          "adp": 77.87943007393757,
-          "perceivedValue": -2.13,
-          "pickNumber": 88,
-          "playerName": "Bo Nix",
-          "position": "QB",
-          "projectedPoints": 301.54938606
-        },
-        {
-          "adp": 111.69996632240682,
-          "perceivedValue": 28.94,
-          "pickNumber": 93,
-          "playerName": "Jordan Addison",
-          "position": "WR",
-          "projectedPoints": 176.38664159
-        },
-        {
-          "adp": 140.610331220988,
-          "perceivedValue": 42.37,
-          "pickNumber": 108,
-          "playerName": "Josh Downs",
-          "position": "WR",
-          "projectedPoints": 179.27732521
-        },
-        {
-          "adp": 156.05889748929314,
-          "perceivedValue": 53.24,
-          "pickNumber": 113,
-          "playerName": "Trey Benson",
-          "position": "RB",
-          "projectedPoints": 124.24843895
-        },
-        {
-          "adp": 167.43429671581808,
-          "perceivedValue": 47.38,
-          "pickNumber": 128,
-          "playerName": "Isaac Guerendo",
-          "position": "RB",
-          "projectedPoints": 87.45386967
-        },
-        {
-          "adp": 154.04208015267176,
-          "perceivedValue": 26.52,
-          "pickNumber": 133,
-          "playerName": "Adam Thielen",
-          "position": "WR",
-          "projectedPoints": 168.05553019
-        },
-        {
-          "adp": 159.9448080377189,
-          "perceivedValue": 14.64,
-          "pickNumber": 148,
-          "playerName": "Brandon Aiyuk",
-          "position": "WR",
-          "projectedPoints": 112.39063928
-        },
-        {
-          "adp": 150.63747094163318,
-          "perceivedValue": -1.72,
-          "pickNumber": 153,
-          "playerName": "Bills D/ST",
-          "position": "D/ST",
-          "projectedPoints": 104.86364739
-        },
-        {
-          "adp": 153.28883931373275,
-          "perceivedValue": -17.18,
-          "pickNumber": 168,
-          "playerName": "Cam Little",
-          "position": "K",
-          "projectedPoints": 134.12076119
-        }
-      ],
-      "strategy": {
-        "confidence": 0.7,
-        "reasoning": "Heavy WR investment early with minimal RB commitment",
-        "strategy": "Hero WR"
-      },
-      "teamName": "Moisty Loins",
-      "teamOwner": "Austin Jimenez",
-      "worstPicks": [
-        {
-          "perceivedValue": -11.51,
-          "pickNumber": 88,
-          "playerName": "Bo Nix"
-        },
-        {
-          "perceivedValue": -14.14,
-          "pickNumber": 148,
-          "playerName": "Brandon Aiyuk"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 47.14,
-          "pickNumber": 2,
-          "playerName": "Bijan Robinson"
-        },
-        {
-          "perceivedValue": 41.55,
-          "pickNumber": 82,
-          "playerName": "Ricky Pearsall"
-        },
-        {
-          "perceivedValue": 39.44,
-          "pickNumber": 59,
-          "playerName": "Jerry Jeudy"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 18.34,
-        "depthScore": 46.59,
-        "finalScore": 80.69,
-        "pointsScore": 92.05,
-        "projectedStarterPoints": 2571.4450927100006,
-        "valueScore": 87.01
-      },
-      "grade": "B+",
-      "gradeScore": 84.14443380247202,
-      "pickDetails": [
-        {
-          "adp": 3.056366014245862,
-          "perceivedValue": 20.91,
-          "pickNumber": 2,
-          "playerName": "Bijan Robinson",
-          "position": "RB",
-          "projectedPoints": 335.81705775
-        },
-        {
-          "adp": 19.14238245182728,
-          "perceivedValue": 17.78,
-          "pickNumber": 19,
-          "playerName": "A.J. Brown",
-          "position": "WR",
-          "projectedPoints": 275.52300787
-        },
-        {
-          "adp": 20.930186304694697,
-          "perceivedValue": 16.07,
-          "pickNumber": 22,
-          "playerName": "Josh Allen",
-          "position": "QB",
-          "projectedPoints": 365.5921872
-        },
-        {
-          "adp": 42.80641793474295,
-          "perceivedValue": 19.31,
-          "pickNumber": 39,
-          "playerName": "Kenneth Walker III",
-          "position": "RB",
-          "projectedPoints": 265.19368264
-        },
-        {
-          "adp": 49.47409868823566,
-          "perceivedValue": 22.97,
-          "pickNumber": 42,
-          "playerName": "Chuba Hubbard",
-          "position": "RB",
-          "projectedPoints": 257.27749252
-        },
-        {
-          "adp": 77.95647707946273,
-          "perceivedValue": 33.48,
-          "pickNumber": 59,
-          "playerName": "Jerry Jeudy",
-          "position": "WR",
-          "projectedPoints": 234.39876157
-        },
-        {
-          "adp": 78.0297206427966,
-          "perceivedValue": 29.88,
-          "pickNumber": 62,
-          "playerName": "Jaylen Waddle",
-          "position": "WR",
-          "projectedPoints": 225.89277394
-        },
-        {
-          "adp": 96.47692791270718,
-          "perceivedValue": 29.35,
-          "pickNumber": 79,
-          "playerName": "Jakobi Meyers",
-          "position": "WR",
-          "projectedPoints": 218.73327196
-        },
-        {
-          "adp": 117.91165806017064,
-          "perceivedValue": 49.25,
-          "pickNumber": 82,
-          "playerName": "Ricky Pearsall",
-          "position": "WR",
-          "projectedPoints": 186.409713
-        },
-        {
-          "adp": 118.1544126314135,
-          "perceivedValue": 28.69,
-          "pickNumber": 99,
-          "playerName": "Khalil Shakir",
-          "position": "WR",
-          "projectedPoints": 206.60714426
-        },
-        {
-          "adp": 80.0500642713204,
-          "perceivedValue": -16.89,
-          "pickNumber": 102,
-          "playerName": "David Njoku",
-          "position": "TE",
-          "projectedPoints": 177.77701643
-        },
-        {
-          "adp": 167.4557134678207,
-          "perceivedValue": 58.43,
-          "pickNumber": 119,
-          "playerName": "Christian Kirk",
-          "position": "WR",
-          "projectedPoints": 139.64803624
-        },
-        {
-          "adp": 101.92175084404734,
-          "perceivedValue": -17.34,
-          "pickNumber": 122,
-          "playerName": "Broncos D/ST",
-          "position": "D/ST",
-          "projectedPoints": 127.52038589
-        },
-        {
-          "adp": 145.36329714093355,
-          "perceivedValue": 9.62,
-          "pickNumber": 139,
-          "playerName": "Chris Boswell",
-          "position": "K",
-          "projectedPoints": 138.2004607
-        },
-        {
-          "adp": 132.4554129223101,
-          "perceivedValue": -8.25,
-          "pickNumber": 142,
-          "playerName": "Austin Ekeler",
-          "position": "RB",
-          "projectedPoints": 162.03484367
-        },
-        {
-          "adp": 169.02819454968989,
-          "perceivedValue": 11.16,
-          "pickNumber": 159,
-          "playerName": "Bhayshul Tuten",
-          "position": "RB",
-          "projectedPoints": 54.85189507
-        },
-        {
-          "adp": 168.9115769975583,
-          "perceivedValue": 7.35,
-          "pickNumber": 162,
-          "playerName": "Ray Davis",
-          "position": "RB",
-          "projectedPoints": 81.109681
-        }
-      ],
-      "strategy": {
-        "confidence": 0.8,
-        "reasoning": "Drafted RB early then avoided position, classic Hero RB approach",
-        "strategy": "Hero RB"
-      },
-      "teamName": "The Stinky Faggots",
-      "teamOwner": "Cameron Coscia",
-      "worstPicks": [
-        {
-          "perceivedValue": -13.18,
-          "pickNumber": 142,
-          "playerName": "Austin Ekeler"
-        },
-        {
-          "perceivedValue": -17.46,
-          "pickNumber": 102,
-          "playerName": "David Njoku"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 50.45,
-          "pickNumber": 5,
-          "playerName": "CeeDee Lamb"
-        },
-        {
-          "perceivedValue": 38.05,
-          "pickNumber": 76,
-          "playerName": "Tyrone Tracy Jr."
-        },
-        {
-          "perceivedValue": 35.48,
-          "pickNumber": 96,
-          "playerName": "Keenan Allen"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 14.1,
-        "depthScore": 47.66,
-        "finalScore": 72.48,
-        "pointsScore": 74.54,
-        "projectedStarterPoints": 2447.56364525,
-        "valueScore": 81.92
-      },
-      "grade": "B",
-      "gradeScore": 82.74581532295329,
-      "pickDetails": [
-        {
-          "adp": 6.9640154916928605,
-          "perceivedValue": 21.54,
-          "pickNumber": 5,
-          "playerName": "CeeDee Lamb",
-          "position": "WR",
-          "projectedPoints": 315.04138995
-        },
-        {
-          "adp": 15.360532342441456,
-          "perceivedValue": 17.3,
-          "pickNumber": 16,
-          "playerName": "Derrick Henry",
-          "position": "RB",
-          "projectedPoints": 280.71028302
-        },
-        {
-          "adp": 22.293407420724993,
-          "perceivedValue": 13.9,
-          "pickNumber": 25,
-          "playerName": "Lamar Jackson",
-          "position": "QB",
-          "projectedPoints": 362.68856757
-        },
-        {
-          "adp": 42.64345532105972,
-          "perceivedValue": 22.81,
-          "pickNumber": 36,
-          "playerName": "Terry McLaurin",
-          "position": "WR",
-          "projectedPoints": 246.91714186
-        },
-        {
-          "adp": 50.63490477607081,
-          "perceivedValue": 20.57,
-          "pickNumber": 45,
-          "playerName": "DK Metcalf",
-          "position": "WR",
-          "projectedPoints": 240.48666107
-        },
-        {
-          "adp": 63.77660153684671,
-          "perceivedValue": 21.55,
-          "pickNumber": 56,
-          "playerName": "D'Andre Swift",
-          "position": "RB",
-          "projectedPoints": 226.67737219
-        },
-        {
-          "adp": 69.13068810094467,
-          "perceivedValue": 16.42,
-          "pickNumber": 65,
-          "playerName": "David Montgomery",
-          "position": "RB",
-          "projectedPoints": 213.35905897
-        },
-        {
-          "adp": 98.30651616271042,
-          "perceivedValue": 35.04,
-          "pickNumber": 76,
-          "playerName": "Tyrone Tracy Jr.",
-          "position": "RB",
-          "projectedPoints": 206.31763529
-        },
-        {
-          "adp": 80.21983598183563,
-          "perceivedValue": 4.12,
-          "pickNumber": 85,
-          "playerName": "Mark Andrews",
-          "position": "TE",
-          "projectedPoints": 170.77288823
-        },
-        {
-          "adp": 128.45225893724145,
-          "perceivedValue": 43.7,
-          "pickNumber": 96,
-          "playerName": "Keenan Allen",
-          "position": "WR",
-          "projectedPoints": 184.5926471
-        },
-        {
-          "adp": 120.00963195383846,
-          "perceivedValue": 23.39,
-          "pickNumber": 105,
-          "playerName": "Javonte Williams",
-          "position": "RB",
-          "projectedPoints": 162.89659833
-        },
-        {
-          "adp": 112.41368882904369,
-          "perceivedValue": 1.56,
-          "pickNumber": 116,
-          "playerName": "Brandon Aubrey",
-          "position": "K",
-          "projectedPoints": 142.22216881
-        },
-        {
-          "adp": 101.3337766713274,
-          "perceivedValue": -21.66,
-          "pickNumber": 125,
-          "playerName": "Texans D/ST",
-          "position": "D/ST",
-          "projectedPoints": 131.74935851
-        },
-        {
-          "adp": 162.1898044982796,
-          "perceivedValue": 31.81,
-          "pickNumber": 136,
-          "playerName": "Tyler Allgeier",
-          "position": "RB",
-          "projectedPoints": 97.66362885
-        },
-        {
-          "adp": 161.6062383529042,
-          "perceivedValue": 20.14,
-          "pickNumber": 145,
-          "playerName": "Jerome Ford",
-          "position": "RB",
-          "projectedPoints": 103.72679916
-        },
-        {
-          "adp": 127.14115956509292,
-          "perceivedValue": -31.24,
-          "pickNumber": 156,
-          "playerName": "Dallas Goedert",
-          "position": "TE",
-          "projectedPoints": 156.80029451
-        },
-        {
-          "adp": 164.4023731743733,
-          "perceivedValue": -1.28,
-          "pickNumber": 165,
-          "playerName": "Marvin Mims Jr.",
-          "position": "WR",
-          "projectedPoints": 149.64239949
-        }
-      ],
-      "strategy": {
-        "confidence": 0.7,
-        "reasoning": "Heavy WR investment early with minimal RB commitment",
-        "strategy": "Hero WR"
-      },
-      "teamName": "SAGGY NUTS",
-      "teamOwner": "Albert Coscia",
-      "worstPicks": [
-        {
-          "perceivedValue": -19.45,
-          "pickNumber": 165,
-          "playerName": "Marvin Mims Jr."
-        },
-        {
-          "perceivedValue": -40.64,
-          "pickNumber": 156,
-          "playerName": "Dallas Goedert"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 43.88,
-          "pickNumber": 4,
-          "playerName": "Jahmyr Gibbs"
-        },
-        {
-          "perceivedValue": 37.7,
-          "pickNumber": 57,
-          "playerName": "Jameson Williams"
-        },
-        {
-          "perceivedValue": 36.15,
-          "pickNumber": 24,
-          "playerName": "Ladd McConkey"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 17.21,
-        "depthScore": 49.76,
-        "finalScore": 74.59,
-        "pointsScore": 74.56,
-        "projectedStarterPoints": 2447.6691754800004,
-        "valueScore": 85.65
-      },
-      "grade": "B",
-      "gradeScore": 82.01295960684116,
-      "pickDetails": [
-        {
-          "adp": 5.365688690312477,
-          "perceivedValue": 21,
-          "pickNumber": 4,
-          "playerName": "Jahmyr Gibbs",
-          "position": "RB",
-          "projectedPoints": 317.11532361
-        },
-        {
-          "adp": 13.079397154163509,
-          "perceivedValue": 13.56,
-          "pickNumber": 17,
-          "playerName": "Ashton Jeanty",
-          "position": "RB",
-          "projectedPoints": 298.01356751
-        },
-        {
-          "adp": 31.145746215459226,
-          "perceivedValue": 24.86,
-          "pickNumber": 24,
-          "playerName": "Ladd McConkey",
-          "position": "WR",
-          "projectedPoints": 253.10603414
-        },
-        {
-          "adp": 33.77324313998697,
-          "perceivedValue": 11.83,
-          "pickNumber": 37,
-          "playerName": "Joe Burrow",
-          "position": "QB",
-          "projectedPoints": 329.6724929
-        },
-        {
-          "adp": 30.91629948529123,
-          "perceivedValue": 0.11,
-          "pickNumber": 44,
-          "playerName": "Tyreek Hill",
-          "position": "WR",
-          "projectedPoints": 263.01400473
-        },
-        {
-          "adp": 78.27807588684328,
-          "perceivedValue": 36.28,
-          "pickNumber": 57,
-          "playerName": "Jameson Williams",
-          "position": "WR",
-          "projectedPoints": 218.46539574
-        },
-        {
-          "adp": 83.44663224068253,
-          "perceivedValue": 33.39,
-          "pickNumber": 64,
-          "playerName": "Tetairoa McMillan",
-          "position": "WR",
-          "projectedPoints": 213.90741022
-        },
-        {
-          "adp": 64.18854230400053,
-          "perceivedValue": -3.72,
-          "pickNumber": 77,
-          "playerName": "Travis Kelce",
-          "position": "TE",
-          "projectedPoints": 177.6929205
-        },
-        {
-          "adp": 105.23960034801156,
-          "perceivedValue": 32.86,
-          "pickNumber": 84,
-          "playerName": "Kaleb Johnson",
-          "position": "RB",
-          "projectedPoints": 189.4954381
-        },
-        {
-          "adp": 102.2203468792097,
-          "perceivedValue": 13.62,
-          "pickNumber": 97,
-          "playerName": "Chris Godwin",
-          "position": "WR",
-          "projectedPoints": 187.18658803
-        },
-        {
-          "adp": 132.14130556802874,
-          "perceivedValue": 37.96,
-          "pickNumber": 104,
-          "playerName": "Jayden Reed",
-          "position": "WR",
-          "projectedPoints": 166.80002196
-        },
-        {
-          "adp": 123.33282253356684,
-          "perceivedValue": 12.34,
-          "pickNumber": 117,
-          "playerName": "Colston Loveland",
-          "position": "TE",
-          "projectedPoints": 155.65056443
-        },
-        {
-          "adp": 164.5292605440115,
-          "perceivedValue": 49.08,
-          "pickNumber": 124,
-          "playerName": "Hollywood Brown",
-          "position": "WR",
-          "projectedPoints": 160.76459362
-        },
-        {
-          "adp": 130.4730733598195,
-          "perceivedValue": -4.3,
-          "pickNumber": 137,
-          "playerName": "Eagles D/ST",
-          "position": "D/ST",
-          "projectedPoints": 99.98908316
-        },
-        {
-          "adp": 146.2291081973102,
-          "perceivedValue": 4.45,
-          "pickNumber": 144,
-          "playerName": "Tyjae Spears",
-          "position": "RB",
-          "projectedPoints": 158.22165623
-        },
-        {
-          "adp": 161.88895686926065,
-          "perceivedValue": 5.75,
-          "pickNumber": 157,
-          "playerName": "Braelon Allen",
-          "position": "RB",
-          "projectedPoints": 84.05058153
-        },
-        {
-          "adp": 167.57953624776056,
-          "perceivedValue": 3.44,
-          "pickNumber": 164,
-          "playerName": "Evan McPherson",
-          "position": "K",
-          "projectedPoints": 136.11476688
-        }
-      ],
-      "strategy": {
-        "confidence": 0.6,
-        "reasoning": "Balanced approach with mix of RB and WR early",
-        "strategy": "Balanced"
-      },
-      "teamName": "Burrow in the TE",
-      "teamOwner": "Michael Warrell",
-      "worstPicks": [
-        {
-          "perceivedValue": -4.32,
-          "pickNumber": 77,
-          "playerName": "Travis Kelce"
-        },
-        {
-          "perceivedValue": -13.15,
-          "pickNumber": 157,
-          "playerName": "Braelon Allen"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 47.89,
-          "pickNumber": 6,
-          "playerName": "Justin Jefferson"
-        },
-        {
-          "perceivedValue": 41.41,
-          "pickNumber": 15,
-          "playerName": "Drake London"
-        },
-        {
-          "perceivedValue": 38.61,
-          "pickNumber": 26,
-          "playerName": "Jalen Hurts"
-        }
-      ],
-      "breakdown": {
-        "avgPerceivedValue": 17.77,
-        "depthScore": 45.14,
-        "finalScore": 68.76,
-        "pointsScore": 59.66,
-        "projectedStarterPoints": 2342.26550836,
-        "valueScore": 86.33
-      },
-      "grade": "B-",
-      "gradeScore": 79.13029536192035,
-      "pickDetails": [
-        {
-          "adp": 4.767248540637629,
-          "perceivedValue": 17.89,
-          "pickNumber": 6,
-          "playerName": "Justin Jefferson",
-          "position": "WR",
-          "projectedPoints": 324.47480392
-        },
-        {
-          "adp": 22.184951728783115,
-          "perceivedValue": 26.03,
-          "pickNumber": 15,
-          "playerName": "Drake London",
-          "position": "WR",
-          "projectedPoints": 267.51006255
-        },
-        {
-          "adp": 29.694016517781897,
-          "perceivedValue": 20.81,
-          "pickNumber": 26,
-          "playerName": "Jalen Hurts",
-          "position": "QB",
-          "projectedPoints": 364.46958817
-        },
-        {
-          "adp": 36.15257196102205,
-          "perceivedValue": 16.89,
-          "pickNumber": 35,
-          "playerName": "George Kittle",
-          "position": "TE",
-          "projectedPoints": 225.43700388
-        },
-        {
-          "adp": 50.79288841490795,
-          "perceivedValue": 19.52,
-          "pickNumber": 46,
-          "playerName": "Marvin Harrison Jr.",
-          "position": "WR",
-          "projectedPoints": 240.02073771
-        },
-        {
-          "adp": 70.60350469519143,
-          "perceivedValue": 30.29,
-          "pickNumber": 55,
-          "playerName": "DeVonta Smith",
-          "position": "WR",
-          "projectedPoints": 222.89601354
-        },
-        {
-          "adp": 78.53600870965751,
-          "perceivedValue": 25.54,
-          "pickNumber": 66,
-          "playerName": "Travis Hunter",
-          "position": "WR",
-          "projectedPoints": 213.22668176
-        },
-        {
-          "adp": 107.09110503656886,
-          "perceivedValue": 45.93,
-          "pickNumber": 75,
-          "playerName": "Brian Robinson Jr.",
-          "position": "RB",
-          "projectedPoints": 132.56185063
-        },
-        {
-          "adp": 95.02868834055546,
-          "perceivedValue": 19.18,
-          "pickNumber": 86,
-          "playerName": "Joe Mixon",
-          "position": "RB",
-          "projectedPoints": 198.42037153
-        },
-        {
-          "adp": 128.54949033431376,
-          "perceivedValue": 45.03,
-          "pickNumber": 95,
-          "playerName": "Travis Etienne Jr.",
-          "position": "RB",
-          "projectedPoints": 153.24839467
-        },
-        {
-          "adp": 140.1759403223,
-          "perceivedValue": 44.34,
-          "pickNumber": 106,
-          "playerName": "Jordan Mason",
-          "position": "RB",
-          "projectedPoints": 127.87679995
-        },
-        {
-          "adp": 149.6425007156609,
-          "perceivedValue": 43.73,
-          "pickNumber": 115,
-          "playerName": "Rachaad White",
-          "position": "RB",
-          "projectedPoints": 130.01900613
-        },
-        {
-          "adp": 119.60005229114802,
-          "perceivedValue": -2.79,
-          "pickNumber": 126,
-          "playerName": "Ravens D/ST",
-          "position": "D/ST",
-          "projectedPoints": 120.3772664
-        },
-        {
-          "adp": 91.0427610695043,
-          "perceivedValue": -45.23,
-          "pickNumber": 135,
-          "playerName": "Kyler Murray",
-          "position": "QB",
-          "projectedPoints": 306.46820997
-        },
-        {
-          "adp": 128.10853348451084,
-          "perceivedValue": -17.93,
-          "pickNumber": 146,
-          "playerName": "Cam Skattebo",
-          "position": "RB",
-          "projectedPoints": 140.09661646
-        },
-        {
-          "adp": 165.45345102044308,
-          "perceivedValue": 12.12,
-          "pickNumber": 155,
-          "playerName": "Matt Gay",
-          "position": "K",
-          "projectedPoints": 139.98659976
-        },
-        {
-          "adp": 167.36856196677144,
-          "perceivedValue": 0.76,
-          "pickNumber": 166,
-          "playerName": "Luther Burden III",
-          "position": "WR",
-          "projectedPoints": 102.64723351
-        }
-      ],
-      "strategy": {
-        "confidence": 0.7,
-        "reasoning": "Heavy WR investment early with minimal RB commitment",
-        "strategy": "Hero WR"
-      },
-      "teamName": "Team Rive",
-      "teamOwner": "Sammy Rivero",
-      "worstPicks": [
-        {
-          "perceivedValue": -29.24,
-          "pickNumber": 166,
-          "playerName": "Luther Burden III"
-        },
-        {
-          "perceivedValue": -52.48,
-          "pickNumber": 135,
-          "playerName": "Kyler Murray"
-        }
-      ]
-    },
-    {
-      "bestPicks": [
-        {
-          "perceivedValue": 50.49,
+          "perceivedValue": 49.55,
           "pickNumber": 1,
           "playerName": "Ja'Marr Chase"
         },
         {
-          "perceivedValue": 38.31,
-          "pickNumber": 21,
-          "playerName": "Bucky Irving"
-        },
-        {
-          "perceivedValue": 34.23,
+          "perceivedValue": 35.69,
           "pickNumber": 20,
           "playerName": "Jonathan Taylor"
+        },
+        {
+          "perceivedValue": 31.87,
+          "pickNumber": 21,
+          "playerName": "Bucky Irving"
         }
       ],
       "breakdown": {
-        "avgPerceivedValue": 10.01,
-        "depthScore": 40,
-        "finalScore": 68.11,
+        "avgPerceivedValue": 9,
+        "depthScore": 50.24,
+        "finalScore": 69.61,
         "pointsScore": 72.74,
         "projectedStarterPoints": 2434.77752456,
-        "valueScore": 77.02
+        "valueScore": 75.8
       },
-      "grade": "C+",
-      "gradeScore": 77.84540307367956,
+      "grade": "A",
+      "gradeScore": 92.6365608993188,
       "pickDetails": [
         {
           "adp": 1.5616219219910306,
-          "perceivedValue": 20.49,
+          "perceivedValue": 19.55,
           "pickNumber": 1,
           "playerName": "Ja'Marr Chase",
           "position": "WR",
@@ -1713,7 +39,7 @@
         },
         {
           "adp": 19.12528345944004,
-          "perceivedValue": 16.54,
+          "perceivedValue": 18,
           "pickNumber": 20,
           "playerName": "Jonathan Taylor",
           "position": "RB",
@@ -1721,7 +47,7 @@
         },
         {
           "adp": 24.85192274230033,
-          "perceivedValue": 21.61,
+          "perceivedValue": 15.17,
           "pickNumber": 21,
           "playerName": "Bucky Irving",
           "position": "RB",
@@ -1729,7 +55,7 @@
         },
         {
           "adp": 46.41385832959138,
-          "perceivedValue": 22.06,
+          "perceivedValue": 11.33,
           "pickNumber": 40,
           "playerName": "Mike Evans",
           "position": "WR",
@@ -1737,7 +63,7 @@
         },
         {
           "adp": 51.61910615654048,
-          "perceivedValue": 26.56,
+          "perceivedValue": 8.81,
           "pickNumber": 41,
           "playerName": "Sam LaPorta",
           "position": "TE",
@@ -1745,7 +71,7 @@
         },
         {
           "adp": 49.85468683282019,
-          "perceivedValue": 1.34,
+          "perceivedValue": 18.3,
           "pickNumber": 60,
           "playerName": "Patrick Mahomes",
           "position": "QB",
@@ -1753,7 +79,7 @@
         },
         {
           "adp": 68.02088034216818,
-          "perceivedValue": 20.1,
+          "perceivedValue": 8.36,
           "pickNumber": 61,
           "playerName": "Rashee Rice",
           "position": "WR",
@@ -1761,7 +87,7 @@
         },
         {
           "adp": 92.68929052537045,
-          "perceivedValue": 23.96,
+          "perceivedValue": 2.75,
           "pickNumber": 80,
           "playerName": "Cooper Kupp",
           "position": "WR",
@@ -1769,7 +95,7 @@
         },
         {
           "adp": 101.55818365514145,
-          "perceivedValue": 32.49,
+          "perceivedValue": -1.87,
           "pickNumber": 81,
           "playerName": "Chris Olave",
           "position": "WR",
@@ -1777,7 +103,7 @@
         },
         {
           "adp": 122.01751835470037,
-          "perceivedValue": 31.72,
+          "perceivedValue": -5.08,
           "pickNumber": 100,
           "playerName": "Rhamondre Stevenson",
           "position": "RB",
@@ -1785,7 +111,7 @@
         },
         {
           "adp": 113.96926850625294,
-          "perceivedValue": 21.64,
+          "perceivedValue": -0.04,
           "pickNumber": 101,
           "playerName": "J.K. Dobbins",
           "position": "RB",
@@ -1793,7 +119,7 @@
         },
         {
           "adp": 110.6916172706453,
-          "perceivedValue": -5.24,
+          "perceivedValue": 10.32,
           "pickNumber": 120,
           "playerName": "Tucker Kraft",
           "position": "TE",
@@ -1801,7 +127,7 @@
         },
         {
           "adp": 122.59254166500254,
-          "perceivedValue": 6.63,
+          "perceivedValue": 3.96,
           "pickNumber": 121,
           "playerName": "Cameron Dicker",
           "position": "K",
@@ -1809,7 +135,7 @@
         },
         {
           "adp": 105.60587230599816,
-          "perceivedValue": -35.33,
+          "perceivedValue": 22.15,
           "pickNumber": 140,
           "playerName": "Justin Herbert",
           "position": "QB",
@@ -1817,7 +143,7 @@
         },
         {
           "adp": 121.4080288278457,
-          "perceivedValue": -19.18,
+          "perceivedValue": 13.57,
           "pickNumber": 141,
           "playerName": "Vikings D/ST",
           "position": "D/ST",
@@ -1825,7 +151,7 @@
         },
         {
           "adp": 170.49739833291235,
-          "perceivedValue": 11.55,
+          "perceivedValue": -6,
           "pickNumber": 160,
           "playerName": "DJ Giddens",
           "position": "RB",
@@ -1833,7 +159,7 @@
         },
         {
           "adp": 136.8347076356574,
-          "perceivedValue": -26.71,
+          "perceivedValue": 13.68,
           "pickNumber": 161,
           "playerName": "Dalton Kincaid",
           "position": "TE",
@@ -1849,37 +175,1711 @@
       "teamOwner": "joey GIARITELLI",
       "worstPicks": [
         {
-          "perceivedValue": -40.17,
-          "pickNumber": 161,
-          "playerName": "Dalton Kincaid"
+          "perceivedValue": -7.83,
+          "pickNumber": 100,
+          "playerName": "Rhamondre Stevenson"
         },
         {
-          "perceivedValue": -52.5,
-          "pickNumber": 140,
-          "playerName": "Justin Herbert"
+          "perceivedValue": -36,
+          "pickNumber": 160,
+          "playerName": "DJ Giddens"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 47.17,
+          "pickNumber": 5,
+          "playerName": "CeeDee Lamb"
+        },
+        {
+          "perceivedValue": 36.81,
+          "pickNumber": 125,
+          "playerName": "Texans D/ST"
+        },
+        {
+          "perceivedValue": 35.45,
+          "pickNumber": 25,
+          "playerName": "Lamar Jackson"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 6.83,
+        "depthScore": 47.4,
+        "finalScore": 68.51,
+        "pointsScore": 74.54,
+        "projectedStarterPoints": 2447.56364525,
+        "valueScore": 73.2
+      },
+      "grade": "A",
+      "gradeScore": 92.34503035354008,
+      "pickDetails": [
+        {
+          "adp": 6.9640154916928605,
+          "perceivedValue": 18.25,
+          "pickNumber": 5,
+          "playerName": "CeeDee Lamb",
+          "position": "WR",
+          "projectedPoints": 315.04138995
+        },
+        {
+          "adp": 15.360532342441456,
+          "perceivedValue": 18.37,
+          "pickNumber": 16,
+          "playerName": "Derrick Henry",
+          "position": "RB",
+          "projectedPoints": 280.71028302
+        },
+        {
+          "adp": 22.293407420724993,
+          "perceivedValue": 18.42,
+          "pickNumber": 25,
+          "playerName": "Lamar Jackson",
+          "position": "QB",
+          "projectedPoints": 362.68856757
+        },
+        {
+          "adp": 42.64345532105972,
+          "perceivedValue": 11.7,
+          "pickNumber": 36,
+          "playerName": "Terry McLaurin",
+          "position": "WR",
+          "projectedPoints": 246.91714186
+        },
+        {
+          "adp": 50.63490477607081,
+          "perceivedValue": 11.16,
+          "pickNumber": 45,
+          "playerName": "DK Metcalf",
+          "position": "WR",
+          "projectedPoints": 240.48666107
+        },
+        {
+          "adp": 63.77660153684671,
+          "perceivedValue": 8.56,
+          "pickNumber": 56,
+          "playerName": "D'Andre Swift",
+          "position": "RB",
+          "projectedPoints": 226.67737219
+        },
+        {
+          "adp": 69.13068810094467,
+          "perceivedValue": 9.51,
+          "pickNumber": 65,
+          "playerName": "David Montgomery",
+          "position": "RB",
+          "projectedPoints": 213.35905897
+        },
+        {
+          "adp": 98.30651616271042,
+          "perceivedValue": -2.25,
+          "pickNumber": 76,
+          "playerName": "Tyrone Tracy Jr.",
+          "position": "RB",
+          "projectedPoints": 206.31763529
+        },
+        {
+          "adp": 80.21983598183563,
+          "perceivedValue": 12.11,
+          "pickNumber": 85,
+          "playerName": "Mark Andrews",
+          "position": "TE",
+          "projectedPoints": 170.77288823
+        },
+        {
+          "adp": 128.45225893724145,
+          "perceivedValue": -10.54,
+          "pickNumber": 96,
+          "playerName": "Keenan Allen",
+          "position": "WR",
+          "projectedPoints": 184.5926471
+        },
+        {
+          "adp": 120.00963195383846,
+          "perceivedValue": -1.7,
+          "pickNumber": 105,
+          "playerName": "Javonte Williams",
+          "position": "RB",
+          "projectedPoints": 162.89659833
+        },
+        {
+          "adp": 112.41368882904369,
+          "perceivedValue": 7.55,
+          "pickNumber": 116,
+          "playerName": "Brandon Aubrey",
+          "position": "K",
+          "projectedPoints": 142.22216881
+        },
+        {
+          "adp": 101.3337766713274,
+          "perceivedValue": 17.9,
+          "pickNumber": 125,
+          "playerName": "Texans D/ST",
+          "position": "D/ST",
+          "projectedPoints": 131.74935851
+        },
+        {
+          "adp": 162.1898044982796,
+          "perceivedValue": -11.97,
+          "pickNumber": 136,
+          "playerName": "Tyler Allgeier",
+          "position": "RB",
+          "projectedPoints": 97.66362885
+        },
+        {
+          "adp": 161.6062383529042,
+          "perceivedValue": -7.61,
+          "pickNumber": 145,
+          "playerName": "Jerome Ford",
+          "position": "RB",
+          "projectedPoints": 103.72679916
+        },
+        {
+          "adp": 127.14115956509292,
+          "perceivedValue": 16.99,
+          "pickNumber": 156,
+          "playerName": "Dallas Goedert",
+          "position": "TE",
+          "projectedPoints": 156.80029451
+        },
+        {
+          "adp": 164.4023731743733,
+          "perceivedValue": -0.28,
+          "pickNumber": 165,
+          "playerName": "Marvin Mims Jr.",
+          "position": "WR",
+          "projectedPoints": 149.64239949
+        }
+      ],
+      "strategy": {
+        "confidence": 0.7,
+        "reasoning": "Heavy WR investment early with minimal RB commitment",
+        "strategy": "Hero WR"
+      },
+      "teamName": "SAGGY NUTS",
+      "teamOwner": "Albert Coscia",
+      "worstPicks": [
+        {
+          "perceivedValue": -22.99,
+          "pickNumber": 145,
+          "playerName": "Jerome Ford"
+        },
+        {
+          "perceivedValue": -28.43,
+          "pickNumber": 136,
+          "playerName": "Tyler Allgeier"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 45.37,
+          "pickNumber": 2,
+          "playerName": "Bijan Robinson"
+        },
+        {
+          "perceivedValue": 36.15,
+          "pickNumber": 22,
+          "playerName": "Josh Allen"
+        },
+        {
+          "perceivedValue": 35.21,
+          "pickNumber": 19,
+          "playerName": "A.J. Brown"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 4.66,
+        "depthScore": 41.77,
+        "finalScore": 72.34,
+        "pointsScore": 92.05,
+        "projectedStarterPoints": 2571.4450927100006,
+        "valueScore": 70.59
+      },
+      "grade": "B+",
+      "gradeScore": 89.72527724808187,
+      "pickDetails": [
+        {
+          "adp": 3.056366014245862,
+          "perceivedValue": 19.15,
+          "pickNumber": 2,
+          "playerName": "Bijan Robinson",
+          "position": "RB",
+          "projectedPoints": 335.81705775
+        },
+        {
+          "adp": 19.14238245182728,
+          "perceivedValue": 17.54,
+          "pickNumber": 19,
+          "playerName": "A.J. Brown",
+          "position": "WR",
+          "projectedPoints": 275.52300787
+        },
+        {
+          "adp": 20.930186304694697,
+          "perceivedValue": 17.86,
+          "pickNumber": 22,
+          "playerName": "Josh Allen",
+          "position": "QB",
+          "projectedPoints": 365.5921872
+        },
+        {
+          "adp": 42.80641793474295,
+          "perceivedValue": 12.95,
+          "pickNumber": 39,
+          "playerName": "Kenneth Walker III",
+          "position": "RB",
+          "projectedPoints": 265.19368264
+        },
+        {
+          "adp": 49.47409868823566,
+          "perceivedValue": 10.48,
+          "pickNumber": 42,
+          "playerName": "Chuba Hubbard",
+          "position": "RB",
+          "projectedPoints": 257.27749252
+        },
+        {
+          "adp": 77.95647707946273,
+          "perceivedValue": 1.79,
+          "pickNumber": 59,
+          "playerName": "Jerry Jeudy",
+          "position": "WR",
+          "projectedPoints": 234.39876157
+        },
+        {
+          "adp": 78.0297206427966,
+          "perceivedValue": 3.09,
+          "pickNumber": 62,
+          "playerName": "Jaylen Waddle",
+          "position": "WR",
+          "projectedPoints": 225.89277394
+        },
+        {
+          "adp": 96.47692791270718,
+          "perceivedValue": 0.14,
+          "pickNumber": 79,
+          "playerName": "Jakobi Meyers",
+          "position": "WR",
+          "projectedPoints": 218.73327196
+        },
+        {
+          "adp": 117.91165806017064,
+          "perceivedValue": -10.77,
+          "pickNumber": 82,
+          "playerName": "Ricky Pearsall",
+          "position": "WR",
+          "projectedPoints": 186.409713
+        },
+        {
+          "adp": 118.1544126314135,
+          "perceivedValue": -3.32,
+          "pickNumber": 99,
+          "playerName": "Khalil Shakir",
+          "position": "WR",
+          "projectedPoints": 206.60714426
+        },
+        {
+          "adp": 80.0500642713204,
+          "perceivedValue": 19.79,
+          "pickNumber": 102,
+          "playerName": "David Njoku",
+          "position": "TE",
+          "projectedPoints": 177.77701643
+        },
+        {
+          "adp": 167.4557134678207,
+          "perceivedValue": -22.56,
+          "pickNumber": 119,
+          "playerName": "Christian Kirk",
+          "position": "WR",
+          "projectedPoints": 139.64803624
+        },
+        {
+          "adp": 101.92175084404734,
+          "perceivedValue": 16.22,
+          "pickNumber": 122,
+          "playerName": "Broncos D/ST",
+          "position": "D/ST",
+          "projectedPoints": 127.52038589
+        },
+        {
+          "adp": 145.36329714093355,
+          "perceivedValue": -1.01,
+          "pickNumber": 139,
+          "playerName": "Chris Boswell",
+          "position": "K",
+          "projectedPoints": 138.2004607
+        },
+        {
+          "adp": 132.4554129223101,
+          "perceivedValue": 7.7,
+          "pickNumber": 142,
+          "playerName": "Austin Ekeler",
+          "position": "RB",
+          "projectedPoints": 162.03484367
+        },
+        {
+          "adp": 169.02819454968989,
+          "perceivedValue": -5.61,
+          "pickNumber": 159,
+          "playerName": "Bhayshul Tuten",
+          "position": "RB",
+          "projectedPoints": 54.85189507
+        },
+        {
+          "adp": 168.9115769975583,
+          "perceivedValue": -4.2,
+          "pickNumber": 162,
+          "playerName": "Ray Davis",
+          "position": "RB",
+          "projectedPoints": 81.109681
+        }
+      ],
+      "strategy": {
+        "confidence": 0.8,
+        "reasoning": "Drafted RB early then avoided position, classic Hero RB approach",
+        "strategy": "Hero RB"
+      },
+      "teamName": "The Stinky Faggots",
+      "teamOwner": "Cameron Coscia",
+      "worstPicks": [
+        {
+          "perceivedValue": -29.75,
+          "pickNumber": 159,
+          "playerName": "Bhayshul Tuten"
+        },
+        {
+          "perceivedValue": -43.58,
+          "pickNumber": 119,
+          "playerName": "Christian Kirk"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 49.95,
+          "pickNumber": 6,
+          "playerName": "Justin Jefferson"
+        },
+        {
+          "perceivedValue": 34.48,
+          "pickNumber": 35,
+          "playerName": "George Kittle"
+        },
+        {
+          "perceivedValue": 32.44,
+          "pickNumber": 26,
+          "playerName": "Jalen Hurts"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 4.91,
+        "depthScore": 42.19,
+        "finalScore": 61.22,
+        "pointsScore": 59.66,
+        "projectedStarterPoints": 2342.26550836,
+        "valueScore": 70.89
+      },
+      "grade": "B+",
+      "gradeScore": 89.4750975511734,
+      "pickDetails": [
+        {
+          "adp": 4.767248540637629,
+          "perceivedValue": 19.95,
+          "pickNumber": 6,
+          "playerName": "Justin Jefferson",
+          "position": "WR",
+          "projectedPoints": 324.47480392
+        },
+        {
+          "adp": 22.184951728783115,
+          "perceivedValue": 14.02,
+          "pickNumber": 15,
+          "playerName": "Drake London",
+          "position": "WR",
+          "projectedPoints": 267.51006255
+        },
+        {
+          "adp": 29.694016517781897,
+          "perceivedValue": 14.64,
+          "pickNumber": 26,
+          "playerName": "Jalen Hurts",
+          "position": "QB",
+          "projectedPoints": 364.46958817
+        },
+        {
+          "adp": 36.15257196102205,
+          "perceivedValue": 14.97,
+          "pickNumber": 35,
+          "playerName": "George Kittle",
+          "position": "TE",
+          "projectedPoints": 225.43700388
+        },
+        {
+          "adp": 50.79288841490795,
+          "perceivedValue": 11.51,
+          "pickNumber": 46,
+          "playerName": "Marvin Harrison Jr.",
+          "position": "WR",
+          "projectedPoints": 240.02073771
+        },
+        {
+          "adp": 70.60350469519143,
+          "perceivedValue": 4.21,
+          "pickNumber": 55,
+          "playerName": "DeVonta Smith",
+          "position": "WR",
+          "projectedPoints": 222.89601354
+        },
+        {
+          "adp": 78.53600870965751,
+          "perceivedValue": 4.59,
+          "pickNumber": 66,
+          "playerName": "Travis Hunter",
+          "position": "WR",
+          "projectedPoints": 213.22668176
+        },
+        {
+          "adp": 107.09110503656886,
+          "perceivedValue": -7.71,
+          "pickNumber": 75,
+          "playerName": "Brian Robinson Jr.",
+          "position": "RB",
+          "projectedPoints": 132.56185063
+        },
+        {
+          "adp": 95.02868834055546,
+          "perceivedValue": 4.09,
+          "pickNumber": 86,
+          "playerName": "Joe Mixon",
+          "position": "RB",
+          "projectedPoints": 198.42037153
+        },
+        {
+          "adp": 128.54949033431376,
+          "perceivedValue": -11.05,
+          "pickNumber": 95,
+          "playerName": "Travis Etienne Jr.",
+          "position": "RB",
+          "projectedPoints": 153.24839467
+        },
+        {
+          "adp": 140.1759403223,
+          "perceivedValue": -12.78,
+          "pickNumber": 106,
+          "playerName": "Jordan Mason",
+          "position": "RB",
+          "projectedPoints": 127.87679995
+        },
+        {
+          "adp": 149.6425007156609,
+          "perceivedValue": -14.17,
+          "pickNumber": 115,
+          "playerName": "Rachaad White",
+          "position": "RB",
+          "projectedPoints": 130.01900613
+        },
+        {
+          "adp": 119.60005229114802,
+          "perceivedValue": 7.91,
+          "pickNumber": 126,
+          "playerName": "Ravens D/ST",
+          "position": "D/ST",
+          "projectedPoints": 120.3772664
+        },
+        {
+          "adp": 91.0427610695043,
+          "perceivedValue": 28.24,
+          "pickNumber": 135,
+          "playerName": "Kyler Murray",
+          "position": "QB",
+          "projectedPoints": 306.46820997
+        },
+        {
+          "adp": 128.10853348451084,
+          "perceivedValue": 11.97,
+          "pickNumber": 146,
+          "playerName": "Cam Skattebo",
+          "position": "RB",
+          "projectedPoints": 140.09661646
+        },
+        {
+          "adp": 165.45345102044308,
+          "perceivedValue": -5.35,
+          "pickNumber": 155,
+          "playerName": "Matt Gay",
+          "position": "K",
+          "projectedPoints": 139.98659976
+        },
+        {
+          "adp": 167.36856196677144,
+          "perceivedValue": -1.53,
+          "pickNumber": 166,
+          "playerName": "Luther Burden III",
+          "position": "WR",
+          "projectedPoints": 102.64723351
+        }
+      ],
+      "strategy": {
+        "confidence": 0.7,
+        "reasoning": "Heavy WR investment early with minimal RB commitment",
+        "strategy": "Hero WR"
+      },
+      "teamName": "Team Rive",
+      "teamOwner": "Sammy Rivero",
+      "worstPicks": [
+        {
+          "perceivedValue": -24.84,
+          "pickNumber": 115,
+          "playerName": "Rachaad White"
+        },
+        {
+          "perceivedValue": -31.53,
+          "pickNumber": 166,
+          "playerName": "Luther Burden III"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 44.75,
+          "pickNumber": 7,
+          "playerName": "Puka Nacua"
+        },
+        {
+          "perceivedValue": 40.78,
+          "pickNumber": 127,
+          "playerName": "Steelers D/ST"
+        },
+        {
+          "perceivedValue": 29.77,
+          "pickNumber": 27,
+          "playerName": "Kyren Williams"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 3.17,
+        "depthScore": 40,
+        "finalScore": 66.2,
+        "pointsScore": 77.82,
+        "projectedStarterPoints": 2470.72922314,
+        "valueScore": 68.8
+      },
+      "grade": "B",
+      "gradeScore": 88.21538453082466,
+      "pickDetails": [
+        {
+          "adp": 10.271963403682083,
+          "perceivedValue": 17.26,
+          "pickNumber": 7,
+          "playerName": "Puka Nacua",
+          "position": "WR",
+          "projectedPoints": 310.04218211
+        },
+        {
+          "adp": 27.641072992209075,
+          "perceivedValue": 10.46,
+          "pickNumber": 14,
+          "playerName": "Chase Brown",
+          "position": "RB",
+          "projectedPoints": 280.99772956
+        },
+        {
+          "adp": 32.13999449923382,
+          "perceivedValue": 13.69,
+          "pickNumber": 27,
+          "playerName": "Kyren Williams",
+          "position": "RB",
+          "projectedPoints": 279.20874936
+        },
+        {
+          "adp": 39.14050291872474,
+          "perceivedValue": 12.81,
+          "pickNumber": 34,
+          "playerName": "Jaxon Smith-Njigba",
+          "position": "WR",
+          "projectedPoints": 240.05149443
+        },
+        {
+          "adp": 54.08679423205375,
+          "perceivedValue": 10.08,
+          "pickNumber": 47,
+          "playerName": "James Conner",
+          "position": "RB",
+          "projectedPoints": 249.77860236
+        },
+        {
+          "adp": 77.01949371351594,
+          "perceivedValue": 0.1,
+          "pickNumber": 54,
+          "playerName": "George Pickens",
+          "position": "WR",
+          "projectedPoints": 219.57405943
+        },
+        {
+          "adp": 80.44448435930107,
+          "perceivedValue": 3.94,
+          "pickNumber": 67,
+          "playerName": "Aaron Jones Sr.",
+          "position": "RB",
+          "projectedPoints": 212.99938763
+        },
+        {
+          "adp": 58.76783396726764,
+          "perceivedValue": 19.45,
+          "pickNumber": 74,
+          "playerName": "Baker Mayfield",
+          "position": "QB",
+          "projectedPoints": 310.38639776
+        },
+        {
+          "adp": 121.13264664608477,
+          "perceivedValue": -10.38,
+          "pickNumber": 87,
+          "playerName": "Tyler Warren",
+          "position": "TE",
+          "projectedPoints": 166.36178186
+        },
+        {
+          "adp": 122.90151493890289,
+          "perceivedValue": -8.27,
+          "pickNumber": 94,
+          "playerName": "Michael Pittman Jr.",
+          "position": "WR",
+          "projectedPoints": 201.32883864
+        },
+        {
+          "adp": 149.61126422200644,
+          "perceivedValue": -17.72,
+          "pickNumber": 107,
+          "playerName": "Zach Charbonnet",
+          "position": "RB",
+          "projectedPoints": 113.0617428
+        },
+        {
+          "adp": 117.43334455430858,
+          "perceivedValue": 3.79,
+          "pickNumber": 114,
+          "playerName": "Chase McLaughlin",
+          "position": "K",
+          "projectedPoints": 146.32717363
+        },
+        {
+          "adp": 98.04774382030135,
+          "perceivedValue": 20.67,
+          "pickNumber": 127,
+          "playerName": "Steelers D/ST",
+          "position": "D/ST",
+          "projectedPoints": 132.5523234
+        },
+        {
+          "adp": 170.4267977121303,
+          "perceivedValue": -17.57,
+          "pickNumber": 134,
+          "playerName": "Blake Corum",
+          "position": "RB",
+          "projectedPoints": 52.44370166
+        },
+        {
+          "adp": 170.1385567866725,
+          "perceivedValue": -11.6,
+          "pickNumber": 147,
+          "playerName": "DeMario Douglas",
+          "position": "WR",
+          "projectedPoints": 139.82868936
+        },
+        {
+          "adp": 170.14171928938285,
+          "perceivedValue": -8.47,
+          "pickNumber": 154,
+          "playerName": "Ollie Gordon II",
+          "position": "RB",
+          "projectedPoints": 33.45522557
+        },
+        {
+          "adp": 138.10639790740493,
+          "perceivedValue": 15.64,
+          "pickNumber": 167,
+          "playerName": "Kyle Pitts Sr.",
+          "position": "TE",
+          "projectedPoints": 142.82677928
+        }
+      ],
+      "strategy": {
+        "confidence": 0.6,
+        "reasoning": "Balanced approach with mix of RB and WR early",
+        "strategy": "Balanced"
+      },
+      "teamName": "Chodie mcgruber",
+      "teamOwner": "Matthew  Colominas ",
+      "worstPicks": [
+        {
+          "perceivedValue": -36.45,
+          "pickNumber": 154,
+          "playerName": "Ollie Gordon II"
+        },
+        {
+          "perceivedValue": -42.14,
+          "pickNumber": 134,
+          "playerName": "Blake Corum"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 39.92,
+          "pickNumber": 9,
+          "playerName": "Amon-Ra St. Brown"
+        },
+        {
+          "perceivedValue": 36.02,
+          "pickNumber": 29,
+          "playerName": "Jayden Daniels"
+        },
+        {
+          "perceivedValue": 30.88,
+          "pickNumber": 12,
+          "playerName": "Brian Thomas Jr."
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 3.06,
+        "depthScore": 40.67,
+        "finalScore": 63.58,
+        "pointsScore": 70.13,
+        "projectedStarterPoints": 2416.36636044,
+        "valueScore": 68.67
+      },
+      "grade": "B",
+      "gradeScore": 88.05819088164868,
+      "pickDetails": [
+        {
+          "adp": 10.455556802873822,
+          "perceivedValue": 18.04,
+          "pickNumber": 9,
+          "playerName": "Amon-Ra St. Brown",
+          "position": "WR",
+          "projectedPoints": 290.32407673
+        },
+        {
+          "adp": 18.88089852322925,
+          "perceivedValue": 14.57,
+          "pickNumber": 12,
+          "playerName": "Brian Thomas Jr.",
+          "position": "WR",
+          "projectedPoints": 270.74629093
+        },
+        {
+          "adp": 28.46087679575704,
+          "perceivedValue": 16.68,
+          "pickNumber": 29,
+          "playerName": "Jayden Daniels",
+          "position": "QB",
+          "projectedPoints": 368.02141648
+        },
+        {
+          "adp": 33.576539661869376,
+          "perceivedValue": 15.1,
+          "pickNumber": 32,
+          "playerName": "James Cook",
+          "position": "RB",
+          "projectedPoints": 268.47125955
+        },
+        {
+          "adp": 62.00099348899865,
+          "perceivedValue": 6.45,
+          "pickNumber": 49,
+          "playerName": "DJ Moore",
+          "position": "WR",
+          "projectedPoints": 238.44847131
+        },
+        {
+          "adp": 57.5841654738851,
+          "perceivedValue": 10.31,
+          "pickNumber": 52,
+          "playerName": "TreVeyon Henderson",
+          "position": "RB",
+          "projectedPoints": 222.15635945
+        },
+        {
+          "adp": 97.40689163551454,
+          "perceivedValue": -4.86,
+          "pickNumber": 69,
+          "playerName": "Stefon Diggs",
+          "position": "WR",
+          "projectedPoints": 201.14884859
+        },
+        {
+          "adp": 98.90004490345757,
+          "perceivedValue": -4.37,
+          "pickNumber": 72,
+          "playerName": "Matthew Golden",
+          "position": "WR",
+          "projectedPoints": 204.02630636
+        },
+        {
+          "adp": 124.7041086663673,
+          "perceivedValue": -11.53,
+          "pickNumber": 89,
+          "playerName": "Emeka Egbuka",
+          "position": "WR",
+          "projectedPoints": 180.23903261
+        },
+        {
+          "adp": 115.05585024276613,
+          "perceivedValue": -4.67,
+          "pickNumber": 92,
+          "playerName": "Quinshon Judkins",
+          "position": "RB",
+          "projectedPoints": 172.78429843
+        },
+        {
+          "adp": 140.7890769273947,
+          "perceivedValue": -11.79,
+          "pickNumber": 109,
+          "playerName": "Tank Bigsby",
+          "position": "RB",
+          "projectedPoints": 142.62273204
+        },
+        {
+          "adp": 137.96856196677143,
+          "perceivedValue": -8.84,
+          "pickNumber": 112,
+          "playerName": "Rashid Shaheed",
+          "position": "WR",
+          "projectedPoints": 184.48253738
+        },
+        {
+          "adp": 167.37196405417694,
+          "perceivedValue": -18.05,
+          "pickNumber": 129,
+          "playerName": "Jacory Croskey-Merritt",
+          "position": "RB",
+          "projectedPoints": 86.03522013
+        },
+        {
+          "adp": 91.51816446814482,
+          "perceivedValue": 26.63,
+          "pickNumber": 132,
+          "playerName": "Evan Engram",
+          "position": "TE",
+          "projectedPoints": 169.09182027
+        },
+        {
+          "adp": 159.77272854841516,
+          "perceivedValue": -4.78,
+          "pickNumber": 149,
+          "playerName": "Jaydon Blue",
+          "position": "RB",
+          "projectedPoints": 102.49011326
+        },
+        {
+          "adp": 149.47303595584808,
+          "perceivedValue": 2.44,
+          "pickNumber": 152,
+          "playerName": "Patriots D/ST",
+          "position": "D/ST",
+          "projectedPoints": 115.07793408
+        },
+        {
+          "adp": 148.32583429852738,
+          "perceivedValue": 10.69,
+          "pickNumber": 169,
+          "playerName": "Jason Sanders",
+          "position": "K",
+          "projectedPoints": 140.60094835
+        }
+      ],
+      "strategy": {
+        "confidence": 0.7,
+        "reasoning": "Heavy WR investment early with minimal RB commitment",
+        "strategy": "Hero WR"
+      },
+      "teamName": "Tua Deez Nuts",
+      "teamOwner": "brett brosius",
+      "worstPicks": [
+        {
+          "perceivedValue": -20.99,
+          "pickNumber": 89,
+          "playerName": "Emeka Egbuka"
+        },
+        {
+          "perceivedValue": -36.6,
+          "pickNumber": 129,
+          "playerName": "Jacory Croskey-Merritt"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 48.37,
+          "pickNumber": 23,
+          "playerName": "Brock Bowers"
+        },
+        {
+          "perceivedValue": 43.57,
+          "pickNumber": 3,
+          "playerName": "Saquon Barkley"
+        },
+        {
+          "perceivedValue": 33.16,
+          "pickNumber": 18,
+          "playerName": "Josh Jacobs"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 2.93,
+        "depthScore": 40,
+        "finalScore": 62.33,
+        "pointsScore": 67.12,
+        "projectedStarterPoints": 2395.0647745700003,
+        "valueScore": 68.52
+      },
+      "grade": "B-",
+      "gradeScore": 87.19558314075499,
+      "pickDetails": [
+        {
+          "adp": 3.627521638096521,
+          "perceivedValue": 19.27,
+          "pickNumber": 3,
+          "playerName": "Saquon Barkley",
+          "position": "RB",
+          "projectedPoints": 325.10760551
+        },
+        {
+          "adp": 20.160162104211455,
+          "perceivedValue": 16.52,
+          "pickNumber": 18,
+          "playerName": "Josh Jacobs",
+          "position": "RB",
+          "projectedPoints": 282.39331205
+        },
+        {
+          "adp": 20.820640916974927,
+          "perceivedValue": 18.37,
+          "pickNumber": 23,
+          "playerName": "Brock Bowers",
+          "position": "TE",
+          "projectedPoints": 261.25265613
+        },
+        {
+          "adp": 35.9416255051639,
+          "perceivedValue": 16.43,
+          "pickNumber": 38,
+          "playerName": "Davante Adams",
+          "position": "WR",
+          "projectedPoints": 256.96187957
+        },
+        {
+          "adp": 45.419366969953806,
+          "perceivedValue": 13.24,
+          "pickNumber": 43,
+          "playerName": "Garrett Wilson",
+          "position": "WR",
+          "projectedPoints": 239.60651178
+        },
+        {
+          "adp": 62.899802984974094,
+          "perceivedValue": 9.95,
+          "pickNumber": 58,
+          "playerName": "Zay Flowers",
+          "position": "WR",
+          "projectedPoints": 232.11459792
+        },
+        {
+          "adp": 79.7704203057994,
+          "perceivedValue": 2.54,
+          "pickNumber": 63,
+          "playerName": "Isiah Pacheco",
+          "position": "RB",
+          "projectedPoints": 211.1462341
+        },
+        {
+          "adp": 108.64021665918276,
+          "perceivedValue": -7.26,
+          "pickNumber": 78,
+          "playerName": "Deebo Samuel",
+          "position": "WR",
+          "projectedPoints": 201.48722312
+        },
+        {
+          "adp": 104.94059139181391,
+          "perceivedValue": -2.91,
+          "pickNumber": 83,
+          "playerName": "Jaylen Warren",
+          "position": "RB",
+          "projectedPoints": 204.18225157
+        },
+        {
+          "adp": 122.01402118332501,
+          "perceivedValue": -5.97,
+          "pickNumber": 98,
+          "playerName": "Keon Coleman",
+          "position": "WR",
+          "projectedPoints": 180.81250282
+        },
+        {
+          "adp": 139.17915356982488,
+          "perceivedValue": -13.55,
+          "pickNumber": 103,
+          "playerName": "Darnell Mooney",
+          "position": "WR",
+          "projectedPoints": 160.52994011
+        },
+        {
+          "adp": 162.9553057245754,
+          "perceivedValue": -20.44,
+          "pickNumber": 118,
+          "playerName": "Cam Ward",
+          "position": "QB",
+          "projectedPoints": 255.52250173
+        },
+        {
+          "adp": 108.23035711229153,
+          "perceivedValue": 13.06,
+          "pickNumber": 123,
+          "playerName": "Jake Bates",
+          "position": "K",
+          "projectedPoints": 144.81764308
+        },
+        {
+          "adp": 170.44816398926795,
+          "perceivedValue": -15.79,
+          "pickNumber": 138,
+          "playerName": "Adonai Mitchell",
+          "position": "WR",
+          "projectedPoints": 84.448032
+        },
+        {
+          "adp": 138.85496274319232,
+          "perceivedValue": 4.49,
+          "pickNumber": 143,
+          "playerName": "Seahawks D/ST",
+          "position": "D/ST",
+          "projectedPoints": 119.61989854
+        },
+        {
+          "adp": 158.88370004490346,
+          "perceivedValue": -0.25,
+          "pickNumber": 158,
+          "playerName": "Xavier Legette",
+          "position": "WR",
+          "projectedPoints": 155.64764453
+        },
+        {
+          "adp": 158.5968981369737,
+          "perceivedValue": 2.14,
+          "pickNumber": 163,
+          "playerName": "Hunter Henry",
+          "position": "TE",
+          "projectedPoints": 146.63054924
+        }
+      ],
+      "strategy": {
+        "confidence": 0.7,
+        "reasoning": "Avoided WR in early rounds, focusing on other positions first",
+        "strategy": "Zero WR"
+      },
+      "teamName": "GLORY ASSHOLE",
+      "teamOwner": "Gabe Coscia",
+      "worstPicks": [
+        {
+          "perceivedValue": -45.79,
+          "pickNumber": 138,
+          "playerName": "Adonai Mitchell"
+        },
+        {
+          "perceivedValue": -49.7,
+          "pickNumber": 118,
+          "playerName": "Cam Ward"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 41.59,
+          "pickNumber": 4,
+          "playerName": "Jahmyr Gibbs"
+        },
+        {
+          "perceivedValue": 39.56,
+          "pickNumber": 17,
+          "playerName": "Ashton Jeanty"
+        },
+        {
+          "perceivedValue": 36.08,
+          "pickNumber": 44,
+          "playerName": "Tyreek Hill"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 5.23,
+        "depthScore": 40,
+        "finalScore": 66.17,
+        "pointsScore": 74.56,
+        "projectedStarterPoints": 2447.6691754800004,
+        "valueScore": 71.27
+      },
+      "grade": "B-",
+      "gradeScore": 86.58190375480075,
+      "pickDetails": [
+        {
+          "adp": 5.365688690312477,
+          "perceivedValue": 18.72,
+          "pickNumber": 4,
+          "playerName": "Jahmyr Gibbs",
+          "position": "RB",
+          "projectedPoints": 317.11532361
+        },
+        {
+          "adp": 13.079397154163509,
+          "perceivedValue": 20.12,
+          "pickNumber": 17,
+          "playerName": "Ashton Jeanty",
+          "position": "RB",
+          "projectedPoints": 298.01356751
+        },
+        {
+          "adp": 31.145746215459226,
+          "perceivedValue": 12.92,
+          "pickNumber": 24,
+          "playerName": "Ladd McConkey",
+          "position": "WR",
+          "projectedPoints": 253.10603414
+        },
+        {
+          "adp": 33.77324313998697,
+          "perceivedValue": 17.22,
+          "pickNumber": 37,
+          "playerName": "Joe Burrow",
+          "position": "QB",
+          "projectedPoints": 329.6724929
+        },
+        {
+          "adp": 30.91629948529123,
+          "perceivedValue": 21.98,
+          "pickNumber": 44,
+          "playerName": "Tyreek Hill",
+          "position": "WR",
+          "projectedPoints": 263.01400473
+        },
+        {
+          "adp": 78.27807588684328,
+          "perceivedValue": 0.72,
+          "pickNumber": 57,
+          "playerName": "Jameson Williams",
+          "position": "WR",
+          "projectedPoints": 218.46539574
+        },
+        {
+          "adp": 83.44663224068253,
+          "perceivedValue": 0.89,
+          "pickNumber": 64,
+          "playerName": "Tetairoa McMillan",
+          "position": "WR",
+          "projectedPoints": 213.90741022
+        },
+        {
+          "adp": 64.18854230400053,
+          "perceivedValue": 17.7,
+          "pickNumber": 77,
+          "playerName": "Travis Kelce",
+          "position": "TE",
+          "projectedPoints": 177.6929205
+        },
+        {
+          "adp": 105.23960034801156,
+          "perceivedValue": -2.64,
+          "pickNumber": 84,
+          "playerName": "Kaleb Johnson",
+          "position": "RB",
+          "projectedPoints": 189.4954381
+        },
+        {
+          "adp": 102.2203468792097,
+          "perceivedValue": 4.89,
+          "pickNumber": 97,
+          "playerName": "Chris Godwin",
+          "position": "WR",
+          "projectedPoints": 187.18658803
+        },
+        {
+          "adp": 132.14130556802874,
+          "perceivedValue": -9.08,
+          "pickNumber": 104,
+          "playerName": "Jayden Reed",
+          "position": "WR",
+          "projectedPoints": 166.80002196
+        },
+        {
+          "adp": 123.33282253356684,
+          "perceivedValue": 1.76,
+          "pickNumber": 117,
+          "playerName": "Colston Loveland",
+          "position": "TE",
+          "projectedPoints": 155.65056443
+        },
+        {
+          "adp": 164.5292605440115,
+          "perceivedValue": -18.66,
+          "pickNumber": 124,
+          "playerName": "Hollywood Brown",
+          "position": "WR",
+          "projectedPoints": 160.76459362
+        },
+        {
+          "adp": 130.4730733598195,
+          "perceivedValue": 6.6,
+          "pickNumber": 137,
+          "playerName": "Eagles D/ST",
+          "position": "D/ST",
+          "projectedPoints": 99.98908316
+        },
+        {
+          "adp": 146.2291081973102,
+          "perceivedValue": 0.73,
+          "pickNumber": 144,
+          "playerName": "Tyjae Spears",
+          "position": "RB",
+          "projectedPoints": 158.22165623
+        },
+        {
+          "adp": 161.88895686926065,
+          "perceivedValue": -2.42,
+          "pickNumber": 157,
+          "playerName": "Braelon Allen",
+          "position": "RB",
+          "projectedPoints": 84.05058153
+        },
+        {
+          "adp": 167.57953624776056,
+          "perceivedValue": -2.55,
+          "pickNumber": 164,
+          "playerName": "Evan McPherson",
+          "position": "K",
+          "projectedPoints": 136.11476688
+        }
+      ],
+      "strategy": {
+        "confidence": 0.6,
+        "reasoning": "Balanced approach with mix of RB and WR early",
+        "strategy": "Balanced"
+      },
+      "teamName": "Burrow in the TE",
+      "teamOwner": "Michael Warrell",
+      "worstPicks": [
+        {
+          "perceivedValue": -22.37,
+          "pickNumber": 104,
+          "playerName": "Jayden Reed"
+        },
+        {
+          "perceivedValue": -33.66,
+          "pickNumber": 124,
+          "playerName": "Hollywood Brown"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 42.37,
+          "pickNumber": 10,
+          "playerName": "Malik Nabers"
+        },
+        {
+          "perceivedValue": 36.97,
+          "pickNumber": 11,
+          "playerName": "De'Von Achane"
+        },
+        {
+          "perceivedValue": 22.19,
+          "pickNumber": 30,
+          "playerName": "Alvin Kamara"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 1.53,
+        "depthScore": 40,
+        "finalScore": 66.8,
+        "pointsScore": 82.07,
+        "projectedStarterPoints": 2500.7826581,
+        "valueScore": 66.84
+      },
+      "grade": "C+",
+      "gradeScore": 85.49543958290828,
+      "pickDetails": [
+        {
+          "adp": 11.83865626403233,
+          "perceivedValue": 17.7,
+          "pickNumber": 10,
+          "playerName": "Malik Nabers",
+          "position": "WR",
+          "projectedPoints": 300.13065162
+        },
+        {
+          "adp": 15.521975122925975,
+          "perceivedValue": 16.04,
+          "pickNumber": 11,
+          "playerName": "De'Von Achane",
+          "position": "RB",
+          "projectedPoints": 306.27508904
+        },
+        {
+          "adp": 43.21511924875251,
+          "perceivedValue": 8.7,
+          "pickNumber": 30,
+          "playerName": "Alvin Kamara",
+          "position": "RB",
+          "projectedPoints": 264.77266021
+        },
+        {
+          "adp": 44.62727961606466,
+          "perceivedValue": 8.34,
+          "pickNumber": 31,
+          "playerName": "Omarion Hampton",
+          "position": "RB",
+          "projectedPoints": 259.0143894
+        },
+        {
+          "adp": 71.20494614361328,
+          "perceivedValue": 1.63,
+          "pickNumber": 50,
+          "playerName": "Calvin Ridley",
+          "position": "WR",
+          "projectedPoints": 230.22790999
+        },
+        {
+          "adp": 68.08460420186462,
+          "perceivedValue": 3.86,
+          "pickNumber": 51,
+          "playerName": "Courtland Sutton",
+          "position": "WR",
+          "projectedPoints": 228.29596053
+        },
+        {
+          "adp": 89.08517063313874,
+          "perceivedValue": 0.34,
+          "pickNumber": 70,
+          "playerName": "Rome Odunze",
+          "position": "WR",
+          "projectedPoints": 217.43261293
+        },
+        {
+          "adp": 61.907399299474605,
+          "perceivedValue": 16.32,
+          "pickNumber": 71,
+          "playerName": "T.J. Hockenson",
+          "position": "TE",
+          "projectedPoints": 187.14357041
+        },
+        {
+          "adp": 93.13579490867413,
+          "perceivedValue": 6.96,
+          "pickNumber": 90,
+          "playerName": "Brock Purdy",
+          "position": "QB",
+          "projectedPoints": 306.16773724
+        },
+        {
+          "adp": 121.91358890884598,
+          "perceivedValue": -9.04,
+          "pickNumber": 91,
+          "playerName": "Jauan Jennings",
+          "position": "WR",
+          "projectedPoints": 201.32207673
+        },
+        {
+          "adp": 162.4745506797337,
+          "perceivedValue": -23.74,
+          "pickNumber": 110,
+          "playerName": "Cedric Tillman",
+          "position": "WR",
+          "projectedPoints": 168.19761419
+        },
+        {
+          "adp": 140.90068366281616,
+          "perceivedValue": -10.96,
+          "pickNumber": 111,
+          "playerName": "Jayden Higgins",
+          "position": "WR",
+          "projectedPoints": 156.36007714
+        },
+        {
+          "adp": 168.74476719710364,
+          "perceivedValue": -18.39,
+          "pickNumber": 130,
+          "playerName": "Dylan Sampson",
+          "position": "RB",
+          "projectedPoints": 60.09723063
+        },
+        {
+          "adp": 144.6638881404643,
+          "perceivedValue": -4.18,
+          "pickNumber": 131,
+          "playerName": "Jake Ferguson",
+          "position": "TE",
+          "projectedPoints": 149.18067302
+        },
+        {
+          "adp": 170.54224854063762,
+          "perceivedValue": -10.49,
+          "pickNumber": 150,
+          "playerName": "Romeo Doubs",
+          "position": "WR",
+          "projectedPoints": 128.50173431
+        },
+        {
+          "adp": 142.41978238915482,
+          "perceivedValue": 6.03,
+          "pickNumber": 151,
+          "playerName": "Jake Elliott",
+          "position": "K",
+          "projectedPoints": 141.1222846
+        },
+        {
+          "adp": 138.16669792714603,
+          "perceivedValue": 16.94,
+          "pickNumber": 170,
+          "playerName": "Lions D/ST",
+          "position": "D/ST",
+          "projectedPoints": 118.23107455
+        }
+      ],
+      "strategy": {
+        "confidence": 0.6,
+        "reasoning": "Balanced approach with mix of RB and WR early",
+        "strategy": "Balanced"
+      },
+      "teamName": "Prolapsed Peehole",
+      "teamOwner": "Vincent Coscia",
+      "worstPicks": [
+        {
+          "perceivedValue": -36.62,
+          "pickNumber": 110,
+          "playerName": "Cedric Tillman"
+        },
+        {
+          "perceivedValue": -41.59,
+          "pickNumber": 130,
+          "playerName": "Dylan Sampson"
+        }
+      ]
+    },
+    {
+      "bestPicks": [
+        {
+          "perceivedValue": 47.42,
+          "pickNumber": 28,
+          "playerName": "Trey McBride"
+        },
+        {
+          "perceivedValue": 42.72,
+          "pickNumber": 8,
+          "playerName": "Christian McCaffrey"
+        },
+        {
+          "perceivedValue": 35.39,
+          "pickNumber": 13,
+          "playerName": "Nico Collins"
+        }
+      ],
+      "breakdown": {
+        "avgPerceivedValue": 3.29,
+        "depthScore": 40,
+        "finalScore": 66.79,
+        "pointsScore": 79.31,
+        "projectedStarterPoints": 2481.31067485,
+        "valueScore": 68.95
+      },
+      "grade": "C+",
+      "gradeScore": 84.83937717374225,
+      "pickDetails": [
+        {
+          "adp": 8.079413101926953,
+          "perceivedValue": 18.95,
+          "pickNumber": 8,
+          "playerName": "Christian McCaffrey",
+          "position": "RB",
+          "projectedPoints": 322.07492895
+        },
+        {
+          "adp": 15.654117950819211,
+          "perceivedValue": 16.86,
+          "pickNumber": 13,
+          "playerName": "Nico Collins",
+          "position": "WR",
+          "projectedPoints": 278.55371588
+        },
+        {
+          "adp": 26.39128384750101,
+          "perceivedValue": 17.42,
+          "pickNumber": 28,
+          "playerName": "Trey McBride",
+          "position": "TE",
+          "projectedPoints": 259.27721576
+        },
+        {
+          "adp": 28.28374092804742,
+          "perceivedValue": 18.57,
+          "pickNumber": 33,
+          "playerName": "Tee Higgins",
+          "position": "WR",
+          "projectedPoints": 264.53247825
+        },
+        {
+          "adp": 53.01879220247083,
+          "perceivedValue": 11.13,
+          "pickNumber": 48,
+          "playerName": "Xavier Worthy",
+          "position": "WR",
+          "projectedPoints": 242.64838526
+        },
+        {
+          "adp": 57.62773636588159,
+          "perceivedValue": 10.73,
+          "pickNumber": 53,
+          "playerName": "Breece Hall",
+          "position": "RB",
+          "projectedPoints": 223.39421217
+        },
+        {
+          "adp": 88.3180264376526,
+          "perceivedValue": -0.11,
+          "pickNumber": 68,
+          "playerName": "RJ Harvey",
+          "position": "RB",
+          "projectedPoints": 202.5260186
+        },
+        {
+          "adp": 85.57009025797616,
+          "perceivedValue": 3.69,
+          "pickNumber": 73,
+          "playerName": "Tony Pollard",
+          "position": "RB",
+          "projectedPoints": 210.36769233
+        },
+        {
+          "adp": 77.87943007393757,
+          "perceivedValue": 14.78,
+          "pickNumber": 88,
+          "playerName": "Bo Nix",
+          "position": "QB",
+          "projectedPoints": 301.54938606
+        },
+        {
+          "adp": 111.69996632240682,
+          "perceivedValue": -2.31,
+          "pickNumber": 93,
+          "playerName": "Jordan Addison",
+          "position": "WR",
+          "projectedPoints": 176.38664159
+        },
+        {
+          "adp": 140.610331220988,
+          "perceivedValue": -12.13,
+          "pickNumber": 108,
+          "playerName": "Josh Downs",
+          "position": "WR",
+          "projectedPoints": 179.27732521
+        },
+        {
+          "adp": 156.05889748929314,
+          "perceivedValue": -18.73,
+          "pickNumber": 113,
+          "playerName": "Trey Benson",
+          "position": "RB",
+          "projectedPoints": 124.24843895
+        },
+        {
+          "adp": 167.43429671581808,
+          "perceivedValue": -18.53,
+          "pickNumber": 128,
+          "playerName": "Isaac Guerendo",
+          "position": "RB",
+          "projectedPoints": 87.45386967
+        },
+        {
+          "adp": 154.04208015267176,
+          "perceivedValue": -8.65,
+          "pickNumber": 133,
+          "playerName": "Adam Thielen",
+          "position": "WR",
+          "projectedPoints": 168.05553019
+        },
+        {
+          "adp": 159.9448080377189,
+          "perceivedValue": -5.33,
+          "pickNumber": 148,
+          "playerName": "Brandon Aiyuk",
+          "position": "WR",
+          "projectedPoints": 112.39063928
+        },
+        {
+          "adp": 150.63747094163318,
+          "perceivedValue": 2.23,
+          "pickNumber": 153,
+          "playerName": "Bills D/ST",
+          "position": "D/ST",
+          "projectedPoints": 104.86364739
+        },
+        {
+          "adp": 153.28883931373275,
+          "perceivedValue": 7.41,
+          "pickNumber": 168,
+          "playerName": "Cam Little",
+          "position": "K",
+          "projectedPoints": 134.12076119
+        }
+      ],
+      "strategy": {
+        "confidence": 0.7,
+        "reasoning": "Heavy WR investment early with minimal RB commitment",
+        "strategy": "Hero WR"
+      },
+      "teamName": "Moisty Loins",
+      "teamOwner": "Austin Jimenez",
+      "worstPicks": [
+        {
+          "perceivedValue": -34.1,
+          "pickNumber": 148,
+          "playerName": "Brandon Aiyuk"
+        },
+        {
+          "perceivedValue": -36.83,
+          "pickNumber": 128,
+          "playerName": "Isaac Guerendo"
         }
       ]
     }
   ],
   "gradingStats": {
-    "averageGradeScore": 83.89,
+    "averageGradeScore": 88.46,
     "gradeDistribution": {
-      "A": 1,
+      "A": 2,
       "A+": 0,
-      "A-": 4,
+      "A-": 0,
       "B": 2,
-      "B+": 1,
-      "B-": 1,
+      "B+": 2,
+      "B-": 2,
       "C": 0,
-      "C+": 1,
+      "C+": 2,
       "C-": 0,
       "D": 0,
       "D+": 0,
       "F": 0
     },
     "scoreRange": {
-      "highest": 88.51536385559233,
-      "lowest": 77.84540307367956
+      "highest": 92.6365608993188,
+      "lowest": 84.83937717374225
     },
     "totalTeams": 10
   },
