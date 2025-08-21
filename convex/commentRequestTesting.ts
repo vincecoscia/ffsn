@@ -214,7 +214,7 @@ export const getTestStatus = query({
           .collect();
 
         const user = await ctx.db.get(request.targetUserId);
-        const scheduledContent = await ctx.db.get(request.scheduledContentId);
+        const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
         const league = await ctx.db.get(request.leagueId);
 
         return {

@@ -43,6 +43,99 @@ export const getTeamsByLeague = query({
   },
 });
 
+export const getLeagueTeams = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return [];
+    }
+
+    // Get the league to determine current season
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) {
+      return [];
+    }
+
+    // Get current season from league's ESPN data
+    const currentSeason = league.espnData?.seasonId || new Date().getFullYear();
+
+    // Get teams for current season only
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason)
+      )
+      .collect();
+    
+    return teams;
+  },
+});
+
+export const getClaimedTeams = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return [];
+    }
+
+    // Get the league to determine current season
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) {
+      return [];
+    }
+
+    // Get current season from league's ESPN data
+    const currentSeason = league.espnData?.seasonId || new Date().getFullYear();
+
+    // Get teams for current season only
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => 
+        q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason)
+      )
+      .collect();
+    
+    // Get active team claims for this league
+    const teamClaims = await ctx.db
+      .query("teamClaims")
+      .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
+      .filter(q => q.eq(q.field("status"), "active"))
+      .collect();
+    
+    // Filter teams to only those that have been claimed
+    const claimedTeamIds = new Set(teamClaims.map(claim => claim.teamId));
+    const claimedTeams = teams.filter(team => claimedTeamIds.has(team._id));
+    
+    return claimedTeams;
+  },
+});
+
 export const getCurrentUserTeam = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args) => {

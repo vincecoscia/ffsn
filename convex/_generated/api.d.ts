@@ -15,6 +15,7 @@ import type {
 } from "convex/server";
 import type * as aiContent from "../aiContent.js";
 import type * as aiContentHelpers from "../aiContentHelpers.js";
+import type * as aiContentWithComments from "../aiContentWithComments.js";
 import type * as aiQueries from "../aiQueries.js";
 import type * as commentConversations from "../commentConversations.js";
 import type * as commentRequestTesting from "../commentRequestTesting.js";
@@ -60,6 +61,7 @@ import type * as users from "../users.js";
 declare const fullApi: ApiFromModules<{
   aiContent: typeof aiContent;
   aiContentHelpers: typeof aiContentHelpers;
+  aiContentWithComments: typeof aiContentWithComments;
   aiQueries: typeof aiQueries;
   commentConversations: typeof commentConversations;
   commentRequestTesting: typeof commentRequestTesting;

@@ -125,6 +125,17 @@ For power rankings:
 - Quote reactions to surprising performances
 - Let their opinions add color to the rankings
 `,
+    draft_rankings: `
+For draft rankings:
+- INTEGRATE comments directly into each team's breakdown, not as a separate section
+- Quote their draft strategy explanations while analyzing their picks
+- Include their reactions to specific draft selections (both pride and regret)
+- Use their comments to explain reasoning behind controversial picks
+- Structure each team analysis: "[AI analysis of pick] When asked about [specific topic], [Manager] said: '[EXACT QUOTE]' [AI's snarky response]"
+- Make the comments feel like a natural conversation between the AI and team managers
+- Use their quotes to add authenticity to draft day stories and decision-making
+- Reference their comments when discussing team construction and strategy
+`,
   };
 
   return baseInstructions + (typeSpecificInstructions[contentType] || "");

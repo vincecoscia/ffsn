@@ -38,8 +38,8 @@ export interface TeamDraftGrade {
   reasoning: string;
 }
 
-// Helper function for the actual logic
-async function getSimplifiedDraftDataImpl(ctx: any, args: {
+// Helper function for the actual logic - exported for use in other modules
+export async function getSimplifiedDraftDataImpl(ctx: any, args: {
   leagueId: Id<"leagues">;
   seasonId: number;
 }): Promise<{

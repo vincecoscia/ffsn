@@ -19,7 +19,7 @@ export const getActiveRequests = query({
     // Enrich with scheduled content info
     const enrichedRequests = await Promise.all(
       requests.map(async (request) => {
-        const scheduledContent = await ctx.db.get(request.scheduledContentId);
+        const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
         const league = await ctx.db.get(request.leagueId);
         
         // Get conversation messages
@@ -318,11 +318,15 @@ export const generateAIFollowUp = internalAction({
 
       // Send notification to user - request is already available from above
       if (request) {
+        // Get league name for notification
+        const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, { leagueId: request.leagueId });
+        
         await ctx.scheduler.runAfter(0, internal.notifications.sendCommentFollowUp, {
           userId: request.targetUserId,
           commentRequestId: args.commentRequestId,
           leagueId: request.leagueId,
           question: result.question,
+          leagueName: league?.name || "your league",
         });
       }
 
@@ -547,7 +551,8 @@ export const processCompletedResponse = internalAction({
       commentRequestId: args.commentRequestId,
       leagueId: request.leagueId,
       userId: request.targetUserId,
-      scheduledContentId: request.scheduledContentId,
+      scheduledContentId: request.scheduledContentId || null,
+      manualContentId: request.manualContentId || undefined,
       rawResponse,
       processedResponse: rawResponse, // Could apply additional processing
       responseType: "mixed", // Could be more sophisticated
@@ -584,7 +589,7 @@ export const getRequestWithContext = internalQuery({
     if (!request) return null;
 
     // Get scheduled content
-    const scheduledContent = await ctx.db.get(request.scheduledContentId);
+    const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
     
     // Get league information
     const league = await ctx.db.get(request.leagueId);
@@ -616,7 +621,8 @@ export const createCommentResponse = internalMutation({
     commentRequestId: v.id("commentRequests"),
     leagueId: v.id("leagues"),
     userId: v.id("users"),
-    scheduledContentId: v.id("scheduledContent"),
+    scheduledContentId: v.union(v.id("scheduledContent"), v.null()),
+    manualContentId: v.optional(v.id("aiContent")),
     rawResponse: v.string(),
     processedResponse: v.string(),
     responseType: v.union(

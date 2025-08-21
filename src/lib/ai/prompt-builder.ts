@@ -1500,6 +1500,10 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `- Go through EACH TEAM INDIVIDUALLY and give them their personalized grade and analysis\n`;
     draftData += `- Don't group teams by grade (no "A+ teams", "B teams" sections) - analyze each team separately\n`;
     draftData += `- Use the provided team-by-team data with specific reasoning for each team's grade\n`;
+    draftData += `- CRITICAL: If team manager comments are provided, INTEGRATE them directly into each team's breakdown\n`;
+    draftData += `- Structure team analysis: "[AI analysis of pick] When asked about [topic], [Manager] said: '[EXACT QUOTE]' [AI snarky response]"\n`;
+    draftData += `- Make comments feel like natural conversation between you and the managers, not an afterthought\n`;
+    draftData += `- Use manager quotes to explain controversial picks, draft strategy, or team construction decisions\n`;
     draftData += `- Be critical of bad picks but give credit where due\n`;
     draftData += `- Include specific analysis of each team's strategy (when provided), best picks, and biggest reaches\n`;
     draftData += `- NEVER mention confidence levels or percentages related to draft strategy analysis\n`;

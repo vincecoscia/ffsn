@@ -320,6 +320,12 @@ export default defineSchema({
     createdAt: v.number(),
     bannerImageId: v.optional(v.id("_storage")), // AI-generated banner image
     tempGenerationData: v.optional(v.any()), // Temporary data for multi-step generation
+    commentRequestConfig: v.optional(v.object({
+      enabled: v.boolean(),
+      expirationMinutes: v.number(),
+      targetUserIds: v.array(v.string()),
+      requestedAt: v.number(),
+    })),
   })
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
@@ -1039,7 +1045,8 @@ export default defineSchema({
   commentRequests: defineTable({
     // Core relationships
     leagueId: v.id("leagues"),
-    scheduledContentId: v.id("scheduledContent"), // The article this comment is for
+    scheduledContentId: v.optional(v.id("scheduledContent")), // The article this comment is for (optional for manual content)
+    manualContentId: v.optional(v.id("aiContent")), // For manually generated content with comments
     targetUserId: v.id("users"), // User being asked for comment
     
     // Request context
@@ -1049,6 +1056,10 @@ export default defineSchema({
       seasonId: v.optional(v.number()),
       topic: v.optional(v.string()), // "Your team's performance", "Trade impact", etc.
       focusAreas: v.optional(v.array(v.string())), // Specific topics to comment on
+      // Draft-related context for draft analysis content
+      draftType: v.optional(v.string()),
+      draftOrder: v.optional(v.array(v.any())),
+      userDraftPicks: v.optional(v.any()), // Map of userId to their draft picks
     }),
     
     // Timing and lifecycle
@@ -1121,6 +1132,7 @@ export default defineSchema({
     expiredAt: v.optional(v.number()),
   })
     .index("by_scheduled_content", ["scheduledContentId"])
+    .index("by_manual_content", ["manualContentId"])
     .index("by_user", ["targetUserId"])
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
@@ -1193,7 +1205,8 @@ export default defineSchema({
     commentRequestId: v.id("commentRequests"),
     leagueId: v.id("leagues"), // Denormalized
     userId: v.id("users"),     // Denormalized
-    scheduledContentId: v.id("scheduledContent"), // For article integration
+    scheduledContentId: v.union(v.id("scheduledContent"), v.null()), // For scheduled article integration
+    manualContentId: v.optional(v.id("aiContent")), // For manually generated content with comments
     
     // Processed response content
     rawResponse: v.string(),        // Original user response(s) combined
@@ -1255,6 +1268,7 @@ export default defineSchema({
   })
     .index("by_comment_request", ["commentRequestId"])
     .index("by_scheduled_content", ["scheduledContentId"])
+    .index("by_manual_content", ["manualContentId"])
     .index("by_user", ["userId"])
     .index("by_league", ["leagueId"])
     .index("by_integration_status", ["integrationStatus"])

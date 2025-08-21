@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -37,7 +39,9 @@ import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Sparkles, Zap, Clock, CreditCard } from "lucide-react";
+import { Sparkles, Zap, Clock, CreditCard, Users, MessageSquare } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface ContentGeneratorProps {
   leagueId: Id<"leagues">;
@@ -59,6 +63,9 @@ const formSchema = z.object({
   seasonId: z.number().optional(),
   week: z.number().optional(),
   customContext: z.string().optional(),
+  requestComments: z.boolean(),
+  commentExpirationMinutes: z.number(),
+  targetUserIds: z.array(z.string()).optional(),
 });
 
 export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorProps) {
@@ -66,11 +73,14 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [showTradeRumorDialog, setShowTradeRumorDialog] = useState(false);
-
+  const [requestComments, setRequestComments] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
   const createGenerationRequest = useMutation(api.aiContent.createGenerationRequest);
+  const createGenerationWithComments = useMutation(api.aiContent.createGenerationWithComments);
   const completedWeeks = useQuery(api.matchups.getCompletedWeeks, { leagueId });
   const currentUserTeam = useQuery(api.teams.getCurrentUserTeam, { leagueId });
+  const claimedTeams = useQuery(api.teams.getClaimedTeams, { leagueId });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -80,6 +90,9 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       seasonId: undefined,
       week: undefined,
       customContext: "",
+      requestComments: false,
+      commentExpirationMinutes: 30,
+      targetUserIds: [],
     },
   });
 
@@ -134,21 +147,45 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     
     setIsGenerating(true);
     try {
-      await createGenerationRequest({
-        leagueId,
-        type: values.contentType,
-        persona: values.persona,
-        customContext: values.customContext || undefined,
-        seasonId: values.seasonId,
-        week: values.week,
-      });
+      // Check if we should request comments first
+      if (values.requestComments && values.targetUserIds && values.targetUserIds.length > 0) {
+        // For draft-related content, we need to pass draft data through
+        // The backend will fetch the draft data when creating comment requests
+        await createGenerationWithComments({
+          leagueId,
+          type: values.contentType,
+          persona: values.persona,
+          customContext: values.customContext || undefined,
+          seasonId: values.seasonId,
+          week: values.week,
+          requestComments: true,
+          commentExpirationMinutes: values.commentExpirationMinutes,
+          targetUserIds: values.targetUserIds,
+        });
 
-      toast.success("Content generation started!", {
-        description: "Your article will be ready in a few moments.",
-      });
+        toast.success("Comment requests sent!", {
+          description: `Gathering feedback from ${values.targetUserIds.length} team${values.targetUserIds.length > 1 ? 's' : ''}. Article will be generated after responses are collected.`,
+        });
+      } else {
+        // Regular generation without comments
+        await createGenerationRequest({
+          leagueId,
+          type: values.contentType,
+          persona: values.persona,
+          customContext: values.customContext || undefined,
+          seasonId: values.seasonId,
+          week: values.week,
+        });
+
+        toast.success("Content generation started!", {
+          description: "Your article will be ready in a few moments.",
+        });
+      }
 
       // Reset form
       form.reset();
+      setRequestComments(false);
+      setSelectedUserIds([]);
     } catch (error) {
       toast.error("Failed to generate content", {
         description: error instanceof Error ? error.message : "Unknown error",
@@ -533,6 +570,130 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                 </FormItem>
               )}
             />
+
+            {/* Comment Request Section */}
+            <Card className="border-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Request Team Comments
+                </CardTitle>
+                <CardDescription>
+                  Gather feedback from league members before generating the article
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="requestComments"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Enable Comment Requests</FormLabel>
+                        <FormDescription>
+                          Send questions to selected teams and wait for their responses
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked);
+                            setRequestComments(checked);
+                            if (!checked) {
+                              form.setValue("targetUserIds", []);
+                              setSelectedUserIds([]);
+                            }
+                          }}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {requestComments && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="commentExpirationMinutes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Response Time Limit</FormLabel>
+                          <Select 
+                            onValueChange={(value) => field.onChange(parseInt(value))} 
+                            value={field.value?.toString()}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select time limit" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="15">15 minutes</SelectItem>
+                              <SelectItem value="30">30 minutes</SelectItem>
+                              <SelectItem value="60">1 hour</SelectItem>
+                              <SelectItem value="120">2 hours</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Article will generate after this time or when all responses are received
+                          </FormDescription>
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="targetUserIds"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            Select Teams to Request Comments From
+                          </FormLabel>
+                          <div className="space-y-2 rounded-lg border p-3 max-h-[200px] overflow-y-auto">
+                            {claimedTeams && claimedTeams.length > 0 ? (
+                              claimedTeams.map((team) => (
+                                <div key={team._id} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={team._id}
+                                    checked={field.value?.includes(team._id)}
+                                    onCheckedChange={(checked: boolean) => {
+                                      const currentValues = field.value || [];
+                                      if (checked) {
+                                        field.onChange([...currentValues, team._id]);
+                                        setSelectedUserIds([...currentValues, team._id]);
+                                      } else {
+                                        const newValues = currentValues.filter(id => id !== team._id);
+                                        field.onChange(newValues);
+                                        setSelectedUserIds(newValues);
+                                      }
+                                    }}
+                                  />
+                                  <Label
+                                    htmlFor={team._id}
+                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                  >
+                                    {team.name}
+                                  </Label>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                No teams have been claimed yet. Team members need to claim their teams before you can request comments.
+                              </p>
+                            )}
+                          </div>
+                          <FormDescription>
+                            Selected teams will receive personalized questions about the article topic
+                          </FormDescription>
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Generation Summary */}
             {selectedTemplate && selectedPersona && (

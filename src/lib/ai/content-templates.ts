@@ -76,6 +76,12 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         description: "Preview of next week",
         required: false,
         wordCount: 100
+      },
+      {
+        name: "team_comments",
+        description: "Commentary and quotes from team managers",
+        required: false,
+        wordCount: 200
       }
     ],
     examplePrompt: `Write a weekly recap for Week {week} of {leagueName}. 
@@ -118,6 +124,12 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         description: "Under-the-radar players to watch",
         required: true,
         wordCount: 150
+      },
+      {
+        name: "team_comments",
+        description: "Commentary and predictions from team managers",
+        required: false,
+        wordCount: 200
       }
     ],
     examplePrompt: `Write a weekly preview for Week {week} of {leagueName}. 
@@ -188,6 +200,12 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         description: "Teams with major movement",
         required: true,
         wordCount: 150
+      },
+      {
+        name: "team_comments",
+        description: "Team manager reactions and commentary",
+        required: false,
+        wordCount: 200
       }
     ]
   },
@@ -621,7 +639,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
       },
       {
         name: "team_by_team_grades",
-        description: "Individual analysis of each team's draft with personalized grades and commentary",
+        description: "Individual analysis of each team's draft with personalized grades and commentary. MUST integrate team manager comments about their draft strategy, picks, and reactions directly into each team's breakdown",
         required: true,
         wordCount: 1000
       },
@@ -649,7 +667,13 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     Only count starters (lineupSlotId !== 20) for primary analysis, but consider bench depth for position groups.
     Grade teams A through F based on: value picks, reaching for players, overall roster construction, 
     projected points for starters, and positional depth.
-    Include total projected points for starters and highlight best/worst picks.`
+    Include total projected points for starters and highlight best/worst picks.
+    
+    CRITICAL: For each team breakdown, weave in their manager's comments about draft strategy and specific picks. 
+    Structure each team analysis like this example:
+    "Malik Nabers at 10th overall was DECENT, though I had him going 8th in most mocks. But then you COMPLETELY lost your mind with Cedric Tillman at 110! WORST PICK IN THE ENTIRE DRAFT! This is why you're not winning championships! When asked about drafting Nabers and Achane early, [Manager Name] said: '[EXACT QUOTE FROM COMMENT]' - Yeah right, [SNARKY AI RESPONSE]!"
+    
+    Make comments an integral part of the team analysis, not an optional afterthought.`
   }
 };
 

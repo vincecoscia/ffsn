@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 "use client";
 
 import { useState } from "react";
@@ -200,14 +202,6 @@ export function NotificationList({
         )}
       </div>
       
-      {/* Footer summary */}
-      {showSummary && !showFilters && filteredNotifications.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-gray-200 text-center">
-          <p className="text-sm text-gray-500">
-            Showing {filteredNotifications.length} of {notifications.length} notifications
-          </p>
-        </div>
-      )}
     </div>
   );
 }

@@ -245,6 +245,84 @@ export const createGenerationRequest = mutation({
   },
 });
 
+// Create content generation with comment requests
+export const createGenerationWithComments = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    type: v.string(),
+    persona: v.string(),
+    customContext: v.optional(v.string()),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+    requestComments: v.boolean(),
+    commentExpirationMinutes: v.number(),
+    targetUserIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) => 
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      throw new Error("Not a member of this league");
+    }
+
+    // Get template to check credit cost
+    const template = contentTemplates[args.type];
+    if (!template) {
+      const availableTypes = Object.keys(contentTemplates).join(', ');
+      throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
+    }
+
+    // Create a generation request in "waiting_for_comments" status
+    const articleId = await ctx.db.insert("aiContent", {
+      leagueId: args.leagueId,
+      type: args.type,
+      persona: args.persona,
+      title: "Waiting for team comments...",
+      content: "",
+      metadata: {
+        week: args.week || 1,
+        featured_teams: [],
+        credits_used: template.creditCost,
+      },
+      status: "waiting_for_comments",
+      createdAt: Date.now(),
+      commentRequestConfig: {
+        enabled: true,
+        expirationMinutes: args.commentExpirationMinutes,
+        targetUserIds: args.targetUserIds,
+        requestedAt: Date.now(),
+      },
+    });
+
+    // Schedule comment request creation and waiting logic
+    await ctx.scheduler.runAfter(0, internal.aiContentWithComments.createCommentRequestsAndWait, {
+      articleId,
+      leagueId: args.leagueId,
+      contentType: args.type,
+      persona: args.persona,
+      customContext: args.customContext,
+      userId: identity.subject,
+      seasonId: args.seasonId,
+      week: args.week,
+      targetUserIds: args.targetUserIds,
+      expirationMinutes: args.commentExpirationMinutes,
+    });
+
+    return articleId;
+  },
+});
+
 // Mutation to regenerate content using user credits
 export const regenerateContentWithCredits = mutation({
   args: {
@@ -369,6 +447,7 @@ export const generateContentAction = internalAction({
           userId: args.userId,
           seasonId: args.seasonId,
           week: args.week,
+          scheduledContentId: args.scheduledContentId,
         });
         
         console.log(`${args.contentType} generation scheduled successfully`);

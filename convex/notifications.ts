@@ -352,18 +352,32 @@ export const sendCommentRequest = internalAction({
     leagueId: v.id("leagues"),
   },
   handler: async (ctx, args) => {
+    // Generate contextual title based on article type
+    const getNotificationTitle = (articleType: string, leagueName: string) => {
+      const articleTypeMap: Record<string, string> = {
+        'weekly_recap': `Weekly recap for ${leagueName}`,
+        'trade_analysis': `Trade analysis for ${leagueName}`,
+        'waiver_wire_report': `Waiver wire insights for ${leagueName}`,
+        'power_rankings': `Power rankings for ${leagueName}`,
+        'draft_rankings': `Draft recap for ${leagueName}`,
+        'matchup_preview': `Matchup preview for ${leagueName}`,
+      };
+      
+      return articleTypeMap[articleType] || `Article feedback for ${leagueName}`;
+    };
+
     // Create in-app notification
     await ctx.runMutation(internal.notifications.createNotification, {
       userId: args.userId,
       leagueId: args.leagueId,
       type: "comment_request",
-      title: "AI wants your input!",
-      message: `${args.message} for ${args.leagueName}`,
+      title: getNotificationTitle(args.articleType, args.leagueName),
+      message: args.message,
       actionUrl: `/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`,
-      actionText: "Respond Now",
+      actionText: "Join Conversation",
       relatedEntityType: "comment_request",
       relatedEntityId: args.commentRequestId,
-      priority: "high",
+      priority: "medium",
       deliveryChannels: ["in_app"],
       expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
     });
@@ -379,6 +393,7 @@ export const sendCommentFollowUp = internalAction({
     commentRequestId: v.id("commentRequests"),
     leagueId: v.id("leagues"),
     question: v.string(),
+    leagueName: v.string(),
   },
   handler: async (ctx, args) => {
     // Create in-app notification
@@ -386,7 +401,7 @@ export const sendCommentFollowUp = internalAction({
       userId: args.userId,
       leagueId: args.leagueId,
       type: "comment_follow_up",
-      title: "AI asked a follow-up question",
+      title: `Follow-up question for ${args.leagueName}`,
       message: args.question.length > 100 ? `${args.question.substring(0, 100)}...` : args.question,
       actionUrl: `/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`,
       actionText: "Continue Conversation",
@@ -408,14 +423,15 @@ export const sendExpiringNotification = internalAction({
     commentRequestId: v.id("commentRequests"),
     leagueId: v.id("leagues"),
     minutesRemaining: v.number(),
+    leagueName: v.string(),
   },
   handler: async (ctx, args) => {
     await ctx.runMutation(internal.notifications.createNotification, {
       userId: args.userId,
       leagueId: args.leagueId,
       type: "comment_reminder",
-      title: "⏰ Comment request expiring soon!",
-      message: `Your comment request expires in ${args.minutesRemaining} minutes. Don't miss your chance to be featured!`,
+      title: `Reminder: ${args.leagueName} article feedback`,
+      message: `Response window closes in ${args.minutesRemaining} minutes`,
       actionUrl: `/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`,
       actionText: "Respond Now",
       relatedEntityType: "comment_request",
@@ -436,19 +452,20 @@ export const sendCommentThankYou = internalAction({
     commentRequestId: v.id("commentRequests"),
     leagueId: v.id("leagues"),
     articleTitle: v.string(),
+    leagueName: v.string(),
   },
   handler: async (ctx, args) => {
     await ctx.runMutation(internal.notifications.createNotification, {
       userId: args.userId,
       leagueId: args.leagueId,
       type: "comment_thank_you",
-      title: "🎉 Thanks for your comments!",
-      message: `Your insights will be featured in "${args.articleTitle}". The article will be generated soon!`,
+      title: `Thanks for your input on ${args.leagueName}`,
+      message: `Your insights will be featured in the upcoming article`,
       actionUrl: `/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`,
       actionText: "View Request",
       relatedEntityType: "comment_request",
       relatedEntityId: args.commentRequestId,
-      priority: "medium",
+      priority: "low",
       deliveryChannels: ["in_app"],
     });
 

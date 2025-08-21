@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
@@ -6,10 +8,42 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 export interface ConversationContext {
   userId: string;
   leagueId: string;
-  scheduledContentId: string;
-  contentType: "weekly_recap" | "trade_analysis" | "waiver_wire_report";
+  scheduledContentId: string | undefined;
+  contentType: string; // Support all content types from templates
   week: number;
   seasonId: number;
+  draftData?: {
+    draftType?: string;
+    draftOrder?: any[];
+    userDraftPicks?: Array<{
+      isRookie?: boolean;
+      perceivedValue: number;
+      pickNumber: number;
+      playerADP: number | null;
+      playerName: string;
+      playerPosition: string;
+      playerProjectedPoints: number | null;
+      playerTeam: string;
+      roundNumber: number;
+      roundPickNumber: number;
+      teamName: string;
+      teamOwner: string;
+    }>;
+    allDraftPicks?: Array<{
+      isRookie?: boolean;
+      perceivedValue: number;
+      pickNumber: number;
+      playerADP: number | null;
+      playerName: string;
+      playerPosition: string;
+      playerProjectedPoints: number | null;
+      playerTeam: string;
+      roundNumber: number;
+      roundPickNumber: number;
+      teamName: string;
+      teamOwner: string;
+    }>;
+  };
   teamPerformance: {
     teamId: string;
     teamName: string;
@@ -103,49 +137,80 @@ export class ConversationService {
   ): Promise<AIConversationResult> {
     const anthropic = new Anthropic({ apiKey });
 
-    try {
-      const { systemPrompt, userPrompt } = this.buildConversationPrompts(context);
-      
-      // Use structured output for better control
-      const response = await anthropic.messages.create({
-        model: this.modelConfig.primary,
-        max_tokens: 1000,
-        temperature: 0.7,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-        tools: [{
-          name: "generate_conversation_question",
-          description: "Generate a contextual question for fantasy football article comments",
-          input_schema: {
-            type: "object",
-            // Narrow down types by extracting the exact shape from zodToJsonSchema at runtime
-            // Use unknown instead of any to satisfy lint without weakening types
-            properties: (zodToJsonSchema(ConversationResponse) as unknown as { properties: Record<string, unknown> }).properties,
-            required: (zodToJsonSchema(ConversationResponse) as unknown as { required: string[] }).required
-          },
-        }],
-        tool_choice: { type: "tool", name: "generate_conversation_question" },
-      });
+    // Implement retry logic with exponential backoff for 529 errors
+    let lastError: Error | null = null;
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
 
-      const toolUse = response.content.find((c) => c.type === 'tool_use');
-      if (!toolUse || toolUse.type !== 'tool_use') {
-        throw new Error('No structured output received');
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const { systemPrompt, userPrompt } = this.buildConversationPrompts(context);
+        
+        // Use structured output for better control
+        const response = await anthropic.messages.create({
+          model: this.modelConfig.primary,
+          max_tokens: 1000,
+          temperature: 0.7,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+          tools: [{
+            name: "generate_conversation_question",
+            description: "Generate a contextual question for fantasy football article comments",
+            input_schema: {
+              type: "object",
+              // Narrow down types by extracting the exact shape from zodToJsonSchema at runtime
+              // Use unknown instead of any to satisfy lint without weakening types
+              properties: (zodToJsonSchema(ConversationResponse) as unknown as { properties: Record<string, unknown> }).properties,
+              required: (zodToJsonSchema(ConversationResponse) as unknown as { required: string[] }).required
+            },
+          }],
+          tool_choice: { type: "tool", name: "generate_conversation_question" },
+        });
+
+        const toolUse = response.content.find((c) => c.type === 'tool_use');
+        if (!toolUse || toolUse.type !== 'tool_use') {
+          throw new Error('No structured output received');
+        }
+
+        // Parse tool input using zod schema, avoid any
+        const structuredData = ConversationResponse.parse((toolUse as unknown as { input: unknown }).input);
+        
+        // Analyze for potential abuse patterns
+        const abuseDetection = this.detectAbusePatterns(context);
+        
+        return {
+          ...structuredData,
+          detectedAbuse: abuseDetection,
+        };
+      } catch (error) {
+        lastError = error as Error;
+        
+        // Check if this is a 529 Overloaded error that we should retry
+        const errorObj = error as any;
+        const is529Error = error instanceof Anthropic.APIError && errorObj.status === 529;
+        const isOverloadedError = errorObj.name === 'OverloadedError' || errorObj.type === 'overloaded_error';
+        
+        if ((is529Error || isOverloadedError) && attempt < maxRetries) {
+          // Calculate exponential backoff delay
+          const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000; // Add jitter
+          console.warn(`API overloaded (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in ${Math.round(delay)}ms...`, {
+            error: errorObj.message || 'API overloaded',
+            status: errorObj.status,
+            type: errorObj.type
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // For non-retryable errors or max retries exceeded, break out of loop
+        break;
       }
-
-      // Parse tool input using zod schema, avoid any
-      const structuredData = ConversationResponse.parse((toolUse as unknown as { input: unknown }).input);
-      
-      // Analyze for potential abuse patterns
-      const abuseDetection = this.detectAbusePatterns(context);
-      
-      return {
-        ...structuredData,
-        detectedAbuse: abuseDetection,
-      };
-    } catch (error) {
-      console.error('Conversation generation failed:', error);
-      throw new Error('Failed to generate conversation question');
     }
+
+    // If all retries failed, throw the error
+    console.error('Conversation generation failed after retries:', lastError?.message);
+    throw new Error(`Failed to generate conversation question: ${lastError?.message || 'Unknown error'}`);
   }
 
   async analyzeUserResponse(
@@ -164,6 +229,18 @@ export class ConversationService {
   }> {
     const anthropic = new Anthropic({ apiKey });
 
+    // Define structured response schema
+    const ResponseAnalysisSchema = z.object({
+      responseQuality: z.number().min(0).max(100).describe("Quality and quotability score (0-100)"),
+      completeness: z.number().min(0).max(100).describe("Completeness of thought score (0-100)"),
+      relevantTopics: z.array(z.string()).describe("Relevant fantasy football topics mentioned"),
+      needsFollowUp: z.boolean().describe("Whether a follow-up question would yield better content"),
+      suggestedFollowUps: z.array(z.string()).optional().describe("Suggested follow-up topics if needed"),
+      sentiment: z.enum(["positive", "negative", "neutral", "mixed"]).describe("Overall sentiment of the response"),
+      quotableSegments: z.array(z.string()).describe("Exact quotes that could be used in the article"),
+      offTopicScore: z.number().min(0).max(100).describe("How off-topic the response is (0=on-topic, 100=completely off-topic)")
+    });
+
     const analysisPrompt = `Analyze this user response for a fantasy football article comment request.
 
 Context:
@@ -174,41 +251,90 @@ Context:
 
 User Response: "${userResponse}"
 
-Analyze for:
+Provide a detailed analysis focusing on:
 1. Response quality and quotability (0-100)
 2. Completeness of thought (0-100)
-3. Relevant topics mentioned
+3. Relevant fantasy football topics mentioned
 4. Whether follow-up would yield better content
 5. Sentiment analysis
-6. Extract any quotable segments (exact quotes that could be used in article)
+6. Extract exact quotable segments (phrases that could be used in article)
 7. Off-topic score (0-100, where 100 means completely off-topic)
 
-Return a structured analysis.`;
+Return your analysis as structured data.`;
 
-    try {
-      await anthropic.messages.create({
-        model: this.modelConfig.primary,
-        max_tokens: 1000,
-        temperature: 0.3,
-        system: "You are an expert at analyzing user responses for fantasy football content generation. Focus on identifying quotable content and assessing relevance.",
-        messages: [{ role: 'user', content: analysisPrompt }],
-      });
+    // Implement retry logic with exponential backoff for 529 errors
+    let lastError: Error | null = null;
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
 
-      // Parse the response (implement proper parsing based on Claude's output format)
-      // This is a simplified version - implement proper parsing
-      return {
-        responseQuality: 70,
-        completeness: 80,
-        relevantTopics: this.extractTopics(userResponse, context),
-        needsFollowUp: userResponse.length < 50 || userResponse.includes('?'),
-        sentiment: this.analyzeSentiment(userResponse),
-        quotableSegments: this.extractQuotes(userResponse),
-        offTopicScore: this.calculateOffTopicScore(userResponse, context),
-      };
-    } catch (error) {
-      console.error('Response analysis failed:', error);
-      throw new Error('Failed to analyze user response');
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await anthropic.messages.create({
+          model: this.modelConfig.primary,
+          max_tokens: 1000,
+          temperature: 0.3,
+          system: "You are an expert at analyzing user responses for fantasy football content generation. Focus on identifying quotable content and assessing relevance. Return structured JSON data.",
+          messages: [{ role: 'user', content: analysisPrompt }],
+          tools: [{
+            name: "analyze_response",
+            description: "Analyze user response for fantasy football content generation",
+            input_schema: {
+              type: "object",
+              properties: (zodToJsonSchema(ResponseAnalysisSchema) as unknown as { properties: Record<string, unknown> }).properties,
+              required: (zodToJsonSchema(ResponseAnalysisSchema) as unknown as { required: string[] }).required
+            },
+          }],
+          tool_choice: { type: "tool", name: "analyze_response" },
+        });
+
+        const toolUse = response.content.find((c) => c.type === 'tool_use');
+        if (!toolUse || toolUse.type !== 'tool_use') {
+          throw new Error('No structured analysis received from AI');
+        }
+
+        // Parse and validate the structured response
+        const analysis = ResponseAnalysisSchema.parse((toolUse as unknown as { input: unknown }).input);
+        
+        return analysis;
+      } catch (error) {
+        lastError = error as Error;
+        
+        // Check if this is a 529 Overloaded error that we should retry
+        const errorObj = error as any;
+        const is529Error = error instanceof Anthropic.APIError && errorObj.status === 529;
+        const isOverloadedError = errorObj.name === 'OverloadedError' || errorObj.type === 'overloaded_error';
+        
+        if ((is529Error || isOverloadedError) && attempt < maxRetries) {
+          // Calculate exponential backoff delay
+          const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000; // Add jitter
+          console.warn(`API overloaded (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in ${Math.round(delay)}ms...`, {
+            error: errorObj.message || 'API overloaded',
+            status: errorObj.status,
+            type: errorObj.type
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // For non-retryable errors or max retries exceeded, break out of loop
+        break;
+      }
     }
+
+    // If all retries failed, fall back to local analysis
+    console.warn('AI analysis failed after retries, using local fallback analysis:', lastError?.message);
+    
+    return {
+      responseQuality: this.calculateResponseQuality(userResponse, context),
+      completeness: this.calculateCompleteness(userResponse),
+      relevantTopics: this.extractTopics(userResponse, context),
+      needsFollowUp: userResponse.length < 50 || userResponse.includes('?') || this.shouldFollowUp(userResponse, context),
+      suggestedFollowUps: this.generateSuggestedFollowUps(userResponse, context),
+      sentiment: this.analyzeSentiment(userResponse),
+      quotableSegments: this.extractQuotes(userResponse),
+      offTopicScore: this.calculateOffTopicScore(userResponse, context),
+    };
   }
 
   private buildConversationPrompts(context: ConversationContext): {
@@ -226,19 +352,23 @@ CRITICAL RULES:
 4. Keep questions concise and specific to their experience
 5. If user tries to chat or ask you questions, politely redirect to getting their input
 6. End conversations naturally after getting good quotes (1-3 exchanges max)
+7. NEVER make assumptions about player status - use ONLY the provided data about players (especially rookie status)
 
 CONVERSATION STYLE:
 - Casual but focused, like a reporter doing a quick interview
 - Reference specific players, scores, and situations from their team
 - Show you've done your homework about their team's performance
 - Make them feel their input is valuable for the article
+- Use accurate player information from the provided context
 
 ANTI-PATTERNS TO AVOID:
 - Generic questions that could apply to any team
 - Asking for advice or tips
 - Engaging in back-and-forth analysis
 - Responding to off-topic comments
-- Continuing conversation after getting good quotes`;
+- Continuing conversation after getting good quotes
+- Making incorrect assumptions about players (e.g., calling veterans "rookies")
+- Repeating similar questions already asked in the conversation`;
 
     const userPrompt = this.buildUserPrompt(context, isInitialMessage);
     
@@ -246,14 +376,15 @@ ANTI-PATTERNS TO AVOID:
   }
 
   private buildUserPrompt(context: ConversationContext, isInitial: boolean): string {
-    const { teamPerformance, leagueContext, week, contentType, conversationHistory } = context;
+    const { teamPerformance, leagueContext, week, contentType, conversationHistory, seasonId } = context;
     
     if (isInitial) {
-      // Initial message crafting based on context
-      if (contentType === 'weekly_recap') {
-        if (teamPerformance.won) {
-          const topPerformer = teamPerformance.overperformers[0];
-          return `Generate an initial question for ${teamPerformance.teamName}'s manager about their Week ${week} victory.
+      // Initial message crafting based on content type
+      switch (contentType) {
+        case 'weekly_recap':
+          if (teamPerformance.won) {
+            const topPerformer = teamPerformance.overperformers[0];
+            return `Generate an initial question for ${teamPerformance.teamName}'s manager about their Week ${week} victory.
           
 Team Context:
 - Won with ${teamPerformance.score} points (projected: ${teamPerformance.projectedScore || 'N/A'})
@@ -265,10 +396,9 @@ Focus the question on:
 1. Their key decision that led to victory
 2. Specific player performance they're proud of
 3. How this win impacts their season goals`;
-        } else {
-          // Lost - focus on underperformers
-          const worstPerformer = teamPerformance.underperformers[0];
-          return `Generate an initial question for ${teamPerformance.teamName}'s manager about their Week ${week} loss.
+          } else {
+            const worstPerformer = teamPerformance.underperformers[0];
+            return `Generate an initial question for ${teamPerformance.teamName}'s manager about their Week ${week} loss.
           
 Team Context:
 - Lost with ${teamPerformance.score} points (projected: ${teamPerformance.projectedScore || 'N/A'})
@@ -280,26 +410,262 @@ Focus the question on:
 1. Which player disappointment hurt most and why
 2. What they would have done differently
 3. Their mindset going forward`;
-        }
+          }
+
+        case 'weekly_preview':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about their upcoming Week ${week} matchup.
+          
+Team Context:
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Last week's score: ${teamPerformance.score} points
+${leagueContext.playoffContext?.isPlayoffWeek ? `- PLAYOFF IMPLICATIONS: ${leagueContext.playoffContext.playoffImplications}` : ''}
+
+Focus the question on:
+1. Their lineup strategy for this week
+2. Key players they're counting on
+3. Concerns about their opponent
+4. Any tough start/sit decisions they're facing`;
+
+        case 'trade_analysis':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about a recent trade.
+          
+Team Context:
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Recent performance: ${teamPerformance.score} points in Week ${week}
+${leagueContext.recentTrades?.length ? `- Recent league trades: ${leagueContext.recentTrades.length} trades completed` : ''}
+
+Focus the question on:
+1. What motivated them to pursue/accept this trade
+2. Which player they're most excited/sad about
+3. How this impacts their playoff push
+4. Their negotiation strategy`;
+
+        case 'power_rankings':
+          const teamStanding = this.getTeamStanding(teamPerformance.teamId, leagueContext.standings);
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about their power ranking position.
+          
+Team Context:
+- Current standing: ${teamStanding}
+- Recent performance: ${teamPerformance.score} points in Week ${week}
+- Trend: ${teamPerformance.won ? 'Won last game' : 'Lost last game'}
+
+Focus the question on:
+1. Whether they agree with their ranking
+2. What they think sets them apart from teams around them
+3. Their biggest strength or weakness
+4. Teams they view as their main competition`;
+
+        case 'waiver_wire_report':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about waiver wire strategy.
+          
+Team Context:
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Recent underperformers: ${teamPerformance.underperformers[0]?.player || 'None'}
+- FAAB/Priority status: Available for Week ${week}
+
+Focus the question on:
+1. Their biggest roster needs right now
+2. Players they're targeting on waivers
+3. Who they might drop to make room
+4. Their FAAB bidding strategy or waiver priority`;
+
+        case 'mock_draft':
+        case 'draft_rankings':
+          const draftInfo = context.draftData;
+          const userPicks = draftInfo?.userDraftPicks || [];
+          const topPicks = userPicks.slice(0, 3).map((p: any) => {
+            const rookieLabel = p.isRookie ? ' [ROOKIE]' : '';
+            return `Round ${p.roundNumber}: ${p.playerName} (${p.playerPosition})${rookieLabel}`;
+          }).join(', ');
+          
+          // Get draft position info
+          const draftPosition = draftInfo?.draftOrder?.find((d: any) => d.teamName === teamPerformance.teamName)?.position || 'Unknown';
+          
+          // Identify notable picks with rookie status
+          const firstPick = userPicks[0];
+          const rookiePicks = userPicks.filter(p => p.isRookie);
+          const valuePicks = userPicks.filter(p => p.perceivedValue > 10);
+          
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about the ${seasonId} draft.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Draft Type: ${draftInfo?.draftType || 'Standard'}
+- Draft Position: ${draftPosition}
+${topPicks ? `- Top Picks: ${topPicks}` : ''}
+- Current roster standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+${rookiePicks.length > 0 ? `- Rookie Picks: ${rookiePicks.map(p => `${p.playerName} (${p.playerPosition})`).join(', ')}` : ''}
+${valuePicks.length > 0 ? `- Value Picks: ${valuePicks.map(p => `${p.playerName} (Round ${p.roundNumber})`).join(', ')}` : ''}
+
+Focus the question on:
+1. Their draft strategy from position ${draftPosition}
+2. Specific players they drafted (${firstPick?.playerName || 'their first pick'}${firstPick?.isRookie ? ' - a rookie' : ' - a veteran'})
+3. Best value pick or biggest reach from their selections
+4. How they feel about their drafted team overall
+5. Players they missed out on or wished they got
+
+IMPORTANT: Use the isRookie field accurately - ${firstPick?.playerName || 'their first pick'} is ${firstPick?.isRookie ? 'a rookie' : 'NOT a rookie'}.`;
+
+        case 'rivalry_week_special':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about their rivalry matchup.
+          
+Team Context:
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Week ${week} opponent: Their rival
+${leagueContext.rivalries?.length ? '- Known league rivalry' : ''}
+
+Focus the question on:
+1. The history of this rivalry
+2. Trash talk or side bets
+3. Why this matchup matters more than others
+4. Their game plan to win`;
+
+        case 'emergency_hot_takes':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about breaking news/events.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Affected by recent news: Week ${week}
+
+Focus the question on:
+1. Their immediate reaction to the news
+2. How this impacts their lineup decisions
+3. Whether they saw this coming
+4. Their contingency plans`;
+
+        case 'trade_rumor_mill':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about trade rumors.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+
+Focus the question on:
+1. Players they're looking to move
+2. What they need in return
+3. Teams they've been talking to
+4. Their trade deadline strategy`;
+
+        case 'mid_season_awards':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about mid-season awards.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Best performer: ${teamPerformance.overperformers[0]?.player || 'N/A'}
+- Biggest bust: ${teamPerformance.underperformers[0]?.player || 'N/A'}
+
+Focus the question on:
+1. Their MVP candidate from their team or league
+2. Biggest surprise/disappointment player
+3. Best/worst manager move so far
+4. Predictions for second half`;
+
+        case 'championship_manifesto':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about the championship.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Championship week performance
+- Season journey to this point
+
+Focus the question on:
+1. Their emotions heading into championship week
+2. Key decisions that got them here
+3. Their game plan for the title
+4. What winning would mean to them`;
+
+        case 'season_recap':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about the completed season.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Final standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Season ${seasonId} complete
+
+Focus the question on:
+1. Overall feelings about their season
+2. Best and worst moments
+3. What they learned for next year
+4. Players they'll keep/target in next draft`;
+
+        case 'custom_roast':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager for a roast article.
+          
+Team Context:
+- Team being roasted: ${teamPerformance.teamName}
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Recent blunders in Week ${week}
+
+Focus the question on:
+1. Their worst decision this season
+2. Most embarrassing loss
+3. Player they regret drafting most
+4. Whether they accept responsibility for failures`;
+
+        case 'season_welcome':
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager for season welcome article.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- League history participant
+- New season ${seasonId}
+
+Focus the question on:
+1. Favorite league memory from past seasons
+2. Their team's identity or reputation
+3. Goals for the new season
+4. Predictions for how the league will unfold`;
+
+        default:
+          // Fallback for any unhandled content types
+          return `Generate an initial question for ${teamPerformance.teamName}'s manager about the ${contentType.replace('_', ' ')} article.
+          
+Team Context:
+- Team: ${teamPerformance.teamName}
+- Current standing: ${this.getTeamStanding(teamPerformance.teamId, leagueContext.standings)}
+- Week ${week}, Season ${seasonId}
+
+Focus on getting their unique perspective and quotable insights for the article.`;
       }
-      // Add other content types as needed
     } else {
       // Follow-up message based on conversation history
       const lastUserMessage = conversationHistory?.filter(m => m.role === 'user').pop();
-      return `Generate a follow-up question based on the conversation history.
+      const allUserMessages = conversationHistory?.filter(m => m.role === 'user') || [];
+      
+      // Build context about what's already been discussed
+      const discussedTopics = allUserMessages.map(msg => msg.content).join(' ');
+      
+      let followUpPrompt = `Generate a follow-up question based on the conversation history.
       
 Previous user response: "${lastUserMessage?.content}"
 Team: ${teamPerformance.teamName}
-Context: ${contentType} for Week ${week}
+Context: ${contentType.replace('_', ' ')} for Week ${week}
+Total messages exchanged: ${conversationHistory?.length || 0}
+
+Already discussed topics: ${discussedTopics.substring(0, 500)}...
 
 Create a follow-up that:
-1. Digs deeper into something specific they mentioned
-2. Asks for more detail on a decision or player
+1. Digs deeper into something specific they mentioned in their last response
+2. Asks for more detail on a decision or player they referenced
 3. Stays focused on getting quotable content for the article
-4. Considers ending the conversation if we have enough good material`;
-    }
+4. AVOIDS repeating questions about topics already covered
+5. Considers ending the conversation if we have enough good material (2-3 quality exchanges)`;
 
-    return '';
+      // Add draft-specific context for follow-ups if available
+      if ((contentType === 'draft_rankings' || contentType === 'mock_draft') && context.draftData?.userDraftPicks) {
+        const userPicks = context.draftData.userDraftPicks;
+        followUpPrompt += `
+
+Draft Context for Follow-up:
+${userPicks.map(p => `- ${p.playerName} (${p.playerPosition}, Round ${p.roundNumber})${p.isRookie ? ' [ROOKIE]' : ' [VETERAN]'} - ${p.perceivedValue > 0 ? 'Good value' : 'Reach'}`).join('\n')}
+
+CRITICAL: Use accurate rookie status from the data above. Do NOT assume any player is a rookie unless marked [ROOKIE].`;
+      }
+      
+      return followUpPrompt;
+    }
   }
 
   private getTeamStanding(teamId: string, standings: Array<{ teamId: string; rank: number; record: string }>): string {
@@ -449,6 +815,93 @@ Create a follow-up that:
     }
     
     return Math.min(100, score);
+  }
+
+  private calculateResponseQuality(response: string, context: ConversationContext): number {
+    let quality = 50; // Base quality score
+    
+    // Length factor - longer responses tend to be more substantial
+    if (response.length > 100) quality += 15;
+    if (response.length > 200) quality += 10;
+    
+    // Check for specific details
+    const hasSpecifics = /\d+\s*(points|yards|touchdowns)/.test(response);
+    if (hasSpecifics) quality += 20;
+    
+    // Check for emotional content (more quotable)
+    const emotionalWords = ['excited', 'frustrated', 'disappointed', 'thrilled', 'angry', 'happy'];
+    const hasEmotion = emotionalWords.some(word => response.toLowerCase().includes(word));
+    if (hasEmotion) quality += 15;
+    
+    // Check for player mentions from context
+    const mentionsContextPlayers = [...context.teamPerformance.underperformers, ...context.teamPerformance.overperformers]
+      .some(player => response.toLowerCase().includes(player.player.toLowerCase()));
+    if (mentionsContextPlayers) quality += 10;
+    
+    return Math.min(100, quality);
+  }
+
+  private calculateCompleteness(response: string): number {
+    let completeness = 30; // Base score
+    
+    // Length indicates more complete thoughts
+    if (response.length > 50) completeness += 20;
+    if (response.length > 150) completeness += 25;
+    if (response.length > 300) completeness += 25;
+    
+    // Check for reasoning words
+    const reasoningWords = ['because', 'since', 'therefore', 'however', 'although', 'but'];
+    const hasReasoning = reasoningWords.some(word => response.toLowerCase().includes(word));
+    if (hasReasoning) completeness += 15;
+    
+    // Questions suggest incomplete thoughts
+    if (response.includes('?')) completeness -= 15;
+    
+    return Math.min(100, Math.max(0, completeness));
+  }
+
+  private shouldFollowUp(response: string, context: ConversationContext): boolean {
+    // Short responses need follow-up
+    if (response.length < 50) return true;
+    
+    // Responses with questions need follow-up
+    if (response.includes('?')) return true;
+    
+    // Vague responses need follow-up
+    const vagueIndicators = ['not sure', 'maybe', 'i guess', 'probably', 'kinda'];
+    const hasVagueLanguage = vagueIndicators.some(phrase => response.toLowerCase().includes(phrase));
+    
+    return hasVagueLanguage;
+  }
+
+  private generateSuggestedFollowUps(response: string, context: ConversationContext): string[] {
+    const suggestions: string[] = [];
+    const lower = response.toLowerCase();
+    
+    // If they mention a player decision, ask for details
+    if (lower.includes('start') || lower.includes('bench')) {
+      suggestions.push('What made you decide on that start/sit choice?');
+    }
+    
+    // If they mention frustration, dig deeper
+    if (lower.includes('frustrat') || lower.includes('disappoint')) {
+      suggestions.push('What was the most frustrating part of that decision?');
+    }
+    
+    // If they mention a specific player, ask about impact
+    const mentionedPlayers = [...context.teamPerformance.underperformers, ...context.teamPerformance.overperformers]
+      .filter(player => lower.includes(player.player.toLowerCase()));
+    if (mentionedPlayers.length > 0) {
+      suggestions.push(`How did ${mentionedPlayers[0].player}'s performance affect your week?`);
+    }
+    
+    // Default follow-ups if nothing specific
+    if (suggestions.length === 0) {
+      suggestions.push('Can you tell me more about that decision?');
+      suggestions.push('What was going through your mind when that happened?');
+    }
+    
+    return suggestions.slice(0, 3); // Return max 3 suggestions
   }
 }
 

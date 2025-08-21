@@ -18,12 +18,12 @@ export const createRequestsForScheduledContent = internalMutation({
     const league = await ctx.db.get(scheduledContent.leagueId);
     if (!league) throw new Error("League not found");
 
-    // Default to 12 hours before generation
-    const requestTimeOffset = args.requestTimeBeforeGeneration || 12 * 60 * 60 * 1000;
-    const expirationTimeOffset = 15 * 60 * 1000; // 15 minutes before generation
+    // For immediate sending, calculate expiration based on current time
+    const requestTimeOffset = args.requestTimeBeforeGeneration || 30 * 60 * 1000; // Default 30 minutes
+    const expirationTimeOffset = requestTimeOffset; // Expire after the request time
 
-    const scheduledSendTime = scheduledContent.scheduledFor - requestTimeOffset;
-    const expirationTime = scheduledContent.scheduledFor - expirationTimeOffset;
+    const scheduledSendTime = Date.now(); // Send immediately
+    const expirationTime = Date.now() + requestTimeOffset; // Expire after the offset
     const currentTime = Date.now();
 
     // Create a request for each target user
@@ -98,17 +98,10 @@ export const createRequestsForScheduledContent = internalMutation({
 
     console.log(`Created ${requestIds.length} comment requests for scheduled content ${args.scheduledContentId}`);
 
-    // Schedule the initial send time if it's in the future
-    if (scheduledSendTime > currentTime) {
-      await ctx.scheduler.runAt(scheduledSendTime, internal.commentRequests.sendInitialRequests, {
-        scheduledContentId: args.scheduledContentId,
-      });
-    } else {
-      // Send immediately if time has passed
-      await ctx.scheduler.runAfter(0, internal.commentRequests.sendInitialRequests, {
-        scheduledContentId: args.scheduledContentId,
-      });
-    }
+    // Send initial requests immediately
+    await ctx.scheduler.runAfter(0, internal.commentRequests.sendInitialRequests, {
+      scheduledContentId: args.scheduledContentId,
+    });
 
     return requestIds;
   },
@@ -137,6 +130,20 @@ export const buildConversationContext = internalQuery({
     const league = await ctx.db.get(request.leagueId);
     const targetSeason = request.articleContext.seasonId || league?.espnData?.seasonId || 0;
     const week = request.articleContext.week || 0;
+
+    // Get conversation history for follow-up context
+    const conversationMessages = await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request_order", q => 
+        q.eq("commentRequestId", args.commentRequestId)
+      )
+      .collect();
+
+    const conversationHistory = conversationMessages.map(msg => ({
+      role: msg.messageType === "user_response" ? "user" as const : "ai" as const,
+      content: msg.content,
+      timestamp: msg.createdAt,
+    }));
 
     // Resolve user's team via teamClaims first (uses Clerk ID), then fall back to any season's team
     const user = await ctx.db.get(request.targetUserId);
@@ -303,11 +310,47 @@ export const buildConversationContext = internalQuery({
         record: `${t.record.wins || 0}-${t.record.losses || 0}${t.record.ties ? `-${t.record.ties}` : ''}`,
       }));
 
+    // Get draft data with isRookie information for draft-related content types
+    let draftData = undefined;
+    if (request.contentType === 'draft_rankings' || request.contentType === 'mock_draft') {
+      // First try to use articleContext data if it has complete draft picks with isRookie info
+      if (request.articleContext.userDraftPicks && request.articleContext.userDraftPicks.length > 0) {
+        draftData = {
+          draftType: request.articleContext.draftType,
+          draftOrder: request.articleContext.draftOrder,
+          userDraftPicks: request.articleContext.userDraftPicks,
+        };
+      } else {
+        // Fallback to fetching from database if articleContext doesn't have complete data
+        try {
+          const { getSimplifiedDraftDataImpl } = await import('./draftRankingsHelpers');
+          const simplifiedDraftData = await getSimplifiedDraftDataImpl(ctx, {
+            leagueId: request.leagueId,
+            seasonId: seasonIdUsed,
+          });
+          
+          // Find user's draft picks with complete isRookie information
+          const userDraftPicks = simplifiedDraftData.draftPicks.filter(pick => 
+            pick.teamName === team?.name || pick.teamOwner === user?.name
+          );
+          
+          draftData = {
+            draftType: simplifiedDraftData.leagueInfo.draftType,
+            draftOrder: simplifiedDraftData.draftOrder,
+            userDraftPicks,
+            allDraftPicks: simplifiedDraftData.draftPicks, // Include all picks for context
+          };
+        } catch (error) {
+          console.warn("Failed to load draft data for conversation context:", error);
+        }
+      }
+    }
+
     return {
       userId: request.targetUserId,
       leagueId: request.leagueId,
       scheduledContentId: request.scheduledContentId,
-      contentType: request.contentType as "weekly_recap" | "trade_analysis" | "waiver_wire_report",
+      contentType: request.contentType,
       week,
       seasonId: seasonIdUsed,
       leagueName: league?.name || "League",
@@ -323,6 +366,8 @@ export const buildConversationContext = internalQuery({
       leagueContext: {
         standings,
       },
+      conversationHistory, // Include conversation history for follow-ups
+      draftData, // Include complete draft data with isRookie information
     };
   },
 });
@@ -344,13 +389,23 @@ export const getActiveRequestsForContent = internalQuery({
 function getFocusAreas(contentType: string): string[] {
   switch (contentType) {
     case "weekly_recap":
-      return ["team performance", "key decisions", "player disappointments", "lucky breaks"];
+      return ["team performance", "key decisions", "player disappointments", "lucky breaks", "memorable moments"];
+    case "weekly_preview":
+      return ["matchup strategy", "key players to watch", "injury concerns", "bold predictions"];
     case "trade_analysis":
-      return ["trade rationale", "immediate impact", "future outlook", "negotiation process"];
+      return ["trade rationale", "immediate impact", "future outlook", "negotiation process", "winner assessment"];
     case "waiver_wire_report":
-      return ["waiver priorities", "FAAB strategy", "missed opportunities", "sleeper picks"];
+      return ["waiver priorities", "FAAB strategy", "missed opportunities", "sleeper picks", "drop candidates"];
+    case "power_rankings":
+      return ["team trajectory", "biggest surprises", "overperformers", "underperformers"];
+    case "draft_rankings":
+      return ["draft strategy", "best picks", "worst picks", "steals and reaches"];
+    case "championship_manifesto":
+      return ["season highlights", "key turning points", "championship strategy", "trash talk"];
+    case "season_recap":
+      return ["season highlights", "biggest disappointments", "memorable trades", "rivalry moments"];
     default:
-      return ["general thoughts", "key moments", "future plans"];
+      return ["general thoughts", "key insights", "team updates", "future plans"];
   }
 }
 
@@ -359,32 +414,70 @@ function getConversationGoals(contentType: string): string[] {
     case "weekly_recap":
       return [
         "Get specific player performance reactions",
-        "Understand key lineup decisions",
-        "Capture emotional responses to outcomes",
-        "Extract quotable insights about the week",
+        "Understand key lineup decisions that impacted outcomes",
+        "Capture emotional responses to wins/losses",
+        "Extract memorable quotes about specific moments",
+      ];
+    case "weekly_preview":
+      return [
+        "Understand matchup strategy and game plans",
+        "Get bold predictions for the week",
+        "Capture trash talk between opponents",
+        "Identify key players teams are relying on",
       ];
     case "trade_analysis":
       return [
-        "Understand trade motivation",
-        "Get both sides' perspectives",
+        "Understand the motivation behind the trade",
+        "Get both sides' perspectives on value",
         "Capture negotiation details",
-        "Assess perceived winners/losers",
+        "Assess who won the trade",
+      ];
+    case "waiver_wire_report":
+      return [
+        "Identify priority waiver targets",
+        "Understand FAAB bidding strategies",
+        "Get reactions to waiver claims",
+        "Extract sleeper picks",
+      ];
+    case "power_rankings":
+      return [
+        "Get reactions to current ranking",
+        "Understand team trajectory",
+        "Capture disagreements with rankings",
+        "Extract hot takes on teams",
+      ];
+    case "draft_rankings":
+      return [
+        "Reflect on draft day strategy",
+        "Identify best and worst picks",
+        "Capture draft day regrets",
+        "Extract lessons learned",
       ];
     default:
-      return ["Gather relevant insights", "Get quotable content"];
+      return ["Gather relevant insights", "Get quotable content", "Capture memorable reactions"];
   }
 }
 
 function getInitialFocus(contentType: string): string {
   switch (contentType) {
     case "weekly_recap":
-      return "specific player performances and lineup decisions";
+      return "your specific player performances, lineup decisions, and key moments from this week";
+    case "weekly_preview":
+      return "your strategy for this week's matchup and any predictions";
     case "trade_analysis":
-      return "trade rationale and expected impact";
+      return "the reasoning behind this trade and expected impact";
     case "waiver_wire_report":
-      return "waiver strategy and priority targets";
+      return "your waiver wire strategy and priority targets";
+    case "power_rankings":
+      return "your team's current performance and ranking position";
+    case "draft_rankings":
+      return "your draft strategy, best picks, and any regrets";
+    case "championship_manifesto":
+      return "your championship victory or season highlights";
+    case "season_recap":
+      return "your season highlights and most memorable moments";
     default:
-      return "relevant insights for the article";
+      return "relevant insights and reactions for the upcoming article";
   }
 }
 
@@ -770,7 +863,7 @@ export const getRequestById = query({
     const request = await ctx.db.get(args.commentRequestId);
     if (!request) return null;
 
-    const scheduledContent = await ctx.db.get(request.scheduledContentId);
+    const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
     const league = await ctx.db.get(request.leagueId);
 
     return {
@@ -848,7 +941,7 @@ export const getLeagueCommentRequests = query({
     return await Promise.all(
       requests.map(async (request) => {
         const user = await ctx.db.get(request.targetUserId);
-        const scheduledContent = await ctx.db.get(request.scheduledContentId);
+        const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
         
         return {
           ...request,

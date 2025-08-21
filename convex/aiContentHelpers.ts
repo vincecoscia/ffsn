@@ -16,6 +16,7 @@ export const prepareAIContentData = internalAction({
     userId: v.string(),
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
   },
   handler: async (ctx, args) => {
     console.log("=== prepareAIContentData START ===");
@@ -175,6 +176,7 @@ export const prepareAIContentData = internalAction({
         persona: args.persona,
         customContext: args.customContext,
         userId: args.userId,
+        scheduledContentId: args.scheduledContentId,
       });
       
       console.log("=== prepareAIContentData SUCCESS ===");
@@ -205,6 +207,7 @@ export const generateAIContentWithData = internalAction({
     persona: v.string(),
     customContext: v.optional(v.string()),
     userId: v.string(),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
   },
   handler: async (ctx, args) => {
     console.log("=== generateAIContentWithData START ===");
@@ -222,6 +225,18 @@ export const generateAIContentWithData = internalAction({
       
       console.log("Retrieved prepared data, generating content...");
       
+      // Get comment responses if available
+      let commentResponses: CommentResponseData[] = [];
+      if (args.scheduledContentId) {
+        commentResponses = await ctx.runQuery(internal.aiContentHelpers.getCommentResponsesForContent, {
+          scheduledContentId: args.scheduledContentId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          week: preparedData.leagueData.currentWeek,
+        });
+        console.log(`Found ${commentResponses.length} comment responses for integration`);
+      }
+      
       // Get API key
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {
@@ -238,6 +253,7 @@ export const generateAIContentWithData = internalAction({
         leagueData: preparedData.leagueData,
         customContext: args.customContext,
         userId: args.userId,
+        commentResponses: commentResponses.length > 0 ? commentResponses : undefined,
       }, apiKey);
       
       const executionTime = Date.now() - startTime;

@@ -286,7 +286,7 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                               ? "bg-blue-500 text-white"
                               : "bg-gray-100 text-gray-900"
                           }`}>
-                            <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                            <p className="whitespace-pre-wrap leading-relaxed text-left">{message.content}</p>
                           </div>
                           <p className="text-xs text-gray-500 mt-1">
                             {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}

@@ -1,0 +1,581 @@
+import { v } from "convex/values";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
+
+// Create comment requests and wait for responses
+export const createCommentRequestsAndWait = internalAction({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    persona: v.string(),
+    customContext: v.optional(v.string()),
+    userId: v.string(),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+    targetUserIds: v.array(v.string()),
+    expirationMinutes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    console.log("=== Creating comment requests for content generation ===");
+    
+    try {
+      // Get users from teamClaims based on selected team IDs
+      // args.targetUserIds contains team IDs selected in the UI
+      const userIdsFromClaims = await ctx.runQuery(internal.aiContentWithComments.getUsersFromTeamClaims, {
+        leagueId: args.leagueId,
+        teamIds: args.targetUserIds, // These are team IDs from the frontend
+      });
+      
+      const validUserIds = userIdsFromClaims.filter(id => id !== undefined) as Id<"users">[];
+      
+      if (validUserIds.length === 0) {
+        console.warn("No valid users found for comment requests");
+        // Still proceed with generation without comments
+        await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
+        });
+        return;
+      }
+      
+      // Fetch draft data if this is draft-related content
+      let draftData = undefined;
+      if (args.contentType === 'draft_rankings' || args.contentType === 'mock_draft') {
+        try {
+          const draftInfo = await ctx.runQuery(internal.draftRankingsHelpers.getSimplifiedDraftData, {
+            leagueId: args.leagueId,
+            seasonId: args.seasonId || new Date().getFullYear(),
+          });
+          
+          // Build a map of userId to their draft picks
+          const userDraftPicks: Record<string, any[]> = {};
+          for (const userId of validUserIds) {
+            const user = await ctx.runQuery(internal.aiContentWithComments.getUserById, { userId });
+            if (user) {
+              // Find this user's team and their picks
+              const userTeam = draftInfo.teamGrades.find(t => 
+                t.teamOwner === user.name || t.teamOwner === user.clerkId
+              );
+              if (userTeam) {
+                userDraftPicks[userId] = draftInfo.draftPicks.filter(pick => 
+                  pick.teamName === userTeam.teamName
+                );
+              }
+            }
+          }
+          
+          draftData = {
+            draftType: draftInfo.leagueInfo.draftType,
+            draftOrder: draftInfo.draftOrder,
+            userDraftPicks,
+          };
+        } catch (error) {
+          console.warn("Failed to fetch draft data for comment requests:", error);
+        }
+      }
+      
+      // Create comment requests for manual content
+      const commentRequestIds = await ctx.runMutation(internal.aiContentWithComments.createManualCommentRequests, {
+        articleId: args.articleId,
+        leagueId: args.leagueId,
+        contentType: args.contentType,
+        targetUserIds: validUserIds,
+        expirationMinutes: args.expirationMinutes,
+        week: args.week,
+        seasonId: args.seasonId,
+        draftData,
+      });
+      
+      console.log(`Created ${commentRequestIds.length} comment requests`);
+      
+      // Send initial requests immediately
+      for (const requestId of commentRequestIds) {
+        await ctx.scheduler.runAfter(0, internal.aiContentWithComments.sendManualCommentRequest, {
+          commentRequestId: requestId,
+        });
+      }
+      
+      // Schedule the monitoring and generation
+      const expirationMs = args.expirationMinutes * 60 * 1000;
+      await ctx.scheduler.runAt(Date.now() + expirationMs, internal.aiContentWithComments.checkAndGenerate, {
+        articleId: args.articleId,
+        leagueId: args.leagueId,
+        contentType: args.contentType,
+        persona: args.persona,
+        customContext: args.customContext,
+        userId: args.userId,
+        seasonId: args.seasonId,
+        week: args.week,
+        commentRequestIds,
+      });
+      
+      // Also schedule periodic checks to see if all responses are collected
+      for (let i = 1; i <= 4; i++) {
+        const checkTime = (expirationMs / 4) * i;
+        await ctx.scheduler.runAt(Date.now() + checkTime, internal.aiContentWithComments.checkIfAllResponsesReceived, {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
+          commentRequestIds,
+        });
+      }
+      
+    } catch (error) {
+      console.error("Error in createCommentRequestsAndWait:", error);
+      
+      // Update article status to failed
+      await ctx.runMutation(api.aiContent.updateContentStatus, {
+        articleId: args.articleId,
+        status: "failed",
+        error: error instanceof Error ? error.message : "Failed to create comment requests",
+      });
+    }
+  },
+});
+
+// Create comment requests for manual content generation
+export const createManualCommentRequests = internalMutation({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    targetUserIds: v.array(v.id("users")),
+    expirationMinutes: v.number(),
+    week: v.optional(v.number()),
+    seasonId: v.optional(v.number()),
+    draftData: v.optional(v.object({
+      draftType: v.optional(v.string()),
+      draftOrder: v.optional(v.array(v.any())),
+      userDraftPicks: v.optional(v.any()), // Map of userId to their draft picks
+    })),
+  },
+  handler: async (ctx, args) => {
+    const currentTime = Date.now();
+    const expirationTime = currentTime + (args.expirationMinutes * 60 * 1000);
+    
+    const requestIds = await Promise.all(
+      args.targetUserIds.map(async (userId) => {
+        // Get user's team for context
+        const userTeam = await ctx.db
+          .query("teams")
+          .withIndex("by_league", q => 
+            q.eq("leagueId", args.leagueId)
+          )
+          .filter(q => q.eq(q.field("owner"), userId))
+          .first();
+        
+        // Build article context with draft data if applicable
+        let articleContext: any = {
+          week: args.week,
+          seasonId: args.seasonId,
+          topic: `${args.contentType.replace('_', ' ')} Article`,
+          focusAreas: ["team performance", "player decisions", "strategy"],
+        };
+        
+        // Add draft-specific context for draft-related content
+        if ((args.contentType === 'draft_rankings' || args.contentType === 'mock_draft') && args.draftData) {
+          articleContext = {
+            ...articleContext,
+            draftType: args.draftData.draftType,
+            draftOrder: args.draftData.draftOrder,
+            userDraftPicks: args.draftData.userDraftPicks?.[userId], // Get this user's specific draft picks
+            focusAreas: ["draft strategy", "player selections", "value picks", "roster construction"],
+          };
+        }
+        
+        const requestId = await ctx.db.insert("commentRequests", {
+          leagueId: args.leagueId,
+          manualContentId: args.articleId, // Link to manual content instead of scheduled
+          targetUserId: userId,
+          contentType: args.contentType,
+          articleContext,
+          status: "pending",
+          scheduledSendTime: currentTime,
+          expirationTime,
+          articleGenerationTime: expirationTime,
+          conversationState: "not_started",
+          aiContext: {
+            initialPrompt: "",
+            conversationGoals: args.contentType === 'draft_rankings' || args.contentType === 'mock_draft'
+              ? ["gather draft strategy insights", "get reactions to picks", "collect thoughts on value", "understand roster construction choices"]
+              : ["gather team insights", "get player reactions", "collect memorable quotes"],
+            currentFocus: args.contentType,
+          },
+          autoEndCriteria: {
+            maxMessages: 8,
+            currentMessageCount: 0,
+            minResponseLength: 30,
+            lastActivityTime: currentTime,
+            inactivityTimeoutMinutes: 30,
+          },
+          priority: "high", // Manual requests are high priority
+          notificationsSent: [],
+          createdAt: currentTime,
+          updatedAt: currentTime,
+        });
+        
+        return requestId;
+      })
+    );
+    
+    return requestIds;
+  },
+});
+
+// Send a manual comment request
+export const sendManualCommentRequest = internalAction({
+  args: {
+    commentRequestId: v.id("commentRequests"),
+  },
+  handler: async (ctx, args) => {
+    // Reuse the existing sendInitialRequests logic but for a single request
+    const request = await ctx.runQuery(internal.aiContentWithComments.getCommentRequest, {
+      commentRequestId: args.commentRequestId,
+    });
+    
+    if (!request || request.status !== "pending") {
+      console.log("Request not found or not pending");
+      return;
+    }
+    
+    try {
+      // Get full context for AI generation
+      const context = await ctx.runQuery(internal.commentRequests.buildConversationContext, {
+        commentRequestId: args.commentRequestId,
+      });
+      
+      if (!context) {
+        console.error(`Failed to build context for request ${args.commentRequestId}`);
+        return;
+      }
+      
+      // Generate initial AI question
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new Error("ANTHROPIC_API_KEY not configured");
+      }
+      
+      const { conversationService } = await import("../src/lib/ai/conversation-service");
+      const aiResult = await conversationService.generateConversationQuestion(context, apiKey);
+      
+      console.log(`Generated initial question for user ${request.targetUserId}`);
+      
+      // Create the initial AI message
+      await ctx.runMutation(internal.commentConversations.createAIMessage, {
+        commentRequestId: args.commentRequestId,
+        content: aiResult.question,
+        messageType: "ai_question",
+        aiMetadata: {
+          generationModel: "claude-sonnet-4",
+          processingTime: Date.now(),
+          confidence: aiResult.confidence,
+          intent: aiResult.intent,
+        },
+        shouldEndAfterResponse: aiResult.shouldEndAfterResponse,
+      });
+      
+      // Update request status
+      await ctx.runMutation(internal.commentRequests.updateRequestStatus, {
+        commentRequestId: args.commentRequestId,
+        status: "active",
+        conversationState: "initial_request_sent",
+        notificationSent: {
+          type: "initial_request",
+          sentAt: Date.now(),
+          method: "app_notification",
+          delivered: true,
+        },
+      });
+      
+      // Send notification to user
+      await ctx.scheduler.runAfter(0, internal.notifications.sendCommentRequest, {
+        userId: request.targetUserId,
+        commentRequestId: args.commentRequestId,
+        message: aiResult.question,
+        articleType: request.contentType,
+        leagueName: context.leagueName || "your league",
+        leagueId: request.leagueId,
+      });
+      
+    } catch (error) {
+      console.error(`Error processing request ${args.commentRequestId}:`, error);
+    }
+  },
+});
+
+// Check if all responses have been received
+export const checkIfAllResponsesReceived = internalAction({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    persona: v.string(),
+    customContext: v.optional(v.string()),
+    userId: v.string(),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+    commentRequestIds: v.array(v.id("commentRequests")),
+  },
+  handler: async (ctx, args) => {
+    // Check if article is still waiting
+    const article = await ctx.runQuery(internal.aiContentWithComments.getArticle, {
+      articleId: args.articleId,
+    });
+    
+    if (!article || article.status !== "waiting_for_comments") {
+      console.log("Article is no longer waiting for comments");
+      return;
+    }
+    
+    // Check if all comment requests have responses
+    const allResponses = await ctx.runQuery(internal.aiContentWithComments.checkAllResponsesReceived, {
+      commentRequestIds: args.commentRequestIds,
+    });
+    
+    if (allResponses) {
+      console.log("All comment responses received, generating content");
+      
+      // Generate content with comments
+      await ctx.runAction(internal.aiContentWithComments.generateWithComments, {
+        articleId: args.articleId,
+        leagueId: args.leagueId,
+        contentType: args.contentType,
+        persona: args.persona,
+        customContext: args.customContext,
+        userId: args.userId,
+        seasonId: args.seasonId,
+        week: args.week,
+        commentRequestIds: args.commentRequestIds,
+      });
+    }
+  },
+});
+
+// Check and generate after expiration
+export const checkAndGenerate = internalAction({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    persona: v.string(),
+    customContext: v.optional(v.string()),
+    userId: v.string(),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+    commentRequestIds: v.array(v.id("commentRequests")),
+  },
+  handler: async (ctx, args) => {
+    // Check if article is still waiting
+    const article = await ctx.runQuery(internal.aiContentWithComments.getArticle, {
+      articleId: args.articleId,
+    });
+    
+    if (!article || article.status !== "waiting_for_comments") {
+      console.log("Article is no longer waiting for comments");
+      return;
+    }
+    
+    console.log("Comment request period expired, generating content with available responses");
+    
+    // Generate content with whatever comments we have
+    await ctx.runAction(internal.aiContentWithComments.generateWithComments, {
+      articleId: args.articleId,
+      leagueId: args.leagueId,
+      contentType: args.contentType,
+      persona: args.persona,
+      customContext: args.customContext,
+      userId: args.userId,
+      seasonId: args.seasonId,
+      week: args.week,
+      commentRequestIds: args.commentRequestIds,
+    });
+  },
+});
+
+// Generate content with collected comments
+export const generateWithComments = internalAction({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    persona: v.string(),
+    customContext: v.optional(v.string()),
+    userId: v.string(),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+    commentRequestIds: v.array(v.id("commentRequests")),
+  },
+  handler: async (ctx, args) => {
+    // Get comment responses
+    const commentResponses = await ctx.runQuery(internal.aiContentWithComments.getCommentResponses, {
+      commentRequestIds: args.commentRequestIds,
+    });
+    
+    // Build enhanced context with comments
+    let enhancedContext = args.customContext || "";
+    
+    if (commentResponses.length > 0) {
+      enhancedContext += "\n\n=== TEAM COMMENTS ===\n";
+      enhancedContext += "The following comments were collected from league members:\n\n";
+      
+      for (const response of commentResponses) {
+        if (response.processedResponse) {
+          enhancedContext += `Team Comment: "${response.processedResponse}"\n`;
+        }
+      }
+      
+      enhancedContext += "\nPlease incorporate these comments naturally into the article where relevant.";
+    }
+    
+    // Update article status to generating
+    await ctx.runMutation(api.aiContent.updateContentStatus, {
+      articleId: args.articleId,
+      status: "generating",
+    });
+    
+    // Trigger the regular content generation with enhanced context
+    await ctx.runAction(internal.aiContent.generateContentAction, {
+      articleId: args.articleId,
+      leagueId: args.leagueId,
+      contentType: args.contentType,
+      persona: args.persona,
+      customContext: enhancedContext,
+      userId: args.userId,
+      seasonId: args.seasonId,
+      week: args.week,
+    });
+  },
+});
+
+// Helper queries
+export const getUserByClerkId = internalQuery({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", q => q.eq("clerkId", args.clerkId))
+      .unique();
+  },
+});
+
+export const getUserById = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.userId);
+  },
+});
+
+export const getUsersFromTeamClaims = internalQuery({
+  args: { 
+    leagueId: v.id("leagues"),
+    teamIds: v.array(v.string()), // Array of team IDs
+  },
+  handler: async (ctx, args) => {
+    console.log("Getting users from team claims for teams:", args.teamIds);
+    
+    // Get all team claims for this league
+    const teamClaims = await ctx.db
+      .query("teamClaims")
+      .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
+      .filter(q => q.eq(q.field("status"), "active"))
+      .collect();
+    
+    console.log(`Found ${teamClaims.length} active team claims for league`);
+    
+    // Find users who have claimed the selected teams
+    const userIds: Id<"users">[] = [];
+    
+    for (const teamId of args.teamIds) {
+      // Find the claim for this team (teamId is already a team ID from the frontend)
+      const claim = teamClaims.find(c => c.teamId === teamId);
+      if (claim) {
+        // Get the user from the claim's userId (which is a Clerk ID)
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_clerk_id", q => q.eq("clerkId", claim.userId))
+          .unique();
+        
+        if (user) {
+          console.log(`Found user ${user.name} for team ${teamId}`);
+          userIds.push(user._id);
+        } else {
+          console.log(`No user record found for Clerk ID: ${claim.userId}`);
+        }
+      } else {
+        console.log(`No active claim found for team: ${teamId}`);
+      }
+    }
+    
+    console.log(`Returning ${userIds.length} valid user IDs from team claims`);
+    return userIds;
+  },
+});
+
+export const getCommentRequest = internalQuery({
+  args: { commentRequestId: v.id("commentRequests") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.commentRequestId);
+  },
+});
+
+export const getArticle = internalQuery({
+  args: { articleId: v.id("aiContent") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.articleId);
+  },
+});
+
+export const checkAllResponsesReceived = internalQuery({
+  args: { commentRequestIds: v.array(v.id("commentRequests")) },
+  handler: async (ctx, args) => {
+    for (const requestId of args.commentRequestIds) {
+      const request = await ctx.db.get(requestId);
+      if (!request) continue;
+      
+      // Check if there's a response for this request
+      const response = await ctx.db
+        .query("commentResponses")
+        .withIndex("by_comment_request", q => q.eq("commentRequestId", requestId))
+        .first();
+      
+      if (!response) {
+        return false; // At least one request doesn't have a response
+      }
+    }
+    
+    return true; // All requests have responses
+  },
+});
+
+export const getCommentResponses = internalQuery({
+  args: { commentRequestIds: v.array(v.id("commentRequests")) },
+  handler: async (ctx, args) => {
+    const responses = [];
+    
+    for (const requestId of args.commentRequestIds) {
+      const response = await ctx.db
+        .query("commentResponses")
+        .withIndex("by_comment_request", q => q.eq("commentRequestId", requestId))
+        .first();
+      
+      if (response) {
+        responses.push(response);
+      }
+    }
+    
+    return responses;
+  },
+});

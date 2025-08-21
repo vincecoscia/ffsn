@@ -33,8 +33,8 @@ export function NotificationBell({
       
       {showCount && hasUnreadNotifications && !isLoading && (
         <Badge 
-          variant="destructive" 
-          className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs font-bold flex items-center justify-center min-w-[20px] bg-red-500 text-white border-2 border-red-600 shadow-lg"
+          variant="outline"
+          className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs font-bold flex items-center justify-center min-w-[20px] bg-blue-500 text-white border border-blue-500"
         >
           {unreadCount > 99 ? "99+" : unreadCount}
         </Badge>
