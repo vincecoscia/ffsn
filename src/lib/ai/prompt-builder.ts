@@ -1508,7 +1508,6 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `- If a player's pick number is LOWER than their ADP, it's a REACH, not a steal!\n\n`;
     
     draftData += `DRAFT RANKINGS INSTRUCTIONS:\n`;
-    draftData += `- Write as Mel Diaper with his characteristic blunt, opinionated style\n`;
     draftData += `- Focus on ACTUAL draft results and grades, not predictions\n`;
     draftData += `- Go through EACH TEAM INDIVIDUALLY and give them their personalized grade and analysis\n`;
     draftData += `- Don't group teams by grade (no "A+ teams", "B teams" sections) - analyze each team separately\n`;
