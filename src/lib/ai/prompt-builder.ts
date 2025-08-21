@@ -1336,7 +1336,7 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
                 draftData += `${pick.pickNumber}. ${pick.playerName} (${pick.playerPosition}, ${pick.playerTeam}) → ${pick.teamName}`;
                 
                 if (pick.playerADP) {
-                  const adpDiff = pick.playerADP - pick.pickNumber;
+                  const adpDiff = pick.pickNumber - pick.playerADP;
                   if (adpDiff > 10) {
                     draftData += ` [VALUE: ADP ${pick.playerADP.toFixed(1)}]`;
                   } else if (adpDiff < -10) {
@@ -1372,11 +1372,15 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         }
       });
       
-      // Add some high-value picks (steals)
+      // Add some high-value picks (steals) - players drafted significantly later than their ADP
       if (data.draftPicks) {
         const valueSteals = data.draftPicks
-          .filter(pick => pick.perceivedValue > 30)
-          .sort((a, b) => b.perceivedValue - a.perceivedValue)
+          .filter(pick => 
+            pick.playerADP && 
+            pick.pickNumber > pick.playerADP + 10 && // Drafted at least 10 spots later than ADP (true steals)
+            pick.perceivedValue > 0 // Still has positive value
+          )
+          .sort((a, b) => (b.pickNumber - b.playerADP!) - (a.pickNumber - a.playerADP!)) // Sort by biggest steal (pick number - ADP)
           .slice(0, 3);
         hotTakeBestPicks.push(...valueSteals);
         
@@ -1405,7 +1409,8 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
             draftData += ` - Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
           }
           if (pick.playerADP && pick.pickNumber > pick.playerADP + 10) {
-            draftData += ` (STEAL: ADP ${pick.playerADP.toFixed(1)})`;
+            const adpDiff = pick.pickNumber - pick.playerADP;
+            draftData += ` (STEAL: ADP ${pick.playerADP.toFixed(1)}, +${adpDiff.toFixed(1)} value)`;
           }
           if (pick.isRookie) {
             draftData += ` [ROOKIE SLEEPER]`;
@@ -1490,9 +1495,17 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `GRADING METHODOLOGY:\n`;
     draftData += `- Grades based on: projected starter points (40%), perceived pick value vs ADP (40%), bench depth (20%)\n`;
     draftData += `- Strategy analysis considers first 5 picks and position distribution\n`;
-    draftData += `- Value picks are those drafted significantly later than ADP with good projections\n`;
-    draftData += `- Reaches are picks made significantly earlier than ADP\n`;
+    draftData += `- STEALS/Value picks: Players drafted significantly LATER than their ADP (e.g., ADP 30, drafted at pick 50 = 20-spot steal)\n`;
+    draftData += `- REACHES: Players drafted significantly EARLIER than their ADP (e.g., ADP 50, drafted at pick 30 = 20-spot reach)\n`;
     draftData += `- Consider league scoring system (${data.scoringType}) when evaluating positional value\n\n`;
+    
+    draftData += `CRITICAL ADP INTERPRETATION:\n`;
+    draftData += `- When you see [VALUE: ADP X.X], this means the player was drafted LATER than their ADP (a STEAL)\n`;
+    draftData += `- When you see [REACH: ADP X.X], this means the player was drafted EARLIER than their ADP (a REACH)\n`;
+    draftData += `- NEVER call a reach a "steal" or "value" - reaches are BAD picks, steals are GOOD picks\n`;
+    draftData += `- Example: Pick 30, ADP 43 = REACH (drafted 13 spots too early) - DO NOT CALL THIS A STEAL!\n`;
+    draftData += `- Example: Pick 50, ADP 30 = STEAL (drafted 20 spots later than expected) - This is actual value!\n`;
+    draftData += `- If a player's pick number is LOWER than their ADP, it's a REACH, not a steal!\n\n`;
     
     draftData += `DRAFT RANKINGS INSTRUCTIONS:\n`;
     draftData += `- Write as Mel Diaper with his characteristic blunt, opinionated style\n`;
@@ -1507,7 +1520,7 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `- Be critical of bad picks but give credit where due\n`;
     draftData += `- Include specific analysis of each team's strategy (when provided), best picks, and biggest reaches\n`;
     draftData += `- NEVER mention confidence levels or percentages related to draft strategy analysis\n`;
-    draftData += `- The "Hot Take Best Picks" section highlights elite projections, steals, and rookie sleepers\n`;
+    draftData += `- The "Hot Take Best Picks" section highlights elite projections, TRUE STEALS (drafted later than ADP), and rookie sleepers\n`;
     draftData += `- Rookies are identified by the isRookie field, determined from ESPN's eligibility data\n`;
     draftData += `- The "Hot Take Questionable Picks" section focuses on reaches and low-projection players drafted early\n`;
     draftData += `- Make bold, entertaining takes on these picks - don't just list them, give hot takes!\n`;

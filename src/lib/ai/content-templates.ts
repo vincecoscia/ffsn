@@ -627,7 +627,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     name: "Post-Draft Rankings & Grades",
     description: "Comprehensive draft analysis with letter grades for all teams based on draft position, player selections, and projected stats",
     creditCost: 15,
-    estimatedWords: 1800,
+    estimatedWords: 2300,
     requiredData: ["draft_results", "team_rosters", "player_projections", "draft_order", "league_settings"],
     optionalData: ["keeper_info", "draft_strategy", "adp_data", "bench_depth"],
     sections: [
@@ -641,7 +641,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         name: "team_by_team_grades",
         description: "Individual analysis of each team's draft with personalized grades and commentary. MUST integrate team manager comments about their draft strategy, picks, and reactions directly into each team's breakdown",
         required: true,
-        wordCount: 1000
+        wordCount: 1500
       },
       {
         name: "best_picks",
