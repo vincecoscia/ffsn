@@ -15,7 +15,7 @@ export const createCommentRequestsAndWait = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     targetUserIds: v.array(v.string()),
-    expirationMinutes: v.number(),
+    articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
   },
   handler: async (ctx, args) => {
     console.log("=== Creating comment requests for content generation ===");
@@ -88,7 +88,7 @@ export const createCommentRequestsAndWait = internalAction({
         leagueId: args.leagueId,
         contentType: args.contentType,
         targetUserIds: validUserIds,
-        expirationMinutes: args.expirationMinutes,
+        articleGenerationTime: args.articleGenerationTime,
         week: args.week,
         seasonId: args.seasonId,
         draftData,
@@ -104,8 +104,7 @@ export const createCommentRequestsAndWait = internalAction({
       }
       
       // Schedule the monitoring and generation
-      const expirationMs = args.expirationMinutes * 60 * 1000;
-      await ctx.scheduler.runAt(Date.now() + expirationMs, internal.aiContentWithComments.checkAndGenerate, {
+      await ctx.scheduler.runAt(args.articleGenerationTime, internal.aiContentWithComments.checkAndGenerate, {
         articleId: args.articleId,
         leagueId: args.leagueId,
         contentType: args.contentType,
@@ -118,9 +117,10 @@ export const createCommentRequestsAndWait = internalAction({
       });
       
       // Also schedule periodic checks to see if all responses are collected
+      const timeUntilGeneration = args.articleGenerationTime - Date.now();
       for (let i = 1; i <= 4; i++) {
-        const checkTime = (expirationMs / 4) * i;
-        await ctx.scheduler.runAt(Date.now() + checkTime, internal.aiContentWithComments.checkIfAllResponsesReceived, {
+        const checkTime = Date.now() + (timeUntilGeneration / 4) * i;
+        await ctx.scheduler.runAt(checkTime, internal.aiContentWithComments.checkIfAllResponsesReceived, {
           articleId: args.articleId,
           leagueId: args.leagueId,
           contentType: args.contentType,
@@ -153,7 +153,7 @@ export const createManualCommentRequests = internalMutation({
     leagueId: v.id("leagues"),
     contentType: v.string(),
     targetUserIds: v.array(v.id("users")),
-    expirationMinutes: v.number(),
+    articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
     week: v.optional(v.number()),
     seasonId: v.optional(v.number()),
     draftData: v.optional(v.object({
@@ -164,7 +164,6 @@ export const createManualCommentRequests = internalMutation({
   },
   handler: async (ctx, args) => {
     const currentTime = Date.now();
-    const expirationTime = currentTime + (args.expirationMinutes * 60 * 1000);
     
     const requestIds = await Promise.all(
       args.targetUserIds.map(async (userId) => {
@@ -204,8 +203,7 @@ export const createManualCommentRequests = internalMutation({
           articleContext,
           status: "pending",
           scheduledSendTime: currentTime,
-          expirationTime,
-          articleGenerationTime: expirationTime,
+          articleGenerationTime: args.articleGenerationTime,
           conversationState: "not_started",
           aiContext: {
             initialPrompt: "",
@@ -336,7 +334,7 @@ export const checkIfAllResponsesReceived = internalAction({
     });
     
     if (!article || article.status !== "waiting_for_comments") {
-      console.log("Article is no longer waiting for comments");
+      // Don't log anything - this is expected behavior when article completes early
       return;
     }
     
@@ -347,6 +345,12 @@ export const checkIfAllResponsesReceived = internalAction({
     
     if (allResponses) {
       console.log("All comment responses received, generating content");
+      
+      // Update article status immediately to prevent other scheduled checks from running
+      await ctx.runMutation(api.aiContent.updateContentStatus, {
+        articleId: args.articleId,
+        status: "generating",
+      });
       
       // Generate content with comments
       await ctx.runAction(internal.aiContentWithComments.generateWithComments, {
@@ -384,11 +388,22 @@ export const checkAndGenerate = internalAction({
     });
     
     if (!article || article.status !== "waiting_for_comments") {
-      console.log("Article is no longer waiting for comments");
+      // Don't log anything - this is expected behavior when article completes early
       return;
     }
     
     console.log("Comment request period expired, generating content with available responses");
+    
+    // First, expire all pending/active comment requests for this article
+    await ctx.runMutation(internal.aiContentWithComments.expireCommentRequests, {
+      commentRequestIds: args.commentRequestIds,
+    });
+    
+    // Update article status immediately to prevent other scheduled checks from running
+    await ctx.runMutation(api.aiContent.updateContentStatus, {
+      articleId: args.articleId,
+      status: "generating",
+    });
     
     // Generate content with whatever comments we have
     await ctx.runAction(internal.aiContentWithComments.generateWithComments, {
@@ -439,12 +454,6 @@ export const generateWithComments = internalAction({
       
       enhancedContext += "\nPlease incorporate these comments naturally into the article where relevant.";
     }
-    
-    // Update article status to generating
-    await ctx.runMutation(api.aiContent.updateContentStatus, {
-      articleId: args.articleId,
-      status: "generating",
-    });
     
     // Trigger the regular content generation with enhanced context
     await ctx.runAction(internal.aiContent.generateContentAction, {
@@ -577,5 +586,53 @@ export const getCommentResponses = internalQuery({
     }
     
     return responses;
+  },
+});
+
+// Expire comment requests when article generation time passes
+export const expireCommentRequests = internalMutation({
+  args: {
+    commentRequestIds: v.array(v.id("commentRequests")),
+  },
+  handler: async (ctx, args) => {
+    console.log(`Expiring ${args.commentRequestIds.length} comment requests`);
+    
+    for (const requestId of args.commentRequestIds) {
+      const request = await ctx.db.get(requestId);
+      if (!request) continue;
+      
+      // Only expire requests that are still pending or active
+      if (request.status === "pending" || request.status === "active") {
+        // Update request status to expired
+        await ctx.db.patch(requestId, {
+          status: "expired",
+          conversationState: "auto_ended",
+          expiredAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+
+        // Add system message to close the conversation
+        const existingMessages = await ctx.db
+          .query("commentConversations")
+          .withIndex("by_comment_request", q => 
+            q.eq("commentRequestId", requestId)
+          )
+          .collect();
+
+        await ctx.db.insert("commentConversations", {
+          commentRequestId: requestId,
+          leagueId: request.leagueId,
+          userId: request.targetUserId,
+          messageType: "system_message",
+          content: "This comment request has expired. The article has been generated without your input.",
+          messageOrder: existingMessages.length,
+          isRead: false,
+          createdAt: Date.now(),
+          threadDepth: 0,
+        });
+
+        console.log(`Expired comment request ${requestId}`);
+      }
+    }
   },
 });

@@ -42,6 +42,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sparkles, Zap, Clock, CreditCard, Users, MessageSquare } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 
 interface ContentGeneratorProps {
   leagueId: Id<"leagues">;
@@ -64,7 +65,7 @@ const formSchema = z.object({
   week: z.number().optional(),
   customContext: z.string().optional(),
   requestComments: z.boolean(),
-  commentExpirationMinutes: z.number(),
+  articleGenerationTime: z.date().optional(),
   targetUserIds: z.array(z.string()).optional(),
 });
 
@@ -91,7 +92,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       week: undefined,
       customContext: "",
       requestComments: false,
-      commentExpirationMinutes: 30,
+      articleGenerationTime: undefined,
       targetUserIds: [],
     },
   });
@@ -149,6 +150,11 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     try {
       // Check if we should request comments first
       if (values.requestComments && values.targetUserIds && values.targetUserIds.length > 0) {
+        if (!values.articleGenerationTime) {
+          toast.error("Please select when the article should be generated");
+          return;
+        }
+        
         // For draft-related content, we need to pass draft data through
         // The backend will fetch the draft data when creating comment requests
         await createGenerationWithComments({
@@ -159,12 +165,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
           seasonId: values.seasonId,
           week: values.week,
           requestComments: true,
-          commentExpirationMinutes: values.commentExpirationMinutes,
+          articleGenerationTime: values.articleGenerationTime.getTime(),
           targetUserIds: values.targetUserIds,
         });
 
         toast.success("Comment requests sent!", {
-          description: `Gathering feedback from ${values.targetUserIds.length} team${values.targetUserIds.length > 1 ? 's' : ''}. Article will be generated after responses are collected.`,
+          description: `Gathering feedback from ${values.targetUserIds.length} team${values.targetUserIds.length > 1 ? 's' : ''}. Article will be generated on ${values.articleGenerationTime.toLocaleDateString()} at ${values.articleGenerationTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
         });
       } else {
         // Regular generation without comments
@@ -615,29 +621,22 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                   <>
                     <FormField
                       control={form.control}
-                      name="commentExpirationMinutes"
+                      name="articleGenerationTime"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Response Time Limit</FormLabel>
-                          <Select 
-                            onValueChange={(value) => field.onChange(parseInt(value))} 
-                            value={field.value?.toString()}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select time limit" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="15">15 minutes</SelectItem>
-                              <SelectItem value="30">30 minutes</SelectItem>
-                              <SelectItem value="60">1 hour</SelectItem>
-                              <SelectItem value="120">2 hours</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <FormLabel>Article Generation Date & Time</FormLabel>
+                          <FormControl>
+                            <DateTimePicker
+                              value={field.value}
+                              onChange={field.onChange}
+                              placeholder="Select when to generate the article"
+                              minDate={new Date(Date.now() + 15 * 60 * 1000)} // Minimum 15 minutes from now
+                            />
+                          </FormControl>
                           <FormDescription>
-                            Article will generate after this time or when all responses are received
+                            The article will be generated at this exact date and time, regardless of comment responses
                           </FormDescription>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />

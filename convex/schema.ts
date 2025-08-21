@@ -322,7 +322,7 @@ export default defineSchema({
     tempGenerationData: v.optional(v.any()), // Temporary data for multi-step generation
     commentRequestConfig: v.optional(v.object({
       enabled: v.boolean(),
-      expirationMinutes: v.number(),
+      articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
       targetUserIds: v.array(v.string()),
       requestedAt: v.number(),
     })),
@@ -1073,9 +1073,8 @@ export default defineSchema({
     ),
     
     // Critical timing fields for automation
-    scheduledSendTime: v.number(),    // When to send the request (12-24 hours before)
-    expirationTime: v.number(),       // 15 minutes before article generation
-    articleGenerationTime: v.number(), // When the article will be generated
+    scheduledSendTime: v.number(),    // When to send the request (immediately or scheduled)
+    articleGenerationTime: v.number(), // When the article will be generated (user-specified deadline)
     
     // Conversation state management
     conversationState: v.union(
@@ -1137,7 +1136,7 @@ export default defineSchema({
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
     .index("by_send_time", ["scheduledSendTime"]) // For cron jobs to pick up
-    .index("by_expiration", ["expirationTime"])   // For cleanup/expiration jobs
+    .index("by_generation_time", ["articleGenerationTime"]) // For scheduling article generation
     .index("by_league_status", ["leagueId", "status"])
     .index("by_user_status", ["targetUserId", "status"])
     .index("by_priority_status", ["priority", "status"]),

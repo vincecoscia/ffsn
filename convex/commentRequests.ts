@@ -9,7 +9,7 @@ export const createRequestsForScheduledContent = internalMutation({
   args: {
     scheduledContentId: v.id("scheduledContent"),
     targetUserIds: v.array(v.id("users")),
-    requestTimeBeforeGeneration: v.optional(v.number()), // milliseconds before content generation
+    requestTimeBeforeGeneration: v.optional(v.number()), // milliseconds before content generation (deprecated)
   },
   handler: async (ctx, args) => {
     const scheduledContent = await ctx.db.get(args.scheduledContentId);
@@ -18,12 +18,7 @@ export const createRequestsForScheduledContent = internalMutation({
     const league = await ctx.db.get(scheduledContent.leagueId);
     if (!league) throw new Error("League not found");
 
-    // For immediate sending, calculate expiration based on current time
-    const requestTimeOffset = args.requestTimeBeforeGeneration || 30 * 60 * 1000; // Default 30 minutes
-    const expirationTimeOffset = requestTimeOffset; // Expire after the request time
-
     const scheduledSendTime = Date.now(); // Send immediately
-    const expirationTime = Date.now() + requestTimeOffset; // Expire after the offset
     const currentTime = Date.now();
 
     // Create a request for each target user
@@ -71,7 +66,6 @@ export const createRequestsForScheduledContent = internalMutation({
           },
           status: "pending",
           scheduledSendTime,
-          expirationTime,
           articleGenerationTime: scheduledContent.scheduledFor,
           conversationState: "not_started",
           aiContext: {

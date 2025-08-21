@@ -34,7 +34,6 @@ export const getActiveRequests = query({
           ...request,
           leagueName: league?.name || "Unknown League",
           articleType: scheduledContent?.contentType || request.contentType,
-          scheduledTime: scheduledContent?.scheduledFor,
           messageCount: messages.length,
           lastMessage: messages[messages.length - 1],
         };

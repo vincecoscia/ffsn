@@ -69,8 +69,8 @@ export default function CommentRequestsList({ userId }: CommentRequestsListProps
             {activeRequests.map((request) => {
               const hasUnread = request.lastMessage && !request.lastMessage.isRead && 
                                request.lastMessage.messageType.startsWith("ai_");
-              const timeUntilArticle = request.scheduledTime 
-                ? formatDistanceToNow(new Date(request.scheduledTime))
+              const timeUntilArticle = request.articleGenerationTime 
+                ? formatDistanceToNow(new Date(request.articleGenerationTime))
                 : null;
               
               return (
@@ -128,11 +128,11 @@ export default function CommentRequestsList({ userId }: CommentRequestsListProps
                     <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 text-gray-400 flex-shrink-0 ml-2 mt-1" />
                   </div>
 
-                  {request.expirationTime && new Date(request.expirationTime) < new Date(Date.now() + 60 * 60 * 1000) && (
-                    <div className="mt-3 flex items-center gap-2 text-amber-600 bg-amber-50 rounded px-2 py-1">
-                      <AlertCircle className="h-3 w-3" />
+                  {request.articleGenerationTime && new Date(request.articleGenerationTime) < new Date(Date.now() + 60 * 60 * 1000) && (
+                    <div className="mt-3 flex items-center gap-2 text-blue-600 bg-blue-50 rounded px-2 py-1">
+                      <Clock className="h-3 w-3" />
                       <span className="text-xs font-medium">
-                        Expires {formatDistanceToNow(new Date(request.expirationTime), { addSuffix: true })}
+                        Article generates {formatDistanceToNow(new Date(request.articleGenerationTime), { addSuffix: true })}
                       </span>
                     </div>
                   )}

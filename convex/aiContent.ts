@@ -255,7 +255,7 @@ export const createGenerationWithComments = mutation({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     requestComments: v.boolean(),
-    commentExpirationMinutes: v.number(),
+    articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
     targetUserIds: v.array(v.string()),
   },
   handler: async (ctx, args) => {
@@ -299,7 +299,7 @@ export const createGenerationWithComments = mutation({
       createdAt: Date.now(),
       commentRequestConfig: {
         enabled: true,
-        expirationMinutes: args.commentExpirationMinutes,
+        articleGenerationTime: args.articleGenerationTime,
         targetUserIds: args.targetUserIds,
         requestedAt: Date.now(),
       },
@@ -316,7 +316,7 @@ export const createGenerationWithComments = mutation({
       seasonId: args.seasonId,
       week: args.week,
       targetUserIds: args.targetUserIds,
-      expirationMinutes: args.commentExpirationMinutes,
+      articleGenerationTime: args.articleGenerationTime,
     });
 
     return articleId;

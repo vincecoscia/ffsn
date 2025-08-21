@@ -189,6 +189,36 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
         </div>
       </div>
 
+      {/* Expiration Warning */}
+      {currentRequest.articleGenerationTime && (
+        (() => {
+          const timeUntilGeneration = currentRequest.articleGenerationTime - Date.now();
+          const hoursUntilGeneration = timeUntilGeneration / (1000 * 60 * 60);
+          
+          if (hoursUntilGeneration <= 24 && hoursUntilGeneration > 0) {
+            return (
+              <div className="rounded-lg border-2 border-orange-200 bg-orange-50 p-4">
+                <div className="flex items-center gap-3">
+                  <Clock className="h-5 w-5 text-orange-600" />
+                  <div>
+                    <h3 className="font-semibold text-orange-900">
+                      {hoursUntilGeneration <= 1 ? "⚠️ Urgent: " : ""}Article Generation Soon
+                    </h3>
+                    <p className="text-sm text-orange-800">
+                      The article will be generated {formatDistanceToNow(new Date(currentRequest.articleGenerationTime), { addSuffix: true })}. 
+                      {hoursUntilGeneration <= 1 
+                        ? " Please respond as soon as possible!"
+                        : " Make sure to share your thoughts before then."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Request Details */}
         <Card className="lg:col-span-1 self-start">
@@ -205,11 +235,11 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                 </p>
               </div>
               <div className="rounded-lg border p-3 bg-white">
-                <h4 className="font-medium text-gray-900 text-sm">Scheduled For</h4>
+                <h4 className="font-medium text-gray-900 text-sm">Article Generation Time</h4>
                 <p className="text-gray-700 mt-1 text-sm flex items-center gap-1">
                   <Clock className="h-4 w-4" />
-                  {currentRequest.scheduledTime
-                    ? formatDistanceToNow(new Date(currentRequest.scheduledTime), { addSuffix: true })
+                  {currentRequest.articleGenerationTime
+                    ? formatDistanceToNow(new Date(currentRequest.articleGenerationTime), { addSuffix: true })
                     : "Not scheduled"}
                 </p>
               </div>
