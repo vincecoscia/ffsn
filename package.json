@@ -24,6 +24,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/themes": "^3.2.1",
+    "@sendgrid/mail": "^8.1.5",
     "@stripe/stripe-js": "^7.6.1",
     "@tailwindcss/typography": "^0.5.16",
     "class-variance-authority": "^0.7.1",

@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 export const getCurrentUser = query({
@@ -129,9 +130,86 @@ export const updatePreferences = mutation({
     
     if (!user) throw new Error("User not found");
     
+    const oldPreferences = user.preferences;
+    
     await ctx.db.patch(user._id, {
       preferences: args.preferences,
       lastActiveAt: Date.now(),
     });
+
+    // If email notification preference changed, update SendGrid suppression list
+    if (oldPreferences?.emailNotifications !== args.preferences.emailNotifications) {
+      try {
+        await ctx.scheduler.runAfter(0, internal.emailService.updateEmailPreferences, {
+          userId: user._id,
+          emailNotifications: args.preferences.emailNotifications,
+        });
+      } catch (error) {
+        console.error("Failed to schedule SendGrid preferences update:", error);
+        // Don't throw here - we still want to save the local preference
+      }
+    }
+  },
+});
+
+// Get user preferences by Clerk ID (for the frontend)
+export const getUserPreferences = query({
+  args: {
+    clerkId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+    
+    return user;
+  },
+});
+
+// Update user preferences by Clerk ID (for the frontend)
+export const updateUserPreferences = mutation({
+  args: {
+    clerkId: v.string(),
+    preferences: v.object({
+      emailNotifications: v.optional(v.boolean()),
+      favoriteTeam: v.optional(v.string()),
+      timezone: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+    
+    if (!user) throw new Error("User not found");
+    
+    const oldPreferences = user.preferences;
+    const newPreferences = {
+      ...oldPreferences,
+      ...args.preferences,
+      // Ensure emailNotifications is always a boolean
+      emailNotifications: args.preferences.emailNotifications ?? oldPreferences?.emailNotifications ?? true,
+    };
+    
+    await ctx.db.patch(user._id, {
+      preferences: newPreferences,
+      lastActiveAt: Date.now(),
+    });
+
+    // If email notification preference changed, update SendGrid suppression list
+    if (args.preferences.emailNotifications !== undefined && 
+        oldPreferences?.emailNotifications !== args.preferences.emailNotifications) {
+      try {
+        await ctx.scheduler.runAfter(0, internal.emailService.updateEmailPreferences, {
+          userId: user._id,
+          emailNotifications: args.preferences.emailNotifications,
+        });
+      } catch (error) {
+        console.error("Failed to schedule SendGrid preferences update:", error);
+        // Don't throw here - we still want to save the local preference
+      }
+    }
   },
 });

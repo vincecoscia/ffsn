@@ -7,7 +7,7 @@ import { Id } from "../../convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { MessageSquare, Clock, AlertCircle, ChevronRight } from "lucide-react";
+import { MessageSquare, Clock, ChevronRight } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import CommentConversation from "./CommentConversation";
 import { cn } from "@/lib/utils";

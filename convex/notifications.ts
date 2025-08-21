@@ -355,15 +355,15 @@ export const sendCommentRequest = internalAction({
     // Generate contextual title based on article type
     const getNotificationTitle = (articleType: string, leagueName: string) => {
       const articleTypeMap: Record<string, string> = {
-        'weekly_recap': `Weekly recap for ${leagueName}`,
-        'trade_analysis': `Trade analysis for ${leagueName}`,
-        'waiver_wire_report': `Waiver wire insights for ${leagueName}`,
-        'power_rankings': `Power rankings for ${leagueName}`,
-        'draft_rankings': `Draft recap for ${leagueName}`,
-        'matchup_preview': `Matchup preview for ${leagueName}`,
+        'weekly_recap': `Weekly recap for the ${leagueName}`,
+        'trade_analysis': `Trade analysis for the ${leagueName}`,
+        'waiver_wire_report': `Waiver wire insights for the ${leagueName}`,
+        'power_rankings': `Power rankings for the ${leagueName}`,
+        'draft_rankings': `Draft recap for the ${leagueName}`,
+        'matchup_preview': `Matchup preview for the ${leagueName}`,
       };
       
-      return articleTypeMap[articleType] || `Article feedback for ${leagueName}`;
+      return articleTypeMap[articleType] || `Article feedback for the ${leagueName}`;
     };
 
     // Create in-app notification
@@ -378,9 +378,34 @@ export const sendCommentRequest = internalAction({
       relatedEntityType: "comment_request",
       relatedEntityId: args.commentRequestId,
       priority: "medium",
-      deliveryChannels: ["in_app"],
+      deliveryChannels: ["in_app", "email"],
       expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
     });
+
+    // Send email notification
+    const baseUrl = process.env.SITE_URL || "https://ffsn.ai";
+    const commentRequestUrl = `${baseUrl}/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`;
+    const unsubscribeUrl = `${baseUrl}/dashboard/settings/notifications`;
+
+    try {
+      await ctx.scheduler.runAfter(0, internal.emailService.sendCommentRequestEmail, {
+        userId: args.userId,
+        commentRequestId: args.commentRequestId,
+        leagueId: args.leagueId,
+        templateData: {
+          userName: "User", // We'll get this from the user record in the email service
+          leagueName: args.leagueName,
+          articleType: getNotificationTitle(args.articleType, args.leagueName),
+          week: undefined, // TODO: Extract from context if needed
+          commentRequestUrl,
+          unsubscribeUrl,
+        },
+      });
+      console.log(`Scheduled email notification for comment request to user ${args.userId}`);
+    } catch (emailError) {
+      console.error(`Failed to schedule email notification to user ${args.userId}:`, emailError);
+      // Don't fail the entire operation if email fails
+    }
 
     console.log(`Created comment request notification for user ${args.userId}`);
   },

@@ -1519,4 +1519,30 @@ export default defineSchema({
   })
     .index("by_user", ["userId"]),
 
+  // Email queue and logs for tracking sent emails and debugging
+  emailLogs: defineTable({
+    userId: v.union(v.id("users"), v.literal("system")), // Support system emails
+    email: v.string(),
+    templateType: v.string(), // "comment_request", "reminder", etc.
+    templateId: v.string(), // SendGrid template ID
+    messageId: v.string(), // SendGrid message ID or "queued"
+    status: v.union(
+      v.literal("queued"), 
+      v.literal("sent"), 
+      v.literal("error"), 
+      v.literal("bounced"), 
+      v.literal("delivered")
+    ),
+    error: v.optional(v.string()),
+    relatedEntityType: v.optional(v.string()),
+    relatedEntityId: v.optional(v.string()), // Also used to store template data temporarily
+    sentAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_status", ["status"])
+    .index("by_template_type", ["templateType"])
+    .index("by_sent_date", ["sentAt"])
+    .index("by_related_entity", ["relatedEntityType", "relatedEntityId"]),
+
 });
