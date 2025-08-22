@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { 
   Zap, 
   Users, 
@@ -15,13 +16,17 @@ import {
   Star,
   TrendingUp,
   Brain,
-  Globe
+  Globe,
+  Menu,
+  LayoutDashboard
 } from "lucide-react";
+import { useState } from "react";
 // import { useAuthSync } from "@/hooks/use-auth-sync";
 
 export default function Home() {
   // useAuthSync(); // Ensure user is synced between Clerk and Convex
   const basePrice = 99.99;
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900 relative overflow-hidden">
@@ -52,25 +57,27 @@ export default function Home() {
                 <p className="text-xs text-red-300 hidden sm:block">Fantasy Sports Network</p>
               </div>
             </div>
+            
+            {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-8 text-gray-300">
               <Link href="#features" className="hover:text-white transition-colors">Features</Link>
               <Link href="#pricing" className="hover:text-white transition-colors">Pricing</Link>
               <Link href="#about" className="hover:text-white transition-colors">About</Link>
             </nav>
-            <div>
+            
+            {/* Desktop Auth Buttons */}
+            <div className="hidden md:block">
               <SignedOut>
                 <div className="flex gap-2 sm:gap-3">
                   <SignInButton>
                     <Button variant="ghost" className="text-gray-300 hover:text-white hover:bg-white/10 text-sm sm:text-base px-3 sm:px-4">
-                      <span className="hidden sm:inline">Sign In</span>
-                      <span className="sm:hidden">In</span>
+                      Sign In
                     </Button>
                   </SignInButton>
                   <SignUpButton>
                     <Button className="bg-red-600 hover:bg-red-700 shadow-lg text-sm sm:text-base px-3 sm:px-4">
-                      <Sparkles className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline">Join Beta</span>
-                      <span className="sm:hidden">Start</span>
+                      <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                      Join Beta
                     </Button>
                   </SignUpButton>
                 </div>
@@ -79,14 +86,106 @@ export default function Home() {
                 <div className="flex items-center gap-2 sm:gap-4">
                   <Link href="/dashboard">
                     <Button variant="ghost" className="text-gray-300 hover:text-white hover:bg-white/10 text-sm sm:text-base px-3 sm:px-4">
-                      <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
-                      <span className="hidden sm:inline ml-2">Dashboard</span>
-                      <span className="sm:hidden">Dash</span>
+                      <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                      Dashboard
                     </Button>
                   </Link>
                   <UserButton />
                 </div>
               </SignedIn>
+            </div>
+            
+            {/* Mobile User + Hamburger */}
+            <div className="md:hidden flex items-center gap-2">
+              <SignedIn>
+                <UserButton />
+              </SignedIn>
+              <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+                <SheetTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-gray-300 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-all duration-200"
+                  >
+                    <Menu className="h-6 w-6" />
+                    <span className="sr-only">Open navigation menu</span>
+                  </Button>
+                </SheetTrigger>
+                <SheetContent 
+                  side="right" 
+                  className="bg-gradient-to-b from-gray-900/98 via-gray-900/95 to-gray-800/95 backdrop-blur-xl border-l border-gray-700/50 w-80 p-0"
+                >
+                  <SheetHeader className="px-6 py-6 border-b border-gray-700/30">
+                    <SheetTitle className="text-white text-xl font-bold flex items-center gap-3">
+                      <div className="p-2 bg-red-600/20 rounded-lg">
+                        <img
+                          src="/FFSN.png"
+                          alt="FFSN Logo"
+                          className="h-6 w-auto"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        FFSN
+                        <Badge className="bg-orange-600/20 text-orange-300 border-orange-600/30 text-xs px-2 py-0.5">
+                          BETA
+                        </Badge>
+                      </div>
+                    </SheetTitle>
+                  </SheetHeader>
+                  
+                  <div className="flex flex-col h-full px-6">
+                    {/* Mobile Auth Section - Now Primary */}
+                    <div className="py-8">
+                      <SignedOut>
+                        <div className="rounded-xl border border-gray-700/40 bg-white/5 backdrop-blur-sm p-4 shadow-sm">
+                          <div className="flex flex-col gap-3">
+                            <SignUpButton>
+                              <Button
+                                size="lg"
+                                className="w-full h-12 bg-red-600 hover:bg-red-700 text-white shadow-md"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                              >
+                                <Sparkles className="h-5 w-5" />
+                                Join Beta
+                              </Button>
+                            </SignUpButton>
+                            <div className="flex items-center gap-3 px-1">
+                              <div className="h-px bg-gray-700/50 flex-1" />
+                              <span className="text-xs text-gray-500">or</span>
+                              <div className="h-px bg-gray-700/50 flex-1" />
+                            </div>
+                            <SignInButton>
+                              <Button
+                                variant="outline"
+                                size="lg"
+                                className="w-full h-12 border-gray-700/60 text-gray-200 hover:text-white"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                              >
+                                <Users className="h-5 w-5" />
+                                Sign In
+                              </Button>
+                            </SignInButton>
+                          </div>
+                        </div>
+                      </SignedOut>
+                      <SignedIn>
+                        <div className="flex flex-col gap-4">
+                          <Link href="/dashboard" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button 
+                              variant="outline"
+                              size="lg"
+                              className="w-full h-12 border-gray-700/60 text-gray-200 hover:text-white"
+                            >
+                              <LayoutDashboard className="h-5 w-5" />
+                              Dashboard
+                            </Button>
+                          </Link>
+                        </div>
+                      </SignedIn>
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </div>
           </div>
         </div>
