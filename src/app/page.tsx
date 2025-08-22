@@ -98,11 +98,11 @@ export default function Home() {
           <div className="max-w-5xl mx-auto">
             <div className="mb-6 sm:mb-8 flex flex-col items-center gap-3 sm:gap-4">
               <Badge className="bg-orange-600/20 text-orange-300 border-orange-600/30 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold">
-                🚀 NOW IN BETA - USE CODE &quot;BETA50&quot; FOR 50% OFF DURING CHECKOUT
+                🚀 NOW IN BETA
               </Badge>
               <Badge className="bg-red-600/20 text-red-300 border-red-600/30 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm">
                 <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-                Powered by Advanced AI
+                USE CODE &quot;BETA50&quot; FOR 50% OFF
               </Badge>
             </div>
             
