@@ -146,10 +146,25 @@ export class ConversationService {
       try {
         const { systemPrompt, userPrompt } = this.buildConversationPrompts(context);
         
+        // Log token usage for monitoring
+        const systemTokens = this.estimateTokens(systemPrompt);
+        const userTokens = this.estimateTokens(userPrompt);
+        const totalInputTokens = systemTokens + userTokens;
+        
+        if (totalInputTokens > 15000) {
+          console.warn(`Very high token usage detected: ${totalInputTokens} estimated input tokens`, {
+            systemTokens,
+            userTokens,
+            conversationLength: context.conversationHistory?.length || 0
+          });
+        } else if (totalInputTokens > 10000) {
+          console.log(`High token usage: ${totalInputTokens} estimated input tokens for conversation prevention`);
+        }
+        
         // Use structured output for better control
         const response = await anthropic.messages.create({
           model: this.modelConfig.primary,
-          max_tokens: 1000,
+          max_tokens: 2000, // Increased to handle more complex reasoning
           temperature: 0.7,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
@@ -271,7 +286,7 @@ Return your analysis as structured data.`;
       try {
         const response = await anthropic.messages.create({
           model: this.modelConfig.primary,
-          max_tokens: 1000,
+          max_tokens: 1500, // Increased for more detailed analysis
           temperature: 0.3,
           system: "You are an expert at analyzing user responses for fantasy football content generation. Focus on identifying quotable content and assessing relevance. Return structured JSON data.",
           messages: [{ role: 'user', content: analysisPrompt }],
@@ -353,6 +368,14 @@ CRITICAL RULES:
 5. If user tries to chat or ask you questions, politely redirect to getting their input
 6. End conversations naturally after getting good quotes (1-3 exchanges max)
 7. NEVER make assumptions about player status - use ONLY the provided data about players (especially rookie status)
+8. NEVER repeat questions about topics already covered in the conversation
+9. If you have sufficient quotable material, set shouldEndAfterResponse: true
+
+CONVERSATION FLOW:
+- Initial question: Broad but specific to their situation
+- Follow-up 1: Dig deeper into something specific they mentioned
+- Follow-up 2 (if needed): Explore one remaining unexplored aspect
+- End: After 2-3 quality exchanges or when you have enough material
 
 CONVERSATION STYLE:
 - Casual but focused, like a reporter doing a quick interview
@@ -368,7 +391,9 @@ ANTI-PATTERNS TO AVOID:
 - Responding to off-topic comments
 - Continuing conversation after getting good quotes
 - Making incorrect assumptions about players (e.g., calling veterans "rookies")
-- Repeating similar questions already asked in the conversation`;
+- Repeating similar questions already asked in the conversation
+- Asking about the same topic with different wording
+- Dragging out conversations beyond 3-4 total exchanges`;
 
     const userPrompt = this.buildUserPrompt(context, isInitialMessage);
     
@@ -633,25 +658,44 @@ Focus on getting their unique perspective and quotable insights for the article.
       // Follow-up message based on conversation history
       const lastUserMessage = conversationHistory?.filter(m => m.role === 'user').pop();
       const allUserMessages = conversationHistory?.filter(m => m.role === 'user') || [];
+      const allAIMessages = conversationHistory?.filter(m => m.role === 'ai') || [];
       
-      // Build context about what's already been discussed
-      const discussedTopics = allUserMessages.map(msg => msg.content).join(' ');
+      // Extract specific topics and questions that have already been covered
+      const discussedTopics = this.extractDiscussedTopics(allUserMessages, allAIMessages, context);
+      // Include all AI questions to prevent repetition
+      const allAIQuestions = allAIMessages.map(msg => msg.content).join('\n\n');
+      
+      // Check if we should end the conversation
+      const shouldConsiderEnding = allUserMessages.length >= 2 || 
+        (lastUserMessage && lastUserMessage.content.length > 100 && discussedTopics.length >= 3);
       
       let followUpPrompt = `Generate a follow-up question based on the conversation history.
       
-Previous user response: "${lastUserMessage?.content}"
+Previous user response: "${lastUserMessage?.content || 'None'}"
 Team: ${teamPerformance.teamName}
 Context: ${contentType.replace('_', ' ')} for Week ${week}
-Total messages exchanged: ${conversationHistory?.length || 0}
+Total user responses: ${allUserMessages.length}
+Total conversation exchanges: ${Math.floor((conversationHistory?.length || 0) / 2)}
 
-Already discussed topics: ${discussedTopics.substring(0, 500)}...
+TOPICS ALREADY COVERED (DO NOT REPEAT):
+${discussedTopics.map(topic => `- ${topic}`).join('\n')}
+
+ALL PREVIOUS AI QUESTIONS (AVOID SIMILAR PHRASING):
+${allAIQuestions}
+
+${shouldConsiderEnding ? `
+IMPORTANT: This conversation has ${allUserMessages.length} user responses. Consider if we have enough quotable material to end naturally. Only continue if the user's last response was incomplete or if there's a specific detail worth exploring further.
+
+If the user has provided substantial insights about their team/strategy, you should set shouldEndAfterResponse: true to end the conversation gracefully.
+` : ''}
 
 Create a follow-up that:
-1. Digs deeper into something specific they mentioned in their last response
-2. Asks for more detail on a decision or player they referenced
+1. Digs deeper into something NEW and specific they mentioned in their last response
+2. Asks for more detail on a decision or player they referenced (but haven't already discussed)
 3. Stays focused on getting quotable content for the article
-4. AVOIDS repeating questions about topics already covered
-5. Considers ending the conversation if we have enough good material (2-3 quality exchanges)`;
+4. COMPLETELY AVOIDS repeating questions about topics already covered above
+5. Uses different wording and approach than previous AI questions
+6. ${shouldConsiderEnding ? 'STRONGLY considers ending the conversation if we have sufficient material' : 'Explores new aspects of their team/strategy'}`;
 
       // Add draft-specific context for follow-ups if available
       if ((contentType === 'draft_rankings' || contentType === 'mock_draft') && context.draftData?.userDraftPicks) {
@@ -671,6 +715,100 @@ CRITICAL: Use accurate rookie status from the data above. Do NOT assume any play
   private getTeamStanding(teamId: string, standings: Array<{ teamId: string; rank: number; record: string }>): string {
     const standing = standings.find(s => s.teamId === teamId);
     return standing ? `#${standing.rank} (${standing.record})` : 'Unknown';
+  }
+
+  private extractDiscussedTopics(
+    userMessages: Array<{ content: string }>, 
+    aiMessages: Array<{ content: string }>, 
+    context: ConversationContext
+  ): string[] {
+    const topics: Set<string> = new Set();
+    
+    // Extract topics from user messages
+    userMessages.forEach(msg => {
+      const content = msg.content.toLowerCase();
+      
+      // Check for player mentions
+      if (context.draftData?.userDraftPicks) {
+        context.draftData.userDraftPicks.forEach(pick => {
+          if (content.includes(pick.playerName.toLowerCase())) {
+            topics.add(`${pick.playerName} (${pick.playerPosition})`);
+          }
+        });
+      }
+      
+      // Check for strategy mentions
+      if (content.includes('rookie') || content.includes('young')) {
+        topics.add('rookie/young player strategy');
+      }
+      if (content.includes('veteran') || content.includes('experienced')) {
+        topics.add('veteran player strategy');
+      }
+      if (content.includes('draft') && (content.includes('strategy') || content.includes('approach'))) {
+        topics.add('overall draft strategy');
+      }
+      if (content.includes('value') || content.includes('reach')) {
+        topics.add('draft value and reaches');
+      }
+      if (content.includes('trade')) {
+        topics.add('trade considerations');
+      }
+      if (content.includes('waiver') || content.includes('pickup')) {
+        topics.add('waiver wire strategy');
+      }
+      if (content.includes('lineup') || content.includes('start') || content.includes('sit')) {
+        topics.add('lineup decisions');
+      }
+    });
+    
+    // Extract topics from AI questions to understand what was asked about
+    aiMessages.forEach(msg => {
+      const content = msg.content.toLowerCase();
+      
+      // Draft strategy topics
+      if (content.includes('rookie') || content.includes('first-year')) {
+        topics.add('rookie/first-year player strategy');
+      }
+      if (content.includes('veteran') || content.includes('experienced') || content.includes('proven')) {
+        topics.add('veteran/experienced player strategy');
+      }
+      if (content.includes('young') && (content.includes('player') || content.includes('talent'))) {
+        topics.add('young player preferences');
+      }
+      if (content.includes('draft') && (content.includes('strategy') || content.includes('approach') || content.includes('philosophy'))) {
+        topics.add('overall draft strategy/approach');
+      }
+      if (content.includes('value') || content.includes('reach') || content.includes('adp')) {
+        topics.add('draft value and reaches');
+      }
+      if (content.includes('position') && content.includes('draft')) {
+        topics.add('draft position strategy');
+      }
+      
+      // Performance topics
+      if (content.includes('performance') || content.includes('production')) {
+        topics.add('player performance discussion');
+      }
+      if (content.includes('disappointment') || content.includes('underperform')) {
+        topics.add('player disappointments');
+      }
+      if (content.includes('surprise') || content.includes('overperform')) {
+        topics.add('player surprises');
+      }
+      
+      // Decision topics
+      if (content.includes('decision') || content.includes('choice')) {
+        topics.add('decision-making process');
+      }
+      if (content.includes('regret') || content.includes('mistake')) {
+        topics.add('regrets and mistakes');
+      }
+      if (content.includes('confident') || content.includes('proud')) {
+        topics.add('confident decisions');
+      }
+    });
+    
+    return Array.from(topics);
   }
 
   private detectAbusePatterns(context: ConversationContext): AIConversationResult['detectedAbuse'] {
@@ -872,6 +1010,11 @@ CRITICAL: Use accurate rookie status from the data above. Do NOT assume any play
     const hasVagueLanguage = vagueIndicators.some(phrase => response.toLowerCase().includes(phrase));
     
     return hasVagueLanguage;
+  }
+
+  private estimateTokens(text: string): number {
+    // Rough estimation: ~4 characters per token for English text
+    return Math.ceil(text.length / 4);
   }
 
   private generateSuggestedFollowUps(response: string, context: ConversationContext): string[] {

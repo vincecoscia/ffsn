@@ -12,6 +12,7 @@ export interface CommentResponseData {
     qualityScore: number;
     extractedQuotes?: string[];
     keyInsights?: string[];
+    suggestedUsage?: string;
   };
 }
 
@@ -50,7 +51,9 @@ export function formatCommentsForPrompt(context: CommentIntegrationContext): str
     sections.push(`## ${typeLabel}:`);
     
     responses.forEach(response => {
-      sections.push(`\n**${response.userName || "Anonymous"} (${response.teamName || "Unknown Team"}):**`);
+      // Include question context in the header
+      const questionContext = response.relevanceMetadata.suggestedUsage || "about their team";
+      sections.push(`\n**${response.userName || "Anonymous"} (${response.teamName || "Unknown Team"}) - ${questionContext}:**`);
       
       // Use extracted quotes if available, otherwise use processed response
       if (response.relevanceMetadata.extractedQuotes && response.relevanceMetadata.extractedQuotes.length > 0) {
@@ -66,9 +69,9 @@ export function formatCommentsForPrompt(context: CommentIntegrationContext): str
         sections.push(quotedResponse);
       }
 
-      // Add key insights if available
+      // Add key insights if available (these now contain question contexts)
       if (response.relevanceMetadata.keyInsights && response.relevanceMetadata.keyInsights.length > 0) {
-        sections.push("\n*Key insights:* " + response.relevanceMetadata.keyInsights.join(", "));
+        sections.push("\n*Question topics:* " + response.relevanceMetadata.keyInsights.join(", "));
       }
     });
     sections.push("");
@@ -86,10 +89,13 @@ export function getCommentIntegrationInstructions(contentType: string): string {
   const baseInstructions = `
 IMPORTANT: You have been provided with actual comments from league members. You MUST:
 1. Reference and quote these comments naturally throughout the article
-2. Use member names when attributing quotes (e.g., "As John from Team Destroyers noted...")
-3. Weave their insights into your narrative - don't just list them
-4. Respond to their opinions and build upon their observations
-5. Create a conversational feel by acknowledging different viewpoints
+2. ALWAYS use member names when attributing quotes (e.g., "As John from Team Destroyers noted...")
+3. ALWAYS provide context about what question or topic prompted their response
+4. Weave their insights into your narrative - don't just list them
+5. Respond to their opinions and build upon their observations
+6. Create a conversational feel by acknowledging different viewpoints
+7. NEVER quote someone without their name - anonymous quotes are forbidden
+8. Include the general topic/question context (e.g., "When asked about their draft strategy", "Regarding their Week 5 performance")
 `;
 
   const typeSpecificInstructions: Record<string, string> = {
@@ -131,10 +137,13 @@ For draft rankings:
 - Quote their draft strategy explanations while analyzing their picks
 - Include their reactions to specific draft selections (both pride and regret)
 - Use their comments to explain reasoning behind controversial picks
-- Structure each team analysis: "[AI analysis of pick] When asked about [specific topic], [Manager] said: '[EXACT QUOTE]' [AI's snarky response]"
+- MANDATORY FORMAT: "[AI analysis of pick] When asked about [SPECIFIC QUESTION/TOPIC], [MANAGER'S FULL NAME] said: '[EXACT QUOTE]' [AI's snarky response]"
+- NEVER use generic phrases like "When asked" - be specific: "When asked about their early RB strategy", "Regarding their Mahomes pick", "About their bench depth approach"
+- ALWAYS include the manager's full name, never just "the manager" or anonymous references
 - Make the comments feel like a natural conversation between the AI and team managers
 - Use their quotes to add authenticity to draft day stories and decision-making
 - Reference their comments when discussing team construction and strategy
+- Provide clear context for what prompted each quote so readers understand the conversation flow
 `,
   };
 

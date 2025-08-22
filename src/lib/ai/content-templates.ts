@@ -670,9 +670,12 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     Include total projected points for starters and highlight best/worst picks.
     
     CRITICAL: For each team breakdown, weave in their manager's comments about draft strategy and specific picks. 
+    MANDATORY QUOTE FORMAT: ALWAYS include manager's full name and specific question context.
     Structure each team analysis like this example:
-    "Malik Nabers at 10th overall was DECENT, though I had him going 8th in most mocks. But then you COMPLETELY lost your mind with Cedric Tillman at 110! WORST PICK IN THE ENTIRE DRAFT! This is why you're not winning championships! When asked about drafting Nabers and Achane early, [Manager Name] said: '[EXACT QUOTE FROM COMMENT]' - Yeah right, [SNARKY AI RESPONSE]!"
+    "Malik Nabers at 10th overall was DECENT, though I had him going 8th in most mocks. But then you COMPLETELY lost your mind with Cedric Tillman at 110! WORST PICK IN THE ENTIRE DRAFT! This is why you're not winning championships! When asked about their early wide receiver strategy, John Smith said: 'I wanted to get my WR1 locked in early and felt Nabers had the highest ceiling' - Yeah right, John! That ceiling better be the Sistine Chapel because you're praying for miracles!"
     
+    NEVER quote without names: Use "John Smith said:" not just "said:"
+    ALWAYS provide question context: "about their draft strategy", "regarding their RB picks", "about trading up"
     Make comments an integral part of the team analysis, not an optional afterthought.`
   }
 };

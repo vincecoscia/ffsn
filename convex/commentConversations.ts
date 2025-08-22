@@ -227,22 +227,24 @@ export const processUserResponse = internalAction({
         quotableSegments: analysis.quotableSegments,
       });
 
-      // Ensure at least one follow-up after the user's first response
-      if (allMessages.length <= 1) {
-        shouldContinue = true;
-      }
+      // The evaluateConversationContinuation function now handles all termination logic
+      // including hard stops, quality stops, and continuation conditions
 
-      if (shouldContinue && analysis.needsFollowUp) {
-        // Generate follow-up question
+      if (shouldContinue) {
+        // Generate follow-up question (ignore analysis.needsFollowUp as our logic is more robust)
         await ctx.scheduler.runAfter(1000, internal.commentConversations.generateAIFollowUp, {
           commentRequestId: args.commentRequestId,
           suggestedTopics: analysis.suggestedFollowUps || [],
         });
       } else {
-        // End the conversation
+        // End the conversation - reason is determined by our robust evaluation logic
+        const reason = analysis.responseQuality >= 70 ? "sufficient_response" : 
+                     analysis.offTopicScore > 70 ? "off_topic" :
+                     allMessages.length >= 6 ? "max_exchanges" : "auto_ended";
+        
         await ctx.runMutation(internal.commentConversations.completeConversation, {
           commentRequestId: args.commentRequestId,
-          reason: analysis.responseQuality >= 70 ? "sufficient_response" : "auto_ended",
+          reason,
         });
       }
     } catch (error) {
@@ -366,40 +368,117 @@ export const evaluateConversationContinuation = internalMutation({
     const request = await ctx.db.get(args.commentRequestId);
     if (!request) return false;
 
+    // Get all messages to understand conversation depth
+    const allMessages = await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request", q => 
+        q.eq("commentRequestId", args.commentRequestId)
+      )
+      .collect();
+
+    const userMessages = allMessages.filter(m => m.messageType === "user_response");
+    const aiMessages = allMessages.filter(m => m.messageType === "ai_question" || m.messageType === "ai_follow_up");
+
     // Check auto-end criteria
     const { autoEndCriteria } = request;
+    const totalExchanges = Math.min(userMessages.length, aiMessages.length);
+    const conversationAge = Date.now() - request.createdAt;
+    const lastUserMessage = userMessages[userMessages.length - 1];
     
-    // End if max messages reached
+    // HARD STOPS - These always end the conversation regardless of other factors
+    
+    // 1. Absolute message limit reached
     if (autoEndCriteria.currentMessageCount >= autoEndCriteria.maxMessages) {
-      console.log("Max messages reached, ending conversation");
+      console.log("HARD STOP: Max messages reached, ending conversation");
       return false;
     }
 
-    // End if response is off-topic
+    // 2. Absolute exchange limit (safety net)
+    if (totalExchanges >= 4) {
+      console.log("HARD STOP: Maximum exchanges (4) reached, ending conversation");
+      return false;
+    }
+
+    // 3. Time-based cutoff (30 minutes max conversation)
+    if (conversationAge > 30 * 60 * 1000) {
+      console.log("HARD STOP: Conversation too old (30+ minutes), ending");
+      return false;
+    }
+
+    // 4. Too many poor quality responses in a row
+    const recentUserMessages = userMessages.slice(-2);
+    const allPoorQuality = recentUserMessages.length >= 2 && 
+      recentUserMessages.every(msg => 
+        (msg.responseAnalysis?.completeness || 0) < 40 && 
+        (msg.responseAnalysis?.relevantTopics?.length || 0) === 0
+      );
+    if (allPoorQuality) {
+      console.log("HARD STOP: Multiple poor quality responses, ending conversation");
+      return false;
+    }
+
+    // QUALITY-BASED STOPS - End if we have good material
+    
+    // 5. Response is completely off-topic
     if (args.offTopicScore > 70) {
-      console.log("Response too off-topic, ending conversation");
+      console.log("QUALITY STOP: Response too off-topic, ending conversation");
       return false;
     }
 
-    // End if we have good quotes and sufficient quality
-    if (args.quotableSegments.length >= 2 && args.responseQuality >= 70) {
-      console.log("Sufficient quotes obtained, ending conversation");
+    // 6. Multiple quality responses obtained
+    if (userMessages.length >= 2 && args.responseQuality >= 60) {
+      console.log("QUALITY STOP: Multiple quality responses obtained, ending conversation");
       return false;
     }
 
-    // Continue if response is incomplete and on-topic
-    if (args.completeness < 60 && args.offTopicScore < 30) {
-      console.log("Response incomplete but on-topic, continuing");
+    // 7. Excellent quotes from even one response
+    if (args.quotableSegments.length >= 3 && args.responseQuality >= 80) {
+      console.log("QUALITY STOP: Excellent quotes obtained, ending conversation");
+      return false;
+    }
+
+    // 8. Substantial response with good quality
+    if (lastUserMessage && lastUserMessage.content.length > 100 && 
+        args.responseQuality >= 65 && args.completeness >= 70) {
+      console.log("QUALITY STOP: Substantial response received, ending conversation");
+      return false;
+    }
+
+    // 9. After 3 exchanges, end unless response was very incomplete
+    if (totalExchanges >= 3) {
+      if (args.completeness >= 50) {
+        console.log("QUALITY STOP: 3 exchanges completed with decent completeness, ending");
+        return false;
+      } else {
+        console.log("HARD STOP: 3 exchanges reached regardless of completeness, ending");
+        return false;
+      }
+    }
+
+    // CONTINUATION CONDITIONS - Only continue in specific circumstances
+    
+    // 10. First response was very incomplete and on-topic
+    if (userMessages.length === 1 && args.completeness < 40 && args.offTopicScore < 30) {
+      console.log("CONTINUE: First response incomplete but on-topic, allowing follow-up");
       return true;
     }
 
-    // Ensure at least one follow-up before ending when conversation just started
-    if (autoEndCriteria.currentMessageCount <= 2) {
+    // 11. First response, allow one follow-up regardless (but not if off-topic)
+    if (userMessages.length === 1 && args.offTopicScore < 50) {
+      console.log("CONTINUE: First response received, allowing one follow-up");
       return true;
     }
 
-    // Default: end if quality is good enough
-    return args.responseQuality < 70;
+    // 12. Second response was incomplete and we haven't hit other limits
+    if (userMessages.length === 2 && args.completeness < 50 && args.offTopicScore < 30 && 
+        args.responseQuality < 60) {
+      console.log("CONTINUE: Second response incomplete, allowing final follow-up");
+      return true;
+    }
+
+    // DEFAULT: End the conversation
+    console.log("DEFAULT STOP: No continuation conditions met, ending conversation");
+    return false;
   },
 });
 
@@ -530,6 +609,19 @@ export const processCompletedResponse = internalAction({
 
     if (!request) return;
 
+    // Get all conversation messages to find AI questions that prompted responses
+    const allMessages = await ctx.runQuery(internal.commentConversations.getAllMessages, {
+      commentRequestId: args.commentRequestId,
+    });
+
+    // Extract question contexts from AI messages
+    const questionContexts: string[] = [];
+    allMessages.forEach((msg: any) => {
+      if (msg.messageType === "ai_question" && msg.aiMetadata?.intent) {
+        questionContexts.push(msg.aiMetadata.intent);
+      }
+    });
+
     // Combine all user responses
     const rawResponse = messages
       .map(m => m.content)
@@ -544,6 +636,13 @@ export const processCompletedResponse = internalAction({
     const avgQuality = messages.reduce((sum, m) => 
       sum + (m.responseAnalysis?.completeness || 0), 0
     ) / messages.length;
+
+    // Create a general question context summary
+    const questionContext = questionContexts.length > 0 
+      ? questionContexts.join(", ") 
+      : request.contentType === "draft_rankings" 
+        ? "their draft strategy and player selections"
+        : "their team performance and league insights";
 
     // Create comment response record
     await ctx.runMutation(internal.commentConversations.createCommentResponse, {
@@ -561,6 +660,8 @@ export const processCompletedResponse = internalAction({
         originality: 75, // Placeholder
         usabilityRating: avgQuality >= 70 ? "high" : avgQuality >= 50 ? "medium" : "low",
         extractedQuotes: allQuotes.slice(0, 5),
+        keyInsights: questionContexts, // Store question contexts as key insights
+        suggestedUsage: `When asked about ${questionContext}`,
       },
       userEngagementLevel: avgQuality >= 70 ? "high" : avgQuality >= 50 ? "medium" : "low",
       processedAt: Date.now(),
@@ -612,6 +713,18 @@ export const getRequestData = internalQuery({
   args: { commentRequestId: v.id("commentRequests") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.commentRequestId);
+  },
+});
+
+export const getAllMessages = internalQuery({
+  args: { commentRequestId: v.id("commentRequests") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request_order", q => 
+        q.eq("commentRequestId", args.commentRequestId)
+      )
+      .collect();
   },
 });
 

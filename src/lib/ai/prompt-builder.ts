@@ -1513,7 +1513,10 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `- Don't group teams by grade (no "A+ teams", "B teams" sections) - analyze each team separately\n`;
     draftData += `- Use the provided team-by-team data with specific reasoning for each team's grade\n`;
     draftData += `- CRITICAL: If team manager comments are provided, INTEGRATE them directly into each team's breakdown\n`;
-    draftData += `- Structure team analysis: "[AI analysis of pick] When asked about [topic], [Manager] said: '[EXACT QUOTE]' [AI snarky response]"\n`;
+    draftData += `- MANDATORY QUOTE FORMAT: ALWAYS include the manager's name and question context when quoting\n`;
+    draftData += `- Structure team analysis: "[AI analysis of pick] When asked about [SPECIFIC QUESTION/TOPIC], [MANAGER NAME] said: '[EXACT QUOTE]' [AI snarky response]"\n`;
+    draftData += `- NEVER quote a player without including their name - use "John Smith said:" not just "said:"\n`;
+    draftData += `- ALWAYS provide context about what question prompted their response (e.g., "about their draft strategy", "about picking Mahomes early", "about their running back depth")\n`;
     draftData += `- Make comments feel like natural conversation between you and the managers, not an afterthought\n`;
     draftData += `- Use manager quotes to explain controversial picks, draft strategy, or team construction decisions\n`;
     draftData += `- Be critical of bad picks but give credit where due\n`;
