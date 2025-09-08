@@ -11,9 +11,27 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TeamLogo } from "@/components/TeamLogo";
 
 interface ScoresPageProps {
   params: Promise<{ id: string }>;
+}
+
+interface Player {
+  lineupSlotId: number;
+  espnId: number;
+  firstName?: string;
+  lastName?: string;
+  fullName: string;
+  position: string;
+  points: number;
+  projectedPoints?: number;
+  projectedStats?: Record<string, number>;
+}
+
+interface Roster {
+  appliedStatTotal: number;
+  players: Player[];
 }
 
 type SingleWeekScore = {
@@ -36,103 +54,143 @@ type TwoWeekScore = {
   isHome: boolean;
 };
 
+// Calculate projected score from roster data
+const calculateProjectedScore = (roster?: Roster): number => {
+  if (!roster || !roster.players) {
+    return 0;
+  }
+  
+  return roster.players
+    .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+    .reduce((total, player) => {
+      return total + (player.projectedPoints || 0);
+    }, 0);
+};
+
+// Calculate actual score from roster data
+const calculateActualScore = (roster?: Roster): number => {
+  if (!roster || !roster.players) {
+    return 0;
+  }
+  
+  return roster.players
+    .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+    .reduce((total, player) => {
+      return total + (player.points || 0);
+    }, 0);
+};
+
 export default function ScoresPage({ params }: ScoresPageProps) {
   const resolvedParams = React.use(params);
   const leagueId = resolvedParams.id as Id<"leagues">;
   const { userId } = useAuth();
-  
+
   const [selectedSeason, setSelectedSeason] = useState(2025);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
-  const [topScoresView, setTopScoresView] = useState<"all-time" | "season">("all-time");
+  const [topScoresView, setTopScoresView] = useState<"all-time" | "season">(
+    "all-time"
+  );
   const [scoreType, setScoreType] = useState<"single" | "twoWeek">("single");
-  const [scoreDirection, setScoreDirection] = useState<"highest" | "lowest">("highest");
-  
+  const [scoreDirection, setScoreDirection] = useState<"highest" | "lowest">(
+    "highest"
+  );
+
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
-  
+
   // Get available seasons for the league
   const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
-  
+
   // Extract season IDs and sort them in descending order
   const availableSeasons = React.useMemo(() => {
     if (!leagueSeasons) return undefined;
-    return leagueSeasons
-      .map(season => season.seasonId)
-      .sort((a, b) => b - a);
+    return leagueSeasons.map((season) => season.seasonId).sort((a, b) => b - a);
   }, [leagueSeasons]);
-  
+
   // Get current scoring period from ESPN data
   const currentWeek = league?.espnData?.currentScoringPeriod || 1;
-  
+
+  console.log("Current Week:", currentWeek);
+
   // Set selected week to current week if not set
   React.useEffect(() => {
     if (selectedWeek === null && currentWeek) {
       setSelectedWeek(currentWeek);
     }
   }, [currentWeek, selectedWeek]);
-  
+
   // Get teams for the selected season (for weekly view)
-  const teamsDataBySeason = useQuery(api.teams.getByLeagueAndSeason, { 
+  const teamsDataBySeason = useQuery(api.teams.getByLeagueAndSeason, {
     leagueId,
-    seasonId: selectedSeason 
+    seasonId: selectedSeason,
   });
-  
+
   // Get all teams for the league (for all-time view)
   const allTeamsData = useQuery(api.teams.getByLeague, { leagueId });
-  
-  const teams = React.useMemo(() => teamsDataBySeason || [], [teamsDataBySeason]);
-  
+
+  const teams = React.useMemo(
+    () => teamsDataBySeason || [],
+    [teamsDataBySeason]
+  );
+
   // Get matchups for the selected week
-  const matchups = useQuery(api.matchups.getByLeagueAndPeriod, {
-    leagueId,
-    seasonId: selectedSeason,
-    matchupPeriod: selectedWeek || currentWeek,
-  }) || [];
-  
+  const matchups =
+    useQuery(api.matchups.getByLeagueAndPeriod, {
+      leagueId,
+      seasonId: selectedSeason,
+      matchupPeriod: selectedWeek || currentWeek,
+    }) || [];
+
+  console.log("Matchups:", matchups);
+
   // Get top scores all time
-  const topScoresAllTime = useQuery(api.matchups.getTopScoresAllTime, {
-    leagueId,
-    limit: 10,
-    scoreType
-  }) || [];
-  
+  const topScoresAllTime =
+    useQuery(api.matchups.getTopScoresAllTime, {
+      leagueId,
+      limit: 10,
+      scoreType,
+    }) || [];
+
   // Get top scores by season
-  const topScoresBySeason = useQuery(api.matchups.getTopScoresBySeason, {
-    leagueId,
-    seasonId: selectedSeason,
-    limit: 10,
-    scoreType
-  }) || [];
-  
+  const topScoresBySeason =
+    useQuery(api.matchups.getTopScoresBySeason, {
+      leagueId,
+      seasonId: selectedSeason,
+      limit: 10,
+      scoreType,
+    }) || [];
+
   // Get lowest scores all time
-  const lowestScoresAllTime = useQuery(api.matchups.getLowestScoresAllTime, {
-    leagueId,
-    limit: 10,
-    scoreType
-  }) || [];
-  
+  const lowestScoresAllTime =
+    useQuery(api.matchups.getLowestScoresAllTime, {
+      leagueId,
+      limit: 10,
+      scoreType,
+    }) || [];
+
   // Get lowest scores by season
-  const lowestScoresBySeason = useQuery(api.matchups.getLowestScoresBySeason, {
-    leagueId,
-    seasonId: selectedSeason,
-    limit: 10,
-    scoreType
-  }) || [];
-  
+  const lowestScoresBySeason =
+    useQuery(api.matchups.getLowestScoresBySeason, {
+      leagueId,
+      seasonId: selectedSeason,
+      limit: 10,
+      scoreType,
+    }) || [];
+
   // Create a map for quick team lookup
   const teamMap = React.useMemo(() => {
-    const map = new Map<string, typeof teams[0]>();
-    teams.forEach(team => {
+    const map = new Map<string, (typeof teams)[0]>();
+    teams.forEach((team) => {
       map.set(team.externalId, team);
     });
     return map;
   }, [teams]);
-  
+
   // Create a season-aware map for all-time scores
   const allTeamsMap = React.useMemo(() => {
-    const map = new Map<string, Map<number, typeof teams[0]>>();
+    const map = new Map<string, Map<number, (typeof teams)[0]>>();
     if (allTeamsData) {
-      allTeamsData.forEach(team => {
+      allTeamsData.forEach((team) => {
         if (!map.has(team.externalId)) {
           map.set(team.externalId, new Map());
         }
@@ -145,8 +203,11 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   const getTeamByExternalId = (externalId: string) => {
     return teamMap.get(externalId) || null;
   };
-  
-  const getTeamByExternalIdAndSeason = (externalId: string, seasonId: number) => {
+
+  const getTeamByExternalIdAndSeason = (
+    externalId: string,
+    seasonId: number
+  ) => {
     const teamSeasons = allTeamsMap.get(externalId);
     if (teamSeasons) {
       return teamSeasons.get(seasonId) || null;
@@ -154,12 +215,12 @@ export default function ScoresPage({ params }: ScoresPageProps) {
     return null;
   };
 
-  const handleWeekChange = (direction: 'prev' | 'next') => {
+  const handleWeekChange = (direction: "prev" | "next") => {
     if (!selectedWeek) return;
-    
-    if (direction === 'prev' && selectedWeek > 1) {
+
+    if (direction === "prev" && selectedWeek > 1) {
       setSelectedWeek(selectedWeek - 1);
-    } else if (direction === 'next' && selectedWeek < 17) {
+    } else if (direction === "next" && selectedWeek < 17) {
       setSelectedWeek(selectedWeek + 1);
     }
   };
@@ -169,17 +230,13 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   }
 
   return (
-    <LeaguePageLayout 
-      leagueId={leagueId} 
-      currentUserId={userId}
-      title="Scores"
-    >
+    <LeaguePageLayout leagueId={leagueId} currentUserId={userId} title="Scores">
       <Tabs defaultValue="weekly" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="weekly">Weekly Scores</TabsTrigger>
           <TabsTrigger value="top-scores">Top Scores</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="weekly">
           {/* Controls */}
           <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
@@ -188,29 +245,33 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => handleWeekChange('prev')}
+                  onClick={() => handleWeekChange("prev")}
                   disabled={!selectedWeek || selectedWeek <= 1}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                
+
                 <div className="text-center">
-                  <h2 className="text-xl font-bold">Week {selectedWeek || currentWeek}</h2>
+                  <h2 className="text-xl font-bold">
+                    Week {selectedWeek || currentWeek}
+                  </h2>
                   {selectedWeek === currentWeek && (
-                    <Badge variant="secondary" className="mt-1">Current Week</Badge>
+                    <Badge variant="secondary" className="mt-1">
+                      Current Week
+                    </Badge>
                   )}
                 </div>
-                
+
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => handleWeekChange('next')}
+                  onClick={() => handleWeekChange("next")}
                   disabled={!selectedWeek || selectedWeek >= 17}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
-              
+
               <SeasonSelector
                 currentSeason={2025}
                 selectedSeason={selectedSeason}
@@ -227,84 +288,139 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 <TabsTrigger value="cards">Card View</TabsTrigger>
                 <TabsTrigger value="list">List View</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="cards">
                 {matchups.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No matchups available for this week.</p>
+                  <p className="text-gray-500 text-center py-8">
+                    No matchups available for this week.
+                  </p>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {matchups.map((matchup) => {
                       const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                       const awayTeam = getTeamByExternalId(matchup.awayTeamId);
-                      const isComplete = matchup.winner !== null;
+                      const isComplete = !!matchup.winner;
+                      console.log("Winner:", matchup.winner);
+                      console.log("Is Complete:", isComplete);
+
+                      // Calculate projected scores from roster data if available, otherwise use stored values
+                      const homeProjectedScore = matchup.homeRoster 
+                        ? calculateProjectedScore(matchup.homeRoster)
+                        : (matchup.homeProjectedScore || 0);
                       
+                      const awayProjectedScore = matchup.awayRoster 
+                        ? calculateProjectedScore(matchup.awayRoster)
+                        : (matchup.awayProjectedScore || 0);
+
+                      // Calculate actual scores from roster data if available, otherwise use stored values
+                      const homeActualScore = matchup.homeRoster 
+                        ? calculateActualScore(matchup.homeRoster)
+                        : matchup.homeScore;
+                      
+                      const awayActualScore = matchup.awayRoster 
+                        ? calculateActualScore(matchup.awayRoster)
+                        : matchup.awayScore;
+
                       return (
-                        <div key={matchup._id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div
+                          key={matchup._id}
+                          className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                        >
                           <div className="space-y-3">
                             {/* Away Team */}
-                            <div className={`flex items-center justify-between ${matchup.winner === 'away' ? 'font-bold' : ''}`}>
+                            <div
+                              className={`flex items-center justify-between ${matchup.winner === "away" ? "font-bold" : ""}`}
+                            >
                               <div className="flex items-center gap-3">
-                                {awayTeam?.logo && (
-                                  <img 
-                                    src={awayTeam.logo} 
-                                    alt={awayTeam.name}
+                              {(awayTeam?.logo || awayTeam?.customLogo) && (
+                                  <TeamLogo
+                                    teamId={awayTeam._id}
+                                    teamName={awayTeam.name}
+                                    espnLogo={awayTeam.logo}
+                                    customLogo={awayTeam.customLogo}
+                                    size="md"
                                     className="w-10 h-10 rounded"
                                   />
                                 )}
                                 <div>
-                                  <div className="font-medium">{awayTeam?.name || 'Unknown Team'}</div>
-                                  <div className="text-sm text-gray-500">{awayTeam?.owner}</div>
+                                  <div className="font-medium">
+                                    {awayTeam?.name || "Unknown Team"}
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    {awayTeam?.owner}
+                                  </div>
                                 </div>
                               </div>
                               <div className="text-right">
                                 <div className="text-xl font-bold">
-                                  {matchup.awayScore.toFixed(1)}
+                                  {isComplete
+                                    ? awayActualScore.toFixed(1)
+                                    : matchup.awayPointsByScoringPeriod?.[
+                                        matchup.matchupPeriod
+                                      ]?.toFixed(1) || awayActualScore.toFixed(1)}
                                 </div>
-                                {!isComplete && matchup.awayProjectedScore && (
+                                {!isComplete && awayProjectedScore > 0 && (
                                   <div className="text-xs text-gray-500">
-                                    Proj: {matchup.awayProjectedScore.toFixed(1)}
+                                    Proj:{" "}
+                                    {awayProjectedScore.toFixed(1)}
                                   </div>
                                 )}
                               </div>
                             </div>
-                            
+
                             <div className="border-t"></div>
-                            
+
                             {/* Home Team */}
-                            <div className={`flex items-center justify-between ${matchup.winner === 'home' ? 'font-bold' : ''}`}>
+                            <div
+                              className={`flex items-center justify-between ${matchup.winner === "home" ? "font-bold" : ""}`}
+                            >
                               <div className="flex items-center gap-3">
-                                {homeTeam?.logo && (
-                                  <img 
-                                    src={homeTeam.logo} 
-                                    alt={homeTeam.name}
+                                {(homeTeam?.logo || homeTeam?.customLogo) && (
+                                  <TeamLogo
+                                    teamId={homeTeam._id}
+                                    teamName={homeTeam.name}
+                                    espnLogo={homeTeam.logo}
+                                    customLogo={homeTeam.customLogo}
+                                    size="md"
                                     className="w-10 h-10 rounded"
                                   />
                                 )}
                                 <div>
-                                  <div className="font-medium">{homeTeam?.name || 'Unknown Team'}</div>
-                                  <div className="text-sm text-gray-500">{homeTeam?.owner}</div>
+                                  <div className="font-medium">
+                                    {homeTeam?.name || "Unknown Team"}
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    {homeTeam?.owner}
+                                  </div>
                                 </div>
                               </div>
                               <div className="text-right">
                                 <div className="text-xl font-bold">
-                                  {matchup.homeScore.toFixed(1)}
+                                  {isComplete
+                                    ? homeActualScore.toFixed(1)
+                                    : matchup.homePointsByScoringPeriod?.[
+                                        matchup.matchupPeriod
+                                      ]?.toFixed(1) || homeActualScore.toFixed(1)}
                                 </div>
-                                {!isComplete && matchup.homeProjectedScore && (
+                                {!isComplete && homeProjectedScore > 0 && (
                                   <div className="text-xs text-gray-500">
-                                    Proj: {matchup.homeProjectedScore.toFixed(1)}
+                                    Proj:{" "}
+                                    {homeProjectedScore.toFixed(1)}
                                   </div>
                                 )}
                               </div>
                             </div>
                           </div>
-                          
+
                           {/* Status Badge */}
                           <div className="mt-3 text-center">
-                            {isComplete ? (
-                              <Badge variant="secondary">Final</Badge>
-                            ) : (
-                              <Badge variant="default">In Progress</Badge>
-                            )}
+                          {isComplete && currentWeek === matchup.matchupPeriod ? (
+                                  <Badge variant="secondary">Final</Badge>
+                                  ) : currentWeek === matchup.matchupPeriod ? (
+                                  <Badge variant="default">In Progress</Badge>
+                                ) : (
+                                  <Badge variant="outline">Scheduled</Badge>
+                                )}
                           </div>
                         </div>
                       );
@@ -312,10 +428,12 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                   </div>
                 )}
               </TabsContent>
-              
+
               <TabsContent value="list">
                 {matchups.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No matchups available for this week.</p>
+                  <p className="text-gray-500 text-center py-8">
+                    No matchups available for this week.
+                  </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -337,61 +455,114 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {matchups.map((matchup) => {
-                          const homeTeam = getTeamByExternalId(matchup.homeTeamId);
-                          const awayTeam = getTeamByExternalId(matchup.awayTeamId);
-                          const isComplete = matchup.winner !== null;
+                          const homeTeam = getTeamByExternalId(
+                            matchup.homeTeamId
+                          );
+                          const awayTeam = getTeamByExternalId(
+                            matchup.awayTeamId
+                          );
+                          const isComplete = !!matchup.winner;
+
+                          // Calculate projected scores from roster data if available, otherwise use stored values
+                          const homeProjectedScore = matchup.homeRoster 
+                            ? calculateProjectedScore(matchup.homeRoster)
+                            : (matchup.homeProjectedScore || 0);
                           
+                          const awayProjectedScore = matchup.awayRoster 
+                            ? calculateProjectedScore(matchup.awayRoster)
+                            : (matchup.awayProjectedScore || 0);
+
+                          // Calculate actual scores from roster data if available, otherwise use stored values
+                          const homeActualScore = matchup.homeRoster 
+                            ? calculateActualScore(matchup.homeRoster)
+                            : matchup.homeScore;
+                          
+                          const awayActualScore = matchup.awayRoster 
+                            ? calculateActualScore(matchup.awayRoster)
+                            : matchup.awayScore;
+
                           return (
                             <tr key={matchup._id}>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center">
-                                  {awayTeam?.logo && (
-                                    <img 
-                                      src={awayTeam.logo} 
-                                      alt={awayTeam.name}
+                                  {(awayTeam?.logo || awayTeam?.customLogo) && (
+                                    <TeamLogo
+                                      teamId={awayTeam._id}
+                                      teamName={awayTeam.name}
+                                      espnLogo={awayTeam.logo}
+                                      customLogo={awayTeam.customLogo}
+                                      size="md"
                                       className="w-8 h-8 rounded mr-3"
                                     />
                                   )}
                                   <div>
-                                    <div className={`font-medium ${matchup.winner === 'away' ? 'font-bold' : ''}`}>
-                                      {awayTeam?.name || 'Unknown Team'}
+                                    <div
+                                      className={`font-medium ${matchup.winner === "away" ? "font-bold" : ""}`}
+                                    >
+                                      {awayTeam?.name || "Unknown Team"}
                                     </div>
-                                    <div className="text-sm text-gray-500">{awayTeam?.owner}</div>
+                                    <div className="text-sm text-gray-500">
+                                      {awayTeam?.owner}
+                                    </div>
                                   </div>
                                 </div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <div className="text-lg font-bold">
-                                  {matchup.awayScore.toFixed(1)} - {matchup.homeScore.toFixed(1)}
+                                  {isComplete ? ( 
+                                    awayActualScore.toFixed(1)
+                                  ) : (
+                                    matchup.awayPointsByScoringPeriod?.[
+                                      matchup.matchupPeriod
+                                    ]?.toFixed(1) || awayActualScore.toFixed(1)
+                                  )} -{" "}
+                                  {isComplete ? (
+                                    homeActualScore.toFixed(1)
+                                  ) : (
+                                    matchup.homePointsByScoringPeriod?.[
+                                      matchup.matchupPeriod
+                                    ]?.toFixed(1) || homeActualScore.toFixed(1)
+                                  )}
                                 </div>
-                                {!isComplete && (
+                                {!isComplete && awayProjectedScore > 0 && homeProjectedScore > 0 && (
                                   <div className="text-xs text-gray-500">
-                                    Proj: {matchup.awayProjectedScore?.toFixed(1)} - {matchup.homeProjectedScore?.toFixed(1)}
+                                    Proj:{" "}
+                                    {awayProjectedScore.toFixed(1)} -{" "}
+                                    {homeProjectedScore.toFixed(1)}
                                   </div>
                                 )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center">
-                                  {homeTeam?.logo && (
-                                    <img 
-                                      src={homeTeam.logo} 
-                                      alt={homeTeam.name}
+                                  {(homeTeam?.logo || homeTeam?.customLogo) && (
+                                    <TeamLogo
+                                      teamId={homeTeam._id}
+                                      teamName={homeTeam.name}
+                                      espnLogo={homeTeam.logo}
+                                      customLogo={homeTeam.customLogo}
+                                      size="md"
                                       className="w-8 h-8 rounded mr-3"
                                     />
                                   )}
                                   <div>
-                                    <div className={`font-medium ${matchup.winner === 'home' ? 'font-bold' : ''}`}>
-                                      {homeTeam?.name || 'Unknown Team'}
+                                    <div
+                                      className={`font-medium ${matchup.winner === "home" ? "font-bold" : ""}`}
+                                    >
+                                      {homeTeam?.name || "Unknown Team"}
                                     </div>
-                                    <div className="text-sm text-gray-500">{homeTeam?.owner}</div>
+                                    <div className="text-sm text-gray-500">
+                                      {homeTeam?.owner}
+                                    </div>
                                   </div>
                                 </div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center">
-                                {isComplete ? (
+                                {isComplete && currentWeek === matchup.matchupPeriod ? (
                                   <Badge variant="secondary">Final</Badge>
-                                ) : (
+                                  ) : currentWeek === matchup.matchupPeriod ? (
                                   <Badge variant="default">In Progress</Badge>
+                                ) : (
+                                  <Badge variant="outline">Scheduled</Badge>
                                 )}
                               </td>
                             </tr>
@@ -405,26 +576,43 @@ export default function ScoresPage({ params }: ScoresPageProps) {
             </Tabs>
           </div>
         </TabsContent>
-        
+
         <TabsContent value="top-scores">
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="mb-6 space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-2xl font-bold">{scoreDirection === "highest" ? "Top" : "Lowest"} Scores</h2>
+                <h2 className="text-2xl font-bold">
+                  {scoreDirection === "highest" ? "Top" : "Lowest"} Scores
+                </h2>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <Tabs value={scoreDirection} onValueChange={(value) => setScoreDirection(value as "highest" | "lowest")}>
+                  <Tabs
+                    value={scoreDirection}
+                    onValueChange={(value) =>
+                      setScoreDirection(value as "highest" | "lowest")
+                    }
+                  >
                     <TabsList>
                       <TabsTrigger value="highest">Highest</TabsTrigger>
                       <TabsTrigger value="lowest">Lowest</TabsTrigger>
                     </TabsList>
                   </Tabs>
-                  <Tabs value={scoreType} onValueChange={(value) => setScoreType(value as "single" | "twoWeek")}>
+                  <Tabs
+                    value={scoreType}
+                    onValueChange={(value) =>
+                      setScoreType(value as "single" | "twoWeek")
+                    }
+                  >
                     <TabsList>
                       <TabsTrigger value="single">Single Week</TabsTrigger>
                       <TabsTrigger value="twoWeek">Two Week Games</TabsTrigger>
                     </TabsList>
                   </Tabs>
-                  <Tabs value={topScoresView} onValueChange={(value) => setTopScoresView(value as "all-time" | "season")}>
+                  <Tabs
+                    value={topScoresView}
+                    onValueChange={(value) =>
+                      setTopScoresView(value as "all-time" | "season")
+                    }
+                  >
                     <TabsList>
                       <TabsTrigger value="all-time">All Time</TabsTrigger>
                       <TabsTrigger value="season">Season</TabsTrigger>
@@ -432,11 +620,15 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                   </Tabs>
                 </div>
               </div>
-              
+
               {/* Season selector with smooth transition */}
-              <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-                topScoresView === "season" ? "max-h-20 opacity-100" : "max-h-0 opacity-0"
-              }`}>
+              <div
+                className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                  topScoresView === "season"
+                    ? "max-h-20 opacity-100"
+                    : "max-h-0 opacity-0"
+                }`}
+              >
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-600">Season:</span>
                   <SeasonSelector
@@ -448,7 +640,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 </div>
               </div>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
@@ -484,68 +676,100 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                   {(() => {
                     let scores;
                     if (scoreDirection === "highest") {
-                      scores = topScoresView === "all-time" ? topScoresAllTime : topScoresBySeason;
+                      scores =
+                        topScoresView === "all-time"
+                          ? topScoresAllTime
+                          : topScoresBySeason;
                     } else {
-                      scores = topScoresView === "all-time" ? lowestScoresAllTime : lowestScoresBySeason;
+                      scores =
+                        topScoresView === "all-time"
+                          ? lowestScoresAllTime
+                          : lowestScoresBySeason;
                     }
                     return scores.map((score, index) => {
-                    const team = topScoresView === "all-time" 
-                      ? getTeamByExternalIdAndSeason(score.teamId, score.seasonId)
-                      : getTeamByExternalId(score.teamId);
-                    const isTwoWeek = scoreType === "twoWeek";
-                    const twoWeekScore = score as TwoWeekScore;
-                    const singleScore = score as SingleWeekScore;
-                    
-                    return (
-                      <tr key={isTwoWeek ? `${twoWeekScore.matchupIds?.join('-')}-${score.isHome}` : `${singleScore.matchupId}-${score.isHome}`} className={index === 0 ? "bg-yellow-50" : ""}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-lg font-bold">
-                            {index === 0 && (scoreDirection === "highest" ? "🏆" : "💩")} #{index + 1}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            {team?.logo && (
-                              <img 
-                                src={team.logo} 
-                                alt={team.name}
-                                className="w-10 h-10 rounded mr-3"
-                              />
-                            )}
-                            <div>
-                              <div className="font-medium">{team?.name || 'Unknown Team'}</div>
-                              <div className="text-sm text-gray-500">{team?.owner}</div>
+                      const team =
+                        topScoresView === "all-time"
+                          ? getTeamByExternalIdAndSeason(
+                              score.teamId,
+                              score.seasonId
+                            )
+                          : getTeamByExternalId(score.teamId);
+                      const isTwoWeek = scoreType === "twoWeek";
+                      const twoWeekScore = score as TwoWeekScore;
+                      const singleScore = score as SingleWeekScore;
+
+                      return (
+                        <tr
+                          key={
+                            isTwoWeek
+                              ? `${twoWeekScore.matchupIds?.join("-")}-${score.isHome}`
+                              : `${singleScore.matchupId}-${score.isHome}`
+                          }
+                          className={index === 0 ? "bg-yellow-50" : ""}
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-lg font-bold">
+                              {index === 0 &&
+                                (scoreDirection === "highest"
+                                  ? "🏆"
+                                  : "💩")}{" "}
+                              #{index + 1}
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <div className="text-xl font-bold">
-                            {isTwoWeek ? twoWeekScore.totalScore?.toFixed(1) : singleScore.score?.toFixed(1)}
-                          </div>
-                        </td>
-                        {scoreType === "twoWeek" && (
-                          <>
-                            <td className="px-6 py-4 whitespace-nowrap text-center">
-                              <div className="text-sm">
-                                {twoWeekScore.week1Score?.toFixed(1)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              {(team?.logo || team?.customLogo) && (
+                                <TeamLogo
+                                  teamId={team._id}
+                                  teamName={team.name}
+                                  espnLogo={team.logo}
+                                  customLogo={team.customLogo}
+                                  size="md"
+                                  className="w-10 h-10 rounded mr-3"
+                                />
+                              )}
+                              <div>
+                                <div className="font-medium">
+                                  {team?.name || "Unknown Team"}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {team?.owner}
+                                </div>
                               </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-center">
-                              <div className="text-sm">
-                                {twoWeekScore.week2Score?.toFixed(1)}
-                              </div>
-                            </td>
-                          </>
-                        )}
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          {isTwoWeek ? `${twoWeekScore.startWeek}-${twoWeekScore.startWeek + 1}` : `Week ${singleScore.matchupPeriod}`}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          {score.seasonId}
-                        </td>
-                      </tr>
-                    );
-                  });
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            <div className="text-xl font-bold">
+                              {isTwoWeek
+                                ? twoWeekScore.totalScore?.toFixed(1)
+                                : singleScore.score?.toFixed(1)}
+                            </div>
+                          </td>
+                          {scoreType === "twoWeek" && (
+                            <>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <div className="text-sm">
+                                  {twoWeekScore.week1Score?.toFixed(1)}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <div className="text-sm">
+                                  {twoWeekScore.week2Score?.toFixed(1)}
+                                </div>
+                              </td>
+                            </>
+                          )}
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            {isTwoWeek
+                              ? `${twoWeekScore.startWeek}-${twoWeekScore.startWeek + 1}`
+                              : `Week ${singleScore.matchupPeriod}`}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            {score.seasonId}
+                          </td>
+                        </tr>
+                      );
+                    });
                   })()}
                 </tbody>
               </table>
