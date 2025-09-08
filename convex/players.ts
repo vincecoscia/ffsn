@@ -484,87 +484,69 @@ export const getFreeAgentsWithStats = query({
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 100;
-    
-    // Get all teams for this league and season to know who's owned
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_season", (q) => 
-        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
-      )
-      .collect();
+    const candidateCap = Math.min(500, limit * 15);
 
-    // Create set of owned player IDs
-    const ownedPlayerIds = new Set();
-    teams.forEach(team => {
-      team.roster.forEach(player => {
-        ownedPlayerIds.add(player.playerId);
-      });
-    });
+    // Query free agent statuses via index (small docs)
+    const statuses = await ctx.db
+      .query("leaguePlayerStatus")
+      .withIndex("by_league_status", (q) => q.eq("leagueId", args.leagueId).eq("status", "free_agent"))
+      .take(candidateCap);
 
-    // Get enhanced players for the season, but limit to reduce data transfer
-    // Only get active players and limit the initial fetch
-    const allPlayers = await ctx.db
-      .query("playersEnhanced")
-      .withIndex("by_season", (q) => q.eq("season", args.seasonId))
-      .filter((q) => q.eq(q.field("active"), true))
-      .collect();
+    // Build candidate list by fetching minimal enhanced data only for those
+    const enhancedCandidates = await Promise.all(
+      statuses.map(async (s) => {
+        const player = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_espn_id_season", (q) => q.eq("espnId", s.playerId).eq("season", args.seasonId))
+          .first();
+        return player;
+      })
+    );
 
-    // Filter out owned players and by position if specified
-    // Also prioritize players with some fantasy relevance (ownership > 0.1%)
-    const freeAgents = allPlayers
-      .filter(player => !ownedPlayerIds.has(player.espnId))
-      .filter(player => !args.position || args.position === "ALL" || player.defaultPosition === args.position)
-      .filter(player => player.active) // Only active players
-      .filter(player => (player.ownership?.percentOwned || 0) > 0.1) // Only players with some ownership
-      .slice(0, Math.min(limit, 200)); // Cap at 200 to prevent massive queries
+    // Filter by position and basic flags
+    const filtered = enhancedCandidates
+      .filter((p) => p)
+      .filter((p) => p!.active)
+      .filter((p) => !args.position || args.position === "ALL" || p!.defaultPosition === args.position)
+      .slice(0, candidateCap);
 
-    // Get league-specific stats for free agents (if any exist)
-    const playerStats = await ctx.db
-      .query("playerStats")
-      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .filter((q) => q.eq(q.field("season"), args.seasonId))
-      .collect();
+    // For each candidate, fetch league-specific stats doc (small read per player)
+    const withStats = await Promise.all(
+      filtered.map(async (player) => {
+        const leagueStat = await ctx.db
+          .query("playerStats")
+          .withIndex("by_league_player", (q) => q.eq("leagueId", args.leagueId).eq("espnId", player!.espnId).eq("season", args.seasonId))
+          .first();
+        const extracted = leagueStat ? extractActualStats(leagueStat, args.seasonId) : null;
+        const finalStats = extracted && extracted.actualTotal > 0
+          ? extracted
+          : {
+              actualTotal: player!.actualStats?.["120"] || 0,
+              actualAverage: (player!.actualStats?.["120"] || 0) / Math.max(player!.actualStats?.["102"] || 1, 1),
+              gamesPlayed: player!.actualStats?.["102"] || 0,
+            };
+        return {
+          espnId: player!.espnId,
+          fullName: player!.fullName,
+          defaultPosition: player!.defaultPosition,
+          proTeamAbbrev: player!.proTeamAbbrev,
+          injured: player!.injured,
+          injuryStatus: player!.injuryStatus,
+          ownership: player!.ownership,
+          stats: {
+            actualTotal: finalStats.actualTotal,
+            actualAverage: finalStats.actualAverage,
+            projectedTotal: player!.projectedStats?.["120"] || 0,
+            gamesPlayed: finalStats.gamesPlayed || 0,
+          },
+          hasLeagueSpecificStats: !!(leagueStat && (extracted?.actualTotal || 0) > 0),
+        };
+      })
+    );
 
-    const statsMap = new Map();
-    playerStats.forEach(stat => {
-      statsMap.set(stat.espnId, stat);
-    });
-
-    // Format free agents with stats
-    const freeAgentsWithStats = freeAgents.map(player => {
-      const leagueStats = statsMap.get(player.espnId);
-      
-      // Extract league-specific stats using the helper function
-      const extractedStats = leagueStats ? extractActualStats(leagueStats, args.seasonId) : null;
-      
-      // Use extracted stats or fallback to global stats
-      const finalStats = extractedStats && extractedStats.actualTotal > 0 ? extractedStats : {
-        actualTotal: player.actualStats?.["120"] || 0,
-        actualAverage: (player.actualStats?.["120"] || 0) / Math.max(player.actualStats?.["102"] || 1, 1),
-        gamesPlayed: player.actualStats?.["102"] || 0,
-      };
-      
-      return {
-        espnId: player.espnId,
-        fullName: player.fullName,
-        defaultPosition: player.defaultPosition,
-        proTeamAbbrev: player.proTeamAbbrev,
-        injured: player.injured,
-        injuryStatus: player.injuryStatus,
-        ownership: player.ownership,
-        
-        stats: {
-          actualTotal: finalStats.actualTotal,
-          actualAverage: finalStats.actualAverage,
-          projectedTotal: player.projectedStats?.["120"] || 0, // Keep global projected stats
-          gamesPlayed: finalStats.gamesPlayed || 0,
-        },
-        
-        hasLeagueSpecificStats: !!leagueStats && extractedStats && extractedStats.actualTotal > 0,
-      };
-    });
-
-    // Sort by fantasy points
-    return freeAgentsWithStats.sort((a, b) => b.stats.actualTotal - a.stats.actualTotal);
+    // Rank and return top requested
+    return withStats
+      .sort((a, b) => b.stats.actualTotal - a.stats.actualTotal)
+      .slice(0, limit);
   },
 });
