@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     telephone: false,
   },
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://ffsn.ai'),
-  openGraph: {
+  openGraph: { 
     type: 'website',
     locale: 'en_US',
     url: process.env.NEXT_PUBLIC_SITE_URL || 'https://ffsn.ai',

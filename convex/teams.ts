@@ -2,6 +2,29 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
+// Local types for playerStats documents and entries to avoid `any`
+type PlayerStatEntry = {
+  statSourceId: number;
+  scoringPeriodId: number;
+  appliedTotal?: number;
+  appliedAverage?: number;
+  appliedStats?: Record<string, number>;
+};
+
+type LeaguePlayerStatsDoc = {
+  _id: Id<"playerStats">;
+  leagueId: Id<"leagues">;
+  espnId: string;
+  season: number;
+  scoringType: string;
+  stats?: PlayerStatEntry[] | unknown; // Stored as any in schema; we'll narrow when accessing
+  actualStats?: Record<string, number>;
+  projectedStats?: Record<string, number>;
+  calculatedAt: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export const getByLeague = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args) => {
@@ -185,7 +208,90 @@ export const getByLeagueAndSeason = query({
       )
       .collect();
 
-    return teams;
+    // Enrich roster players with league-specific season stats from playerStats table
+    if (!teams || teams.length === 0) {
+      return teams;
+    }
+
+    // Collect all rostered ESPN player IDs
+    const rosterEspnIds = new Set<string>();
+    for (const team of teams) {
+      for (const player of team.roster || []) {
+        if (player?.playerId) rosterEspnIds.add(player.playerId);
+      }
+    }
+
+    // Fetch player stats only for rostered players using selective index lookups
+    const statsByEspnId = new Map<string, LeaguePlayerStatsDoc>();
+    await Promise.all(
+      Array.from(rosterEspnIds).map(async (espnId) => {
+        const ps = await ctx.db
+          .query("playerStats")
+          .withIndex("by_league_player", (q) =>
+            q.eq("leagueId", args.leagueId).eq("espnId", espnId).eq("season", args.seasonId)
+          )
+          .first();
+        if (ps) {
+          statsByEspnId.set(espnId, ps as LeaguePlayerStatsDoc);
+        }
+      })
+    );
+
+    const enrichedTeams = teams.map((team) => {
+      const enrichedRoster = team.roster.map((player) => {
+        const ps = statsByEspnId.get(player.playerId);
+
+        let appliedTotal: number | undefined = undefined;
+        let appliedAverage: number | undefined = undefined;
+        let projectedTotal: number | undefined = undefined;
+        let projectedAverage: number | undefined = undefined;
+
+        // Prefer season totals from league-specific stats array when available
+        if (ps && Array.isArray(ps.stats)) {
+          const seasonActual = (ps.stats as PlayerStatEntry[]).find((s) => s?.statSourceId === 0 && s?.scoringPeriodId === 0);
+          const seasonProj = (ps.stats as PlayerStatEntry[]).find((s) => s?.statSourceId === 1 && s?.scoringPeriodId === 0);
+          if (seasonActual && typeof seasonActual.appliedTotal === "number") {
+            appliedTotal = seasonActual.appliedTotal;
+          }
+          if (seasonActual && typeof seasonActual.appliedAverage === "number") {
+            appliedAverage = seasonActual.appliedAverage;
+          }
+          if (seasonProj && typeof seasonProj.appliedTotal === "number") {
+            projectedTotal = seasonProj.appliedTotal;
+          }
+          if (seasonProj && typeof seasonProj.appliedAverage === "number") {
+            projectedAverage = seasonProj.appliedAverage;
+          }
+        }
+
+        return {
+          ...player,
+          playerStats: {
+            // Flat fields for backward compatibility in UI until consumers switch to nested
+            appliedTotal: appliedTotal ?? player.playerStats?.appliedTotal,
+            appliedAverage: appliedAverage ?? player.playerStats?.appliedAverage,
+            projectedTotal: projectedTotal ?? player.playerStats?.projectedTotal,
+            projectedAverage: projectedAverage ?? player.playerStats?.projectedAverage,
+            // New nested objects
+            actual: {
+              appliedTotal: appliedTotal ?? player.playerStats?.actual?.appliedTotal,
+              appliedAverage: appliedAverage ?? player.playerStats?.actual?.appliedAverage,
+            },
+            projected: {
+              appliedTotal: projectedTotal ?? player.playerStats?.projected?.appliedTotal,
+              appliedAverage: projectedAverage ?? player.playerStats?.projected?.appliedAverage,
+            },
+          },
+        };
+      });
+
+      return {
+        ...team,
+        roster: enrichedRoster,
+      };
+    });
+
+    return enrichedTeams;
   },
 });
 

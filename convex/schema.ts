@@ -138,8 +138,20 @@ export default defineSchema({
       acquisitionType: v.optional(v.string()),
       lineupSlotId: v.optional(v.number()),
       playerStats: v.optional(v.object({
+        // Backward-compatible flat fields
         appliedTotal: v.optional(v.number()),
+        appliedAverage: v.optional(v.number()),
         projectedTotal: v.optional(v.number()),
+        projectedAverage: v.optional(v.number()),
+        // Preferred nested structure
+        actual: v.optional(v.object({
+          appliedTotal: v.optional(v.number()),
+          appliedAverage: v.optional(v.number()),
+        })),
+        projected: v.optional(v.object({
+          appliedTotal: v.optional(v.number()),
+          appliedAverage: v.optional(v.number()),
+        })),
       })),
     })),
     seasonId: v.number(),

@@ -40,6 +40,7 @@ interface Player {
   ownerTeamName?: string;
   playerStats?: {
     appliedTotal?: number;
+    appliedAverage?: number;
     projectedTotal?: number;
   };
 }
@@ -163,7 +164,9 @@ export default function DepthChartsPage({ params }: DepthChartsPageProps) {
       <TableBody>
         {players.map((player, index) => {
           const currentWeek = league?.espnData?.currentScoringPeriod || 1;
-          const avgPoints = (player.playerStats?.appliedTotal || 0) / Math.max(currentWeek - 1, 1);
+          const avgPoints = (player.playerStats?.appliedAverage !== undefined)
+            ? player.playerStats.appliedAverage
+            : (player.playerStats?.appliedTotal || 0) / Math.max(currentWeek - 1, 1);
           
           return (
             <TableRow key={`${player.playerId}-${player.ownerTeamId}`}>
@@ -319,7 +322,7 @@ export default function DepthChartsPage({ params }: DepthChartsPageProps) {
           <TabsContent value="by-position" className="p-0">
             <div className="divide-y divide-gray-200">
               {POSITIONS.map(position => {
-                const positionPlayers = playersByPosition.get(position) || [];
+                const positionPlayers = (playersByPosition.get(position) || []).slice(0, 10);
                 return (
                   <div key={position}>
                     <div className="px-6 py-4 bg-gray-50">
@@ -328,7 +331,7 @@ export default function DepthChartsPage({ params }: DepthChartsPageProps) {
                       </h3>
                     </div>
                     <div className="overflow-x-auto">
-                      <PlayerTable players={positionPlayers.slice(0, 20)} />
+                      <PlayerTable players={positionPlayers} />
                     </div>
                   </div>
                 );
