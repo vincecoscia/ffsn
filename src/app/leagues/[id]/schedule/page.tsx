@@ -23,9 +23,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TeamLogo } from "@/components/TeamLogo";
 
 interface SchedulePageProps {
   params: Promise<{ id: string }>;
+}
+
+interface Player {
+  lineupSlotId: number;
+  espnId: number;
+  firstName?: string;
+  lastName?: string;
+  fullName: string;
+  position: string;
+  points: number;
+  projectedPoints?: number;
+  projectedStats?: Record<string, number>;
+}
+
+interface Roster {
+  appliedStatTotal: number;
+  players: Player[];
 }
 
 interface Matchup {
@@ -38,7 +56,39 @@ interface Matchup {
   homeScore: number;
   awayScore: number;
   winner?: "home" | "away" | "tie" | null;
+  homeRoster?: Roster;
+  awayRoster?: Roster;
+  homeProjectedScore?: number;
+  awayProjectedScore?: number;
+  homePointsByScoringPeriod?: Record<number, number>;
+  awayPointsByScoringPeriod?: Record<number, number>;
 }
+
+// Calculate projected score from roster data
+const calculateProjectedScore = (roster?: Roster): number => {
+  if (!roster || !roster.players) {
+    return 0;
+  }
+  
+  return roster.players
+    .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+    .reduce((total, player) => {
+      return total + (player.projectedPoints || 0);
+    }, 0);
+};
+
+// Calculate actual score from roster data
+const calculateActualScore = (roster?: Roster): number => {
+  if (!roster || !roster.players) {
+    return 0;
+  }
+  
+  return roster.players
+    .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+    .reduce((total, player) => {
+      return total + (player.points || 0);
+    }, 0);
+};
 
 export default function SchedulePage({ params }: SchedulePageProps) {
   const resolvedParams = React.use(params);
@@ -378,10 +428,13 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {awayTeam?.logo && (
-                              <img 
-                                src={awayTeam.logo} 
-                                alt={awayTeam.name}
+                            {(awayTeam?.logo || awayTeam?.customLogo) && (
+                              <TeamLogo
+                                teamId={awayTeam._id}
+                                teamName={awayTeam.name}
+                                espnLogo={awayTeam.logo}
+                                customLogo={awayTeam.customLogo}
+                                size="sm"
                                 className="w-8 h-8 rounded"
                               />
                             )}
@@ -398,16 +451,47 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                             <span className="text-gray-400">-</span>
                           ) : (
                             <div className="font-bold">
-                              {matchup.awayScore.toFixed(1)} - {matchup.homeScore.toFixed(1)}
+                              {(() => {
+                                // Calculate projected scores from roster data if available, otherwise use stored values
+                                const homeProjectedScore = matchup.homeRoster 
+                                  ? calculateProjectedScore(matchup.homeRoster)
+                                  : (matchup.homeProjectedScore || 0);
+                                
+                                const awayProjectedScore = matchup.awayRoster 
+                                  ? calculateProjectedScore(matchup.awayRoster)
+                                  : (matchup.awayProjectedScore || 0);
+
+                                // Calculate actual scores from roster data if available, otherwise use stored values
+                                const homeActualScore = matchup.homeRoster 
+                                  ? calculateActualScore(matchup.homeRoster)
+                                  : matchup.homeScore;
+                                
+                                const awayActualScore = matchup.awayRoster 
+                                  ? calculateActualScore(matchup.awayRoster)
+                                  : matchup.awayScore;
+
+                                // Show live scores if game is in progress (current week and not complete)
+                                if (isCurrentSeason && matchup.matchupPeriod === currentScoringPeriod && !isComplete) {
+                                  const liveAwayScore = matchup.awayPointsByScoringPeriod?.[matchup.matchupPeriod] || awayActualScore;
+                                  const liveHomeScore = matchup.homePointsByScoringPeriod?.[matchup.matchupPeriod] || homeActualScore;
+                                  return `${liveAwayScore.toFixed(1)} - ${liveHomeScore.toFixed(1)}`;
+                                }
+                                
+                                // Show final scores for completed games
+                                return `${awayActualScore.toFixed(1)} - ${homeActualScore.toFixed(1)}`;
+                              })()}
                             </div>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {homeTeam?.logo && (
-                              <img 
-                                src={homeTeam.logo} 
-                                alt={homeTeam.name}
+                            {(homeTeam?.logo || homeTeam?.customLogo) && (
+                              <TeamLogo
+                                teamId={homeTeam._id}
+                                teamName={homeTeam.name}
+                                espnLogo={homeTeam.logo}
+                                customLogo={homeTeam.customLogo}
+                                size="sm"
                                 className="w-8 h-8 rounded"
                               />
                             )}

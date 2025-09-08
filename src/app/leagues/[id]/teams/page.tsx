@@ -8,6 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
 import { RivalriesTab } from "@/components/RivalriesTab";
+import { TeamLogo } from "@/components/TeamLogo";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ interface Team {
   name: string;
   abbreviation?: string;
   logo?: string;
+  customLogo?: Id<"_storage">;
   owner: string;
   ownerInfo?: {
     displayName?: string;
@@ -120,6 +122,16 @@ export default function TeamsPage({ params }: TeamsPageProps) {
 
   const sortRosterByPosition = (roster: Team['roster']) => {
     return [...roster].sort((a, b) => {
+      // First, separate starting players from bench/IR players
+      // lineupSlotId === 20 indicates bench player, lineupSlotId === 21 indicates IR
+      const aIsBench = a.lineupSlotId === 20 || a.lineupSlotId === 21;
+      const bIsBench = b.lineupSlotId === 20 || b.lineupSlotId === 21;
+      
+      // Starting players come first
+      if (aIsBench && !bIsBench) return 1;
+      if (!aIsBench && bIsBench) return -1;
+      
+      // If both are starting or both are bench/IR, sort by position
       const aIndex = POSITION_ORDER.indexOf(a.position);
       const bIndex = POSITION_ORDER.indexOf(b.position);
       
@@ -181,13 +193,14 @@ export default function TeamsPage({ params }: TeamsPageProps) {
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-4">
-                    {team.logo && (
-                      <img 
-                        src={team.logo} 
-                        alt={`${team.name} logo`}
-                        className="w-16 h-16 rounded-lg"
-                      />
-                    )}
+                    <TeamLogo
+                      teamId={team._id}
+                      teamName={team.name}
+                      espnLogo={team.logo}
+                      customLogo={team.customLogo}
+                      size="lg"
+                      className="rounded-lg"
+                    />
                     <div>
                       <CardTitle className="text-xl">{team.name}</CardTitle>
                       <CardDescription className="text-base">
@@ -270,24 +283,103 @@ export default function TeamsPage({ params }: TeamsPageProps) {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {sortRosterByPosition(team.roster).map((player, idx) => (
-                            <TableRow key={`${player.playerId}-${idx}`}>
-                              <TableCell className="font-medium">
-                                {player.playerName}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Badge variant={player.lineupSlotId === 20 ? "secondary" : "default"}>
-                                  {player.position}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-center text-sm">
-                                {player.team}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {(() => {
+                            const sortedRoster = sortRosterByPosition(team.roster);
+                            const startingPlayers = sortedRoster.filter(player => player.lineupSlotId !== 20 && player.lineupSlotId !== 21);
+                            const benchPlayers = sortedRoster.filter(player => player.lineupSlotId === 20);
+                            const irPlayers = sortedRoster.filter(player => player.lineupSlotId === 21);
+                            
+                            return (
+                              <>
+                                {/* Starting Players */}
+                                {startingPlayers.length > 0 && (
+                                  <>
+                                    <TableRow className="bg-green-50">
+                                      <TableCell colSpan={4} className="font-semibold text-green-800 py-2">
+                                        Starting Lineup ({startingPlayers.length})
+                                      </TableCell>
+                                    </TableRow>
+                                    {startingPlayers.map((player, idx) => (
+                                      <TableRow key={`starting-${player.playerId}-${idx}`}>
+                                        <TableCell className="font-medium">
+                                          {player.playerName}
+                                        </TableCell>
+                                        <TableCell className="text-center">
+                                          <Badge variant="default">
+                                            {player.position}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-center text-sm">
+                                          {player.team}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                          {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </>
+                                )}
+                                
+                                {/* Bench Players */}
+                                {benchPlayers.length > 0 && (
+                                  <>
+                                    <TableRow className="bg-gray-100">
+                                      <TableCell colSpan={4} className="font-semibold text-gray-700 py-2">
+                                        Bench ({benchPlayers.length})
+                                      </TableCell>
+                                    </TableRow>
+                                    {benchPlayers.map((player, idx) => (
+                                      <TableRow key={`bench-${player.playerId}-${idx}`}>
+                                        <TableCell className="font-medium text-gray-600">
+                                          {player.playerName}
+                                        </TableCell>
+                                        <TableCell className="text-center">
+                                          <Badge variant="secondary">
+                                            {player.position}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-center text-sm text-gray-600">
+                                          {player.team}
+                                        </TableCell>
+                                        <TableCell className="text-right text-gray-600">
+                                          {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </>
+                                )}
+                                
+                                {/* IR Players */}
+                                {irPlayers.length > 0 && (
+                                  <>
+                                    <TableRow className="bg-red-50">
+                                      <TableCell colSpan={4} className="font-semibold text-red-700 py-2">
+                                        Injured Reserve ({irPlayers.length})
+                                      </TableCell>
+                                    </TableRow>
+                                    {irPlayers.map((player, idx) => (
+                                      <TableRow key={`ir-${player.playerId}-${idx}`}>
+                                        <TableCell className="font-medium text-red-600">
+                                          {player.playerName}
+                                        </TableCell>
+                                        <TableCell className="text-center">
+                                          <Badge variant="destructive">
+                                            {player.position}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-center text-sm text-red-600">
+                                          {player.team}
+                                        </TableCell>
+                                        <TableCell className="text-right text-red-600">
+                                          {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </>
+                                )}
+                              </>
+                            );
+                          })()}
                         </TableBody>
                       </Table>
                     </div>
