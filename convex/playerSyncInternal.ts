@@ -317,6 +317,40 @@ export const upsertPlayerStatsBatch = mutation({
         processedStat.actualStats = processed.actualStats;
         processedStat.projectedStats = processed.projectedStats;
       }
+
+      // Derive denormalized fields for fast querying
+      try {
+        const statsArray: any[] | undefined = processedStat.stats as any[] | undefined;
+        const actualEntry = Array.isArray(statsArray)
+          ? statsArray.find(
+              (s: any) =>
+                s?.statSourceId === 0 &&
+                s?.scoringPeriodId === 0 &&
+                s?.seasonId === (processedStat as any).season
+            )
+          : undefined;
+        // Fallback: compute from transformed actualStats if present
+        const fallbackTotal = (processedStat as any).actualStats?.["120"] as number | undefined;
+        const fallbackAvg = (processedStat as any).actualStats?.["102"]
+          ? ((processedStat as any).actualStats?.["120"] || 0) / Math.max((processedStat as any).actualStats?.["102"], 1)
+          : undefined;
+        const actualAppliedTotal: number | undefined = actualEntry?.appliedTotal ?? fallbackTotal;
+        const actualAppliedAverage: number | undefined = actualEntry?.appliedAverage ?? fallbackAvg;
+
+        // Look up player's default position for denormalization
+        const playerDoc = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_espn_id_season", (q) =>
+            q.eq("espnId", processedStat.espnId).eq("season", processedStat.season)
+          )
+          .first();
+
+        (processedStat as any).position = playerDoc?.defaultPosition;
+        (processedStat as any).actualAppliedTotal = actualAppliedTotal;
+        (processedStat as any).actualAppliedAverage = actualAppliedAverage;
+      } catch {
+        // Best effort; leave denormalized fields undefined if lookup fails
+      }
       
       // Check if player stat exists
       const existing = await ctx.db
@@ -448,6 +482,167 @@ export const getLeagueFreeAgentsWithStats = query({
     );
     
     return validPlayers.slice(0, limit);
+  },
+});
+
+// Mutation to refresh cached top performers (called by cron or manually)
+export const refreshLeagueTopPerformers = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    season: v.number(),
+    positions: v.record(
+      v.string(),
+      v.array(
+        v.object({
+          espnId: v.string(),
+          fullName: v.string(),
+          defaultPosition: v.string(),
+          proTeamAbbrev: v.optional(v.string()),
+          ownerTeamName: v.optional(v.string()),
+          appliedTotal: v.number(),
+          appliedAverage: v.optional(v.number()),
+        })
+      )
+    ),
+  },
+  handler: async (ctx, { leagueId, season, positions }) => {
+    const existing = await ctx.db
+      .query("leagueTopPerformers")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        positions,
+        generatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.insert("leagueTopPerformers", {
+        leagueId,
+        season,
+        positions,
+        generatedAt: Date.now(),
+      });
+    }
+  },
+});
+
+// Compute and upsert leagueTopPerformers from denormalized playerStats using indexes
+export const computeLeagueTopPerformers = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    season: v.number(),
+    limitPerPosition: v.optional(v.number()),
+  },
+  handler: async (ctx, { leagueId, season, limitPerPosition = 10 }) => {
+    const positions = ["QB", "RB", "WR", "TE", "K", "D/ST"] as const;
+
+    // Build ownership map (espnId -> team name) for current league/season
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", season))
+      .collect();
+    const ownerNameByEspnId = new Map<string, string>();
+    teams.forEach((team) => {
+      team.roster.forEach((p) => ownerNameByEspnId.set(p.playerId, team.name));
+    });
+
+    const result: Record<string, Array<{
+      espnId: string;
+      fullName: string;
+      defaultPosition: string;
+      proTeamAbbrev?: string;
+      ownerTeamName?: string;
+      appliedTotal: number;
+      appliedAverage?: number;
+    }>> = {};
+
+    for (const pos of positions) {
+      // Query top N by index (descending on actualAppliedTotal)
+      const topStats = await ctx.db
+        .query("playerStats")
+        .withIndex("by_league_season_position_total", (q) =>
+          q.eq("leagueId", leagueId).eq("season", season).eq("position", pos)
+        )
+        .order("desc")
+        .take(limitPerPosition);
+
+      // Fetch player display fields
+      const rows: Array<{
+        espnId: string;
+        fullName: string;
+        defaultPosition: string;
+        proTeamAbbrev?: string;
+        ownerTeamName?: string;
+        appliedTotal: number;
+        appliedAverage?: number;
+      }> = [];
+
+      for (const s of topStats) {
+        const player = await ctx.db
+          .query("playersEnhanced")
+          .withIndex("by_espn_id_season", (q) => q.eq("espnId", s.espnId).eq("season", season))
+          .first();
+        if (!player) continue;
+        rows.push({
+          espnId: s.espnId,
+          fullName: player.fullName,
+          defaultPosition: player.defaultPosition,
+          proTeamAbbrev: player.proTeamAbbrev,
+          ownerTeamName: ownerNameByEspnId.get(s.espnId) || undefined,
+          appliedTotal: (s as any).actualAppliedTotal ?? 0,
+          appliedAverage: (s as any).actualAppliedAverage ?? undefined,
+        });
+      }
+
+      result[pos] = rows;
+    }
+
+    // Upsert cache document
+    const existing = await ctx.db
+      .query("leagueTopPerformers")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { positions: result, generatedAt: Date.now() });
+    } else {
+      await ctx.db.insert("leagueTopPerformers", {
+        leagueId,
+        season,
+        positions: result,
+        generatedAt: Date.now(),
+      });
+    }
+
+    return { positions: result };
+  },
+});
+
+// Query: does cache exist for league+season
+export const getTopPerformersCache = query({
+  args: {
+    leagueId: v.id("leagues"),
+    season: v.number(),
+  },
+  handler: async (ctx, { leagueId, season }) => {
+    return await ctx.db
+      .query("leagueTopPerformers")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
+      .first();
+  },
+});
+
+// Query: do we have any playerStats for league+season
+export const hasPlayerStatsForLeagueSeason = query({
+  args: {
+    leagueId: v.id("leagues"),
+    season: v.number(),
+  },
+  handler: async (ctx, { leagueId, season }) => {
+    const any = await ctx.db
+      .query("playerStats")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
+      .take(1);
+    return any.length > 0;
   },
 });
 

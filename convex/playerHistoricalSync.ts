@@ -370,21 +370,28 @@ export const syncHistoricalLeaguePlayerStats = action({
       console.log(`Syncing player stats for season ${season}...`);
       
       try {
-        // Use the existing syncAllLeaguePlayerStats function
-        const result = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
+        // If no playerStats for this season, perform sync; otherwise skip sync and just compute cache
+        const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
           leagueId,
-          season
+          season,
+        });
+        if (!hasStats) {
+          await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId, season });
+        }
+
+        // Compute top performers cache for this season
+        await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+          leagueId,
+          season,
+          limitPerPosition: 20,
         });
         
         results.push({
           season,
-          status: result.status,
-          playersProcessed: result.totalPlayersProcessed
+          status: "completed",
+          playersProcessed: undefined
         });
-        
-        if (result.status === "success") {
-          successCount++;
-        }
+        successCount++;
         
         // Add delay between seasons to avoid rate limiting
         if (season !== seasonsToSync![seasonsToSync!.length - 1]) {
@@ -468,7 +475,7 @@ export const syncAllLeaguesHistoricalPlayerStats = action({
         }
         
         // Delay between leagues
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error) {
         console.error(`Failed to sync league ${league._id}:`, error);
         results.push({

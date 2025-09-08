@@ -575,6 +575,10 @@ export default defineSchema({
     leagueId: v.id("leagues"),
     espnId: v.string(),
     season: v.number(),
+    // Denormalized fields for fast querying
+    position: v.optional(v.string()),
+    actualAppliedTotal: v.optional(v.number()),
+    actualAppliedAverage: v.optional(v.number()),
     
     // League's scoring type for reference
     scoringType: v.string(), // "PPR", "HALF_PPR", "STANDARD", "CUSTOM"
@@ -593,7 +597,33 @@ export default defineSchema({
   })
     .index("by_league_player", ["leagueId", "espnId", "season"])
     .index("by_league", ["leagueId"])
-    .index("by_player", ["espnId"]),
+    .index("by_league_season", ["leagueId", "season"])
+    .index("by_player", ["espnId"]) 
+    .index("by_league_season_total", ["leagueId", "season", "actualAppliedTotal"]) 
+    .index("by_league_season_position_total", ["leagueId", "season", "position", "actualAppliedTotal"]),
+
+  // Cached top performers per league/season to avoid heavy reads at query time
+  leagueTopPerformers: defineTable({
+    leagueId: v.id("leagues"),
+    season: v.number(),
+    // positions -> array of top players with minimal fields needed for UI
+    positions: v.record(
+      v.string(),
+      v.array(
+        v.object({
+          espnId: v.string(),
+          fullName: v.string(),
+          defaultPosition: v.string(),
+          proTeamAbbrev: v.optional(v.string()),
+          ownerTeamName: v.optional(v.string()),
+          appliedTotal: v.number(),
+          appliedAverage: v.optional(v.number()),
+        })
+      )
+    ),
+    generatedAt: v.number(),
+  })
+    .index("by_league_season", ["leagueId", "season"]),
 
   // Trade transactions
   trades: defineTable({

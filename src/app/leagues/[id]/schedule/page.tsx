@@ -452,14 +452,6 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                           ) : (
                             <div className="font-bold">
                               {(() => {
-                                // Calculate projected scores from roster data if available, otherwise use stored values
-                                const homeProjectedScore = matchup.homeRoster 
-                                  ? calculateProjectedScore(matchup.homeRoster)
-                                  : (matchup.homeProjectedScore || 0);
-                                
-                                const awayProjectedScore = matchup.awayRoster 
-                                  ? calculateProjectedScore(matchup.awayRoster)
-                                  : (matchup.awayProjectedScore || 0);
 
                                 // Calculate actual scores from roster data if available, otherwise use stored values
                                 const homeActualScore = matchup.homeRoster 
