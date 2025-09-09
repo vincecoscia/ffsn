@@ -327,7 +327,7 @@ Make sure each section follows the template requirements and word counts.`;
       // Use tool calling for structured output
       const response = await anthropic.messages.create({
         model: this.modelConfig.primary,
-        max_tokens: settings.maxTokens || 4000,
+        max_tokens: settings.maxTokens || 6000,
         temperature: settings.temperature || 0.8,
         system: systemPrompt,
         messages: [
@@ -401,7 +401,7 @@ Make sure each section follows the template requirements and word counts.`;
     try {
       const response = await anthropic.messages.create({
         model: this.modelConfig.primary,
-        max_tokens: settings.maxTokens || 4000,
+        max_tokens: settings.maxTokens || 6000,
         temperature: settings.temperature || 0.8,
         system: systemPrompt,
         messages: [
@@ -435,7 +435,7 @@ Make sure each section follows the template requirements and word counts.`;
         
         const response = await anthropic.messages.create({
           model: this.modelConfig.fallback,
-          max_tokens: Math.min(settings.maxTokens || 4000, 8192), // Fallback has lower limit
+          max_tokens: Math.min(settings.maxTokens || 6000, 8192), // Fallback has lower limit
           temperature: settings.temperature || 0.8,
           system: systemPrompt,
           messages: [
