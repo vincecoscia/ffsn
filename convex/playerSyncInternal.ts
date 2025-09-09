@@ -321,21 +321,28 @@ export const upsertPlayerStatsBatch = mutation({
       // Derive denormalized fields for fast querying
       try {
         const statsArray: any[] | undefined = processedStat.stats as any[] | undefined;
-        const actualEntry = Array.isArray(statsArray)
-          ? statsArray.find(
-              (s: any) =>
-                s?.statSourceId === 0 &&
-                s?.scoringPeriodId === 0 &&
-                s?.seasonId === (processedStat as any).season
-            )
-          : undefined;
+        let actualEntry: any | undefined = undefined;
+        if (Array.isArray(statsArray)) {
+          // Prefer exact season match
+          actualEntry = statsArray.find(
+            (s: any) => s?.statSourceId === 0 && s?.scoringPeriodId === 0 && s?.seasonId === (processedStat as any).season
+          );
+          // Fallback: accept any season total if exact season not tagged
+          if (!actualEntry) {
+            actualEntry = statsArray.find((s: any) => s?.statSourceId === 0 && s?.scoringPeriodId === 0);
+          }
+        }
         // Fallback: compute from transformed actualStats if present
         const fallbackTotal = (processedStat as any).actualStats?.["120"] as number | undefined;
         const fallbackAvg = (processedStat as any).actualStats?.["102"]
           ? ((processedStat as any).actualStats?.["120"] || 0) / Math.max((processedStat as any).actualStats?.["102"], 1)
           : undefined;
-        const actualAppliedTotal: number | undefined = actualEntry?.appliedTotal ?? fallbackTotal;
-        const actualAppliedAverage: number | undefined = actualEntry?.appliedAverage ?? fallbackAvg;
+        const actualAppliedTotal: number | undefined = (actualEntry && typeof actualEntry.appliedTotal === "number")
+          ? actualEntry.appliedTotal
+          : fallbackTotal;
+        const actualAppliedAverage: number | undefined = (actualEntry && typeof actualEntry.appliedAverage === "number")
+          ? actualEntry.appliedAverage
+          : fallbackAvg;
 
         // Look up player's default position for denormalization
         const playerDoc = await ctx.db
@@ -643,6 +650,83 @@ export const hasPlayerStatsForLeagueSeason = query({
       .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
       .take(1);
     return any.length > 0;
+  },
+});
+
+// Backfill denormalized fields (position, actualAppliedTotal, actualAppliedAverage) for a league/season
+export const backfillLeagueSeasonPlayerStatsDenorm = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    season: v.number(),
+  },
+  handler: async (ctx, { leagueId, season }) => {
+    // Iterate over all playerStats for this league/season and patch missing fields
+    const cursor = ctx.db
+      .query("playerStats")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season));
+    const docs = await cursor.collect();
+
+    for (const stat of docs) {
+      let needsPatch = false;
+      const processedStat: any = { ...stat };
+
+      // Derive totals/averages from raw stats or transformed fields
+      try {
+        const statsArray: any[] | undefined = processedStat.stats as any[] | undefined;
+        let actualEntry: any | undefined = undefined;
+        if (Array.isArray(statsArray)) {
+          actualEntry = statsArray.find(
+            (s: any) => s?.statSourceId === 0 && s?.scoringPeriodId === 0 && s?.seasonId === season
+          ) || statsArray.find((s: any) => s?.statSourceId === 0 && s?.scoringPeriodId === 0);
+        }
+
+        const fallbackTotal = processedStat.actualStats?.["120"] as number | undefined;
+        const fallbackAvg = processedStat.actualStats?.["102"]
+          ? (processedStat.actualStats?.["120"] || 0) / Math.max(processedStat.actualStats?.["102"], 1)
+          : undefined;
+
+        const actualAppliedTotal: number | undefined = (actualEntry && typeof actualEntry.appliedTotal === "number")
+          ? actualEntry.appliedTotal
+          : fallbackTotal;
+        const actualAppliedAverage: number | undefined = (actualEntry && typeof actualEntry.appliedAverage === "number")
+          ? actualEntry.appliedAverage
+          : fallbackAvg;
+
+        if (typeof processedStat.actualAppliedTotal !== "number" && typeof actualAppliedTotal === "number") {
+          processedStat.actualAppliedTotal = actualAppliedTotal;
+          needsPatch = true;
+        }
+        if (typeof processedStat.actualAppliedAverage !== "number" && typeof actualAppliedAverage === "number") {
+          processedStat.actualAppliedAverage = actualAppliedAverage;
+          needsPatch = true;
+        }
+      } catch {}
+
+      // Derive position from playersEnhanced
+      if (!processedStat.position) {
+        try {
+          const playerDoc = await ctx.db
+            .query("playersEnhanced")
+            .withIndex("by_espn_id_season", (q) => q.eq("espnId", processedStat.espnId).eq("season", season))
+            .first();
+          if (playerDoc?.defaultPosition) {
+            processedStat.position = playerDoc.defaultPosition;
+            needsPatch = true;
+          }
+        } catch {}
+      }
+
+      if (needsPatch) {
+        await ctx.db.patch(stat._id, {
+          position: processedStat.position,
+          actualAppliedTotal: processedStat.actualAppliedTotal,
+          actualAppliedAverage: processedStat.actualAppliedAverage,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    return { updated: true, count: docs.length };
   },
 });
 

@@ -227,7 +227,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
       };
     }
     
-    // Sync each league's player stats
+    // Sync each league's player stats for current season and backfill missing older seasons' caches
     for (const league of leagues) {
       console.log(`Syncing stats for league: ${league.name} (${league._id})`);
       
@@ -243,6 +243,31 @@ export const dailyAllLeaguesPlayerStatsSync = action({
           status: result.status,
           playersProcessed: result.totalPlayersProcessed
         });
+        
+        // Backfill: find all seasons for this league and compute cache if missing (no identity required)
+        const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId: league._id });
+        const uniqueSeasons = [...new Set(teams.map((t: any) => t.seasonId))] as number[];
+        for (const season of uniqueSeasons) {
+          if (season === currentSeason) continue; // already handled above
+          const existingCache = await ctx.runQuery(api.playerSyncInternal.getTopPerformersCache, {
+            leagueId: league._id,
+            season,
+          });
+          if (!existingCache) {
+            const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
+              leagueId: league._id,
+              season,
+            });
+            if (!hasStats) {
+              await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
+            }
+            await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+              leagueId: league._id,
+              season,
+              limitPerPosition: 20,
+            });
+          }
+        }
         
         // Delay between leagues
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -337,8 +362,8 @@ export const syncHistoricalLeaguePlayerStats = action({
   }> => {
     console.log(`Starting historical player stats sync for league ${leagueId}`);
     
-    // Get league info
-    const league = await ctx.runQuery(api.leagues.getById, { id: leagueId });
+    // Get league info (internal query, no identity required)
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: leagueId });
     if (!league) {
       throw new Error("League not found");
     }
@@ -346,8 +371,8 @@ export const syncHistoricalLeaguePlayerStats = action({
     // Determine which seasons to sync
     let seasonsToSync = seasons;
     if (!seasonsToSync) {
-      // Get all seasons for this league from teams
-      const teams = await ctx.runQuery(api.teams.getByLeague, { leagueId });
+      // Get all seasons for this league from teams (no identity required)
+      const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId });
       const uniqueSeasons = [...new Set(teams.map((team: any) => team.seasonId))].sort((a, b) => Number(a) - Number(b)) as number[];
       seasonsToSync = uniqueSeasons;
     }
@@ -370,6 +395,36 @@ export const syncHistoricalLeaguePlayerStats = action({
       console.log(`Syncing player stats for season ${season}...`);
       
       try {
+        // Determine if this is the current season; always compute current season even if cache exists
+        const currentSeason = new Date().getFullYear();
+        const isCurrentSeason = season === currentSeason;
+
+        // For older seasons, skip compute if cache exists; but ensure denormalized fields exist if stats present
+        if (!isCurrentSeason) {
+          const existingCache = await ctx.runQuery(api.playerSyncInternal.getTopPerformersCache, {
+            leagueId,
+            season,
+          });
+          if (existingCache) {
+            // If cache exists but stats may be missing denormalized fields, run a lightweight recompute path
+            try {
+              await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+                leagueId,
+                season,
+                limitPerPosition: 20,
+              });
+            } catch (e) {
+              // non-fatal
+            }
+            results.push({
+              season,
+              status: "skipped_existing_cache",
+              playersProcessed: undefined,
+            });
+            continue;
+          }
+        }
+
         // If no playerStats for this season, perform sync; otherwise skip sync and just compute cache
         const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
           leagueId,
@@ -377,6 +432,13 @@ export const syncHistoricalLeaguePlayerStats = action({
         });
         if (!hasStats) {
           await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId, season });
+        } else {
+          try {
+            await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
+              leagueId,
+              season,
+            });
+          } catch {}
         }
 
         // Compute top performers cache for this season

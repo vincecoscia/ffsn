@@ -32,6 +32,7 @@ function PaymentSuccessContent() {
   const verifyPayment = useAction(api.stripe.verifyPaymentCompleted);
   const completeOnboarding = useMutation(api.users.completeOnboarding);
   const syncAllLeagueData = useAction(api.espnSync.syncAllLeagueData);
+  const syncHistoricalLeaguePlayerStats = useAction(api.playerHistoricalSync.syncHistoricalLeaguePlayerStats);
   const linkPaymentToLeague = useMutation(api.payments.linkPaymentToLeague);
 
   const processPaymentSuccess = useCallback(async (sessionId: string) => {
@@ -102,9 +103,21 @@ function PaymentSuccessContent() {
         historicalYears: 5,
       });
 
-      // Step 5: Finalize setup
+      // Step 5: Backfill top performers for older seasons (skip if already cached)
+      setSyncProgress({
+        step: 5,
+        totalSteps: 6,
+        message: "Backfilling top performers for prior seasons...",
+        percentage: 70,
+      });
+
+      await syncHistoricalLeaguePlayerStats({
+        leagueId: leagueId as Id<"leagues">,
+      });
+
+      // Step 6: Finalize setup
       setSyncProgress({ 
-        step: 5, 
+        step: 6, 
         totalSteps: 6, 
         message: "Finalizing setup...", 
         percentage: 80 
@@ -112,10 +125,10 @@ function PaymentSuccessContent() {
 
       await completeOnboarding();
 
-      // Step 6: Complete
+      // Step 7: Complete
       setSyncProgress({ 
-        step: 6, 
-        totalSteps: 6, 
+        step: 7, 
+        totalSteps: 7, 
         message: "All done! Welcome to FFSN!", 
         percentage: 100 
       });
@@ -129,7 +142,7 @@ function PaymentSuccessContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [verifyPayment, setPaymentVerified, setLeagueId, setLeagueCreated, linkPaymentToLeague, syncAllLeagueData, completeOnboarding, setSyncProgress, setError, setIsLoading]);
+  }, [verifyPayment, setPaymentVerified, setLeagueId, setLeagueCreated, linkPaymentToLeague, syncAllLeagueData, syncHistoricalLeaguePlayerStats, completeOnboarding, setSyncProgress, setError, setIsLoading]);
 
   useEffect(() => {
     const sessionId = searchParams?.get("session_id");
