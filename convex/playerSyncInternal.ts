@@ -660,15 +660,21 @@ export const backfillLeagueSeasonPlayerStatsDenorm = mutation({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),
+    limit: v.optional(v.number()),
   },
-  handler: async (ctx, { leagueId, season }) => {
-    // Iterate over all playerStats for this league/season and patch missing fields
-    const cursor = ctx.db
+  handler: async (ctx, { leagueId, season, limit = 300 }) => {
+    // Process only a limited set of docs that are missing denormalized fields to avoid timeouts
+    const missingDocs = await ctx.db
       .query("playerStats")
-      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season));
-    const docs = await cursor.collect();
+      .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
+      .filter((q) => q.or(
+        q.eq(q.field("position"), undefined as any),
+        q.eq(q.field("actualAppliedTotal"), undefined as any),
+        q.eq(q.field("actualAppliedAverage"), undefined as any),
+      ))
+      .take(limit);
 
-    for (const stat of docs) {
+    for (const stat of missingDocs) {
       let needsPatch = false;
       const processedStat: any = { ...stat };
 
@@ -704,7 +710,7 @@ export const backfillLeagueSeasonPlayerStatsDenorm = mutation({
         }
       } catch {}
 
-      // Derive position from playersEnhanced
+      // Derive position from playersEnhanced (per-doc to keep memory low)
       if (!processedStat.position) {
         try {
           const playerDoc = await ctx.db
@@ -728,7 +734,7 @@ export const backfillLeagueSeasonPlayerStatsDenorm = mutation({
       }
     }
 
-    return { updated: true, count: docs.length };
+    return { updated: true, processed: missingDocs.length, hasMore: missingDocs.length === limit };
   },
 });
 

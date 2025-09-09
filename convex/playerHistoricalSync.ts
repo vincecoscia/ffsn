@@ -447,10 +447,21 @@ export const syncHistoricalLeaguePlayerStats = action({
           await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId, season });
         } else {
           try {
-            await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
-              leagueId,
-              season,
-            });
+            // Run backfill in small chunks until no more missing docs are found
+            let hasMore = true;
+            let iterations = 0;
+            while (hasMore && iterations < 5) { // hard stop to keep within cron budget
+              const res = await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
+                leagueId,
+                season,
+                limit: 200,
+              });
+              hasMore = !!(res as any)?.hasMore;
+              iterations++;
+              if (hasMore) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+              }
+            }
           } catch {}
         }
 
