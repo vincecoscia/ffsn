@@ -300,6 +300,7 @@ export const upsertPlayerStatsBatch = mutation({
       espnId: v.string(),
       season: v.number(),
       scoringType: v.string(),
+      position: v.optional(v.string()),
       stats: v.any(),
       actualStats: v.optional(v.any()),
       projectedStats: v.optional(v.any()),

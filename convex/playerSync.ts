@@ -847,6 +847,7 @@ export const syncLeaguePlayerStats = action({
             espnId: player.id.toString(),
             season,
             scoringType,
+            position: getPositionAbbrev(player.defaultPositionId),
             stats: processedStats.stats,
             actualStats: processedStats.actualStats,
             projectedStats: processedStats.projectedStats,
@@ -890,7 +891,7 @@ export const syncAllLeaguePlayerStats = action({
         leagueId,
         season,
         offset,
-        limit: 250, // Reduce batch size to avoid mutation timeouts
+        limit: 150, // Further reduce batch size to avoid mutation timeouts in prod
       });
       
       totalProcessed += result.playersProcessed;

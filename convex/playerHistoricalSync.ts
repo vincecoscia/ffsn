@@ -236,6 +236,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
           leagueId: league._id,
           season: currentSeason
         });
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         results.push({
           leagueId: league._id,
@@ -244,7 +245,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
           playersProcessed: result.totalPlayersProcessed
         });
         
-        // Backfill: limit to at most 1 older season per run to avoid timeouts
+        // Backfill: limit to at most 1 older season per run to avoid timeouts (and add small delay between heavy ops)
         const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId: league._id });
         const uniqueSeasons = [...new Set(teams.map((t: any) => t.seasonId))] as number[];
         let backfilled = 0;
@@ -261,6 +262,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
             });
             if (!hasStats) {
               await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
+              await new Promise(resolve => setTimeout(resolve, 500));
             } else {
               try {
                 await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
@@ -274,13 +276,14 @@ export const dailyAllLeaguesPlayerStatsSync = action({
               season,
               limitPerPosition: 20,
             });
+            await new Promise(resolve => setTimeout(resolve, 500));
             backfilled++;
             if (backfilled >= 1) break; // throttle to 1 season per league per run
           }
         }
         
-        // Delay between leagues
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Delay between leagues (shorter but consistent)
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error) {
         console.error(`Failed to sync league ${league._id}:`, error);
         results.push({
