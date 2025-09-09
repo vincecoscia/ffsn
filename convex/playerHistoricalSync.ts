@@ -244,9 +244,10 @@ export const dailyAllLeaguesPlayerStatsSync = action({
           playersProcessed: result.totalPlayersProcessed
         });
         
-        // Backfill: find all seasons for this league and compute cache if missing (no identity required)
+        // Backfill: limit to at most 1 older season per run to avoid timeouts
         const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId: league._id });
         const uniqueSeasons = [...new Set(teams.map((t: any) => t.seasonId))] as number[];
+        let backfilled = 0;
         for (const season of uniqueSeasons) {
           if (season === currentSeason) continue; // already handled above
           const existingCache = await ctx.runQuery(api.playerSyncInternal.getTopPerformersCache, {
@@ -260,12 +261,21 @@ export const dailyAllLeaguesPlayerStatsSync = action({
             });
             if (!hasStats) {
               await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
+            } else {
+              try {
+                await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
+                  leagueId: league._id,
+                  season,
+                });
+              } catch {}
             }
             await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
               leagueId: league._id,
               season,
               limitPerPosition: 20,
             });
+            backfilled++;
+            if (backfilled >= 1) break; // throttle to 1 season per league per run
           }
         }
         

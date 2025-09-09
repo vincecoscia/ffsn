@@ -890,7 +890,7 @@ export const syncAllLeaguePlayerStats = action({
         leagueId,
         season,
         offset,
-        limit: 500, // Larger batches for efficiency
+        limit: 250, // Reduce batch size to avoid mutation timeouts
       });
       
       totalProcessed += result.playersProcessed;

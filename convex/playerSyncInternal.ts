@@ -344,15 +344,16 @@ export const upsertPlayerStatsBatch = mutation({
           ? actualEntry.appliedAverage
           : fallbackAvg;
 
-        // Look up player's default position for denormalization
-        const playerDoc = await ctx.db
-          .query("playersEnhanced")
-          .withIndex("by_espn_id_season", (q) =>
-            q.eq("espnId", processedStat.espnId).eq("season", processedStat.season)
-          )
-          .first();
-
-        (processedStat as any).position = playerDoc?.defaultPosition;
+        // Look up player's default position for denormalization only if not already provided
+        if (!(processedStat as any).position) {
+          const playerDoc = await ctx.db
+            .query("playersEnhanced")
+            .withIndex("by_espn_id_season", (q) =>
+              q.eq("espnId", processedStat.espnId).eq("season", processedStat.season)
+            )
+            .first();
+          (processedStat as any).position = playerDoc?.defaultPosition;
+        }
         (processedStat as any).actualAppliedTotal = actualAppliedTotal;
         (processedStat as any).actualAppliedAverage = actualAppliedAverage;
       } catch {
