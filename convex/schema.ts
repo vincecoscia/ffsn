@@ -1102,6 +1102,8 @@ export default defineSchema({
       draftType: v.optional(v.string()),
       draftOrder: v.optional(v.array(v.any())),
       userDraftPicks: v.optional(v.any()), // Map of userId to their draft picks
+      // Weekly recap-related context
+      userTeamInfo: v.optional(v.any()), // User's specific team information for weekly recaps
     }),
     
     // Timing and lifecycle

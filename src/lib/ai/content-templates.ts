@@ -25,7 +25,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     name: "Weekly Recap",
     description: "Comprehensive review of all matchups with commentary",
     creditCost: 10,
-    estimatedWords: 1200,
+    estimatedWords: 1300,
     requiredData: ["matchup_results", "player_scores", "standings", "playoff_tier"],
     optionalData: ["injuries", "weather", "upsets", "playoff_implications"],
     sections: [
@@ -57,7 +57,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         name: "other_matchups", 
         description: "Quick hits on remaining games (consolation and regular season)",
         required: true,
-        wordCount: 300
+        wordCount: 400
       },
       {
         name: "studs_and_duds",

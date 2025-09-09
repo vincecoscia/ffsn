@@ -36,48 +36,112 @@ export function formatCommentsForPrompt(context: CommentIntegrationContext): str
     ""
   ];
 
-  // Group comments by response type for better organization
-  const groupedComments = context.commentResponses.reduce((acc, response) => {
-    if (!acc[response.responseType]) {
-      acc[response.responseType] = [];
-    }
-    acc[response.responseType].push(response);
-    return acc;
-  }, {} as Record<string, CommentResponseData[]>);
-
-  // Format each group
-  Object.entries(groupedComments).forEach(([type, responses]) => {
-    const typeLabel = getResponseTypeLabel(type);
-    sections.push(`## ${typeLabel}:`);
-    
-    responses.forEach(response => {
-      // Include question context in the header
-      const questionContext = response.relevanceMetadata.suggestedUsage || "about their team";
-      sections.push(`\n**${response.userName || "Anonymous"} (${response.teamName || "Unknown Team"}) - ${questionContext}:**`);
-      
-      // Use extracted quotes if available, otherwise use processed response
-      if (response.relevanceMetadata.extractedQuotes && response.relevanceMetadata.extractedQuotes.length > 0) {
-        response.relevanceMetadata.extractedQuotes.forEach(quote => {
-          sections.push(`> "${quote}"`);
-        });
-      } else {
-        // Format the response as a quote
-        const quotedResponse = response.processedResponse
-          .split('\n')
-          .map(line => `> ${line}`)
-          .join('\n');
-        sections.push(quotedResponse);
-      }
-
-      // Add key insights if available (these now contain question contexts)
-      if (response.relevanceMetadata.keyInsights && response.relevanceMetadata.keyInsights.length > 0) {
-        sections.push("\n*Question topics:* " + response.relevanceMetadata.keyInsights.join(", "));
-      }
-    });
+  // For weekly recaps, organize comments by team for better matchup association
+  if (context.contentType === 'weekly_recap') {
+    sections.push("COMMENTS BY TEAM (for matchup integration):");
+    sections.push("🚨 CRITICAL RULE: When analyzing each matchup, ONLY use comments from the teams involved in that specific matchup.");
+    sections.push("🚨 VIOLATION EXAMPLES TO AVOID:");
+    sections.push("   ❌ WRONG: Analyzing 'Team A vs Team B' but using comments from 'Team C'");
+    sections.push("   ❌ WRONG: Using generic comments that don't specify which team they're from");
+    sections.push("   ✅ CORRECT: Analyzing 'Team A vs Team B' and ONLY using comments from '## Team A:' and '## Team B:' sections");
     sections.push("");
-  });
+    
+    // Group by team name for weekly recaps
+    const commentsByTeam = context.commentResponses.reduce((acc, response) => {
+      const teamKey = response.teamName || "Unknown Team";
+      if (!acc[teamKey]) {
+        acc[teamKey] = [];
+      }
+      acc[teamKey].push(response);
+      return acc;
+    }, {} as Record<string, CommentResponseData[]>);
 
-  sections.push("=== END OF MEMBER COMMENTS ===\n");
+    // Format each team's comments with enhanced context
+    Object.entries(commentsByTeam).forEach(([teamName, responses]) => {
+      sections.push(`## ${teamName}:`);
+      sections.push(`MANAGER: ${responses[0]?.userName || "Unknown"}`);
+      sections.push(`🎯 TEAM CONTEXT: Use these comments ONLY when analyzing ${teamName}'s matchups`);
+      sections.push(`🚫 DO NOT use these comments when analyzing other teams' matchups`);
+      sections.push("");
+      
+      responses.forEach(response => {
+        const questionContext = response.relevanceMetadata.suggestedUsage || "about their team performance";
+        sections.push(`**${response.userName || "Anonymous"} - ${questionContext}:**`);
+        
+        // Use extracted quotes if available, otherwise use processed response
+        if (response.relevanceMetadata.extractedQuotes && response.relevanceMetadata.extractedQuotes.length > 0) {
+          response.relevanceMetadata.extractedQuotes.forEach(quote => {
+            sections.push(`> "${quote}"`);
+          });
+        } else {
+          // Format the response as a quote
+          const quotedResponse = response.processedResponse
+            .split('\n')
+            .map(line => `> ${line}`)
+            .join('\n');
+          sections.push(quotedResponse);
+        }
+
+        // Add key insights if available
+        if (response.relevanceMetadata.keyInsights && response.relevanceMetadata.keyInsights.length > 0) {
+          sections.push("*Question topics:* " + response.relevanceMetadata.keyInsights.join(", "));
+        }
+        sections.push("");
+      });
+      sections.push("---");
+      sections.push("");
+    });
+  } else {
+    // For other content types, use the original grouping by response type
+    const groupedComments = context.commentResponses.reduce((acc, response) => {
+      if (!acc[response.responseType]) {
+        acc[response.responseType] = [];
+      }
+      acc[response.responseType].push(response);
+      return acc;
+    }, {} as Record<string, CommentResponseData[]>);
+
+    // Format each group
+    Object.entries(groupedComments).forEach(([type, responses]) => {
+      const typeLabel = getResponseTypeLabel(type);
+      sections.push(`## ${typeLabel}:`);
+      
+      responses.forEach(response => {
+        // Include question context in the header
+        const questionContext = response.relevanceMetadata.suggestedUsage || "about their team";
+        sections.push(`\n**${response.userName || "Anonymous"} (${response.teamName || "Unknown Team"}) - ${questionContext}:**`);
+        
+        // Use extracted quotes if available, otherwise use processed response
+        if (response.relevanceMetadata.extractedQuotes && response.relevanceMetadata.extractedQuotes.length > 0) {
+          response.relevanceMetadata.extractedQuotes.forEach(quote => {
+            sections.push(`> "${quote}"`);
+          });
+        } else {
+          // Format the response as a quote
+          const quotedResponse = response.processedResponse
+            .split('\n')
+            .map(line => `> ${line}`)
+            .join('\n');
+          sections.push(quotedResponse);
+        }
+
+        // Add key insights if available (these now contain question contexts)
+        if (response.relevanceMetadata.keyInsights && response.relevanceMetadata.keyInsights.length > 0) {
+          sections.push("\n*Question topics:* " + response.relevanceMetadata.keyInsights.join(", "));
+        }
+      });
+      sections.push("");
+    });
+  }
+
+  sections.push("=== END OF MEMBER COMMENTS ===");
+  sections.push("");
+  sections.push("🚨 FINAL REMINDER FOR WEEKLY RECAPS:");
+  sections.push("- Each matchup analysis should ONLY reference comments from the teams in that specific matchup");
+  sections.push("- If analyzing 'Chodie mcgruber vs Moisty Loins', ONLY use comments from those two team sections");
+  sections.push("- NEVER use comments from other teams like 'Team Destroyers' when analyzing different teams");
+  sections.push("- If a team has no comments, analyze their game without quotes - don't substitute other teams' comments");
+  sections.push("");
 
   return sections.join('\n');
 }
@@ -101,11 +165,25 @@ IMPORTANT: You have been provided with actual comments from league members. You 
   const typeSpecificInstructions: Record<string, string> = {
     weekly_recap: `
 For the weekly recap:
-- Use member reactions to highlight the most memorable moments
-- Quote their explanations for lineup decisions
-- Include their emotional responses to wins/losses
-- Reference their comments about specific player performances
-- Let their quotes drive the narrative of each matchup
+- Comments are organized BY TEAM NAME with clear section headers (## Team Name:)
+- Each team section shows: MANAGER name and TEAM CONTEXT instructions
+- CRITICAL RULE: When analyzing a matchup between "Team A vs Team B", ONLY use:
+  * Comments from "## Team A:" section when discussing Team A's performance
+  * Comments from "## Team B:" section when discussing Team B's performance
+- NEVER mix team comments - Team A's quotes should NEVER appear in Team B's analysis
+- INTEGRATE comments directly into each team's matchup analysis, not as a separate section
+- MANDATORY FORMAT: "[AI analysis of Team A's game] When asked about [SPECIFIC QUESTION/TOPIC], [MANAGER'S FULL NAME] said: '[EXACT QUOTE]' [AI's response to their comment]"
+- NEVER use generic phrases like "When asked" - be specific: "When asked about their Week 1 performance", "Regarding their lineup decisions", "About their player's breakout game"
+- ALWAYS include the manager's full name, never just "the manager" or anonymous references
+- Make the comments feel like a natural conversation between the AI and team managers during game analysis
+- Use their quotes to add authenticity to game recaps and decision-making stories
+- Reference their emotional reactions (excitement, frustration, regret) to make matchups more engaging
+- Provide clear context for what prompted each quote so readers understand the conversation flow
+- EXAMPLE CORRECT USAGE: 
+  * Matchup: "Team Destroyers (John Smith) vs Team Rivals (Mike Johnson)"
+  * When analyzing Team Destroyers: Use comments from "## Team Destroyers:" section only
+  * When analyzing Team Rivals: Use comments from "## Team Rivals:" section only
+- If no comments exist for a team, analyze their game without quotes - don't use another team's comments as filler
 `,
     trade_analysis: `
 For trade analysis:

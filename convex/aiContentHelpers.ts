@@ -228,13 +228,23 @@ export const generateAIContentWithData = internalAction({
       // Get comment responses if available
       let commentResponses: CommentResponseData[] = [];
       if (args.scheduledContentId) {
+        // For scheduled content
         commentResponses = await ctx.runQuery(internal.aiContentHelpers.getCommentResponsesForContent, {
           scheduledContentId: args.scheduledContentId,
           leagueId: args.leagueId,
           contentType: args.contentType,
           week: preparedData.leagueData.currentWeek,
         });
-        console.log(`Found ${commentResponses.length} comment responses for integration`);
+        console.log(`Found ${commentResponses.length} comment responses for scheduled content`);
+      } else {
+        // For manual content, get comment responses by articleId
+        commentResponses = await ctx.runQuery(internal.aiContentHelpers.getCommentResponsesForManualContent, {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          week: preparedData.leagueData.currentWeek,
+        });
+        console.log(`Found ${commentResponses.length} comment responses for manual content`);
       }
       
       // Get API key
@@ -350,10 +360,19 @@ export const getCommentResponsesForContent = internalQuery({
           .filter(q => q.eq(q.field("owner"), response.userId))
           .first();
 
+        // Get the comment request to access team mapping for weekly recaps
+        const commentRequest = await ctx.db.get(response.commentRequestId);
+        let teamName = team?.name;
+        
+        // For weekly recaps, use the team name from the comment request context if available
+        if (args.contentType === 'weekly_recap' && commentRequest?.articleContext?.userTeamInfo) {
+          teamName = commentRequest.articleContext.userTeamInfo.teamName || team?.name;
+        }
+
         return {
           userId: response.userId,
           userName: user?.name,
-          teamName: team?.name,
+          teamName,
           rawResponse: response.rawResponse,
           processedResponse: response.processedResponse,
           responseType: response.responseType,
@@ -362,6 +381,76 @@ export const getCommentResponsesForContent = internalQuery({
             qualityScore: response.relevanceMetadata.qualityScore,
             extractedQuotes: response.relevanceMetadata.extractedQuotes,
             keyInsights: response.relevanceMetadata.keyInsights,
+            suggestedUsage: response.relevanceMetadata.suggestedUsage,
+          },
+        } as CommentResponseData;
+      })
+    );
+
+    // Sort by quality score descending
+    return enrichedResponses.sort((a, b) => 
+      b.relevanceMetadata.qualityScore - a.relevanceMetadata.qualityScore
+    );
+  },
+});
+
+// Fetch comment responses for manual content
+export const getCommentResponsesForManualContent = internalQuery({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    week: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<CommentResponseData[]> => {
+    // Get comment responses for this manual content
+    const responses = await ctx.db
+      .query("commentResponses")
+      .withIndex("by_manual_content", q => 
+        q.eq("manualContentId", args.articleId)
+      )
+      .filter(q => 
+        q.and(
+          q.eq(q.field("integrationStatus"), "pending"),
+          q.gte(q.field("relevanceMetadata.qualityScore"), 50)
+        )
+      )
+      .collect();
+
+    // Enrich with user and team data (same logic as scheduled content)
+    const enrichedResponses = await Promise.all(
+      responses.map(async (response) => {
+        const user = await ctx.db.get(response.userId);
+        const team = await ctx.db
+          .query("teams")
+          .withIndex("by_league", q => 
+            q.eq("leagueId", args.leagueId)
+          )
+          .filter(q => q.eq(q.field("owner"), response.userId))
+          .first();
+
+        // Get the comment request to access team mapping for weekly recaps
+        const commentRequest = await ctx.db.get(response.commentRequestId);
+        let teamName = team?.name;
+        
+        // For weekly recaps, use the team name from the comment request context if available
+        if (args.contentType === 'weekly_recap' && commentRequest?.articleContext?.userTeamInfo) {
+          teamName = commentRequest.articleContext.userTeamInfo.teamName || team?.name;
+        }
+
+        return {
+          userId: response.userId,
+          userName: user?.name,
+          teamName,
+          rawResponse: response.rawResponse,
+          processedResponse: response.processedResponse,
+          responseType: response.responseType,
+          relevanceMetadata: {
+            topicRelevance: response.relevanceMetadata.topicRelevance,
+            qualityScore: response.relevanceMetadata.qualityScore,
+            extractedQuotes: response.relevanceMetadata.extractedQuotes,
+            keyInsights: response.relevanceMetadata.keyInsights,
+            suggestedUsage: response.relevanceMetadata.suggestedUsage,
           },
         } as CommentResponseData;
       })

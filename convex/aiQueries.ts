@@ -1808,10 +1808,10 @@ export const getWeeklyRecapDataForAI = query({
       // Get matchups for the specific week with full roster data
       const weekMatchups = await ctx.db
         .query("matchups")
-        .withIndex("by_league_period", q => 
-          q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week)
+        .withIndex("by_league_season", q => 
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
         )
-        .filter(q => q.eq(q.field("seasonId"), args.seasonId))
+        .filter(q => q.eq(q.field("matchupPeriod"), args.week))
         .collect();
       
       // Get teams for this season
@@ -1831,7 +1831,9 @@ export const getWeeklyRecapDataForAI = query({
         m.playoffTier === "WINNERS_CONSOLATION_LADDER" || 
         m.playoffTier === "LOSERS_CONSOLATION_LADDER"
       );
-      const regularSeasonMatchups = weekMatchups.filter(m => !m.playoffTier);
+      const regularSeasonMatchups = weekMatchups.filter(m => 
+        !m.playoffTier || m.playoffTier === "NONE"
+      );
       
       // Determine if this is a championship week (only one WINNERS_BRACKET game)
       const isChampionshipWeek = playoffMatchups.length === 1;
@@ -1850,24 +1852,75 @@ export const getWeeklyRecapDataForAI = query({
         const homeRoster = matchup.homeRoster?.players || [];
         const awayRoster = matchup.awayRoster?.players || [];
         
-        // Find top performers
+        // Separate starters from bench players
         const allPlayers = [
           ...homeRoster.map((p: any) => ({ ...p, team: homeTeam?.name || matchup.homeTeamId })),
           ...awayRoster.map((p: any) => ({ ...p, team: awayTeam?.name || matchup.awayTeamId }))
         ];
         
-        const topPerformers = allPlayers
+        // Categorize players by lineup status
+        const starters = allPlayers.filter(p => p.lineupSlotId !== 20 && p.lineupSlotId !== 21); // Not bench or IR
+        const benchPlayers = allPlayers.filter(p => p.lineupSlotId === 20); // Bench only
+        
+        // Find top performing starters (prioritized)
+        const topStarters = starters
           .sort((a, b) => b.points - a.points)
-          .slice(0, isChampionshipGame ? 10 : 5) // More detail for championship
+          .slice(0, isChampionshipGame ? 8 : 4)
           .map(player => ({
             playerName: player.fullName,
             position: player.position,
             points: player.points,
             projectedPoints: player.projectedPoints || 0,
             team: player.team,
+            isStarter: true,
+            lineupSlotId: player.lineupSlotId,
             overPerformance: player.projectedPoints ? 
               ((player.points - player.projectedPoints) / player.projectedPoints * 100).toFixed(1) : 0
           }));
+        
+        // Find bench players who would have made a meaningful difference
+        const impactfulBenchPlayers = benchPlayers
+          .filter(benchPlayer => {
+            // Only consider bench players with decent scores
+            if (benchPlayer.points < 15) return false;
+            
+            // Find the worst starter at the same position
+            const samePositionStarters = starters.filter(s => s.position === benchPlayer.position);
+            if (samePositionStarters.length === 0) return false;
+            
+            // Find the lowest scoring starter at this position
+            const worstStarter = samePositionStarters.sort((a, b) => a.points - b.points)[0];
+            
+            // Only include if bench player significantly outperformed the worst starter
+            const pointDifference = benchPlayer.points - worstStarter.points;
+            return pointDifference >= 10; // At least 10 point improvement
+          })
+          .sort((a, b) => b.points - a.points)
+          .slice(0, 2) // Max 2 impactful bench players
+          .map(player => {
+            // Calculate the actual impact
+            const samePositionStarters = starters.filter(s => s.position === player.position);
+            const worstStarter = samePositionStarters.sort((a, b) => a.points - b.points)[0];
+            const pointDifference = player.points - worstStarter.points;
+            
+            return {
+              playerName: player.fullName,
+              position: player.position,
+              points: player.points,
+              projectedPoints: player.projectedPoints || 0,
+              team: player.team,
+              isStarter: false,
+              lineupSlotId: player.lineupSlotId,
+              overPerformance: player.projectedPoints ? 
+                ((player.points - player.projectedPoints) / player.projectedPoints * 100).toFixed(1) : 0,
+              benchImpact: true,
+              wouldHaveReplacedPlayer: worstStarter.fullName,
+              pointImprovementIfStarted: pointDifference.toFixed(1)
+            };
+          });
+        
+        // Combine top performers (starters first, then impactful bench players)
+        const topPerformers = [...topStarters, ...impactfulBenchPlayers];
         
         // Calculate bench points
         const homeBenchPoints = homeRoster
@@ -1942,10 +1995,16 @@ export const getWeeklyRecapDataForAI = query({
           homeRoster: homeRoster.map((p: any) => ({
             ...p,
             teamName: homeTeam?.name || matchup.homeTeamId,
+            isStarter: p.lineupSlotId !== 20 && p.lineupSlotId !== 21,
+            isBench: p.lineupSlotId === 20,
+            isIR: p.lineupSlotId === 21,
           })),
           awayRoster: awayRoster.map((p: any) => ({
             ...p,
             teamName: awayTeam?.name || matchup.awayTeamId,
+            isStarter: p.lineupSlotId !== 20 && p.lineupSlotId !== 21,
+            isBench: p.lineupSlotId === 20,
+            isIR: p.lineupSlotId === 21,
           })),
         };
       };

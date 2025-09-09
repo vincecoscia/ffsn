@@ -82,6 +82,40 @@ export const createCommentRequestsAndWait = internalAction({
         }
       }
       
+      // Fetch weekly recap data if this is weekly recap content
+      let weeklyRecapData = undefined;
+      if (args.contentType === 'weekly_recap') {
+        try {
+          // Get team information for each user
+          const userTeamMapping: Record<string, any> = {};
+          for (const userId of validUserIds) {
+            const user = await ctx.runQuery(internal.aiContentWithComments.getUserById, { userId });
+            const userTeam = await ctx.runQuery(internal.aiContentWithComments.getUserTeam, {
+              userId,
+              leagueId: args.leagueId,
+            });
+            
+            if (user && userTeam) {
+              userTeamMapping[userId] = {
+                teamId: userTeam._id,
+                teamName: userTeam.name,
+                teamExternalId: userTeam.externalId,
+                managerName: user.name,
+                userId: userId,
+              };
+            }
+          }
+          
+          weeklyRecapData = {
+            week: args.week,
+            seasonId: args.seasonId || new Date().getFullYear(),
+            userTeamMapping,
+          };
+        } catch (error) {
+          console.warn("Failed to fetch weekly recap data for comment requests:", error);
+        }
+      }
+      
       // Create comment requests for manual content
       const commentRequestIds = await ctx.runMutation(internal.aiContentWithComments.createManualCommentRequests, {
         articleId: args.articleId,
@@ -92,6 +126,7 @@ export const createCommentRequestsAndWait = internalAction({
         week: args.week,
         seasonId: args.seasonId,
         draftData,
+        weeklyRecapData,
       });
       
       console.log(`Created ${commentRequestIds.length} comment requests`);
@@ -161,6 +196,11 @@ export const createManualCommentRequests = internalMutation({
       draftOrder: v.optional(v.array(v.any())),
       userDraftPicks: v.optional(v.any()), // Map of userId to their draft picks
     })),
+    weeklyRecapData: v.optional(v.object({
+      week: v.optional(v.number()),
+      seasonId: v.optional(v.number()),
+      userTeamMapping: v.optional(v.any()), // Map of userId to their team info
+    })),
   },
   handler: async (ctx, args) => {
     const currentTime = Date.now();
@@ -192,6 +232,18 @@ export const createManualCommentRequests = internalMutation({
             draftOrder: args.draftData.draftOrder,
             userDraftPicks: args.draftData.userDraftPicks?.[userId], // Get this user's specific draft picks
             focusAreas: ["draft strategy", "player selections", "value picks", "roster construction"],
+          };
+        }
+        
+        // Add weekly recap-specific context for weekly recap content
+        if (args.contentType === 'weekly_recap' && args.weeklyRecapData) {
+          const userTeamInfo = args.weeklyRecapData.userTeamMapping?.[userId];
+          articleContext = {
+            ...articleContext,
+            week: args.weeklyRecapData.week,
+            seasonId: args.weeklyRecapData.seasonId,
+            userTeamInfo, // Include this user's specific team information
+            focusAreas: ["team performance", "matchup results", "lineup decisions", "player performances"],
           };
         }
         
@@ -484,6 +536,31 @@ export const getUserById = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.userId);
+  },
+});
+
+export const getUserTeam = internalQuery({
+  args: { 
+    userId: v.id("users"),
+    leagueId: v.id("leagues"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user || !user.clerkId) return null;
+
+    // Use teamClaims table to find the user's team for this league
+    const teamClaim = await ctx.db
+      .query("teamClaims")
+      .withIndex("by_user", q => q.eq("userId", user.clerkId))
+      .filter(q => q.eq(q.field("leagueId"), args.leagueId))
+      .filter(q => q.eq(q.field("status"), "active"))
+      .first();
+
+    if (!teamClaim) return null;
+
+    // Get the actual team record
+    const team = await ctx.db.get(teamClaim.teamId);
+    return team;
   },
 });
 

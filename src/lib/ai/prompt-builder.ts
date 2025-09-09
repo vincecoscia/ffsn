@@ -21,6 +21,10 @@ interface Matchup {
     player?: string;
     team?: string;
     overPerformance?: number;
+    isStarter?: boolean;
+    benchImpact?: boolean;
+    wouldHaveReplacedPlayer?: string;
+    pointImprovementIfStarted?: string;
   }>;
   benchPointsA?: number;
   benchPointsB?: number;
@@ -560,7 +564,30 @@ CURRENT CONTEXT:
 - Stay in character as ${this.options.persona} throughout
 - Make specific references to team names and manager names
 - Include specific scores and statistics where relevant
-- When discussing past performance, remember team names may change but externalId stays consistent`;
+- When discussing past performance, remember team names may change but externalId stays consistent
+
+CRITICAL PLAYER MENTION RULES:
+- ONLY mention players marked as [STARTER] in your analysis unless specified otherwise
+- [BENCH] players should ONLY be mentioned if they have the "benchImpact" flag AND specific replacement information
+- When mentioning a [BENCH] player with benchImpact, ALWAYS note they were on the bench and specify who they would have replaced and by how many points
+- Example: "Saquon Barkley exploded for 25.3 points on the bench - if he had started over Joe Mixon's 8.2 points, Team X would have won by 10 points instead of losing by 7!"
+- Do NOT mention bench players who scored well but wouldn't have improved the starting lineup
+- Focus your analysis on the players who actually contributed to the team's final score (starters)
+- Bench players without the benchImpact flag should be ignored completely in your analysis
+
+COMMENT INTEGRATION FOR WEEKLY RECAPS:
+- Manager names are provided in matchup data (Team Name (Manager Name))
+- Comments are organized BY TEAM NAME in the comments section - match them exactly to the team in each matchup
+- When analyzing "Team Destroyers (John Smith) vs Team Rivals (Mike Johnson)", look for:
+  * Comments under "## Team Destroyers:" for John Smith's quotes
+  * Comments under "## Team Rivals:" for Mike Johnson's quotes
+- NEVER mix up team comments - only use comments from the team you're currently analyzing
+- Integrate their quotes naturally into the game analysis, not as a separate section
+- Use their reactions to explain lineup decisions, celebrate wins, or express frustration with losses
+- Example: "Team Destroyers dominated 145-98! When asked about his explosive performance, John Smith said: 'I knew starting Lamar over Mahomes was the right call' - and boy was he right!"
+- Always provide context for what question prompted their response
+- Make it feel like a conversation between you and the managers about their specific games
+- If no comments exist for a team, analyze their game without quotes - don't use another team's comments`;
 
     console.log("Final user prompt length:", prompt.length);
     console.log("=== buildUserPrompt END ===");
@@ -607,7 +634,9 @@ CURRENT CONTEXT:
   }
 
   private formatMatchupDetails(matchup: Matchup, isChampionshipGame = false, isPlayoffGame = false): string {
-    let details = `\n${matchup.teamA} (${matchup.scoreA}) vs ${matchup.teamB} (${matchup.scoreB})`;
+    const teamAInfo = (matchup as any).teamAOwner ? `${matchup.teamA} (${(matchup as any).teamAOwner})` : matchup.teamA;
+    const teamBInfo = (matchup as any).teamBOwner ? `${matchup.teamB} (${(matchup as any).teamBOwner})` : matchup.teamB;
+    let details = `\n${teamAInfo} (${matchup.scoreA}) vs ${teamBInfo} (${matchup.scoreB})`;
     
     // Add projected scores for context
     if (matchup.projectedScoreA && matchup.projectedScoreB) {
@@ -648,7 +677,10 @@ CURRENT CONTEXT:
         const playerName = perf.playerName || perf.player || 'Unknown Player';
         const position = perf.position ? ` (${perf.position})` : '';
         const overPerf = perf.overPerformance ? ` (+${perf.overPerformance}% vs proj)` : '';
-        details += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts${overPerf}\n`;
+        const lineupStatus = (perf as any).isStarter === false ? ' [BENCH]' : ' [STARTER]';
+        const benchNote = (perf as any).benchImpact && (perf as any).wouldHaveReplacedPlayer ? 
+          ` (would have replaced ${(perf as any).wouldHaveReplacedPlayer} for +${(perf as any).pointImprovementIfStarted} pts)` : '';
+        details += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts${overPerf}${lineupStatus}${benchNote}\n`;
       });
     }
     
