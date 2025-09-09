@@ -4,6 +4,13 @@ import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { ConversationContext, conversationService } from "../src/lib/ai/conversation-service";
 
+// Helper function to identify defense positions
+function isDefensePosition(position: string): boolean {
+  if (!position) return false;
+  const pos = position.toUpperCase();
+  return pos === 'D/ST' || pos === 'DST' || pos === 'DEF';
+}
+
 // Create comment requests for scheduled content
 export const createRequestsForScheduledContent = internalMutation({
   args: {
@@ -266,26 +273,84 @@ export const buildConversationContext = internalQuery({
         teamScore = roster.appliedStatTotal;
       }
 
+      // Debug: Log all players to understand position formats
+      console.log("All roster players:", players.map(p => ({ 
+        name: p.fullName, 
+        position: p.position, 
+        lineupSlot: p.lineupSlotId,
+        projected: p.projectedPoints,
+        actual: p.points 
+      })));
+      
       underperformers = players
-        .filter((p: any) => p.lineupSlotId !== 20 && p.projectedPoints && p.points < p.projectedPoints * 0.8)
+        .filter((p: any) => {
+          // Filter out bench players and players without projections
+          return p.lineupSlotId !== 20 && 
+                 p.projectedPoints && 
+                 p.points < p.projectedPoints * 0.8 &&
+                 (p.projectedPoints - p.points) >= 2; // Minimum 2 point underperformance (lowered threshold)
+        })
         .map((p: any) => ({
           player: p.fullName,
           position: p.position,
           expectedPts: p.projectedPoints,
           actualPts: p.points,
+          pointDifferential: p.projectedPoints - p.points,
+          isDefense: isDefensePosition(p.position),
         }))
-        .sort((a, b) => (a.expectedPts - a.actualPts) - (b.expectedPts - b.actualPts))
+        .sort((a, b) => {
+          // Primary sort: Point differential (bigger underperformance first)
+          const diffA = a.pointDifferential;
+          const diffB = b.pointDifferential;
+          
+          // If point differentials are close (within 2 points), prioritize skill positions
+          if (Math.abs(diffA - diffB) <= 2) {
+            if (a.isDefense && !b.isDefense) return 1; // b (skill position) comes first
+            if (!a.isDefense && b.isDefense) return -1; // a (skill position) comes first
+          }
+          
+          // Otherwise, sort by point differential magnitude
+          return diffB - diffA;
+        })
         .slice(0, 3);
+      
+      console.log(`Final underperformers for comment generation:`, underperformers.map((u: any) => ({
+        player: u.player,
+        position: u.position,
+        differential: u.pointDifferential,
+        isDefense: u.isDefense
+      })));
 
       overperformers = players
-        .filter((p: any) => p.lineupSlotId !== 20 && p.projectedPoints && p.points > p.projectedPoints * 1.2)
+        .filter((p: any) => {
+          // Filter out bench players and players without projections
+          return p.lineupSlotId !== 20 && 
+                 p.projectedPoints && 
+                 p.points > p.projectedPoints * 1.2 &&
+                 (p.points - p.projectedPoints) >= 2; // Minimum 2 point overperformance (lowered threshold)
+        })
         .map((p: any) => ({
           player: p.fullName,
           position: p.position,
           expectedPts: p.projectedPoints,
           actualPts: p.points,
+          pointDifferential: p.points - p.projectedPoints,
+          isDefense: isDefensePosition(p.position),
         }))
-        .sort((a, b) => (b.actualPts - b.expectedPts) - (a.actualPts - a.expectedPts))
+        .sort((a, b) => {
+          // Primary sort: Point differential (bigger overperformance first)
+          const diffA = a.pointDifferential;
+          const diffB = b.pointDifferential;
+          
+          // If point differentials are close (within 2 points), prioritize skill positions
+          if (Math.abs(diffA - diffB) <= 2) {
+            if (a.isDefense && !b.isDefense) return 1; // b (skill position) comes first
+            if (!a.isDefense && b.isDefense) return -1; // a (skill position) comes first
+          }
+          
+          // Otherwise, sort by point differential magnitude
+          return diffB - diffA;
+        })
         .slice(0, 3);
     }
 
@@ -692,25 +757,67 @@ export const getConversationContext = query({
 
     // Find underperformers and overperformers
     const underperformers = players
-      .filter((p: any) => p.lineupSlotId !== 20 && p.projectedPoints && p.points < p.projectedPoints * 0.8)
+      .filter((p: any) => {
+        // Filter out bench players and players without projections
+        return p.lineupSlotId !== 20 && 
+               p.projectedPoints && 
+               p.points < p.projectedPoints * 0.8 &&
+               (p.projectedPoints - p.points) >= 2; // Minimum 2 point underperformance
+      })
       .map((p: any) => ({
         player: p.fullName,
         position: p.position,
         expectedPts: p.projectedPoints,
         actualPts: p.points,
+        pointDifferential: p.projectedPoints - p.points,
+        isDefense: isDefensePosition(p.position),
       }))
-      .sort((a, b) => (a.expectedPts - a.actualPts) - (b.expectedPts - b.actualPts))
+      .sort((a, b) => {
+        // Primary sort: Point differential (bigger underperformance first)
+        const diffA = a.pointDifferential;
+        const diffB = b.pointDifferential;
+        
+        // If point differentials are close (within 2 points), prioritize skill positions
+        if (Math.abs(diffA - diffB) <= 2) {
+          if (a.isDefense && !b.isDefense) return 1; // b (skill position) comes first
+          if (!a.isDefense && b.isDefense) return -1; // a (skill position) comes first
+        }
+        
+        // Otherwise, sort by point differential magnitude
+        return diffB - diffA;
+      })
       .slice(0, 3);
 
     const overperformers = players
-      .filter((p: any) => p.lineupSlotId !== 20 && p.projectedPoints && p.points > p.projectedPoints * 1.2)
+      .filter((p: any) => {
+        // Filter out bench players and players without projections
+        return p.lineupSlotId !== 20 && 
+               p.projectedPoints && 
+               p.points > p.projectedPoints * 1.2 &&
+               (p.points - p.projectedPoints) >= 2; // Minimum 2 point overperformance
+      })
       .map((p: any) => ({
         player: p.fullName,
         position: p.position,
         expectedPts: p.projectedPoints,
         actualPts: p.points,
+        pointDifferential: p.points - p.projectedPoints,
+        isDefense: isDefensePosition(p.position),
       }))
-      .sort((a, b) => (b.actualPts - b.expectedPts) - (a.actualPts - a.expectedPts))
+      .sort((a, b) => {
+        // Primary sort: Point differential (bigger overperformance first)
+        const diffA = a.pointDifferential;
+        const diffB = b.pointDifferential;
+        
+        // If point differentials are close (within 2 points), prioritize skill positions
+        if (Math.abs(diffA - diffB) <= 2) {
+          if (a.isDefense && !b.isDefense) return 1; // b (skill position) comes first
+          if (!a.isDefense && b.isDefense) return -1; // a (skill position) comes first
+        }
+        
+        // Otherwise, sort by point differential magnitude
+        return diffB - diffA;
+      })
       .slice(0, 3);
 
     // Get league standings for the season

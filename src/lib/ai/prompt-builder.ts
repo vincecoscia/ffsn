@@ -12,6 +12,8 @@ interface Matchup {
   week?: number;
   isUpset?: boolean;
   closeness?: "blowout" | "comfortable" | "close" | "nail-biter";
+  teamAOwner?: string;
+  teamBOwner?: string;
   topPerformers?: Array<{
     playerId?: string;
     playerName?: string;
@@ -24,7 +26,7 @@ interface Matchup {
     isStarter?: boolean;
     benchImpact?: boolean;
     wouldHaveReplacedPlayer?: string;
-    pointImprovementIfStarted?: string;
+    pointImprovementIfStarted?: number;
   }>;
   benchPointsA?: number;
   benchPointsB?: number;
@@ -575,6 +577,13 @@ CRITICAL PLAYER MENTION RULES:
 - Focus your analysis on the players who actually contributed to the team's final score (starters)
 - Bench players without the benchImpact flag should be ignored completely in your analysis
 
+CRITICAL PLAYER-TEAM ASSIGNMENT RULES:
+- Each player in the "Top performers" section includes their team name in brackets: [TEAM NAME]
+- ALWAYS check the team name in brackets to correctly attribute players to their teams
+- Example: "Josh Allen (QB) [The Stinky Faggots] - 40.8 pts" means Josh Allen plays for "The Stinky Faggots"
+- NEVER assume a player belongs to a team based on the matchup context - ONLY use the bracketed team name
+- When discussing a player's performance, reference their actual team from the brackets, not the opposing team
+
 COMMENT INTEGRATION FOR WEEKLY RECAPS:
 - Manager names are provided in matchup data (Team Name (Manager Name))
 - Comments are organized BY TEAM NAME in the comments section - match them exactly to the team in each matchup
@@ -634,8 +643,8 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
   }
 
   private formatMatchupDetails(matchup: Matchup, isChampionshipGame = false, isPlayoffGame = false): string {
-    const teamAInfo = (matchup as any).teamAOwner ? `${matchup.teamA} (${(matchup as any).teamAOwner})` : matchup.teamA;
-    const teamBInfo = (matchup as any).teamBOwner ? `${matchup.teamB} (${(matchup as any).teamBOwner})` : matchup.teamB;
+    const teamAInfo = matchup.teamAOwner ? `${matchup.teamA} (${matchup.teamAOwner})` : matchup.teamA;
+    const teamBInfo = matchup.teamBOwner ? `${matchup.teamB} (${matchup.teamBOwner})` : matchup.teamB;
     let details = `\n${teamAInfo} (${matchup.scoreA}) vs ${teamBInfo} (${matchup.scoreB})`;
     
     // Add projected scores for context
@@ -676,11 +685,12 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
       matchup.topPerformers.slice(0, performerCount).forEach((perf) => {
         const playerName = perf.playerName || perf.player || 'Unknown Player';
         const position = perf.position ? ` (${perf.position})` : '';
+        const teamName = perf.team ? ` [${perf.team}]` : '';
         const overPerf = perf.overPerformance ? ` (+${perf.overPerformance}% vs proj)` : '';
-        const lineupStatus = (perf as any).isStarter === false ? ' [BENCH]' : ' [STARTER]';
-        const benchNote = (perf as any).benchImpact && (perf as any).wouldHaveReplacedPlayer ? 
-          ` (would have replaced ${(perf as any).wouldHaveReplacedPlayer} for +${(perf as any).pointImprovementIfStarted} pts)` : '';
-        details += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts${overPerf}${lineupStatus}${benchNote}\n`;
+        const lineupStatus = perf.isStarter === false ? ' [BENCH]' : ' [STARTER]';
+        const benchNote = perf.benchImpact && perf.wouldHaveReplacedPlayer ? 
+          ` (would have replaced ${perf.wouldHaveReplacedPlayer} for +${perf.pointImprovementIfStarted} pts)` : '';
+        details += `    - ${playerName}${position}${teamName} - ${perf.points.toFixed(1)} pts${overPerf}${lineupStatus}${benchNote}\n`;
       });
     }
     
