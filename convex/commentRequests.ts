@@ -361,7 +361,22 @@ export const buildConversationContext = internalQuery({
       .collect();
 
     const standings = allTeams
-      .sort((a, b) => (b.record.wins || 0) - (a.record.wins || 0))
+      .sort((a, b) => {
+        // Sort by wins first
+        if (a.record.wins !== b.record.wins) {
+          return (b.record.wins || 0) - (a.record.wins || 0);
+        }
+        // Then by win percentage
+        const aTotalGames = (a.record.wins || 0) + (a.record.losses || 0) + (a.record.ties || 0);
+        const bTotalGames = (b.record.wins || 0) + (b.record.losses || 0) + (b.record.ties || 0);
+        const aWinPct = aTotalGames > 0 ? (a.record.wins || 0) / aTotalGames : 0;
+        const bWinPct = bTotalGames > 0 ? (b.record.wins || 0) / bTotalGames : 0;
+        if (aWinPct !== bWinPct) {
+          return bWinPct - aWinPct;
+        }
+        // Then by points for (tiebreaker)
+        return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
+      })
       .map((t, idx) => ({
         teamId: t._id,
         teamName: t.name,
@@ -404,6 +419,18 @@ export const buildConversationContext = internalQuery({
         }
       }
     }
+
+    // Debug logging for team identification in buildConversationContext
+    console.log("buildConversationContext team identification debug:", {
+      userId: request.targetUserId,
+      teamFound: !!team,
+      teamId: team?._id,
+      teamName: team?.name,
+      teamExternalId: team?.externalId,
+      seasonIdUsed,
+      standingsCount: standings.length,
+      standingsTeamIds: standings.map(s => s.teamId).slice(0, 3), // First 3 for debugging
+    });
 
     return {
       userId: request.targetUserId,
@@ -830,7 +857,22 @@ export const getConversationContext = query({
       .collect();
 
     const standings = allTeams
-      .sort((a, b) => (b.record.wins || 0) - (a.record.wins || 0))
+      .sort((a, b) => {
+        // Sort by wins first
+        if (a.record.wins !== b.record.wins) {
+          return (b.record.wins || 0) - (a.record.wins || 0);
+        }
+        // Then by win percentage
+        const aTotalGames = (a.record.wins || 0) + (a.record.losses || 0) + (a.record.ties || 0);
+        const bTotalGames = (b.record.wins || 0) + (b.record.losses || 0) + (b.record.ties || 0);
+        const aWinPct = aTotalGames > 0 ? (a.record.wins || 0) / aTotalGames : 0;
+        const bWinPct = bTotalGames > 0 ? (b.record.wins || 0) / bTotalGames : 0;
+        if (aWinPct !== bWinPct) {
+          return bWinPct - aWinPct;
+        }
+        // Then by points for (tiebreaker)
+        return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
+      })
       .map((t, idx) => ({
         teamId: t._id,
         teamName: t.name,
@@ -841,6 +883,17 @@ export const getConversationContext = query({
     // Check playoff context
     const isPlayoffWeek = matchup.playoffTier !== undefined && matchup.playoffTier !== null;
     const userInPlayoffs = isPlayoffWeek && matchup.playoffTier === "WINNERS_BRACKET";
+
+    // Debug logging for team identification
+    console.log("Team identification debug:", {
+      userId: request.targetUserId,
+      teamFound: !!team,
+      teamId: team?._id,
+      teamName: team?.name,
+      teamExternalId: team?.externalId,
+      standingsCount: standings.length,
+      standingsTeamIds: standings.map(s => s.teamId).slice(0, 3), // First 3 for debugging
+    });
 
     const context: ConversationContext = {
       userId: request.targetUserId,

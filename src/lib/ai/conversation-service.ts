@@ -712,9 +712,25 @@ CRITICAL: Use accurate rookie status from the data above. Do NOT assume any play
     }
   }
 
-  private getTeamStanding(teamId: string, standings: Array<{ teamId: string; rank: number; record: string }>): string {
+  private getTeamStanding(teamId: string, standings: Array<{ teamId: string; teamName: string; rank: number; record: string }>): string {
+    // Debug logging for team standing lookup
+    console.log("getTeamStanding debug:", {
+      lookingForTeamId: teamId,
+      standingsCount: standings.length,
+      availableTeamIds: standings.map(s => ({ teamId: s.teamId, teamName: s.teamName, rank: s.rank })),
+    });
+    
     const standing = standings.find(s => s.teamId === teamId);
-    return standing ? `#${standing.rank} (${standing.record})` : 'Unknown';
+    const result = standing ? `#${standing.rank} (${standing.record})` : 'Unknown';
+    
+    console.log("getTeamStanding result:", {
+      teamId,
+      foundStanding: !!standing,
+      foundTeamName: standing?.teamName,
+      result,
+    });
+    
+    return result;
   }
 
   private extractDiscussedTopics(

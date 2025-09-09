@@ -138,7 +138,19 @@ export const getLeagueDataForAI = query({
     // Calculate standings
     const standings = teams
       .sort((a, b) => {
-        if (b.record.wins !== a.record.wins) return b.record.wins - a.record.wins;
+        // Sort by wins first
+        if (a.record.wins !== b.record.wins) {
+          return (b.record.wins || 0) - (a.record.wins || 0);
+        }
+        // Then by win percentage
+        const aTotalGames = (a.record.wins || 0) + (a.record.losses || 0) + (a.record.ties || 0);
+        const bTotalGames = (b.record.wins || 0) + (b.record.losses || 0) + (b.record.ties || 0);
+        const aWinPct = aTotalGames > 0 ? (a.record.wins || 0) / aTotalGames : 0;
+        const bWinPct = bTotalGames > 0 ? (b.record.wins || 0) / bTotalGames : 0;
+        if (aWinPct !== bWinPct) {
+          return bWinPct - aWinPct;
+        }
+        // Then by points for (tiebreaker)
         return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
       })
       .map((team, index) => ({
