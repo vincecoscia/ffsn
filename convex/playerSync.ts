@@ -904,15 +904,18 @@ export const syncAllLeaguePlayerStats = action({
       }
     }
     
-    // After completing stats sync, compute and cache top performers
-    try {
-      await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
-        leagueId,
-        season,
-        limitPerPosition: 20,
-      });
-    } catch (e) {
-      console.warn("Failed to compute top performers cache", e);
+    // After completing stats sync, compute and cache top performers (only for current season)
+    const currentSeason = new Date().getFullYear();
+    if (season === currentSeason) {
+      try {
+        await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+          leagueId,
+          season,
+          limitPerPosition: 20,
+        });
+      } catch (e) {
+        console.warn("Failed to compute top performers cache", e);
+      }
     }
 
     return {

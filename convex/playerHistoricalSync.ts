@@ -246,39 +246,32 @@ export const dailyAllLeaguesPlayerStatsSync = action({
         });
         
         // Backfill: limit to at most 1 older season per run to avoid timeouts (and add small delay between heavy ops)
+        // Note: Only sync player stats for past seasons, but skip leagueTopPerformers cache (only current season matters)
         const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId: league._id });
         const uniqueSeasons = [...new Set(teams.map((t: any) => t.seasonId))] as number[];
         let backfilled = 0;
         for (const season of uniqueSeasons) {
           if (season === currentSeason) continue; // already handled above
-          const existingCache = await ctx.runQuery(api.playerSyncInternal.getTopPerformersCache, {
+          
+          // Only sync player stats for past seasons, don't worry about leagueTopPerformers cache
+          const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
             leagueId: league._id,
             season,
           });
-          if (!existingCache) {
-            const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
-              leagueId: league._id,
-              season,
-            });
-            if (!hasStats) {
-              await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
-              await new Promise(resolve => setTimeout(resolve, 500));
-            } else {
-              try {
-                await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
-                  leagueId: league._id,
-                  season,
-                });
-              } catch {}
-            }
-            await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
-              leagueId: league._id,
-              season,
-              limitPerPosition: 20,
-            });
+          if (!hasStats) {
+            await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
             await new Promise(resolve => setTimeout(resolve, 500));
             backfilled++;
             if (backfilled >= 1) break; // throttle to 1 season per league per run
+          } else {
+            // Just ensure denormalized stats exist for past seasons (for queries)
+            try {
+              await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
+                leagueId: league._id,
+                season,
+              });
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } catch {}
           }
         }
         
