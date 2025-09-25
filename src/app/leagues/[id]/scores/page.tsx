@@ -98,6 +98,8 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
 
+  console.log("League:", league);
+
   // Get available seasons for the league
   const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
 
@@ -414,7 +416,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
 
                           {/* Status Badge */}
                           <div className="mt-3 text-center">
-                          {isComplete && currentWeek === matchup.matchupPeriod ? (
+                          {isComplete && currentWeek > matchup.matchupPeriod ? (
                                   <Badge variant="secondary">Final</Badge>
                                   ) : currentWeek === matchup.matchupPeriod ? (
                                   <Badge variant="default">In Progress</Badge>
@@ -557,7 +559,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                                 </div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center">
-                                {isComplete && currentWeek === matchup.matchupPeriod ? (
+                                {isComplete && currentWeek > matchup.matchupPeriod ? (
                                   <Badge variant="secondary">Final</Badge>
                                   ) : currentWeek === matchup.matchupPeriod ? (
                                   <Badge variant="default">In Progress</Badge>

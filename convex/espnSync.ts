@@ -155,6 +155,17 @@ export const syncLeagueData = action({
       const players = leagueData.players || [];
       const draftDetail = leagueData.draftDetail;
       const communication = leagueData.communication || {};
+      
+      // Debug: Log available fields for currentScoringPeriod
+      console.log(`League ${league.name} - ESPN API response fields:`, {
+        rootScoringPeriodId: leagueData.scoringPeriodId,
+        statusCurrentMatchupPeriod: leagueData.status?.currentMatchupPeriod,
+        statusLatestScoringPeriod: leagueData.status?.latestScoringPeriod,
+        settingsScoringCurrentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod,
+        availableRootFields: Object.keys(leagueData).filter(key => key.toLowerCase().includes('period') || key.toLowerCase().includes('scoring')),
+        availableStatusFields: leagueData.status ? Object.keys(leagueData.status).filter(key => key.toLowerCase().includes('period') || key.toLowerCase().includes('scoring')) : 'no status',
+        availableScoringSettingsFields: settings?.scoringSettings ? Object.keys(settings.scoringSettings).filter(key => key.toLowerCase().includes('period') || key.toLowerCase().includes('scoring')) : 'no scoringSettings'
+      });
 
       // Create a map of member IDs to member data for easy lookup
       const memberMap = new Map();
@@ -421,10 +432,27 @@ export const syncLeagueData = action({
         });
       }
 
+      // Determine current scoring period from multiple possible sources
+      const currentScoringPeriod = leagueData.scoringPeriodId || 
+                                  leagueData.status?.currentMatchupPeriod || 
+                                  leagueData.status?.latestScoringPeriod || 
+                                  settings?.scoringSettings?.currentScoringPeriod || 
+                                  league.espnData.currentScoringPeriod;
+
+      // Debug logging for currentScoringPeriod
+      console.log(`League ${league.name} - ESPN API currentScoringPeriod:`, {
+        rootScoringPeriodId: leagueData.scoringPeriodId,
+        statusCurrentMatchupPeriod: leagueData.status?.currentMatchupPeriod,
+        statusLatestScoringPeriod: leagueData.status?.latestScoringPeriod,
+        settingsCurrentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod,
+        fallback: league.espnData.currentScoringPeriod,
+        final: currentScoringPeriod
+      });
+
       // Update league's ESPN data with new sync timestamp
       await ctx.runMutation(api.espnSync.updateLeagueSync, {
         leagueId: args.leagueId,
-        currentScoringPeriod: settings?.scoringSettings?.matchupPeriods?.length || league.espnData.currentScoringPeriod,
+        currentScoringPeriod: currentScoringPeriod,
       });
 
       // Fetch rosters using the dedicated roster endpoint
@@ -2003,9 +2031,16 @@ export const syncAllLeagueData = action({
 
         // Update league sync timestamp for current season
         if (year === currentYear) {
+          // Determine current scoring period from multiple possible sources
+          const currentScoringPeriod = leagueData.scoringPeriodId || 
+                                      leagueData.status?.currentMatchupPeriod || 
+                                      leagueData.status?.latestScoringPeriod || 
+                                      settings?.scoringSettings?.currentScoringPeriod || 
+                                      league.espnData.currentScoringPeriod;
+
           await ctx.runMutation(api.espnSync.updateLeagueSync, {
             leagueId: args.leagueId,
-            currentScoringPeriod: settings?.scoringSettings?.matchupPeriods?.length || league.espnData.currentScoringPeriod,
+            currentScoringPeriod: currentScoringPeriod,
           });
         }
 
@@ -3101,7 +3136,7 @@ export const storePlayerTransactions = mutation({
   },
 });
 
-// Sync current season data for all leagues - optimized for frequent updates
+// Sync current season data for all leagues - optimized for frequent updates HELLO WORLD
 export const syncAllLeaguesCurrentSeason = internalAction({
   args: {},
   handler: async (ctx): Promise<{
@@ -3519,10 +3554,27 @@ export const syncAllLeaguesCurrentSeason = internalAction({
           });
         }
 
+        // Determine current scoring period from multiple possible sources
+        const currentScoringPeriod = leagueData.scoringPeriodId || 
+                                    leagueData.status?.currentMatchupPeriod || 
+                                    leagueData.status?.latestScoringPeriod || 
+                                    settings?.scoringSettings?.currentScoringPeriod || 
+                                    league.espnData.currentScoringPeriod;
+
+        // Debug logging for currentScoringPeriod
+        console.log(`League ${league.name} (syncAllLeaguesCurrentSeason) - ESPN API currentScoringPeriod:`, {
+          rootScoringPeriodId: leagueData.scoringPeriodId,
+          statusCurrentMatchupPeriod: leagueData.status?.currentMatchupPeriod,
+          statusLatestScoringPeriod: leagueData.status?.latestScoringPeriod,
+          settingsCurrentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod,
+          fallback: league.espnData.currentScoringPeriod,
+          final: currentScoringPeriod
+        });
+
         // Update league sync timestamp
         await ctx.runMutation(api.espnSync.updateLeagueSync, {
           leagueId: league._id,
-          currentScoringPeriod: settings?.scoringSettings?.matchupPeriods?.length || league.espnData.currentScoringPeriod,
+          currentScoringPeriod: currentScoringPeriod,
         });
 
         // Fetch rosters for current season as fallback if not already captured

@@ -187,7 +187,7 @@ export const fetchLeagueData = action({
         rosterSize: Object.values(rosterComposition).reduce((sum, count) => sum + count, 0) || 16,
         playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
         seasonId: currentYear,
-        currentScoringPeriod: settings?.scoringSettings?.matchupPeriods?.length || 1,
+        currentScoringPeriod: leagueData.scoringPeriodId || leagueData.status?.currentMatchupPeriod || leagueData.status?.latestScoringPeriod || settings?.scoringSettings?.currentScoringPeriod || 1,
         isPrivate,
         espnS2: args.espnS2,
         swid: args.swid,
