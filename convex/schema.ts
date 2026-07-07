@@ -4,7 +4,11 @@ import { v } from "convex/values";
 export default defineSchema({
   // User profiles and preferences
   users: defineTable({
-    clerkId: v.string(), // Clerk user ID
+    // Auth subject id (ctx.auth.getUserIdentity().subject). Named clerkId for
+    // historical reasons; after the Better Auth migration this holds the Better
+    // Auth user id. Legacy rows still hold the old Clerk id until reconciled on
+    // first Better Auth login (see convex/users.ts createOrUpdateUser).
+    clerkId: v.string(),
     email: v.optional(v.string()),
     name: v.optional(v.string()),
     hasCompletedOnboarding: v.boolean(),
@@ -15,7 +19,9 @@ export default defineSchema({
     })),
     createdAt: v.number(),
     lastActiveAt: v.number(),
-  }).index("by_clerk_id", ["clerkId"]),
+  })
+    .index("by_clerk_id", ["clerkId"])
+    .index("by_email", ["email"]),
 
   // Users can create and join leagues
   leagues: defineTable({

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { useUser } from "@clerk/nextjs";
+import { useUser } from "@/lib/auth";
 import { LeagueHomepage } from "@/components/LeagueHomepage";
 
 interface LeaguePageProps {

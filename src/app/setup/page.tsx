@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { UserButton, useUser } from "@/lib/auth";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

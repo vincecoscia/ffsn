@@ -4,7 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { CreateLeagueForm } from "@/components/create-league-form";
 import { LeagueCard } from "@/components/league-card";
-// import { UserButton } from "@clerk/nextjs";
+// import { UserButton } from "@/lib/auth";
 import Link from "next/link";
 import { useAuthSync } from "@/hooks/use-auth-sync";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

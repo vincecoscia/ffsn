@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton } from "@/lib/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { XCircle, ArrowLeft, CreditCard } from "lucide-react";

@@ -1,6 +1,39 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+
+// Re-point every record keyed by the auth-subject STRING from an old subject to
+// a new one. Used when reconciling a legacy Clerk account to its new Better Auth
+// identity so leagues, credits and payments follow the user.
+//
+// Only tables whose `userId` is a raw string (the auth subject) are re-keyed
+// here. Tables that store `userId: v.id("users")` (commentConversations,
+// commentResponses, userNotifications, emailLogs, ...) reference the stable
+// Convex users._id and need no change. managerActivity also stores a subject but
+// has no by_user index; re-key it separately if you rely on it (see MIGRATION.md).
+async function rekeyAuthSubject(
+  ctx: MutationCtx,
+  oldSubject: string,
+  newSubject: string
+) {
+  if (oldSubject === newSubject) return;
+
+  for (const r of await ctx.db.query("leagueMemberships").withIndex("by_user", (q) => q.eq("userId", oldSubject)).collect()) {
+    await ctx.db.patch(r._id, { userId: newSubject });
+  }
+  for (const r of await ctx.db.query("teamClaims").withIndex("by_user", (q) => q.eq("userId", oldSubject)).collect()) {
+    await ctx.db.patch(r._id, { userId: newSubject });
+  }
+  for (const r of await ctx.db.query("stripePayments").withIndex("by_user", (q) => q.eq("userId", oldSubject)).collect()) {
+    await ctx.db.patch(r._id, { userId: newSubject });
+  }
+  for (const r of await ctx.db.query("creditTransactions").withIndex("by_user", (q) => q.eq("userId", oldSubject)).collect()) {
+    await ctx.db.patch(r._id, { userId: newSubject });
+  }
+  for (const r of await ctx.db.query("userCredits").withIndex("by_user", (q) => q.eq("userId", oldSubject)).collect()) {
+    await ctx.db.patch(r._id, { userId: newSubject });
+  }
+}
 
 export const getCurrentUser = query({
   args: {},
@@ -55,8 +88,34 @@ export const createOrUpdateUser = mutation({
         ...(args.name && { name: args.name }),
       });
       return existingUser._id;
-    } else {
-      // Create new user with Clerk profile data
+    }
+
+    // No user row is linked to this auth subject yet. Before creating one, check
+    // for a legacy account (from the Clerk era) with the same email. Better Auth
+    // assigns a brand-new subject id, so a returning user would otherwise be
+    // orphaned from all their data. If we find their old row, relink it to the
+    // new subject and re-point their subject-keyed records instead of creating a
+    // duplicate. This is a no-op on a fresh database with no legacy users.
+    const email = args.email || identity.email || undefined;
+    if (email) {
+      const legacy = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .first();
+      if (legacy && legacy.clerkId !== identity.subject) {
+        const oldSubject = legacy.clerkId;
+        await ctx.db.patch(legacy._id, {
+          clerkId: identity.subject,
+          lastActiveAt: now,
+          ...(args.name && { name: args.name }),
+        });
+        await rekeyAuthSubject(ctx, oldSubject, identity.subject);
+        return legacy._id;
+      }
+    }
+
+    {
+      // Create new user with auth profile data
       const userId = await ctx.db.insert("users", {
         clerkId: identity.subject,
         email: args.email || identity.email || undefined,

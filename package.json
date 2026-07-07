@@ -11,8 +11,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
-    "@clerk/nextjs": "^6.25.4",
-    "@clerk/themes": "^2.3.3",
+    "@convex-dev/better-auth": "^0.12.5",
     "@hookform/resolvers": "^5.1.1",
     "@radix-ui/react-collapsible": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.14",
@@ -28,6 +27,7 @@
     "@sendgrid/mail": "^8.1.5",
     "@stripe/stripe-js": "^7.6.1",
     "@tailwindcss/typography": "^0.5.16",
+    "better-auth": "^1.6.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.42.1",
