@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
-import { useUser } from "@clerk/nextjs";
+import { useUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,12 +47,10 @@ export default function CreditsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const { user } = useUser();
-  const userCredits = useQuery(api.credits.getUserCredits, 
-    user?.id ? { userId: user.id } : "skip"
-  );
-  const creditHistory = useQuery(api.credits.getCreditHistory, 
-    user?.id ? { userId: user.id, limit: 10 } : "skip"
-  );
+  // Credit balance/history are derived from the authenticated identity on the
+  // server — no user id is passed from the client.
+  const userCredits = useQuery(api.credits.getUserCredits, {});
+  const creditHistory = useQuery(api.credits.getCreditHistory, { limit: 10 });
   const createCreditsCheckout = useAction(api.stripe.createCreditsCheckoutSession);
 
   const handlePurchase = async (packageId: string) => {

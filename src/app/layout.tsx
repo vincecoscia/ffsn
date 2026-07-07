@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
-// import { AuthSync } from "@/components/auth-sync";
+import { AuthSync } from "@/components/auth-sync";
 import { Toaster } from "@/components/ui/sonner";
 import { Theme } from "@radix-ui/themes";
 import "./globals.css";
@@ -80,14 +79,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClerkProvider>
-          <ConvexClientProvider>
-            {/* <AuthSync> */}
-              <Theme>{children}</Theme>
-            {/* </AuthSync> */}
-            <Toaster />
-          </ConvexClientProvider>
-        </ClerkProvider>
+        <ConvexClientProvider>
+          <AuthSync>
+            <Theme>{children}</Theme>
+          </AuthSync>
+          <Toaster />
+        </ConvexClientProvider>
       </body>
     </html>
   );

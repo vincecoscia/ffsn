@@ -96,7 +96,7 @@ export const getLatestNews = query({
     const limit = args.limit || 20;
     const offset = args.offset || 0;
 
-    let newsQuery = ctx.db
+    const newsQuery = ctx.db
       .query("espnNews")
       .withIndex("by_published")
       .order("desc");

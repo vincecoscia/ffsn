@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
-import { internal, api } from "./_generated/api";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 // Process league creation payment - grant commissioner credits and create league
 export const processLeaguePayment = internalMutation({
@@ -68,7 +68,7 @@ export const processLeaguePayment = internalMutation({
 
       if (!existingCheck.hasExistingContent && !existingCheck.hasScheduledContent) {
         // Check if user has sufficient credits
-        const userCredits = await ctx.runQuery(api.credits.checkSufficientCredits, {
+        const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
           userId,
           requiredAmount: 5, // season_welcome typically costs 5 credits
         });
@@ -118,6 +118,14 @@ export const linkPaymentToLeague = mutation({
     paymentType: v.literal("league_creation"),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+    if (identity.subject !== args.userId) {
+      throw new Error("Cannot link a payment belonging to another user");
+    }
+
     // Find the most recent pending or succeeded payment for this user
     const payment = await ctx.db
       .query("stripePayments")
@@ -188,7 +196,8 @@ export const processCreditsPurchase = internalMutation({
 });
 
 // Get user's payment history
-export const getUserPaymentHistory = query({
+// INTERNAL ONLY — exposes payment records; must not be publicly callable.
+export const getUserPaymentHistory = internalQuery({
   args: {
     userId: v.string(),
     limit: v.optional(v.number()),
@@ -215,7 +224,8 @@ export const getUserPaymentHistory = query({
 });
 
 // Get league payment status
-export const getLeaguePaymentStatus = query({
+// INTERNAL ONLY.
+export const getLeaguePaymentStatus = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     seasonYear: v.number(),
@@ -246,7 +256,8 @@ export const getLeaguePaymentStatus = query({
 });
 
 // Get all pending payments (for admin/monitoring)
-export const getPendingPayments = query({
+// INTERNAL ONLY — exposed the full pending-payment table (intent ids, user ids).
+export const getPendingPayments = internalQuery({
   args: {},
   handler: async (ctx) => {
     const pendingPayments = await ctx.db
@@ -269,14 +280,16 @@ export const getPendingPayments = query({
 });
 
 // Manual payment reconciliation (admin function)
-export const reconcilePayment = mutation({
+// INTERNAL ONLY — this can mark any payment "succeeded" and trigger fulfillment
+// (credit/league grants). It must never be publicly callable; drive it from an
+// admin-only server context.
+export const reconcilePayment = internalMutation({
   args: {
     paymentId: v.id("stripePayments"),
     newStatus: v.union(v.literal("succeeded"), v.literal("failed"), v.literal("cancelled")),
   },
   handler: async (ctx, args) => {
-    // TODO: Add admin authorization check here
-    
+
     const payment = await ctx.db.get(args.paymentId);
     if (!payment) {
       throw new Error("Payment not found");
@@ -319,7 +332,8 @@ export const reconcilePayment = mutation({
 });
 
 // Get payment statistics for a league
-export const getLeaguePaymentStats = query({
+// INTERNAL ONLY.
+export const getLeaguePaymentStats = internalQuery({
   args: {
     leagueId: v.id("leagues"),
   },

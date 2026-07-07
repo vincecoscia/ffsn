@@ -62,7 +62,7 @@ export const upsertPlayersBatch = mutation({
     
     for (const player of players) {
       // Process stats if transformed fields aren't provided
-      let processedPlayer = { ...player };
+      const processedPlayer = { ...player };
       if (!player.actualStats && !player.projectedStats && player.stats) {
         const processed = processPlayerStats(player.stats);
         processedPlayer.actualStats = processed.actualStats;
@@ -239,7 +239,7 @@ export const getLeagueFreeAgents = query({
     position: v.optional(v.string()),
   },
   handler: async (ctx, { leagueId, limit = 50, position }) => {
-    let query = ctx.db
+    const query = ctx.db
       .query("leaguePlayerStatus")
       .withIndex("by_league_status", (q) => 
         q.eq("leagueId", leagueId).eq("status", "free_agent")
@@ -312,7 +312,7 @@ export const upsertPlayerStatsBatch = mutation({
     
     for (const stat of playerStats) {
       // Process stats if transformed fields aren't provided
-      let processedStat = { ...stat };
+      const processedStat = { ...stat };
       if (!stat.actualStats && !stat.projectedStats && stat.stats) {
         const processed = processPlayerStats(stat.stats);
         processedStat.actualStats = processed.actualStats;
@@ -440,7 +440,7 @@ export const getLeagueFreeAgentsWithStats = query({
   },
   handler: async (ctx, { leagueId, limit = 50, position, season }) => {
     // Get free agent statuses
-    let query = ctx.db
+    const query = ctx.db
       .query("leaguePlayerStatus")
       .withIndex("by_league_status", (q) => 
         q.eq("leagueId", leagueId).eq("status", "free_agent")

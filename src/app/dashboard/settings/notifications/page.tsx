@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser } from "@/lib/auth";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,10 +15,8 @@ export default function NotificationSettingsPage() {
   const { user } = useUser();
   const [isLoading, setIsLoading] = useState(false);
 
-  // Get user preferences
-  const userPreferences = useQuery(api.users.getUserPreferences, 
-    user ? { clerkId: user.id } : "skip"
-  );
+  // Get user preferences (derived from the authenticated identity server-side)
+  const userPreferences = useQuery(api.users.getUserPreferences, {});
 
   // Update user preferences mutation
   const updatePreferences = useMutation(api.users.updateUserPreferences);
@@ -38,7 +36,6 @@ export default function NotificationSettingsPage() {
     setIsLoading(true);
     try {
       await updatePreferences({
-        clerkId: user.id,
         preferences: {
           emailNotifications: enabled,
         },

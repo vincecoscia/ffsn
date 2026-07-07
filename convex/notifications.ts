@@ -40,7 +40,7 @@ export const getUserNotifications = query({
       throw new Error("User not found");
     }
 
-    let query = ctx.db
+    const query = ctx.db
       .query("userNotifications")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .order("desc");

@@ -3,6 +3,20 @@ import { mutation, query, action, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
+// ESPN session credentials (espnS2/swid) are live auth cookies for the
+// commissioner's ESPN account. They are needed server-side for syncing but must
+// NEVER be returned to a client — strip them from any league document before it
+// leaves a public query.
+function redactEspnCredentials<L extends { espnData?: Record<string, unknown> | undefined }>(
+  league: L
+): L {
+  if (!league.espnData) return league;
+  const safeEspnData = { ...league.espnData };
+  delete safeEspnData.espnS2;
+  delete safeEspnData.swid;
+  return { ...league, espnData: safeEspnData } as L;
+}
+
 export const create = mutation({
   args: {
     name: v.string(),
@@ -124,7 +138,7 @@ export const getByUser = query({
         const league = await ctx.db.get(membership.leagueId);
         if (!league) return null;
         return {
-          ...league,
+          ...redactEspnCredentials(league),
           role: membership.role,
           joinedAt: membership.joinedAt,
         };
@@ -135,8 +149,10 @@ export const getByUser = query({
   },
 });
 
-// List all leagues (internal use for syncing)
-export const listLeagues = query({
+// List all leagues. INTERNAL ONLY — returns full documents including ESPN
+// credentials, and is used by sync jobs to enumerate leagues. Never expose this
+// publicly (it previously leaked every commissioner's ESPN session cookies).
+export const listLeagues = internalQuery({
   handler: async (ctx) => {
     return await ctx.db.query("leagues").collect();
   },
@@ -147,76 +163,28 @@ export const getById = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      console.log("🔍 getById: No identity found");
       return null;
     }
-
-    console.log("🔍 getById: Checking league access for user:", {
-      userId: identity.subject,
-      leagueId: args.id,
-      email: identity.email
-    });
 
     // Check if user is a member of this league
     const membership = await ctx.db
       .query("leagueMemberships")
-      .withIndex("by_league_user", (q) => 
+      .withIndex("by_league_user", (q) =>
         q.eq("leagueId", args.id).eq("userId", identity.subject)
       )
       .first();
 
     if (!membership) {
-      console.log("❌ getById: No membership found for user in league");
-      
-      // Debug: check if there are any memberships for this league
-      const allMemberships = await ctx.db
-        .query("leagueMemberships")
-        .withIndex("by_league", (q) => q.eq("leagueId", args.id))
-        .collect();
-      
-      console.log("🔍 getById: All memberships for this league:", allMemberships.map(m => ({
-        id: m._id,
-        userId: m.userId,
-        role: m.role,
-        joinedAt: m.joinedAt
-      })));
-      
-      // Debug: check if there are any memberships for this user
-      const userMemberships = await ctx.db
-        .query("leagueMemberships")
-        .withIndex("by_user", (q) => q.eq("userId", identity.subject))
-        .collect();
-      
-      console.log("🔍 getById: All memberships for this user:", userMemberships.map(m => ({
-        id: m._id,
-        leagueId: m.leagueId,
-        role: m.role,
-        joinedAt: m.joinedAt
-      })));
-      
       return null;
     }
-
-    console.log("✅ getById: Membership found:", {
-      membershipId: membership._id,
-      role: membership.role,
-      joinedAt: membership.joinedAt
-    });
 
     const league = await ctx.db.get(args.id);
     if (!league) {
-      console.log("❌ getById: League not found in database");
       return null;
     }
-    
-    console.log("✅ getById: League found and returning:", {
-      leagueId: league._id,
-      name: league.name,
-      role: membership.role
-    });
-    
+
     return {
-      ...league,
+      ...redactEspnCredentials(league),
       role: membership.role,
     };
   },
@@ -472,10 +440,25 @@ export const refreshLeagueData = action({
   },
 });;
 
-// Helper mutation to clear all league data
+// Helper mutation to clear all league data. DESTRUCTIVE — only the league
+// commissioner may run it.
 export const clearAllLeagueData = mutation({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) =>
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+    if (!membership || membership.role !== "commissioner") {
+      throw new Error("Only the league commissioner can clear league data");
+    }
+
     // Clear teams
     const teams = await ctx.db
       .query("teams")

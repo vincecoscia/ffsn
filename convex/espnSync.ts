@@ -2087,7 +2087,7 @@ export const syncAllLeagueData = action({
         // Fetch player stats for each year after rosters are synced
         console.log(`Fetching player stats for year ${year}...`);
         let playerStatsSynced = 0;
-        let transactionsSynced = 0;
+        const transactionsSynced = 0;
         try {
           const statsResult = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
             leagueId: args.leagueId,
@@ -3162,7 +3162,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
     console.log("Starting current season sync for all leagues");
     
     // Get all leagues
-    const allLeagues = await ctx.runQuery(api.leagues.listLeagues, {});
+    const allLeagues = await ctx.runQuery(internal.leagues.listLeagues, {});
     
     if (allLeagues.length === 0) {
       return {

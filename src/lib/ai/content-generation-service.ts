@@ -350,10 +350,10 @@ Make sure each section follows the template requirements and word counts.`;
       console.log("Structured API call successful");
 
       // Extract the structured data from the tool use
-      const toolUse = response.content.find((c): c is { type: 'tool_use'; input: unknown; id: string; name: string } => 
-        typeof c === 'object' && c !== null && 'type' in c && c.type === 'tool_use'
+      const toolUse = response.content.find(
+        (c): c is Anthropic.ToolUseBlock => c.type === 'tool_use'
       );
-      if (!toolUse || toolUse.type !== 'tool_use') {
+      if (!toolUse) {
         throw new Error('No structured output received');
       }
 
@@ -417,14 +417,14 @@ Make sure each section follows the template requirements and word counts.`;
       // Transform the response to match our interface
       const transformedResponse: AnthropicResponse = {
         content: response.content
-          .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
           .map(block => ({ text: block.text })),
         usage: response.usage ? {
           input_tokens: response.usage.input_tokens,
           output_tokens: response.usage.output_tokens,
         } : undefined,
       };
-      
+
       return transformedResponse;
     } catch (error: unknown) {
       // If primary model fails, try fallback
@@ -451,7 +451,7 @@ Make sure each section follows the template requirements and word counts.`;
         // Transform the fallback response to match our interface
         const transformedFallbackResponse: AnthropicResponse = {
           content: response.content
-            .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+            .filter((block): block is Anthropic.TextBlock => block.type === 'text')
             .map(block => ({ text: block.text })),
           usage: response.usage ? {
             input_tokens: response.usage.input_tokens,
