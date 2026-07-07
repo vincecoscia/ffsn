@@ -784,8 +784,9 @@ export const getSimplifiedDraftDataPublic = query({
   },
 });
 
-// Test function to analyze draft grades with detailed breakdown (no auth for testing)
-export const testDraftGrades = query({
+// Test function to analyze draft grades with detailed breakdown. INTERNAL ONLY
+// — it previously skipped auth "for testing" and exposed any league's draft data.
+export const testDraftGrades = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),

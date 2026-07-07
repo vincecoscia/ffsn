@@ -359,7 +359,7 @@ export const regenerateContentWithCredits = mutation({
     }
 
     // Check if user has sufficient credits
-    const userCredits = await ctx.runQuery(api.credits.checkSufficientCredits, {
+    const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
       userId: identity.subject,
       requiredAmount: template.creditCost,
     });
@@ -369,7 +369,7 @@ export const regenerateContentWithCredits = mutation({
     }
 
     // Deduct credits first
-    await ctx.runMutation(api.credits.deductCredits, {
+    await ctx.runMutation(internal.credits.deductCredits, {
       userId: identity.subject,
       amount: template.creditCost,
       description: `Manual ${args.type} content generation`,

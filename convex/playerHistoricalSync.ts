@@ -215,7 +215,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
     console.log(`Starting daily sync for all leagues' player stats`);
     
     // Get all active leagues
-    const leagues = await ctx.runQuery(api.leagues.listLeagues, {});
+    const leagues = await ctx.runQuery(internal.leagues.listLeagues, {});
     
     if (!leagues || leagues.length === 0) {
       return {
@@ -516,7 +516,7 @@ export const syncAllLeaguesHistoricalPlayerStats = action({
     console.log("Starting historical player stats sync for all leagues");
     
     // Get all leagues
-    const leagues = await ctx.runQuery(api.leagues.listLeagues, {});
+    const leagues = await ctx.runQuery(internal.leagues.listLeagues, {});
     
     if (!leagues || leagues.length === 0) {
       return {

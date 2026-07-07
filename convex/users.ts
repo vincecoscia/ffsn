@@ -1,4 +1,4 @@
-import { mutation, query, internalAction } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -152,25 +152,27 @@ export const updatePreferences = mutation({
   },
 });
 
-// Get user preferences by Clerk ID (for the frontend)
+// Get the authenticated user's preferences (for the frontend).
 export const getUserPreferences = query({
-  args: {
-    clerkId: v.string(),
-  },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
     const user = await ctx.db
       .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
       .first();
-    
+
     return user;
   },
 });
 
-// Update user preferences by Clerk ID (for the frontend)
+// Update the authenticated user's preferences (for the frontend). Derives the
+// target user from the caller's identity — a client-supplied id is never
+// trusted (that previously let anyone edit another user's preferences).
 export const updateUserPreferences = mutation({
   args: {
-    clerkId: v.string(),
     preferences: v.object({
       emailNotifications: v.optional(v.boolean()),
       favoriteTeam: v.optional(v.string()),
@@ -178,11 +180,14 @@ export const updateUserPreferences = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Must be authenticated");
+
     const user = await ctx.db
       .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
       .first();
-    
+
     if (!user) throw new Error("User not found");
     
     const oldPreferences = user.preferences;

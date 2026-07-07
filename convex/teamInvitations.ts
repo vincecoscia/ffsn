@@ -222,7 +222,7 @@ export const claimInvitation = mutation({
     }
 
     // Ensure user exists in the users table
-    let user = await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
       .first();

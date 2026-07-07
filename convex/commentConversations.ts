@@ -219,7 +219,7 @@ export const processUserResponse = internalAction({
       });
 
       // Check if we should continue the conversation
-      let shouldContinue = await ctx.runMutation(internal.commentConversations.evaluateConversationContinuation, {
+      const shouldContinue = await ctx.runMutation(internal.commentConversations.evaluateConversationContinuation, {
         commentRequestId: args.commentRequestId,
         responseQuality: analysis.responseQuality,
         completeness: analysis.completeness,

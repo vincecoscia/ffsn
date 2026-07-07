@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 // Grant credits to a user (internal function)
@@ -81,7 +81,9 @@ export const grantCredits = internalMutation({
 });
 
 // Deduct credits from a user (for AI content generation, etc.)
-export const deductCredits = mutation({
+// Deduct credits from a user. INTERNAL ONLY — the caller-supplied userId is
+// trusted, so exposing this publicly let anyone drain any user's balance.
+export const deductCredits = internalMutation({
   args: {
     userId: v.string(),
     amount: v.number(),
@@ -184,8 +186,9 @@ export const deductCreditsInternal = internalMutation({
   },
 });
 
-// Check if user has sufficient credits
-export const checkSufficientCredits = query({
+// Check if user has sufficient credits. INTERNAL ONLY — the caller-supplied
+// userId is trusted, so this must never be publicly callable.
+export const checkSufficientCredits = internalQuery({
   args: {
     userId: v.string(),
     requiredAmount: v.number(),
@@ -207,15 +210,24 @@ export const checkSufficientCredits = query({
   },
 });
 
-// Get user's current credit balance and stats
+// Get the authenticated user's current credit balance and stats.
 export const getUserCredits = query({
-  args: {
-    userId: v.string(),
-  },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return {
+        balance: 0,
+        totalEarned: 0,
+        totalSpent: 0,
+        totalPurchased: 0,
+        lastUpdated: null,
+      };
+    }
+
     const userCredits = await ctx.db
       .query("userCredits")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
       .first();
 
     if (!userCredits) {
@@ -238,23 +250,27 @@ export const getUserCredits = query({
   },
 });
 
-// Get user's credit transaction history
+// Get the authenticated user's credit transaction history.
 export const getCreditHistory = query({
   args: {
-    userId: v.string(),
     limit: v.optional(v.number()),
     leagueId: v.optional(v.id("leagues")),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
     let query = ctx.db
       .query("creditTransactions")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId));
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject));
 
     if (args.leagueId) {
       query = ctx.db
         .query("creditTransactions")
         .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-        .filter((q) => q.eq(q.field("userId"), args.userId));
+        .filter((q) => q.eq(q.field("userId"), identity.subject));
     }
 
     const transactions = await query
@@ -273,8 +289,10 @@ export const getCreditHistory = query({
   },
 });
 
-// Grant join bonus credits when user joins a league
-export const grantJoinCredits = mutation({
+// Grant join bonus credits when user joins a league. INTERNAL ONLY — it mints
+// credits, so it must never be publicly callable (that let anyone farm 100
+// credits per league). Callers must verify the user's league membership first.
+export const grantJoinCredits = internalMutation({
   args: {
     userId: v.string(),
     leagueId: v.id("leagues"),
@@ -311,8 +329,8 @@ export const grantJoinCredits = mutation({
   },
 });
 
-// Get credit statistics for a league (admin view)
-export const getLeagueCreditStats = query({
+// Get credit statistics for a league (admin view). INTERNAL ONLY.
+export const getLeagueCreditStats = internalQuery({
   args: {
     leagueId: v.id("leagues"),
   },

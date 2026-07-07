@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
@@ -26,8 +26,10 @@ export interface EmailResult {
 // EMAIL QUEUE SYSTEM
 // ===============================
 
-// Queue an email for sending (public mutation)
-export const queueEmail = mutation({
+// Queue an email for sending. INTERNAL ONLY — it sends mail from the app's
+// verified sender to an arbitrary recipient, so exposing it publicly was a
+// spam/phishing vector. Server callers use queueEmailInternal (below).
+export const queueEmail = internalMutation({
   args: {
     to: v.string(),
     templateId: v.string(),            // SendGrid Dynamic Template ID
