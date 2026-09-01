@@ -11,6 +11,7 @@ import { DraftDataViewer } from "./DraftDataViewer";
 import { MatchupRefreshManager } from "./MatchupRefreshManager";
 import { DataProcessingManager } from "./DataProcessingManager";
 import { TeamLogo } from "./TeamLogo";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface League {
   _id: Id<"leagues">;
@@ -80,6 +81,7 @@ export function LeagueSettingsPage({
   const generateUploadUrl = useMutation(api.teams.generateUploadUrl);
   const updateCustomLogo = useMutation(api.teams.updateCustomLogo);
   const removeCustomLogo = useMutation(api.teams.removeCustomLogo);
+  const { currentSeason } = useLeagueSeason(league._id);
 
   // Get unclaimed teams
   const unclaimedTeams = teams.filter(team => {
@@ -99,7 +101,7 @@ export function LeagueSettingsPage({
         createInvitation({
           leagueId: league._id,
           teamId: teamId as Id<"teams">,
-          seasonId: 2025,
+          seasonId: currentSeason,
           email: emailInputs[teamId] || undefined,
         })
       );
@@ -377,7 +379,7 @@ export function LeagueSettingsPage({
           <div className="bg-white rounded-lg shadow-sm">
             <div className="border-b border-gray-200 px-6 py-4">
               <h2 className="text-2xl font-bold text-gray-900">Team Invitations</h2>
-              <p className="text-gray-600 mt-1">Send invite links to team owners for the 2025 season</p>
+              <p className="text-gray-600 mt-1">Send invite links to team owners for the {currentSeason} season</p>
             </div>
             
             <div className="p-6">

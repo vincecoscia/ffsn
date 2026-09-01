@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Trophy, Users } from "lucide-react";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface Team {
   _id: Id<"teams">;
@@ -55,16 +56,17 @@ export function CommissionerTeamSelection({ league, teams, onClose }: Commission
   const [isOpen, setIsOpen] = useState(true);
   
   const claimTeam = useMutation(api.teamClaims.claimTeam);
+  const { currentSeason } = useLeagueSeason(league._id);
 
   const handleClaimTeam = async () => {
     if (!selectedTeamId) return;
-    
+
     setIsClaiming(true);
     try {
       await claimTeam({
         leagueId: league._id,
         teamId: selectedTeamId,
-        seasonId: 2025,
+        seasonId: currentSeason,
       });
       
       toast.success("Team claimed successfully!", {
@@ -99,7 +101,7 @@ export function CommissionerTeamSelection({ league, teams, onClose }: Commission
             Claim Your Team
           </DialogTitle>
           <DialogDescription className="text-gray-600">
-            Select a team to claim for the 2025 season in {league.name}
+            Select a team to claim for the {currentSeason} season in {league.name}
           </DialogDescription>
         </DialogHeader>
 

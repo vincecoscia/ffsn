@@ -190,6 +190,40 @@ export const getById = query({
   },
 });
 
+// Distinct seasons (years) with league data, for season-selector UI. Sorted
+// most-recent-first. Membership-checked, same pattern as getById.
+export const getAvailableSeasons = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args): Promise<number[]> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    // Check if user is a member of this league
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) =>
+        q.eq("leagueId", args.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership) {
+      return [];
+    }
+
+    const leagueSeasons = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .collect();
+
+    const years = Array.from(new Set(leagueSeasons.map((ls) => ls.seasonId)));
+    years.sort((a, b) => b - a);
+
+    return years;
+  },
+});
+
 export const getPublicInfo = query({
   args: { id: v.id("leagues") },
   handler: async (ctx, args) => {

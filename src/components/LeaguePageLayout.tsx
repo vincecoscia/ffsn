@@ -6,6 +6,7 @@ import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
 import { TeamLogo } from "./TeamLogo";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface LeaguePageLayoutProps {
   children: React.ReactNode;
@@ -23,18 +24,21 @@ export function LeaguePageLayout({
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
 
+  // Get current season
+  const { currentSeason } = useLeagueSeason(leagueId);
+
   // Get teams
   const teams =
     useQuery(api.teams.getByLeagueAndSeason, {
       leagueId,
-      seasonId: 2025,
+      seasonId: currentSeason,
     }) || [];
 
   // Get team claims
   const teamClaims =
     useQuery(api.teamClaims.getByLeague, {
       leagueId,
-      seasonId: 2025,
+      seasonId: currentSeason,
     }) || [];
 
   // Get user's claimed team

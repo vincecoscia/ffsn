@@ -1,21 +1,25 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { toast } from "sonner";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface DraftDataViewerProps {
   leagueId: Id<"leagues">;
 }
 
 export function DraftDataViewer({ leagueId }: DraftDataViewerProps) {
-  const [selectedSeason, setSelectedSeason] = useState<number>(2025);
+  // Get current/available seasons for the league
+  const { currentSeason, availableSeasons } = useLeagueSeason(leagueId);
+
+  const [selectedSeason, setSelectedSeason] = useState<number>(currentSeason);
   const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
-  
+
   // Action to fetch draft data
   const fetchDraftData = useAction(api.espnSync.fetchDraftDataForSeason);
 
@@ -24,12 +28,6 @@ export function DraftDataViewer({ leagueId }: DraftDataViewerProps) {
     leagueId,
     seasonId: selectedSeason,
   });
-
-  // Get available seasons
-  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
-  const availableSeasons = useMemo(() => {
-    return leagueSeasons?.map(s => s.seasonId).sort((a, b) => b - a) || [];
-  }, [leagueSeasons]);
 
   // Update selected season to most recent with draft data
   useEffect(() => {

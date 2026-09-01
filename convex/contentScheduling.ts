@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { nflSeasonYearFor } from "./lib/season";
 
 // Default content schedule configurations
 const DEFAULT_SCHEDULES = {
@@ -686,6 +687,15 @@ export const scheduleWeeklyContentCron = internalAction({
   handler: async (ctx) => {
     console.log("Scheduling weekly content with smart season phase filtering...");
 
+    // Make sure the current season's nflSeasons row exists before we rely on
+    // it below - covers the window right after deploy, before the dedicated
+    // 01:00 UTC seeding cron has had a chance to run.
+    try {
+      await ctx.runMutation(internal.nflSeasonSetup.ensureCurrentSeason, {});
+    } catch (error) {
+      console.warn("Failed to ensure current NFL season boundaries:", error);
+    }
+
     // Get current NFL season phase for smart scheduling decisions
     let currentSeasonPhase: string = "UNKNOWN";
     try {
@@ -897,6 +907,26 @@ async function getCurrentNFLWeek(ctx: any): Promise<number> {
     return await ctx.runQuery(api.nflSeasonBoundaries.getCurrentNFLWeek, {});
   } catch (error) {
     console.error("Error getting current NFL week, falling back to default:", error);
+
+    // Before falling back to the rough Sep-1 approximation below, try to
+    // compute the week directly from the nflSeasons row's own week
+    // boundaries, if a row for the current season exists.
+    try {
+      const nowMs = Date.now();
+      const year = nflSeasonYearFor(new Date(nowMs));
+      const boundaries = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonBoundaries, { year });
+      if (boundaries) {
+        const match = boundaries.weekBoundaries.find(
+          (b: { week: number; start: number; end: number }) => nowMs >= b.start && nowMs <= b.end
+        );
+        if (match) {
+          return match.week;
+        }
+      }
+    } catch (innerError) {
+      console.error("Error computing NFL week from nflSeasons boundaries:", innerError);
+    }
+
     // Fallback to simplified logic if season data is not available
     const now = new Date();
     const seasonStart = new Date(now.getFullYear(), 8, 1); // September 1st as rough start
@@ -988,7 +1018,16 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
   args: {},
   handler: async (ctx) => {
     console.log("=== scheduleSeasonAndRelativeContentCron START ===");
-    
+
+    // Make sure the current season's nflSeasons row exists before we rely on
+    // it below - covers the window right after deploy, before the dedicated
+    // 01:00 UTC seeding cron has had a chance to run.
+    try {
+      await ctx.runMutation(internal.nflSeasonSetup.ensureCurrentSeason, {});
+    } catch (error) {
+      console.warn("Failed to ensure current NFL season boundaries:", error);
+    }
+
     // Get current NFL season phase for intelligent filtering
     let currentSeasonPhase: string = "UNKNOWN";
     try {
@@ -1323,18 +1362,23 @@ export const checkExistingContent = internalQuery({
     seasonId: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const currentYear = new Date().getFullYear();
-    const targetSeason = args.seasonId || currentYear;
-    
+    const targetSeason = args.seasonId || nflSeasonYearFor();
+
+    // NFL season "targetSeason" runs from Aug 1 of that year through Jul 31
+    // of the following year (not the calendar year) - e.g. content created
+    // in January 2027 still belongs to the 2026 season.
+    const seasonWindowStart = new Date(targetSeason, 7, 1).getTime(); // Aug 1 of targetSeason
+    const seasonWindowEnd = new Date(targetSeason + 1, 7, 1).getTime(); // Aug 1 of targetSeason + 1
+
     // Check aiContent table for existing content of this type for this league/season
     const existingContent = await ctx.db
       .query("aiContent")
       .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .filter((q) => 
+      .filter((q) =>
         q.and(
           q.eq(q.field("type"), args.contentType),
-          q.gte(q.field("createdAt"), new Date(targetSeason, 0, 1).getTime()), // Start of season year
-          q.lt(q.field("createdAt"), new Date(targetSeason + 1, 0, 1).getTime()) // Start of next year
+          q.gte(q.field("createdAt"), seasonWindowStart),
+          q.lt(q.field("createdAt"), seasonWindowEnd)
         )
       )
       .first();
@@ -1343,7 +1387,7 @@ export const checkExistingContent = internalQuery({
     const scheduledContent = await ctx.db
       .query("scheduledContent")
       .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .filter((q) => 
+      .filter((q) =>
         q.and(
           q.eq(q.field("contentType"), args.contentType),
           q.or(
@@ -1351,8 +1395,8 @@ export const checkExistingContent = internalQuery({
             q.eq(q.field("status"), "generating")
           ),
           // Check if contextData contains this season
-          q.gte(q.field("createdAt"), new Date(targetSeason, 0, 1).getTime()),
-          q.lt(q.field("createdAt"), new Date(targetSeason + 1, 0, 1).getTime())
+          q.gte(q.field("createdAt"), seasonWindowStart),
+          q.lt(q.field("createdAt"), seasonWindowEnd)
         )
       )
       .first();

@@ -409,7 +409,7 @@ export const updateCustomLogo = mutation({
     const teamClaim = await ctx.db
       .query("teamClaims")
       .withIndex("by_team_season", (q) =>
-        q.eq("teamId", args.teamId).eq("seasonId", 2025)
+        q.eq("teamId", args.teamId).eq("seasonId", team.seasonId)
       )
       .filter((q) => q.eq(q.field("userId"), identity.subject))
       .unique();
@@ -475,7 +475,7 @@ export const removeCustomLogo = mutation({
     const teamClaim = await ctx.db
       .query("teamClaims")
       .withIndex("by_team_season", (q) =>
-        q.eq("teamId", args.teamId).eq("seasonId", 2025)
+        q.eq("teamId", args.teamId).eq("seasonId", team.seasonId)
       )
       .filter((q) => q.eq(q.field("userId"), identity.subject))
       .unique();

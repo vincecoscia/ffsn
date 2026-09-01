@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 import {
   Dialog,
   DialogContent,
@@ -65,10 +66,11 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
     email?: string;
   }>>([]);
   
+  const { currentSeason } = useLeagueSeason(league._id);
   const createInvitation = useMutation(api.teamInvitations.createInvitation);
   const invitations = useQuery(api.teamInvitations.getByLeague, {
     leagueId: league._id,
-    seasonId: 2025
+    seasonId: currentSeason
   });
 
   // Get teams that haven't been claimed yet
@@ -117,7 +119,7 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
         const result = await createInvitation({
           leagueId: league._id,
           teamId,
-          seasonId: 2025,
+          seasonId: currentSeason,
           email: email || undefined,
         });
 

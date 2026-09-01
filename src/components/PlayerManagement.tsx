@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { RefreshCw, Users, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface PlayerManagementProps {
   leagueId: Id<"leagues">;
@@ -33,7 +34,11 @@ interface Player {
   };
 }
 
-export function PlayerManagement({ leagueId, season = 2025 }: PlayerManagementProps) {
+export function PlayerManagement({ leagueId, season: seasonProp }: PlayerManagementProps) {
+  // Default to the league's current season when no season is explicitly provided
+  const { currentSeason } = useLeagueSeason(leagueId);
+  const season = seasonProp ?? currentSeason;
+
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   

@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
 import { ESPNNewsWidget } from "./ESPNNewsWidget";
 import { CommissionerTeamSelection } from "./CommissionerTeamSelection";
 import { TeamLogo } from "./TeamLogo";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface Team {
   _id: Id<"teams">;
@@ -60,6 +61,7 @@ interface LeagueHomepageProps {
 }
 
 export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCommissioner }: LeagueHomepageProps) {
+  const { currentSeason } = useLeagueSeason(league._id);
   const [showContentGenerator, setShowContentGenerator] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -170,7 +172,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
             <LeagueWeeklySection
               leagueId={league._id}
               teams={teams}
-              seasonId={2025}
+              seasonId={currentSeason}
             />
 
             {/* League Articles & Stories */}
@@ -379,7 +381,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
                       </svg>
                     </div>
                     <h4 className="font-semibold text-gray-900 mb-2">No Team Claimed</h4>
-                    <p className="text-gray-600 text-sm mb-4">Join the league by claiming your team for the 2025 season</p>
+                    <p className="text-gray-600 text-sm mb-4">Join the league by claiming your team for the {currentSeason} season</p>
                     <Button
                       onClick={() => setShowTeamClaimModal(true)}
                       variant="default"

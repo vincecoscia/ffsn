@@ -7,6 +7,7 @@ import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { useUser } from "@clerk/nextjs";
 import { LeagueHomepage } from "@/components/LeagueHomepage";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 interface LeaguePageProps {
   params: Promise<{
@@ -20,18 +21,20 @@ export default function LeaguePage({ params }: LeaguePageProps) {
   // Unwrap the params Promise
   const { id } = use(params);
   
-  const league = useQuery(api.leagues.getById, { 
-    id: id as Id<"leagues"> 
+  const league = useQuery(api.leagues.getById, {
+    id: id as Id<"leagues">
   });
-  
-  const teams = useQuery(api.teams.getByLeagueAndSeason, { 
+
+  const { currentSeason } = useLeagueSeason(id as Id<"leagues">);
+
+  const teams = useQuery(api.teams.getByLeagueAndSeason, {
     leagueId: id as Id<"leagues">,
-    seasonId: 2025
+    seasonId: currentSeason
   });
-  
+
   const teamClaims = useQuery(api.teamClaims.getByLeague, {
     leagueId: id as Id<"leagues">,
-    seasonId: 2025
+    seasonId: currentSeason
   });
 
   if (!userLoaded || league === undefined || teams === undefined || teamClaims === undefined) {

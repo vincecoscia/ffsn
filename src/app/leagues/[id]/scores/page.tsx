@@ -7,6 +7,7 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 import { useAuth } from "@clerk/nextjs";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -85,7 +86,10 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   const leagueId = resolvedParams.id as Id<"leagues">;
   const { userId } = useAuth();
 
-  const [selectedSeason, setSelectedSeason] = useState(2025);
+  // Get current/available seasons for the league
+  const { currentSeason, availableSeasons, isLoading: isSeasonLoading } = useLeagueSeason(leagueId);
+
+  const [selectedSeason, setSelectedSeason] = useState(currentSeason);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [topScoresView, setTopScoresView] = useState<"all-time" | "season">(
     "all-time"
@@ -95,24 +99,26 @@ export default function ScoresPage({ params }: ScoresPageProps) {
     "highest"
   );
 
+  // Sync the selected season once the real current season resolves
+  const hasSyncedSeason = React.useRef(false);
+  React.useEffect(() => {
+    if (!isSeasonLoading && !hasSyncedSeason.current) {
+      hasSyncedSeason.current = true;
+      setSelectedSeason(currentSeason);
+    }
+  }, [isSeasonLoading, currentSeason]);
+
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
-
-  console.log("League:", league);
-
-  // Get available seasons for the league
-  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
-
-  // Extract season IDs and sort them in descending order
-  const availableSeasons = React.useMemo(() => {
-    if (!leagueSeasons) return undefined;
-    return leagueSeasons.map((season) => season.seasonId).sort((a, b) => b - a);
-  }, [leagueSeasons]);
 
   // Get current scoring period from ESPN data
   const currentWeek = league?.espnData?.currentScoringPeriod || 1;
 
-  console.log("Current Week:", currentWeek);
+  // Total weeks (regular season + playoffs), falling back to 18 if settings aren't loaded yet
+  const maxWeek =
+    league?.settings?.regularSeasonMatchupPeriods !== undefined
+      ? league.settings.regularSeasonMatchupPeriods + league.settings.playoffWeeks
+      : 18;
 
   // Set selected week to current week if not set
   React.useEffect(() => {
@@ -222,7 +228,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
 
     if (direction === "prev" && selectedWeek > 1) {
       setSelectedWeek(selectedWeek - 1);
-    } else if (direction === "next" && selectedWeek < 17) {
+    } else if (direction === "next" && selectedWeek < maxWeek) {
       setSelectedWeek(selectedWeek + 1);
     }
   };
@@ -268,14 +274,14 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                   variant="outline"
                   size="icon"
                   onClick={() => handleWeekChange("next")}
-                  disabled={!selectedWeek || selectedWeek >= 17}
+                  disabled={!selectedWeek || selectedWeek >= maxWeek}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
 
               <SeasonSelector
-                currentSeason={2025}
+                currentSeason={currentSeason}
                 selectedSeason={selectedSeason}
                 onSeasonChange={setSelectedSeason}
                 availableSeasons={availableSeasons}
@@ -634,7 +640,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-600">Season:</span>
                   <SeasonSelector
-                    currentSeason={2025}
+                    currentSeason={currentSeason}
                     selectedSeason={selectedSeason}
                     onSeasonChange={setSelectedSeason}
                     availableSeasons={availableSeasons}

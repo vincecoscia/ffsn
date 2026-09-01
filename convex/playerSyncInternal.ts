@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { transformStats } from "./espnStatsMapping";
+import { leagueCurrentSeason } from "./lib/season";
 
 // Helper function to process and transform player stats
 const processPlayerStats = (stats: any[] | undefined, scoringPeriodId: number = 0) => {
@@ -239,22 +240,25 @@ export const getLeagueFreeAgents = query({
     position: v.optional(v.string()),
   },
   handler: async (ctx, { leagueId, limit = 50, position }) => {
+    const league = await ctx.db.get(leagueId);
+    const season = leagueCurrentSeason(league);
+
     const query = ctx.db
       .query("leaguePlayerStatus")
-      .withIndex("by_league_status", (q) => 
+      .withIndex("by_league_status", (q) =>
         q.eq("leagueId", leagueId).eq("status", "free_agent")
       );
-    
+
     const statuses = await query.take(limit * 2); // Get extra to filter
-    
+
     // Get player details
     const playerIds = statuses.map(s => s.playerId);
     const players = await Promise.all(
       playerIds.map(async (playerId) => {
         const player = await ctx.db
           .query("playersEnhanced")
-          .withIndex("by_espn_id_season", (q) => 
-            q.eq("espnId", playerId).eq("season", 2025)
+          .withIndex("by_espn_id_season", (q) =>
+            q.eq("espnId", playerId).eq("season", season)
           )
           .first();
         return player;

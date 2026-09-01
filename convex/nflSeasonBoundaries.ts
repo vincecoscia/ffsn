@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
+import { nflSeasonYearFor } from "./lib/season";
 
 /**
  * NFL Season Phase Enum
@@ -68,16 +69,10 @@ export const getNFLSeasonPhase = query({
   args: { date: v.optional(v.number()) },
   handler: async (ctx, { date }): Promise<{ phase: NFLSeasonPhase; year: number; week?: number } | null> => {
     const targetDate = date ?? Date.now();
-    
+
     // Determine which season year to check based on the date
-    const checkDate = new Date(targetDate);
-    let seasonYear = checkDate.getFullYear();
-    
-    // If we're in January-July, we might be in the previous season's playoffs/offseason
-    if (checkDate.getMonth() < 7) { // Before August
-      seasonYear -= 1;
-    }
-    
+    const seasonYear = nflSeasonYearFor(new Date(targetDate));
+
     // Try current year first, then next year if we're in late offseason
     for (const yearToCheck of [seasonYear, seasonYear + 1]) {
       const season = await ctx.db
@@ -129,14 +124,8 @@ export const getCurrentNFLWeek = query({
     
     // Call the main function logic directly to avoid circular reference
     const targetDateForPhase = targetDate;
-    const checkDate = new Date(targetDateForPhase);
-    let seasonYear = checkDate.getFullYear();
-    
-    // If we're in January-July, we might be in the previous season's playoffs/offseason
-    if (checkDate.getMonth() < 7) { // Before August
-      seasonYear -= 1;
-    }
-    
+    const seasonYear = nflSeasonYearFor(new Date(targetDateForPhase));
+
     // Try current year first, then next year if we're in late offseason
     let seasonInfo: { phase: NFLSeasonPhase; year: number; week?: number } | null = null;
     for (const yearToCheck of [seasonYear, seasonYear + 1]) {
@@ -152,26 +141,26 @@ export const getCurrentNFLWeek = query({
         seasonInfo = { phase: "PRESEASON", year: yearToCheck };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.regularSeason.start && targetDateForPhase <= season.phases.regularSeason.end) {
         // Also determine the week if in regular season
         const week = getWeekFromDate(targetDateForPhase, season.weekBoundaries);
         seasonInfo = { phase: "REGULAR_SEASON", year: yearToCheck, week };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.playoffs.start && targetDateForPhase <= season.phases.playoffs.end) {
         // Also determine playoff week
         const week = getWeekFromDate(targetDateForPhase, season.weekBoundaries);
         seasonInfo = { phase: "PLAYOFFS", year: yearToCheck, week };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.superBowl.start && targetDateForPhase <= season.phases.superBowl.end) {
         seasonInfo = { phase: "SUPER_BOWL", year: yearToCheck, week: season.playoffStructure.superBowlWeek };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.offseason.start && targetDateForPhase <= season.phases.offseason.end) {
         seasonInfo = { phase: "OFFSEASON", year: yearToCheck };
         break;
@@ -182,7 +171,7 @@ export const getCurrentNFLWeek = query({
     if (!seasonInfo) {
       seasonInfo = { phase: "OFFSEASON", year: seasonYear };
     }
-    
+
     if (!seasonInfo) {
       return 1; // Fallback
     }
@@ -218,14 +207,8 @@ export const isContentGenerationAllowed = query({
     
     // Get current season phase - duplicate logic to avoid circular reference
     const targetDateForPhase = targetDate;
-    const checkDate = new Date(targetDateForPhase);
-    let seasonYear = checkDate.getFullYear();
-    
-    // If we're in January-July, we might be in the previous season's playoffs/offseason
-    if (checkDate.getMonth() < 7) { // Before August
-      seasonYear -= 1;
-    }
-    
+    const seasonYear = nflSeasonYearFor(new Date(targetDateForPhase));
+
     // Try current year first, then next year if we're in late offseason
     let seasonInfo: { phase: NFLSeasonPhase; year: number; week?: number } | null = null;
     for (const yearToCheck of [seasonYear, seasonYear + 1]) {

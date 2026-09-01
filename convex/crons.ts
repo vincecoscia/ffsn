@@ -3,6 +3,15 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+// Ensure the current (and, in-season-off, upcoming) NFL season's boundary
+// row exists before anything else runs today. Idempotent - safe to run
+// daily even once seasons are seeded.
+crons.daily(
+  "ensure current NFL season boundaries",
+  { hourUTC: 1, minuteUTC: 0 },
+  internal.nflSeasonSetup.ensureCurrentSeason,
+);
+
 // Sync ESPN news every hour
 crons.hourly(
   "sync ESPN news",

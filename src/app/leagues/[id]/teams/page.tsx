@@ -7,6 +7,7 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 import { useAuth } from "@clerk/nextjs";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 import { RivalriesTab } from "@/components/RivalriesTab";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,24 +73,25 @@ export default function TeamsPage({ params }: TeamsPageProps) {
   const leagueId = resolvedParams.id as Id<"leagues">;
   const { userId } = useAuth();
   
-  const [selectedSeason, setSelectedSeason] = useState(2025);
+  // Get current/available seasons for the league
+  const { currentSeason, availableSeasons, isLoading: isSeasonLoading } = useLeagueSeason(leagueId);
+
+  const [selectedSeason, setSelectedSeason] = useState(currentSeason);
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState("teams");
-  
+
+  // Sync the selected season once the real current season resolves
+  const hasSyncedSeason = React.useRef(false);
+  React.useEffect(() => {
+    if (!isSeasonLoading && !hasSyncedSeason.current) {
+      hasSyncedSeason.current = true;
+      setSelectedSeason(currentSeason);
+    }
+  }, [isSeasonLoading, currentSeason]);
+
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
-  
-  // Get available seasons for the league
-  const leagueSeasons = useQuery(api.leagues.getLeagueSeasons, { leagueId });
-  
-  // Extract season IDs and sort them in descending order
-  const availableSeasons = React.useMemo(() => {
-    if (!leagueSeasons) return undefined;
-    return leagueSeasons
-      .map(season => season.seasonId)
-      .sort((a, b) => b - a);
-  }, [leagueSeasons]);
-  
+
   // Get teams for the selected season
   const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
     leagueId,
@@ -158,7 +160,7 @@ export default function TeamsPage({ params }: TeamsPageProps) {
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold">{selectedSeason} Season Teams</h2>
           <SeasonSelector
-            currentSeason={2025}
+            currentSeason={currentSeason}
             selectedSeason={selectedSeason}
             onSeasonChange={setSelectedSeason}
             availableSeasons={availableSeasons}

@@ -453,6 +453,7 @@ export const syncLeagueData = action({
       await ctx.runMutation(api.espnSync.updateLeagueSync, {
         leagueId: args.leagueId,
         currentScoringPeriod: currentScoringPeriod,
+        seasonId: currentYear,
       });
 
       // Fetch rosters using the dedicated roster endpoint
@@ -2041,6 +2042,7 @@ export const syncAllLeagueData = action({
           await ctx.runMutation(api.espnSync.updateLeagueSync, {
             leagueId: args.leagueId,
             currentScoringPeriod: currentScoringPeriod,
+            seasonId: currentYear,
           });
         }
 
@@ -2661,6 +2663,7 @@ export const updateLeagueSync = mutation({
   args: {
     leagueId: v.id("leagues"),
     currentScoringPeriod: v.number(),
+    seasonId: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
@@ -2672,6 +2675,7 @@ export const updateLeagueSync = mutation({
       espnData: {
         ...league.espnData,
         currentScoringPeriod: args.currentScoringPeriod,
+        ...(args.seasonId !== undefined ? { seasonId: args.seasonId } : {}),
         lastSyncedAt: Date.now(),
       },
       lastSync: Date.now(),
@@ -3575,6 +3579,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         await ctx.runMutation(api.espnSync.updateLeagueSync, {
           leagueId: league._id,
           currentScoringPeriod: currentScoringPeriod,
+          seasonId: currentYear,
         });
 
         // Fetch rosters for current season as fallback if not already captured

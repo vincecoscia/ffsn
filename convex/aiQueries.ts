@@ -700,11 +700,12 @@ export const getMockDraftDataForAI = query({
       // Create enhanced player data with seasonOutlook and projected stats
       const draftablePlayers = topPlayers.length > 0 
         ? topPlayers.map(player => {
-            // Get 2025 projected stats (find the entry with externalId "2025" and statSourceId 1)
-            const projectedStats = player.stats && Array.isArray(player.stats) 
-              ? player.stats.find((stat: any) => 
-                  stat.externalId === "2025" && 
-                  stat.statSourceId === 1 && 
+            // Get the target season's projected stats (find the entry with
+            // matching externalId and statSourceId 1)
+            const projectedStats = player.stats && Array.isArray(player.stats)
+              ? player.stats.find((stat: any) =>
+                  stat.externalId === String(targetSeason) &&
+                  stat.statSourceId === 1 &&
                   stat.appliedTotal > 0
                 )
               : null;

@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useDraftStatus } from '../hooks/use-draft-status';
+import { useLeagueSeason } from '../hooks/use-league-season';
 import { MatchupDisplay } from './MatchupDisplay';
 import { DraftOrderDisplay } from './DraftOrderDisplay';
 import { Id } from '../../convex/_generated/dataModel';
@@ -28,7 +29,11 @@ interface LeagueWeeklySectionProps {
   seasonId?: number;
 }
 
-export function LeagueWeeklySection({ leagueId, teams, seasonId = 2025 }: LeagueWeeklySectionProps) {
+export function LeagueWeeklySection({ leagueId, teams, seasonId: seasonIdProp }: LeagueWeeklySectionProps) {
+  // Default to the league's current season when no season is explicitly provided
+  const { currentSeason } = useLeagueSeason(leagueId);
+  const seasonId = seasonIdProp ?? currentSeason;
+
   // Get draft status
   const { isDraftComplete, draftData, isLoading: draftLoading } = useDraftStatus(leagueId, seasonId);
   
