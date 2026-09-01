@@ -211,6 +211,26 @@ export const createGenerationRequest = mutation({
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
     }
 
+    // Check if user has sufficient credits before scheduling any generation
+    // work (mirrors regenerateContentWithCredits below).
+    const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
+      userId: identity.subject,
+      requiredAmount: template.creditCost,
+    });
+
+    if (!userCredits.hasSufficientCredits) {
+      throw new Error(`Insufficient credits. Required: ${template.creditCost}, Available: ${userCredits.currentBalance}`);
+    }
+
+    // Deduct credits up front, before scheduling generation, so concurrent
+    // requests can't spend more than the user's balance allows.
+    await ctx.runMutation(internal.credits.deductCredits, {
+      userId: identity.subject,
+      amount: template.creditCost,
+      description: `AI content generation: ${args.type}`,
+      leagueId: args.leagueId,
+    });
+
     // Create a generation request in "generating" status
     const articleId = await ctx.db.insert("aiContent", {
       leagueId: args.leagueId,
@@ -227,7 +247,9 @@ export const createGenerationRequest = mutation({
       createdAt: Date.now(),
     });
 
-    // Schedule the actual generation
+    // Schedule the actual generation. creditsDeductedUpFront tells
+    // generateContentAction the cost was already taken above, so on failure
+    // it refunds instead of trying to deduct again post-generation.
     await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
       articleId,
       leagueId: args.leagueId,
@@ -238,6 +260,7 @@ export const createGenerationRequest = mutation({
       seasonId: args.seasonId,
       week: args.week,
       tradeRumorData: args.tradeRumorData,
+      creditsDeductedUpFront: template.creditCost,
     });
 
     return articleId;
@@ -391,7 +414,10 @@ export const regenerateContentWithCredits = mutation({
       createdAt: Date.now(),
     });
 
-    // Schedule the actual generation
+    // Schedule the actual generation. creditsDeductedUpFront tells
+    // generateContentAction the cost was already taken above, so on failure
+    // it refunds instead of deducting again post-generation (previously this
+    // flow double-charged: once here, then again inside generateContentAction).
     await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
       articleId,
       leagueId: args.leagueId,
@@ -401,6 +427,7 @@ export const regenerateContentWithCredits = mutation({
       userId: identity.subject,
       seasonId: args.seasonId,
       week: args.week,
+      creditsDeductedUpFront: template.creditCost,
     });
 
     return articleId;
@@ -425,6 +452,14 @@ export const generateContentAction = internalAction({
       playersInvolved: v.array(v.string()), // Player IDs as strings from roster
       additionalContext: v.optional(v.string()),
     })),
+    // Set by callers that already deducted credits before scheduling this
+    // action (createGenerationRequest, regenerateContentWithCredits,
+    // processLeaguePayment's auto season_welcome generation) to the amount
+    // deducted. When set, this action refunds that amount on failure instead
+    // of deducting again on success. Callers that omit it (scheduled/cron
+    // content, comment-triggered content, retries) keep the legacy
+    // post-generation deduction below unchanged.
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== generateContentAction START (OPTIMIZED) ===");
@@ -617,7 +652,8 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
         customContext: enrichedCustomContext,
         userId: args.userId,
-      }, apiKey);
+        },
+      });
       
       console.log("AI content generated successfully");
       console.log("Generated title:", generatedContent.title);
@@ -632,31 +668,35 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         metadata: generatedContent.metadata,
       });
 
-      // Deduct credits from user for system-generated content (if userId is "system", find the league owner)
-      try {
-        let creditUserId = args.userId;
-        if (args.userId === "system") {
-          // Find the league commissioner to deduct credits from
-          const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
-            leagueId: args.leagueId,
-          });
-          if (league?.commissionerUserId) {
-            creditUserId = league.commissionerUserId; // Use league commissioner
+      // Deduct credits from user for system-generated content (if userId is "system", find the league owner).
+      // Skipped when the caller already deducted up front (see creditsDeductedUpFront above) -
+      // that credit accounting is settled in the catch block below instead (refund on failure).
+      if (!args.creditsDeductedUpFront) {
+        try {
+          let creditUserId = args.userId;
+          if (args.userId === "system") {
+            // Find the league commissioner to deduct credits from
+            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+              leagueId: args.leagueId,
+            });
+            if (league?.commissionerUserId) {
+              creditUserId = league.commissionerUserId; // Use league commissioner
+            }
           }
+
+          if (creditUserId !== "system") {
+            await ctx.runMutation(internal.credits.deductCreditsInternal, {
+              userId: creditUserId,
+              amount: generatedContent.metadata.creditsUsed,
+              description: `AI content generation: ${args.contentType}`,
+              leagueId: args.leagueId,
+              relatedContentId: args.articleId,
+            });
+          }
+        } catch (creditError) {
+          console.warn("Failed to deduct credits for content generation:", creditError);
+          // Don't fail the entire generation process if credit deduction fails
         }
-        
-        if (creditUserId !== "system") {
-          await ctx.runMutation(internal.credits.deductCreditsInternal, {
-            userId: creditUserId,
-            amount: generatedContent.metadata.creditsUsed,
-            description: `AI content generation: ${args.contentType}`,
-            leagueId: args.leagueId,
-            relatedContentId: args.articleId,
-          });
-        }
-      } catch (creditError) {
-        console.warn("Failed to deduct credits for content generation:", creditError);
-        // Don't fail the entire generation process if credit deduction fails
       }
 
       // Optionally auto-publish based on league preferences
@@ -733,7 +773,41 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       console.error("=== generateContentAction ERROR ===");
       console.error("Content generation failed:", error);
       console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
-      
+
+      // If a caller deducted credits up front (createGenerationRequest,
+      // regenerateContentWithCredits, processLeaguePayment's auto
+      // season_welcome), refund them now — the user paid for content they
+      // never received. Captured rather than swallowed: if the refund
+      // itself fails, that's rethrown below (after the rest of the
+      // failure-handling cleanup runs) instead of being logged and ignored.
+      let refundError: unknown = null;
+      if (args.creditsDeductedUpFront) {
+        try {
+          let creditUserId = args.userId;
+          if (creditUserId === "system") {
+            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+              leagueId: args.leagueId,
+            });
+            if (league?.commissionerUserId) {
+              creditUserId = league.commissionerUserId;
+            }
+          }
+
+          if (creditUserId !== "system") {
+            await ctx.runMutation(internal.credits.refundCredits, {
+              userId: creditUserId,
+              amount: args.creditsDeductedUpFront,
+              description: `Refund: failed AI content generation (${args.contentType})`,
+              leagueId: args.leagueId,
+              relatedContentId: args.articleId,
+            });
+          }
+        } catch (e) {
+          console.error("Failed to refund credits after generation failure:", e);
+          refundError = e;
+        }
+      }
+
       // Update article to failed status
       await ctx.runMutation(api.aiContent.updateContentStatus, {
         articleId: args.articleId,
@@ -753,7 +827,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       } catch (e) {
         console.warn("Failed to update scheduled content status to failed", e);
       }
-      
+
       // Schedule retry for mock drafts and weekly recaps
       if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap') {
         console.log(`Scheduling retry for failed ${args.contentType} generation`);
@@ -768,6 +842,16 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           week: args.week,
           retryCount: 1,
         });
+      }
+
+      if (refundError) {
+        // Surface loudly instead of swallowing: the refund did not happen
+        // and the user's balance needs manual reconciliation.
+        throw new Error(
+          `Generation failed for article ${args.articleId} and the credit refund also failed: ${
+            refundError instanceof Error ? refundError.message : String(refundError)
+          }`
+        );
       }
     }
   },

@@ -134,6 +134,79 @@ export const deductCredits = internalMutation({
   },
 });
 
+// Refund credits to a user after a paid-for operation (e.g. AI content
+// generation) failed to complete. INTERNAL ONLY — mirrors grantCredits /
+// deductCredits; the caller-supplied userId is trusted, so this must never
+// be publicly callable. Uses the "refunded" creditTransactions type, which
+// already exists in the schema union.
+export const refundCredits = internalMutation({
+  args: {
+    userId: v.string(),
+    amount: v.number(),
+    description: v.string(),
+    leagueId: v.optional(v.id("leagues")),
+    relatedContentId: v.optional(v.id("aiContent")),
+    relatedPaymentId: v.optional(v.id("stripePayments")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Get or create user credits record
+    let userCredits = await ctx.db
+      .query("userCredits")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!userCredits) {
+      const id = await ctx.db.insert("userCredits", {
+        userId: args.userId,
+        balance: 0,
+        totalEarned: 0,
+        totalSpent: 0,
+        totalPurchased: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      userCredits = await ctx.db.get(id);
+      if (!userCredits) {
+        throw new Error("Failed to create user credits record");
+      }
+    }
+
+    const newBalance = userCredits.balance + args.amount;
+
+    // Create transaction record
+    const transactionId = await ctx.db.insert("creditTransactions", {
+      userId: args.userId,
+      leagueId: args.leagueId,
+      type: "refunded",
+      amount: args.amount,
+      description: args.description,
+      relatedPaymentId: args.relatedPaymentId,
+      relatedContentId: args.relatedContentId,
+      balanceAfter: newBalance,
+      createdAt: now,
+    });
+
+    // Update user credits. totalSpent is reduced to reflect that the
+    // original spend never actually delivered the paid-for content.
+    await ctx.db.patch(userCredits._id, {
+      balance: newBalance,
+      totalSpent: Math.max(0, userCredits.totalSpent - args.amount),
+      lastTransactionId: transactionId,
+      updatedAt: now,
+    });
+
+    console.log(`Refunded ${args.amount} credits to user ${args.userId}. New balance: ${newBalance}`);
+
+    return {
+      newBalance,
+      transactionId,
+    };
+  },
+});
+
 // Internal function to deduct credits (for system-generated content)
 export const deductCreditsInternal = internalMutation({
   args: {

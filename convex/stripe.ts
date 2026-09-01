@@ -127,47 +127,68 @@ export const createCreditsCheckoutSession = action({
   },
 });
 
-// Verify payment completion by session ID
+// Verify payment completion by session ID. Requires auth and checks that the
+// checkout session belongs to the caller before triggering (idempotent)
+// fulfillment - this used to be an unauthenticated free-credits endpoint.
 export const verifyPaymentCompleted = action({
   args: {
     sessionId: v.string(),
   },
-  handler: async (ctx, args) => {
-    try {
-      const session = await stripe.checkout.sessions.retrieve(args.sessionId, {
-        expand: ["payment_intent"],
-      });
-
-      const paymentIntent = session.payment_intent as Stripe.PaymentIntent;
-
-      // Ensure we persist and process the payment even if webhook isn’t received
-      if (paymentIntent?.id) {
-        await ctx.runMutation(internal.stripe.processCheckoutSessionCompleted, {
-          sessionId: session.id,
-          paymentIntentId: paymentIntent.id,
-          paymentStatus: session.payment_status,
-          metadata: session.metadata || {},
-        });
-      }
-
-      return {
-        success: true,
-        session: {
-          id: session.id,
-          paymentStatus: session.payment_status,
-          customerEmail: session.customer_email,
-          metadata: session.metadata,
-          paymentIntentId: paymentIntent?.id,
-          paymentIntentStatus: paymentIntent?.status,
-        },
-      };
-    } catch (error) {
-      console.error("Error verifying payment:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to verify payment",
-      };
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    status: string;
+    fulfilled: boolean;
+    // Back-compat fields for existing frontend callers
+    // (src/app/dashboard/credits/success/page.tsx and
+    // src/app/setup/payment-success/page.tsx) that read `.success` and
+    // `.session.metadata` - outside this task's edit scope to migrate.
+    // `session` here is intentionally NOT the raw Stripe session: only the
+    // metadata WE set at checkout-session creation (userId/leagueId/
+    // creditsPurchased/paymentType) is exposed, none of Stripe's own fields
+    // (customerEmail, paymentIntentId/Status, etc.) that the old shape leaked.
+    success: boolean;
+    session: { metadata: Record<string, string> };
+  }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
     }
+
+    const session = await stripe.checkout.sessions.retrieve(args.sessionId, {
+      expand: ["payment_intent"],
+    });
+
+    // Both checkout-session creators (createLeagueCheckoutSession and
+    // createCreditsCheckoutSession) set metadata.userId to the Clerk user id
+    // of the purchaser - use that as the ownership check.
+    if (session.metadata?.userId !== identity.subject) {
+      throw new Error("This checkout session does not belong to the current user");
+    }
+
+    const paymentIntent = session.payment_intent as Stripe.PaymentIntent | null;
+
+    // processCheckoutSessionCompleted is idempotent (paid gate + already-
+    // fulfilled guard), so it's safe to call here even if the webhook has
+    // already processed (or will process) this same session.
+    if (paymentIntent?.id) {
+      await ctx.runMutation(internal.stripe.processCheckoutSessionCompleted, {
+        sessionId: session.id,
+        paymentIntentId: paymentIntent.id,
+        paymentStatus: session.payment_status,
+        metadata: session.metadata || {},
+      });
+    }
+
+    const fulfilled = session.payment_status === "paid" && !!paymentIntent?.id;
+
+    return {
+      status: session.payment_status,
+      fulfilled,
+      success: fulfilled,
+      session: { metadata: session.metadata || {} },
+    };
   },
 });
 
@@ -178,21 +199,41 @@ export const handleStripeWebhook = action({
     signature: v.string(),
   },
   handler: async (ctx, args) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      throw new Error("Missing STRIPE_WEBHOOK_SECRET environment variable");
+    }
+
+    // Verify webhook signature. A bad signature can never be "retried into
+    // success", so this is reported back as a failure response rather than
+    // thrown (which would surface as a 500 and cause Stripe to keep retrying).
+    let event: Stripe.Event;
     try {
-      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-      if (!webhookSecret) {
-        throw new Error("Missing STRIPE_WEBHOOK_SECRET environment variable");
-      }
+      event = stripe.webhooks.constructEvent(args.body, args.signature, webhookSecret);
+    } catch (error) {
+      console.error("Stripe webhook signature verification failed:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Invalid webhook signature",
+      };
+    }
 
-      // Verify webhook signature
-      const event = stripe.webhooks.constructEvent(
-        args.body,
-        args.signature,
-        webhookSecret
-      );
+    console.log(`Stripe webhook: ${event.type} ${event.id}`);
 
-      console.log(`Processing Stripe webhook: ${event.type}`);
+    // Idempotency: claim this event id before doing any work. Stripe retries
+    // webhook deliveries (e.g. on timeout or a non-2xx response), and without
+    // this guard a retry would re-run fulfillment for the same event.
+    const claim = await ctx.runMutation(internal.stripe.claimWebhookEvent, {
+      eventId: event.id,
+      type: event.type,
+    });
 
+    if (!claim.claimed && (claim.status === "processed" || claim.status === "processing")) {
+      console.log(`Stripe webhook ${event.id} is a duplicate (status=${claim.status}); skipping dispatch`);
+      return { received: true, duplicate: true };
+    }
+
+    try {
       switch (event.type) {
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session;
@@ -228,14 +269,95 @@ export const handleStripeWebhook = action({
           console.log(`Unhandled webhook event type: ${event.type}`);
       }
 
+      await ctx.runMutation(internal.stripe.resolveWebhookEvent, {
+        eventId: event.id,
+        status: "processed",
+      });
+
       return { success: true, processed: event.type };
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Webhook processing failed";
       console.error("Webhook processing error:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Webhook processing failed",
-      };
+
+      await ctx.runMutation(internal.stripe.resolveWebhookEvent, {
+        eventId: event.id,
+        status: "failed",
+        error: message,
+      });
+
+      // Rethrow so the HTTP route returns a non-2xx and Stripe retries -
+      // claimWebhookEvent allows a "failed" event to be re-claimed and
+      // reprocessed on the next delivery attempt.
+      throw error;
     }
+  },
+});
+
+// Claim a Stripe webhook event for processing. Inserts a "processing" row if
+// this event id hasn't been seen before (claimed: true). If the event was
+// already seen and is "processed" or currently "processing", the caller
+// should treat this as a duplicate delivery and skip dispatch entirely. If
+// the prior attempt "failed", it is re-claimed here so a Stripe retry can
+// actually reprocess it.
+export const claimWebhookEvent = internalMutation({
+  args: {
+    eventId: v.string(),
+    type: v.string(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ claimed: boolean; status: "processing" | "processed" | "failed" }> => {
+    const existing = await ctx.db
+      .query("stripeWebhookEvents")
+      .withIndex("by_event_id", (q) => q.eq("eventId", args.eventId))
+      .first();
+
+    if (!existing) {
+      await ctx.db.insert("stripeWebhookEvents", {
+        eventId: args.eventId,
+        type: args.type,
+        receivedAt: Date.now(),
+        status: "processing",
+      });
+      return { claimed: true, status: "processing" };
+    }
+
+    if (existing.status === "processed" || existing.status === "processing") {
+      return { claimed: false, status: existing.status };
+    }
+
+    // Previously failed - allow this delivery to retry it.
+    await ctx.db.patch(existing._id, {
+      status: "processing",
+      error: undefined,
+    });
+    return { claimed: true, status: "processing" };
+  },
+});
+
+// Mark a claimed webhook event as processed or failed.
+export const resolveWebhookEvent = internalMutation({
+  args: {
+    eventId: v.string(),
+    status: v.union(v.literal("processed"), v.literal("failed")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("stripeWebhookEvents")
+      .withIndex("by_event_id", (q) => q.eq("eventId", args.eventId))
+      .first();
+
+    if (!existing) {
+      console.error(`resolveWebhookEvent: no row found for event ${args.eventId}`);
+      return;
+    }
+
+    await ctx.db.patch(existing._id, {
+      status: args.status,
+      error: args.error,
+    });
   },
 });
 
@@ -288,6 +410,7 @@ export const processCheckoutSessionCompleted = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const isPaid = args.paymentStatus === "paid";
 
     // Check if payment record exists
     let payment = await ctx.db
@@ -298,12 +421,12 @@ export const processCheckoutSessionCompleted = internalMutation({
     if (!payment) {
       // Create the payment record now that we have the payment intent ID
       console.log(`Creating payment record for payment intent: ${args.paymentIntentId}`);
-      
+
       // Extract necessary data from metadata
       const amount = parseInt(args.metadata.amount || "0");
       const userId = args.metadata.userId;
       const paymentType = args.metadata.paymentType as "league_creation" | "credits_purchase";
-      
+
       // Build description based on payment type
       let description = "";
       if (paymentType === "league_creation") {
@@ -311,7 +434,7 @@ export const processCheckoutSessionCompleted = internalMutation({
       } else if (paymentType === "credits_purchase") {
         description = `Purchase of ${args.metadata.creditsPurchased} credits`;
       }
-      
+
       // Build metadata object
       const paymentMetadata: any = {};
       if (paymentType === "league_creation") {
@@ -331,14 +454,18 @@ export const processCheckoutSessionCompleted = internalMutation({
         const parsed = parseInt(args.metadata.discountAmount);
         if (!Number.isNaN(parsed)) paymentMetadata.discountAmount = parsed;
       }
-      
-      // Create the payment record
+
+      // Create the payment record. Status starts "pending" even when Stripe
+      // already reports the session as paid: processLeaguePayment /
+      // processCreditsPurchase are the ones that flip it to "succeeded",
+      // atomically with granting credits, so their idempotency guard can
+      // tell "recorded" apart from "actually fulfilled".
       const paymentId = await ctx.db.insert("stripePayments", {
         paymentIntentId: args.paymentIntentId,
         checkoutSessionId: args.sessionId,
         amount: amount,
         currency: "usd",
-        status: args.paymentStatus === "paid" ? "succeeded" : "pending",
+        status: "pending",
         userId: userId,
         leagueId: args.metadata.leagueId ? (args.metadata.leagueId as any) : undefined,
         paymentType: paymentType,
@@ -348,28 +475,45 @@ export const processCheckoutSessionCompleted = internalMutation({
         webhookProcessedAt: now,
         createdAt: now,
         updatedAt: now,
-        paidAt: args.paymentStatus === "paid" ? now : undefined,
+        paidAt: isPaid ? now : undefined,
       });
-      
+
       payment = await ctx.db.get(paymentId);
     } else {
-      // Update existing payment record
+      // Update existing payment record. Only downgrade to "pending" here if
+      // Stripe now reports the session as not paid; never overwrite an
+      // already-"succeeded" status, and never set "succeeded" here - that
+      // happens atomically with the credit/league grant below.
       await ctx.db.patch(payment._id, {
-        status: args.paymentStatus === "paid" ? "succeeded" : "pending",
+        status: isPaid ? payment.status : "pending",
         webhookProcessed: true,
         webhookProcessedAt: now,
         updatedAt: now,
-        paidAt: args.paymentStatus === "paid" ? now : undefined,
+        paidAt: isPaid ? (payment.paidAt ?? now) : payment.paidAt,
       });
+      payment = await ctx.db.get(payment._id);
+    }
+
+    // Only fulfill (grant credits / league access) once Stripe actually
+    // reports this session as paid. Anything else (unpaid, expired, etc.)
+    // just records status above and stops here - no grant, no dispatch.
+    if (!isPaid) {
+      console.log(`Checkout session ${args.sessionId} payment_status=${args.paymentStatus}; skipping fulfillment`);
+      return;
+    }
+
+    if (!payment) {
+      console.error(`Payment record missing after upsert for payment intent ${args.paymentIntentId}`);
+      return;
     }
 
     // Process based on payment type
-    if (payment && args.metadata.paymentType === "league_creation") {
+    if (args.metadata.paymentType === "league_creation") {
       await ctx.runMutation(internal.payments.processLeaguePayment, {
         paymentId: payment._id,
         sessionMetadata: args.metadata,
       });
-    } else if (payment && args.metadata.paymentType === "credits_purchase") {
+    } else if (args.metadata.paymentType === "credits_purchase") {
       await ctx.runMutation(internal.payments.processCreditsPurchase, {
         paymentId: payment._id,
         sessionMetadata: args.metadata,

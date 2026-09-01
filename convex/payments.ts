@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { contentTemplates } from "../src/lib/ai/content-templates";
 
 // Process league creation payment - grant commissioner credits and create league
 export const processLeaguePayment = internalMutation({
@@ -15,45 +16,75 @@ export const processLeaguePayment = internalMutation({
     }
 
     const userId = payment.userId;
-    const seasonYear = parseInt(args.sessionMetadata.seasonYear || "2025");
+    const seasonYear = parseInt(args.sessionMetadata.seasonYear || "") || new Date().getFullYear();
     const now = Date.now();
 
-    // Grant 1000 credits to the commissioner
-    await ctx.runMutation(internal.credits.grantCredits, {
-      userId,
-      amount: 1000,
-      type: "earned",
-      description: `League creation bonus - 1000 credits`,
-      relatedPaymentId: args.paymentId,
-    });
+    // Idempotency guard: has the commissioner bonus already been granted for
+    // this payment? Checked via creditTransactions (relatedPaymentId), not
+    // payment.status - linkPaymentToLeague deliberately calls this mutation
+    // again once a league is known (payment.status is already "succeeded" by
+    // then) purely to backfill the leaguePayments/subscription update below,
+    // so payment.status alone can't be used to detect "already granted".
+    const alreadyGranted = await ctx.db
+      .query("creditTransactions")
+      .withIndex("by_payment", (q) => q.eq("relatedPaymentId", args.paymentId))
+      .first();
 
-    // Create league payment record
-    const leagueId = payment.leagueId;
-    if (leagueId) {
-      await ctx.db.insert("leaguePayments", {
-        leagueId,
-        stripePaymentId: args.paymentId,
-        seasonYear,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: "completed",
-        paidByUserId: userId,
-        paidAt: now,
-        createdAt: now,
+    if (!alreadyGranted) {
+      // Flip to succeeded atomically with the credit grant below (same
+      // mutation/transaction), so a retried call sees a consistent state.
+      await ctx.db.patch(args.paymentId, {
+        status: "succeeded",
+        paidAt: payment.paidAt ?? now,
+        updatedAt: now,
       });
 
-      // Update league subscription status and tier
-      const league = await ctx.db.get(leagueId);
-      if (league) {
-        await ctx.db.patch(leagueId, {
-          subscription: {
-            ...league.subscription,
-            paymentStatus: "completed",
-            paidAt: now,
-            status: "paid",
-            tier: "season_pass",
-          },
+      // Grant 1000 credits to the commissioner
+      await ctx.runMutation(internal.credits.grantCredits, {
+        userId,
+        amount: 1000,
+        type: "earned",
+        description: `League creation bonus - 1000 credits`,
+        relatedPaymentId: args.paymentId,
+      });
+    } else {
+      console.log(`Commissioner credits already granted for payment ${args.paymentId}; skipping duplicate grant`);
+    }
+
+    // Create league payment record (idempotent: only once per payment)
+    const leagueId = payment.leagueId;
+    if (leagueId) {
+      const existingLeaguePayment = await ctx.db
+        .query("leaguePayments")
+        .withIndex("by_payment", (q) => q.eq("stripePaymentId", args.paymentId))
+        .first();
+
+      if (!existingLeaguePayment) {
+        await ctx.db.insert("leaguePayments", {
+          leagueId,
+          stripePaymentId: args.paymentId,
+          seasonYear,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: "completed",
+          paidByUserId: userId,
+          paidAt: now,
+          createdAt: now,
         });
+
+        // Update league subscription status and tier
+        const league = await ctx.db.get(leagueId);
+        if (league) {
+          await ctx.db.patch(leagueId, {
+            subscription: {
+              ...league.subscription,
+              paymentStatus: "completed",
+              paidAt: now,
+              status: "paid",
+              tier: "season_pass",
+            },
+          });
+        }
       }
     }
 
@@ -67,15 +98,31 @@ export const processLeaguePayment = internalMutation({
       });
 
       if (!existingCheck.hasExistingContent && !existingCheck.hasScheduledContent) {
-        // Check if user has sufficient credits
+        // Use the template's real credit cost (was previously hardcoded to a
+        // stale "5" here while the actual generation cost is higher, which
+        // let this check under-report what was actually about to be spent).
+        const template = contentTemplates["season_welcome"];
+        const cost = template?.creditCost ?? 5;
+
         const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
           userId,
-          requiredAmount: 5, // season_welcome typically costs 5 credits
+          requiredAmount: cost,
         });
 
         if (userCredits.hasSufficientCredits) {
           console.log(`Auto-generating season_welcome content for league ${leagueId}`);
-          
+
+          // Deduct up front (in this same transaction) rather than relying
+          // on generateContentAction's post-generation deduction, matching
+          // the checkSufficientCredits -> deductCredits -> generate pattern
+          // used by regenerateContentWithCredits.
+          await ctx.runMutation(internal.credits.deductCredits, {
+            userId,
+            amount: cost,
+            description: `Auto-generated season welcome content`,
+            leagueId: leagueId!,
+          });
+
           // Create the article first
           const articleId = await ctx.runMutation(internal.aiContent.createScheduledArticle, {
             leagueId: leagueId!,
@@ -92,11 +139,12 @@ export const processLeaguePayment = internalMutation({
             persona: "analyst",
             userId: userId,
             seasonId: seasonYear,
+            creditsDeductedUpFront: cost,
           });
 
           console.log(`Season welcome content generation scheduled for league ${leagueId}`);
         } else {
-          console.log(`User ${userId} has insufficient credits for auto season_welcome generation. Required: 5, Available: ${userCredits.currentBalance}`);
+          console.log(`User ${userId} has insufficient credits for auto season_welcome generation. Required: ${cost}, Available: ${userCredits.currentBalance}`);
         }
       } else {
         console.log(`Season welcome content already exists or is scheduled for league ${leagueId}`);
@@ -178,8 +226,28 @@ export const processCreditsPurchase = internalMutation({
       throw new Error("Invalid payment record for credits purchase");
     }
 
+    // Idempotency guard: a retried webhook, or verifyPaymentCompleted racing
+    // the webhook for the same session, must not grant credits twice.
+    const alreadyGranted = await ctx.db
+      .query("creditTransactions")
+      .withIndex("by_payment", (q) => q.eq("relatedPaymentId", args.paymentId))
+      .first();
+
+    if (alreadyGranted) {
+      console.log(`Credits already granted for payment ${args.paymentId}; skipping duplicate grant`);
+      return;
+    }
+
     const userId = payment.userId;
     const creditsPurchased = payment.metadata.creditsPurchased;
+    const now = Date.now();
+
+    // Flip to succeeded atomically with the credit grant below.
+    await ctx.db.patch(args.paymentId, {
+      status: "succeeded",
+      paidAt: payment.paidAt ?? now,
+      updatedAt: now,
+    });
 
     // Grant purchased credits
     await ctx.runMutation(internal.credits.grantCredits, {
@@ -307,7 +375,7 @@ export const reconcilePayment = internalMutation({
           paymentId: args.paymentId,
           sessionMetadata: {
             paymentType: "league_creation",
-            seasonYear: payment.metadata?.seasonYear?.toString() || "2025",
+            seasonYear: (payment.metadata?.seasonYear ?? new Date().getFullYear()).toString(),
           },
         });
       } else if (payment.paymentType === "credits_purchase") {

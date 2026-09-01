@@ -1589,4 +1589,19 @@ export default defineSchema({
     .index("by_sent_date", ["sentAt"])
     .index("by_related_entity", ["relatedEntityType", "relatedEntityId"]),
 
+  // Stripe webhook event idempotency ledger - one row per Stripe event ID so
+  // retried deliveries can be detected and short-circuited before dispatch.
+  stripeWebhookEvents: defineTable({
+    eventId: v.string(), // Stripe event.id (evt_...)
+    type: v.string(), // Stripe event.type, e.g. "checkout.session.completed"
+    receivedAt: v.number(),
+    status: v.union(
+      v.literal("processing"),
+      v.literal("processed"),
+      v.literal("failed")
+    ),
+    error: v.optional(v.string()),
+  })
+    .index("by_event_id", ["eventId"]),
+
 });

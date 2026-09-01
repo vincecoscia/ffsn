@@ -5,22 +5,15 @@ import { api } from "../../../../../convex/_generated/api";
 // Initialize Convex client
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
-// Disable body parsing so we can access the raw body
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 // Handle POST requests from Stripe webhooks
 export async function POST(req: NextRequest) {
   try {
     // Get the raw body as text
     const body = await req.text();
-    
+
     // Get Stripe signature from headers
     const signature = req.headers.get("stripe-signature");
-    
+
     if (!signature) {
       console.error("Missing Stripe signature header");
       return NextResponse.json(
@@ -37,11 +30,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Process webhook through Convex action
+    // Process webhook through Convex action. handleStripeWebhook is
+    // idempotent: a duplicate delivery of an already-(processed/processing)
+    // event returns { received: true, duplicate: true } without dispatching,
+    // and a genuine processing failure throws (rejecting this call) so we
+    // return a 500 and Stripe retries.
     const result = await convex.action(api.stripe.handleStripeWebhook, {
       body,
       signature,
     });
+
+    if ("duplicate" in result && result.duplicate) {
+      console.log(`Stripe webhook: duplicate delivery ignored`);
+      return NextResponse.json({ received: true, duplicate: true });
+    }
 
     if (!result.success) {
       console.error("Webhook processing failed:", result.error);
@@ -51,19 +53,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log(`Successfully processed webhook: ${result.processed}`);
-    
+    console.log(`Stripe webhook: processed ${result.processed}`);
+
     // Return success response
-    return NextResponse.json({ 
-      received: true, 
-      processed: result.processed 
+    return NextResponse.json({
+      received: true,
+      processed: result.processed
     });
 
   } catch (error) {
     console.error("Webhook handler error:", error);
-    
+
     return NextResponse.json(
-      { 
+      {
         error: "Webhook handler failed",
         details: error instanceof Error ? error.message : "Unknown error"
       },
