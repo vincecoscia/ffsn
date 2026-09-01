@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { ConversationContext, conversationService } from "../src/lib/ai/conversation-service";
+import type { ConversationContext } from "../src/lib/ai/conversation-service";
 import { Id } from "./_generated/dataModel";
 
 // Get active comment requests for a user
@@ -179,11 +179,6 @@ export const processUserResponse = internalAction({
 
     try {
       // Get Claude API key
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("ANTHROPIC_API_KEY not configured");
-      }
-
       // Build ConversationContext using the same context builder used for initial requests
       const conversationContext = await ctx.runQuery(internal.commentRequests.buildConversationContext, {
         commentRequestId: args.commentRequestId,
@@ -193,11 +188,10 @@ export const processUserResponse = internalAction({
       }
 
       // Analyze the user response
-      const analysis = await conversationService.analyzeUserResponse(
-        userMessage.content,
-        conversationContext,
-        apiKey
-      );
+      const analysis = await ctx.runAction(internal.aiNode.analyzeUserResponse, {
+        userResponse: userMessage.content,
+        context: conversationContext,
+      });
 
       console.log("User response analysis:", analysis);
 
@@ -273,11 +267,6 @@ export const generateAIFollowUp = internalAction({
     }
 
     try {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("ANTHROPIC_API_KEY not configured");
-      }
-
       // Use the shared context builder for accurate context
       const conversationContext = await ctx.runQuery(internal.commentRequests.buildConversationContext, {
         commentRequestId: args.commentRequestId,
@@ -287,10 +276,9 @@ export const generateAIFollowUp = internalAction({
       }
 
       // Generate follow-up question
-      const result = await conversationService.generateConversationQuestion(
-        conversationContext,
-        apiKey
-      );
+      const result = await ctx.runAction(internal.aiNode.generateConversationQuestion, {
+        context: conversationContext,
+      });
 
       console.log("AI follow-up generated:", result);
 
@@ -311,7 +299,7 @@ export const generateAIFollowUp = internalAction({
         aiMetadata: {
           confidence: result.confidence,
           intent: result.intent,
-          generationModel: "claude-sonnet-4",
+          generationModel: "claude-opus-5",
           processingTime: Date.now(),
         },
         shouldEndAfterResponse: result.shouldEndAfterResponse,

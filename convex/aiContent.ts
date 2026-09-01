@@ -3,7 +3,6 @@ import { query, mutation, action, internalQuery, internalMutation, internalActio
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { generateAIContent } from "../src/lib/ai/content-generation-service";
 import { contentTemplates } from "../src/lib/ai/content-templates";
 
 export const getByLeague = query({
@@ -463,12 +462,6 @@ export const generateContentAction = internalAction({
       
       console.log("League data fetched successfully");
       
-      // Get API key from environment
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("ANTHROPIC_API_KEY not configured");
-      }
-
       console.log("Calling AI generation service...");
       
       // Enrich trade rumor data if present
@@ -615,7 +608,8 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       }
       
       // Call AI generation service
-      const generatedContent = await generateAIContent({
+      const generatedContent = await ctx.runAction(internal.aiNode.generateArticle, {
+        request: {
         leagueId: args.leagueId,
         contentType: args.contentType,
         persona: args.persona,
@@ -680,51 +674,31 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         console.warn("Failed to apply auto-publish preference", e);
       }
       
-      // Generate banner image if applicable
-      const { shouldGenerateImage, generateArticleImage } = await import("../src/lib/ai/image-generator");
-      
-      const shouldGenerate = shouldGenerateImage(args.contentType);
-      console.log(`Should generate image for ${args.contentType}:`, shouldGenerate);
-      
-      if (shouldGenerate) {
-        console.log("Generating banner image for article type:", args.contentType);
-        
-        const openAIKey = process.env.OPENAI_API_KEY;
-        if (!openAIKey) {
-          console.warn("OPENAI_API_KEY not configured in Convex environment variables, skipping image generation");
-          console.warn("To enable image generation, run: npx convex env set OPENAI_API_KEY \"your-api-key\"");
-        } else {
-          try {
-            // Generate the image
-            const imageBlob = await generateArticleImage({
-              title: generatedContent.title,
-              contentType: args.contentType,
-              metadata: {
-                week: generatedContent.metadata?.week,
-                featuredTeams: generatedContent.metadata?.featuredTeams,
-                featuredPlayers: generatedContent.metadata?.featuredPlayers,
-              },
-              persona: args.persona,
-            }, openAIKey);
-            
-            // Store the image in Convex
-            const storageId = await ctx.storage.store(imageBlob);
-            console.log("Banner image stored with ID:", storageId);
-            
-            // Update article with banner image ID
-            await ctx.runMutation(api.aiContent.storeBannerImage, {
-              articleId: args.articleId,
-              storageId,
-            });
-            
-            console.log("Banner image successfully added to article");
-          } catch (imageError) {
-            console.error("Failed to generate/store banner image:", imageError);
-            // Continue without image - don't fail the entire generation
-          }
+      // Generate banner image if applicable. The OpenAI call runs in the Node runtime
+      // (convex/aiNode.ts) and returns a storage id, or null when not eligible/configured.
+      try {
+        const storageId = await ctx.runAction(internal.aiNode.generateBannerImage, {
+          title: generatedContent.title,
+          contentType: args.contentType,
+          persona: args.persona,
+          metadata: {
+            week: generatedContent.metadata?.week,
+            featuredTeams: generatedContent.metadata?.featuredTeams,
+            featuredPlayers: generatedContent.metadata?.featuredPlayers,
+          },
+        });
+        if (storageId) {
+          await ctx.runMutation(api.aiContent.storeBannerImage, {
+            articleId: args.articleId,
+            storageId,
+          });
+          console.log("Banner image stored with ID:", storageId);
         }
+      } catch (imageError) {
+        console.error("Failed to generate/store banner image:", imageError);
+        // Continue without image - don't fail the entire generation
       }
-      
+
       // Update scheduledContent final status on success
       try {
         if (args.scheduledContentId) {

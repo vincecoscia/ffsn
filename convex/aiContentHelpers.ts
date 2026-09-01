@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { generateAIContent } from "../src/lib/ai/content-generation-service";
 import { CommentResponseData } from "../src/lib/ai/comment-integration";
 import { Id } from "./_generated/dataModel";
 
@@ -247,16 +246,11 @@ export const generateAIContentWithData = internalAction({
         console.log(`Found ${commentResponses.length} comment responses for manual content`);
       }
       
-      // Get API key
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("ANTHROPIC_API_KEY not configured");
-      }
-      
       // Generate content without timeout - similar to Season Welcome Package
       console.log(`Generating AI content for ${args.contentType} without timeout...`);
       
-      const generatedContent = await generateAIContent({
+      const generatedContent = await ctx.runAction(internal.aiNode.generateArticle, {
+        request: {
         leagueId: args.leagueId,
         contentType: args.contentType,
         persona: args.persona,
@@ -264,7 +258,8 @@ export const generateAIContentWithData = internalAction({
         customContext: args.customContext,
         userId: args.userId,
         commentResponses: commentResponses.length > 0 ? commentResponses : undefined,
-      }, apiKey);
+        },
+      });
       
       const executionTime = Date.now() - startTime;
       console.log("AI generation completed in", executionTime + "ms");

@@ -313,13 +313,7 @@ export const sendManualCommentRequest = internalAction({
       }
       
       // Generate initial AI question
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("ANTHROPIC_API_KEY not configured");
-      }
-      
-      const { conversationService } = await import("../src/lib/ai/conversation-service");
-      const aiResult = await conversationService.generateConversationQuestion(context, apiKey);
+      const aiResult = await ctx.runAction(internal.aiNode.generateConversationQuestion, { context });
       
       console.log(`Generated initial question for user ${request.targetUserId}`);
       
@@ -329,7 +323,7 @@ export const sendManualCommentRequest = internalAction({
         content: aiResult.question,
         messageType: "ai_question",
         aiMetadata: {
-          generationModel: "claude-sonnet-4",
+          generationModel: "claude-opus-5",
           processingTime: Date.now(),
           confidence: aiResult.confidence,
           intent: aiResult.intent,

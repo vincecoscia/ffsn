@@ -19,6 +19,17 @@ interface AnthropicResponse {
 import { contentTemplates } from './content-templates';
 import { Id } from '../../../convex/_generated/dataModel';
 
+// Claude 5-family models reject sampling params (temperature/top_p); persona "heat" lives in the
+// system prompt instead. Effort controls thinking depth and cost per article.
+const ARTICLE_EFFORT = 'medium' as const;
+
+// Errors worth retrying on the fallback model: model not found, server errors, overloaded.
+function shouldFallback(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('status' in error)) return false;
+  const status = (error as { status?: unknown }).status;
+  return status === 404 || status === 500 || status === 503 || status === 529;
+}
+
 export interface GenerationRequest {
   leagueId: Id<"leagues">;
   contentType: string;
@@ -87,8 +98,8 @@ export interface GeneratedContent {
 
 export class ContentGenerationService {
   private modelConfig = {
-    primary: "claude-sonnet-4-20250514",
-    fallback: "claude-3-7-sonnet-20250219",
+    primary: "claude-opus-5",
+    fallback: "claude-sonnet-5",
     maxRetries: 3,
   };
 
@@ -158,8 +169,7 @@ export class ContentGenerationService {
       console.log("User prompt preview:", userPrompt.substring(0, 200) + "...");
 
       // Determine if we should use structured output (for supported models)
-      const useStructuredOutput = this.modelConfig.primary.includes('claude-3') || 
-                                  this.modelConfig.primary.includes('claude-sonnet-4');
+      const useStructuredOutput = true; // every current Claude model supports tool-based structured output
 
       let response: AnthropicResponse;
       let structuredData: z.infer<typeof GeneratedArticle> | null = null;
@@ -328,7 +338,7 @@ Make sure each section follows the template requirements and word counts.`;
       const response = await anthropic.messages.create({
         model: this.modelConfig.primary,
         max_tokens: settings.maxTokens || 6000,
-        temperature: settings.temperature || 0.8,
+        output_config: { effort: ARTICLE_EFFORT },
         system: systemPrompt,
         messages: [
           {
@@ -348,6 +358,11 @@ Make sure each section follows the template requirements and word counts.`;
       });
 
       console.log("Structured API call successful");
+      if (response.stop_reason === 'refusal') {
+        throw new Error(
+          `Structured generation was refused by the model (category: ${response.stop_details?.category ?? 'unknown'})`
+        );
+      }
 
       // Extract the structured data from the tool use
       const toolUse = response.content.find(
@@ -375,6 +390,33 @@ Make sure each section follows the template requirements and word counts.`;
     }
   }
 
+  private buildTextRequest(
+    model: string,
+    systemPrompt: string,
+    userPrompt: string,
+    settings: AnthropicSettings
+  ): Anthropic.MessageCreateParamsNonStreaming {
+    return {
+      model,
+      max_tokens: settings.maxTokens || 6000,
+      output_config: { effort: ARTICLE_EFFORT },
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    };
+  }
+
+  private toAnthropicResponse(response: Anthropic.Message): AnthropicResponse {
+    return {
+      content: response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map(block => ({ text: block.text })),
+      usage: response.usage ? {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+      } : undefined,
+    };
+  }
+
   private async callClaude(
     anthropic: Anthropic,
     systemPrompt: string,
@@ -384,11 +426,8 @@ Make sure each section follows the template requirements and word counts.`;
     const debugPrompts = process.env.DEBUG_AI_PROMPTS === 'true';
     console.log("=== callClaude START ===");
     console.log("Model:", this.modelConfig.primary);
-    console.log("Settings:", {
-      maxTokens: settings.maxTokens || 4000,
-      temperature: settings.temperature || 0.8,
-    });
-    
+    console.log("Settings:", { maxTokens: settings.maxTokens || 6000, effort: ARTICLE_EFFORT });
+
     if (debugPrompts) {
       // Log full prompts only when explicitly enabled
       console.log("=== FULL SYSTEM PROMPT ===");
@@ -397,74 +436,40 @@ Make sure each section follows the template requirements and word counts.`;
       console.log(userPrompt);
       console.log("=== END PROMPTS ===");
     }
-    
+
+    let response: Anthropic.Message;
     try {
-      const response = await anthropic.messages.create({
-        model: this.modelConfig.primary,
-        max_tokens: settings.maxTokens || 6000,
-        temperature: settings.temperature || 0.8,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: userPrompt,
-          },
-        ],
-      });
-      
-      console.log("Claude API call successful");
-      
-      // Transform the response to match our interface
-      const transformedResponse: AnthropicResponse = {
-        content: response.content
-          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-          .map(block => ({ text: block.text })),
-        usage: response.usage ? {
-          input_tokens: response.usage.input_tokens,
-          output_tokens: response.usage.output_tokens,
-        } : undefined,
-      };
-
-      return transformedResponse;
+      response = await anthropic.messages.create(
+        this.buildTextRequest(this.modelConfig.primary, systemPrompt, userPrompt, settings)
+      );
     } catch (error: unknown) {
-      // If primary model fails, try fallback
-      if (error && typeof error === 'object' && 'status' in error && 
-          (error.status === 404 || error.status === 500)) {
-        console.warn('Primary model failed, trying fallback...');
-        console.warn('Error:', error && typeof error === 'object' && 'message' in error ? error.message : 'Unknown error');
-        
-        const response = await anthropic.messages.create({
-          model: this.modelConfig.fallback,
-          max_tokens: Math.min(settings.maxTokens || 6000, 8192), // Fallback has lower limit
-          temperature: settings.temperature || 0.8,
-          system: systemPrompt,
-          messages: [
-            {
-              role: 'user',
-              content: userPrompt,
-            },
-          ],
-        });
-
-        console.log("Fallback model call successful");
-        
-        // Transform the fallback response to match our interface
-        const transformedFallbackResponse: AnthropicResponse = {
-          content: response.content
-            .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-            .map(block => ({ text: block.text })),
-          usage: response.usage ? {
-            input_tokens: response.usage.input_tokens,
-            output_tokens: response.usage.output_tokens,
-          } : undefined,
-        };
-        
-        return transformedFallbackResponse;
+      if (!shouldFallback(error)) {
+        console.error("Claude API call failed:", error);
+        throw error;
       }
-      
-      console.error("Claude API call failed:", error);
-      throw error;
+      console.warn('Primary model failed, trying fallback...');
+      console.warn('Error:', error instanceof Error ? error.message : 'Unknown error');
+      response = await anthropic.messages.create(
+        this.buildTextRequest(this.modelConfig.fallback, systemPrompt, userPrompt, settings)
+      );
     }
+
+    // Safety classifiers can decline a request (HTTP 200, stop_reason "refusal").
+    // Retry once on the fallback model before giving up.
+    if (response.stop_reason === 'refusal') {
+      console.warn(`Primary model refused (category: ${response.stop_details?.category ?? 'unknown'}), trying fallback...`);
+      response = await anthropic.messages.create(
+        this.buildTextRequest(this.modelConfig.fallback, systemPrompt, userPrompt, settings)
+      );
+      if (response.stop_reason === 'refusal') {
+        throw new Error(
+          `Content generation was refused by the model (category: ${response.stop_details?.category ?? 'unknown'})`
+        );
+      }
+    }
+
+    console.log("Claude API call successful");
+    return this.toAnthropicResponse(response);
   }
 
   private parseGeneratedContent(rawContent: string): { title: string; content: string; summary: string } {

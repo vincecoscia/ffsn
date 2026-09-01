@@ -1,0 +1,123 @@
+"use node";
+
+/**
+ * Node-runtime boundary for third-party AI SDK calls.
+ *
+ * The Anthropic SDK (0.8x and later) dynamically imports `node:fs` / `node:path` for its
+ * credential-profile resolution, which Convex's default isolate runtime cannot bundle. Every
+ * other Convex module must therefore reach the Anthropic and OpenAI SDKs through these
+ * internal actions (`ctx.runAction(internal.aiNode.*)`) instead of importing
+ * `src/lib/ai/content-generation-service`, `conversation-service`, or `image-generator`
+ * directly. Keep this file actions-only; "use node" files cannot export queries or mutations.
+ */
+
+import { v } from "convex/values";
+import { internalAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import {
+  contentGenerationService,
+  type GeneratedContent,
+  type GenerationRequest,
+} from "../src/lib/ai/content-generation-service";
+import {
+  conversationService,
+  type AIConversationResult,
+  type ConversationContext,
+} from "../src/lib/ai/conversation-service";
+import { generateArticleImage, shouldGenerateImage } from "../src/lib/ai/image-generator";
+
+type ResponseAnalysis = Awaited<ReturnType<typeof conversationService.analyzeUserResponse>>;
+
+function requireEnv(name: "ANTHROPIC_API_KEY" | "OPENAI_API_KEY"): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} not configured. Set it with: npx convex env set ${name} "..."`);
+  }
+  return value;
+}
+
+/** Strip `undefined` (not a Convex value) before a result crosses the runtime boundary. */
+function toConvexValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** Generate a full article with the persona-driven content service. */
+export const generateArticle = internalAction({
+  args: { request: v.any() },
+  handler: async (_ctx, args): Promise<GeneratedContent> => {
+    const request = args.request as GenerationRequest;
+    const result = await contentGenerationService.generateContent(
+      request,
+      requireEnv("ANTHROPIC_API_KEY")
+    );
+    return toConvexValue(result);
+  },
+});
+
+/** Ask the AI interviewer for the next question in a comment-request conversation. */
+export const generateConversationQuestion = internalAction({
+  args: { context: v.any() },
+  handler: async (_ctx, args): Promise<AIConversationResult> => {
+    const context = args.context as ConversationContext;
+    const result = await conversationService.generateConversationQuestion(
+      context,
+      requireEnv("ANTHROPIC_API_KEY")
+    );
+    return toConvexValue(result);
+  },
+});
+
+/** Score and extract quotable segments from a manager's reply. */
+export const analyzeUserResponse = internalAction({
+  args: { userResponse: v.string(), context: v.any() },
+  handler: async (_ctx, args): Promise<ResponseAnalysis> => {
+    const context = args.context as ConversationContext;
+    const result = await conversationService.analyzeUserResponse(
+      args.userResponse,
+      context,
+      requireEnv("ANTHROPIC_API_KEY")
+    );
+    return toConvexValue(result);
+  },
+});
+
+/**
+ * Generate and store a banner image for an article. Returns the storage id, or null when the
+ * content type is not image-eligible or OPENAI_API_KEY is not configured.
+ */
+export const generateBannerImage = internalAction({
+  args: {
+    title: v.string(),
+    contentType: v.string(),
+    persona: v.optional(v.string()),
+    metadata: v.optional(
+      v.object({
+        week: v.optional(v.number()),
+        featuredTeams: v.optional(v.array(v.string())),
+        featuredPlayers: v.optional(v.array(v.string())),
+      })
+    ),
+  },
+  handler: async (ctx, args): Promise<Id<"_storage"> | null> => {
+    if (!shouldGenerateImage(args.contentType)) {
+      return null;
+    }
+    const openAIKey = process.env.OPENAI_API_KEY;
+    if (!openAIKey) {
+      console.warn(
+        'OPENAI_API_KEY not configured, skipping banner image. Enable with: npx convex env set OPENAI_API_KEY "..."'
+      );
+      return null;
+    }
+    const imageBlob = await generateArticleImage(
+      {
+        title: args.title,
+        contentType: args.contentType,
+        metadata: args.metadata,
+        persona: args.persona,
+      },
+      openAIKey
+    );
+    return await ctx.storage.store(imageBlob);
+  },
+});

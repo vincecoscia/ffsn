@@ -207,7 +207,10 @@ export const personaPrompts: Record<string, PersonaPrompt> = {
   }
 };
 
-// Helper function to get persona-specific generation parameters
+// Helper function to get persona-specific generation parameters.
+// NOTE: `temperature` and `penalties` are no longer sent to the API. Claude 5-family models reject
+// sampling parameters, so each persona's intensity must come from its systemPrompt/styleGuide above.
+// Only `maxTokens` is still used by the content-generation service.
 export function getPersonaSettings(persona: string) {
   const settings: Record<string, {
     temperature: number;

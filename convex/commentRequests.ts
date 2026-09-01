@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { ConversationContext, conversationService } from "../src/lib/ai/conversation-service";
+import type { ConversationContext } from "../src/lib/ai/conversation-service";
 
 // Helper function to identify defense positions
 function isDefensePosition(position: string): boolean {
@@ -596,12 +596,7 @@ export const sendInitialRequests = internalAction({
         }
 
         // Generate initial AI question
-        const apiKey = process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) {
-          throw new Error("ANTHROPIC_API_KEY not configured");
-        }
-
-        const aiResult = await conversationService.generateConversationQuestion(context, apiKey);
+        const aiResult = await ctx.runAction(internal.aiNode.generateConversationQuestion, { context });
         
         console.log(`Generated initial question for user ${request.targetUserId}:`, {
           confidence: aiResult.confidence,
@@ -614,7 +609,7 @@ export const sendInitialRequests = internalAction({
           content: aiResult.question,
           messageType: "ai_question",
           aiMetadata: {
-            generationModel: "claude-sonnet-4",
+            generationModel: "claude-opus-5",
             processingTime: Date.now(),
             confidence: aiResult.confidence,
             intent: aiResult.intent,

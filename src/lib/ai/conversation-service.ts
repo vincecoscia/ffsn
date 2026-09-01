@@ -127,8 +127,8 @@ const ConversationResponse = z.object({
 
 export class ConversationService {
   private modelConfig = {
-    primary: "claude-sonnet-4-20250514",
-    fallback: "claude-3-7-sonnet-20250219",
+    primary: "claude-opus-5",
+    fallback: "claude-sonnet-5",
   };
 
   async generateConversationQuestion(
@@ -165,7 +165,7 @@ export class ConversationService {
         const response = await anthropic.messages.create({
           model: this.modelConfig.primary,
           max_tokens: 2000, // Increased to handle more complex reasoning
-          temperature: 0.7,
+          output_config: { effort: 'low' },
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
           tools: [{
@@ -287,7 +287,7 @@ Return your analysis as structured data.`;
         const response = await anthropic.messages.create({
           model: this.modelConfig.primary,
           max_tokens: 1500, // Increased for more detailed analysis
-          temperature: 0.3,
+          output_config: { effort: 'low' },
           system: "You are an expert at analyzing user responses for fantasy football content generation. Focus on identifying quotable content and assessing relevance. Return structured JSON data.",
           messages: [{ role: 'user', content: analysisPrompt }],
           tools: [{
