@@ -5,18 +5,18 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useConvexAuth } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/broadcast";
 import { cn } from "@/lib/utils";
-import { Share2 } from "lucide-react";
+import { Flame, Laugh, Droplets, HandMetal, Share2, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 type Reaction = "fire" | "lol" | "salty" | "respect";
 
-const REACTIONS: { key: Reaction; emoji: string; label: string }[] = [
-  { key: "fire", emoji: "\u{1F525}", label: "Fire" },
-  { key: "lol", emoji: "\u{1F602}", label: "LOL" },
-  { key: "salty", emoji: "\u{1F9C2}", label: "Salty" },
-  { key: "respect", emoji: "\u{1F44F}", label: "Respect" },
+const REACTIONS: { key: Reaction; icon: LucideIcon; label: string }[] = [
+  { key: "fire", icon: Flame, label: "Fire" },
+  { key: "lol", icon: Laugh, label: "LOL" },
+  { key: "salty", icon: Droplets, label: "Salty" },
+  { key: "respect", icon: HandMetal, label: "Respect" },
 ];
 
 interface EngagementBarProps {
@@ -81,43 +81,55 @@ export function EngagementBar({ articleId, title, summary }: EngagementBarProps)
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-      {REACTIONS.map(({ key, emoji, label }) => {
-        const count = summaryData?.counts[key] ?? 0;
-        const isMine = summaryData?.mine === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => handleReact(key)}
-            disabled={pending === key}
-            aria-pressed={isMine}
-            aria-label={label}
-            title={label}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors cursor-pointer",
-              isMine
-                ? "border-red-300 bg-red-50 text-red-700"
-                : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50",
-              pending === key && "opacity-60"
-            )}
-          >
-            <span aria-hidden>{emoji}</span>
-            <span className="tabular-nums">{count}</span>
-          </button>
-        );
-      })}
+    <Panel
+      padding="none"
+      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-5"
+    >
+      <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+        <span className="bc-label-sm hidden pr-1 text-bc-text-3 sm:inline">React</span>
+        {REACTIONS.map(({ key, icon: Icon, label }) => {
+          const count = summaryData?.counts[key] ?? 0;
+          const isMine = summaryData?.mine === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleReact(key)}
+              disabled={pending === key}
+              aria-pressed={isMine}
+              aria-label={label}
+              title={label}
+              className={cn(
+                "inline-flex h-11 items-center gap-2 border px-3.5 font-display text-[15px] font-bold tracking-[0.06em] uppercase transition-colors sm:text-[17px]",
+                isMine
+                  ? "border-bc-red bg-bc-red text-white"
+                  : "border-bc-border-strong bg-bc-ground text-bc-ink hover:border-bc-red",
+                pending === key && "opacity-60"
+              )}
+            >
+              <Icon className="size-[18px]" strokeWidth={1.8} aria-hidden="true" />
+              <span className="hidden sm:inline">{label}</span>
+              <span
+                className={cn(
+                  "bc-num tabular-nums",
+                  isMine ? "text-white/80" : "text-bc-text-2"
+                )}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-      <Button
+      <button
         type="button"
-        variant="outline"
-        size="sm"
         onClick={handleShare}
-        className="ml-auto gap-1.5"
+        className="inline-flex h-11 items-center gap-2.5 border border-bc-border-strong px-4 font-display text-[15px] font-bold tracking-[0.08em] text-bc-ink uppercase transition-colors hover:border-bc-red sm:text-[17px]"
       >
-        <Share2 className="size-4" />
+        <Share2 className="size-[18px]" strokeWidth={1.8} aria-hidden="true" />
         Share
-      </Button>
-    </div>
+      </button>
+    </Panel>
   );
 }

@@ -5,13 +5,52 @@ import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Clock, User } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import {
+  TopBar,
+  ThemeToggle,
+  Panel,
+  LowerThird,
+  PersonaAvatar,
+  BannerPlaceholder,
+  LoadingScreen,
+} from "@/components/broadcast";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { EngagementBar } from "./EngagementBar";
 import { LockerRoom } from "./LockerRoom";
 
 interface ArticleClientProps {
   articleId: string;
+}
+
+// The five FFSN on-air personas and their broadcast roles. Any other byline
+// (e.g. a commissioner-edited article) falls back to a generic credit.
+const PERSONA_ROLES: { test: RegExp; role: string }[] = [
+  { test: /mel/i, role: "The Draft Disaster" },
+  { test: /stan/i, role: "The Analytics Overlord" },
+  { test: /vinny/i, role: "Trade Rumor Mogul" },
+  { test: /chad/i, role: "The Glaze God" },
+  { test: /rick/i, role: "The Drunk Uncle" },
+];
+
+function personaRole(persona: string): string {
+  return PERSONA_ROLES.find(({ test }) => test.test(persona))?.role ?? "FFSN correspondent";
+}
+
+const WORDS_PER_MINUTE = 225;
+
+function estimateReadMinutes(content: string): number {
+  const words = content
+    .replace(/[#*_`>]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+  return Math.max(1, Math.round(words / WORDS_PER_MINUTE));
+}
+
+function formatStoryType(type: string): string {
+  return type.replace(/_/g, " ");
 }
 
 export function ArticleClient({ articleId }: ArticleClientProps) {
@@ -38,11 +77,8 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
   // Loading state
   if (isAuthLoading || article === undefined || (article && league === undefined)) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading article...</p>
-        </div>
+      <div className="min-h-screen bg-bc-ground">
+        <LoadingScreen message="Loading article" />
       </div>
     );
   }
@@ -66,123 +102,141 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
     .trim()
     .substring(0, 160);
 
-  return (
-    <div className="min-h-screen bg-gray-100">
-      {/* ESPN-style Header */}
-      <header className="bg-red-600 shadow-lg">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-14 sm:h-16">
-            <div className="flex items-center gap-3 sm:gap-6 min-w-0 flex-1">
-              <Link href="/" className="flex items-center cursor-pointer flex-shrink-0">
-                <img
-                  src="/FFSN.png"
-                  alt="FFSN Logo"
-                  className="h-8 sm:h-12 w-auto"
-                />
-              </Link>
-              <span className="text-red-200 hidden sm:inline">|</span>
-              <span className="text-white font-semibold text-sm sm:text-base truncate">
-                {league.name}
-              </span>
-            </div>
-          </div>
-        </div>
-      </header>
+  const isMember = isAuthenticated && !!authenticatedLeague;
+  const storyType = formatStoryType(article.type);
+  const readMinutes = estimateReadMinutes(article.content);
+  const week = article.metadata.week;
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-4 sm:py-8">
-        <div className="max-w-4xl mx-auto">
-          {/* Back Button - only show for authenticated users */}
-          {isAuthenticated && authenticatedLeague && (
-            <Link 
-              href={`/leagues/${league._id}`}
-              className="inline-flex items-center gap-2 text-red-600 hover:text-red-800 mb-4 sm:mb-6 transition-colors px-4 sm:px-0"
+  const leagueMeta =
+    isAuthenticated && authenticatedLeague
+      ? [
+          authenticatedLeague.espnData ? `${authenticatedLeague.espnData.size} teams` : null,
+          authenticatedLeague.settings.scoringType,
+          authenticatedLeague.platform.toUpperCase(),
+        ]
+          .filter((item): item is string => Boolean(item))
+          .join(" · ")
+      : undefined;
+
+  const metaItems = [
+    typeof week === "number" ? `Week ${week}` : null,
+    publishedDate,
+    `${readMinutes} min read`,
+  ].filter((item): item is string => Boolean(item));
+
+  const bodyContent = (() => {
+    const lines = article.content.split('\n');
+    // Skip the first line if it's a markdown header (starts with #)
+    if (lines.length > 0 && lines[0].trim().startsWith('#')) {
+      return lines.slice(1).join('\n').trim();
+    }
+    return article.content;
+  })();
+
+  return (
+    <div className="min-h-screen bg-bc-ground">
+      <TopBar title={league.name} subtitle={leagueMeta} logoSize="md">
+        {isMember && (
+          <>
+            <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+              <Link href={`/leagues/${league._id}`}>
+                <ArrowLeft className="size-4" strokeWidth={2} />
+                Back to league
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="icon-sm"
+              className="sm:hidden"
+              aria-label="Back to league"
             >
-              <ArrowLeft size={16} />
-              Back to League Home
+              <Link href={`/leagues/${league._id}`}>
+                <ArrowLeft className="size-4" strokeWidth={2} />
+              </Link>
+            </Button>
+          </>
+        )}
+        <ThemeToggle />
+      </TopBar>
+
+      {/* Banner */}
+      <div className="relative h-[220px] w-full overflow-hidden border-b border-bc-hairline bg-bc-panel sm:h-[320px] lg:h-[480px]">
+        {article.bannerImageUrl ? (
+          <>
+            <img
+              src={article.bannerImageUrl}
+              alt={article.title}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-bc-ground via-bc-ground/10 to-transparent" />
+          </>
+        ) : (
+          <BannerPlaceholder text={typeof week === "number" ? `WK ${week}` : undefined} />
+        )}
+      </div>
+
+      {/* Title block */}
+      <div className="flex flex-col items-center px-4 pt-10 sm:px-6 lg:px-12">
+        <div className="flex w-full max-w-[880px] flex-col gap-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge>{storyType}</Badge>
+            {metaItems.map((item) => (
+              <span key={item} className="flex items-center gap-3">
+                <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                <span className="bc-label text-bc-text-2">{item}</span>
+              </span>
+            ))}
+          </div>
+
+          <h1 className="bc-display text-bc-ink text-[32px] sm:text-[42px] lg:text-[52px] xl:text-[56px]">
+            {article.title}
+          </h1>
+
+          <LowerThird
+            className="bc-shadow self-start"
+            name={article.persona}
+            role={personaRole(article.persona)}
+            avatar={<PersonaAvatar persona={article.persona} size={56} variant="bust" />}
+            tag={storyType}
+          />
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-col items-center gap-8 px-4 py-10 sm:px-6 lg:px-12">
+        <Panel
+          lifted
+          cut="tr"
+          className="w-full max-w-[880px] px-6 py-10 sm:px-14 sm:py-14 lg:px-24"
+        >
+          <div className="bc-prose">
+            <MarkdownPreview content={bodyContent} />
+          </div>
+        </Panel>
+
+        <div className="w-full max-w-[880px]">
+          <EngagementBar articleId={articleId} title={article.title} summary={articleSummary} />
+        </div>
+
+        <div className="w-full max-w-[880px]">
+          <LockerRoom articleId={articleId} />
+        </div>
+
+        <div className="flex w-full max-w-[880px] flex-col gap-4 border-t-2 border-bc-hairline pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <span className="bc-label flex items-center gap-3 text-bc-text-2">
+            <span className="bc-sep" aria-hidden="true" />
+            Published in {league.name}
+          </span>
+          {isMember && (
+            <Link
+              href={`/leagues/${league._id}`}
+              className="inline-flex items-center gap-2.5 font-display text-[18px] font-bold tracking-[0.08em] text-bc-red-text uppercase hover:underline"
+            >
+              More league stories
+              <ArrowRight className="size-[18px]" strokeWidth={2} />
             </Link>
           )}
-
-          {/* Article Header */}
-          <article className="bg-white rounded-none sm:rounded-lg shadow-sm overflow-hidden">
-            {/* Banner Image */}
-            {article.bannerImageUrl && (
-              <div className="relative w-full h-[200px] sm:h-[300px] lg:h-[400px] overflow-hidden">
-                <img 
-                  src={article.bannerImageUrl} 
-                  alt={article.title}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
-              </div>
-            )}
-            
-            <div className="p-4 sm:p-6 lg:p-8">
-              <header className="mb-6 sm:mb-8">
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-4 leading-tight">
-                  {article.title}
-                </h1>
-                
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 text-gray-600 text-sm">
-                  <div className="flex items-center gap-2">
-                    <User size={16} />
-                    <span>By {article.persona}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock size={16} />
-                    <span>{publishedDate}</span>
-                  </div>
-                  <div className="inline-flex items-center px-3 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full w-fit">
-                    {article.type.charAt(0).toUpperCase() + article.type.slice(1)}
-                  </div>
-                </div>
-              </header>
-
-              {/* Article Content */}
-              <div className="prose prose-sm sm:prose-base lg:prose-lg max-w-none prose-headings:font-bold prose-headings:text-gray-900 prose-p:text-gray-800 prose-p:leading-relaxed prose-a:text-red-600 prose-a:no-underline hover:prose-a:underline prose-strong:text-gray-900 prose-ul:text-gray-800 prose-ol:text-gray-800 prose-li:text-gray-800">
-                <MarkdownPreview 
-                  content={(() => {
-                    const lines = article.content.split('\n');
-                    // Skip the first line if it's a markdown header (starts with #)
-                    if (lines.length > 0 && lines[0].trim().startsWith('#')) {
-                      return lines.slice(1).join('\n').trim();
-                    }
-                    return article.content;
-                  })()}
-                  className="text-gray-800 leading-relaxed"
-                />
-              </div>
-
-              {/* Engagement: reactions + share */}
-              <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
-                <EngagementBar
-                  articleId={articleId}
-                  title={article.title}
-                  summary={articleSummary}
-                />
-              </div>
-
-              {/* Locker Room: manager quotes gathered for this article, if any */}
-              <LockerRoom articleId={articleId} />
-
-              {/* Article Footer */}
-              <footer className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="text-sm text-gray-500">
-                    Published in <strong>{league.name}</strong>
-                  </div>
-                  {isAuthenticated && authenticatedLeague && (
-                    <Link 
-                      href={`/leagues/${league._id}`}
-                      className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors w-fit"
-                    >
-                      View more league stories →
-                    </Link>
-                  )}
-                </div>
-              </footer>
-            </div>
-          </article>
         </div>
       </div>
     </div>

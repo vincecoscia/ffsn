@@ -1,22 +1,20 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-
 "use client";
 
 import { useState } from "react";
 import { Filter, CheckCheck, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
   DropdownMenuLabel
@@ -31,27 +29,25 @@ interface NotificationListProps {
   maxHeight?: string;
   showFilters?: boolean;
   compact?: boolean;
-  showSummary?: boolean;
 }
 
-export function NotificationList({ 
-  leagueId, 
+export function NotificationList({
+  leagueId,
   maxHeight = "400px",
   showFilters = true,
   compact = false,
-  showSummary = true,
 }: NotificationListProps) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "priority">("newest");
-  
-  const { 
-    notifications, 
-    unreadCount, 
-    isLoading, 
-    markAllAsRead 
-  } = useNotifications({ 
+
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    markAllAsRead
+  } = useNotifications({
     leagueId,
-    limit: 100 
+    limit: 100
   });
 
   // Filter and sort notifications
@@ -68,11 +64,12 @@ export function NotificationList({
           return b.createdAt - a.createdAt;
         case "oldest":
           return a.createdAt - b.createdAt;
-        case "priority":
+        case "priority": {
           const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
           const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] || 1;
           const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] || 1;
           return bPriority - aPriority;
+        }
         default:
           return b.createdAt - a.createdAt;
       }
@@ -84,7 +81,7 @@ export function NotificationList({
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="flex flex-col">
         {Array.from({ length: 5 }).map((_, i) => (
           <NotificationItemSkeleton key={i} compact={compact} />
         ))}
@@ -96,26 +93,22 @@ export function NotificationList({
     <div className="w-full">
       {/* Header with filters and actions */}
       {showFilters && (
-        <div className="flex items-center justify-between gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900">Notifications</h3>
-            {unreadCount > 0 && (
-              <Badge variant="destructive" className="text-xs">
-                {unreadCount} unread
-              </Badge>
-            )}
+        <div className="flex items-center justify-between gap-3 border-b border-bc-hairline px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="bc-label text-bc-ink">Notifications</span>
+            {unreadCount > 0 && <Badge variant="destructive">{unreadCount} unread</Badge>}
           </div>
-          
+
           <div className="flex items-center gap-2">
             {/* Filter dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="text-xs">
-                  <Filter className="w-3 h-3 mr-1" />
+                <Button variant="outline" size="sm">
+                  <Filter className="size-3.5" strokeWidth={1.8} />
                   Filter
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-48 rounded-none">
                 <DropdownMenuLabel>Filter by</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => setTypeFilter("all")}>
                   All notifications
@@ -126,7 +119,7 @@ export function NotificationList({
                 <DropdownMenuItem onClick={() => setTypeFilter("read")}>
                   Read only
                 </DropdownMenuItem>
-                
+
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>By type</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => setTypeFilter("comment_request")}>
@@ -140,10 +133,10 @@ export function NotificationList({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            
+
             {/* Sort dropdown */}
             <Select value={sortBy} onValueChange={(value: "newest" | "oldest" | "priority") => setSortBy(value)}>
-              <SelectTrigger className="w-24 text-xs">
+              <SelectTrigger size="sm" className="w-28 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -152,16 +145,15 @@ export function NotificationList({
                 <SelectItem value="priority">Priority</SelectItem>
               </SelectContent>
             </Select>
-            
+
             {/* Mark all as read */}
             {unreadCount > 0 && (
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleMarkAllAsRead}
-                className="text-xs"
               >
-                <CheckCheck className="w-3 h-3 mr-1" />
+                <CheckCheck className="size-3.5" strokeWidth={1.8} />
                 Mark all read
               </Button>
             )}
@@ -170,27 +162,29 @@ export function NotificationList({
       )}
 
       {/* Notification list */}
-      <div 
-        className="overflow-y-auto pr-1" 
+      <div
+        className="overflow-y-auto"
         style={{ maxHeight }}
       >
         {filteredNotifications.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-              <RefreshCw className="w-8 h-8 text-gray-400" />
+          <div className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+            <span className="inline-flex size-14 items-center justify-center border border-bc-hairline bg-bc-panel-2 text-bc-text-2">
+              <RefreshCw className="size-6" strokeWidth={1.8} />
+            </span>
+            <div className="flex flex-col gap-2">
+              <span className="font-display text-[18px] font-extrabold text-bc-ink uppercase">
+                {typeFilter === "unread" ? "No unread notifications" : "No notifications"}
+              </span>
+              <p className="max-w-sm text-[14px] text-bc-text-2">
+                {typeFilter === "unread"
+                  ? "You're all caught up! Check back later for new notifications."
+                  : "When you receive notifications, they'll appear here."
+                }
+              </p>
             </div>
-            <h4 className="text-lg font-medium text-gray-900 mb-2">
-              {typeFilter === "unread" ? "No unread notifications" : "No notifications"}
-            </h4>
-            <p className="text-gray-500 text-sm max-w-sm mx-auto">
-              {typeFilter === "unread" 
-                ? "You're all caught up! Check back later for new notifications."
-                : "When you receive notifications, they'll appear here."
-              }
-            </p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
+          <div className="flex flex-col">
             {filteredNotifications.map((notification) => (
               <NotificationItem
                 key={notification._id}
@@ -201,7 +195,6 @@ export function NotificationList({
           </div>
         )}
       </div>
-      
     </div>
   );
 }
@@ -209,68 +202,68 @@ export function NotificationList({
 // Tabbed notification list for different categories
 export function TabbedNotificationList({ leagueId }: { leagueId?: Id<"leagues"> }) {
   const { notifications, isLoading } = useNotifications({ leagueId });
-  
+
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="flex flex-col">
         {Array.from({ length: 5 }).map((_, i) => (
           <NotificationItemSkeleton key={i} />
         ))}
       </div>
     );
   }
-  
-  const commentNotifications = notifications.filter(n => 
+
+  const commentNotifications = notifications.filter(n =>
     n.type.startsWith("comment_")
   );
-  
-  const articleNotifications = notifications.filter(n => 
+
+  const articleNotifications = notifications.filter(n =>
     n.type.includes("article_")
   );
-  
-  const systemNotifications = notifications.filter(n => 
+
+  const systemNotifications = notifications.filter(n =>
     ["system_announcement", "league_invitation", "account_update"].includes(n.type)
   );
-  
+
   return (
     <Tabs defaultValue="all" className="w-full">
       <TabsList className="grid w-full grid-cols-4">
-        <TabsTrigger value="all" className="text-xs">
+        <TabsTrigger value="all">
           All ({notifications.length})
         </TabsTrigger>
-        <TabsTrigger value="comments" className="text-xs">
+        <TabsTrigger value="comments">
           Comments ({commentNotifications.length})
         </TabsTrigger>
-        <TabsTrigger value="articles" className="text-xs">
+        <TabsTrigger value="articles">
           Articles ({articleNotifications.length})
         </TabsTrigger>
-        <TabsTrigger value="system" className="text-xs">
+        <TabsTrigger value="system">
           System ({systemNotifications.length})
         </TabsTrigger>
       </TabsList>
-      
+
       <TabsContent value="all" className="mt-4">
         <NotificationList leagueId={leagueId} showFilters={false} />
       </TabsContent>
-      
+
       <TabsContent value="comments" className="mt-4">
-        <div className="space-y-2">
+        <div className="flex flex-col">
           {commentNotifications.map((notification) => (
             <NotificationItem key={notification._id} notification={notification} />
           ))}
         </div>
       </TabsContent>
-      
+
       <TabsContent value="articles" className="mt-4">
-        <div className="space-y-2">
+        <div className="flex flex-col">
           {articleNotifications.map((notification) => (
             <NotificationItem key={notification._id} notification={notification} />
           ))}
         </div>
       </TabsContent>
-      
+
       <TabsContent value="system" className="mt-4">
-        <div className="space-y-2">
+        <div className="flex flex-col">
           {systemNotifications.map((notification) => (
             <NotificationItem key={notification._id} notification={notification} />
           ))}

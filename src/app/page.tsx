@@ -1,569 +1,428 @@
 "use client";
 
-import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import { SignedIn, SignedOut, SignUpButton } from "@clerk/nextjs";
+import { ArrowRight, Check, Play } from "lucide-react";
+
+import {
+  SiteHeader,
+  SiteFooter,
+  Ticker,
+  type TickerItem,
+  Panel,
+  SegmentSlate,
+  ScoreBug,
+  LowerThird,
+  WriterPlate,
+  type WriterPlateProps,
+  PersonaAvatar,
+  BannerPlaceholder,
+  Chip,
+} from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { 
-  Zap, 
-  Users, 
-  BarChart3, 
-  Sparkles, 
-  ArrowRight, 
-  CheckCircle, 
-  Star,
-  TrendingUp,
-  Brain,
-  Globe,
-  Menu,
-  LayoutDashboard
-} from "lucide-react";
-import { useState } from "react";
-// import { useAuthSync } from "@/hooks/use-auth-sync";
+
+const NAV = [
+  { label: "Writers", href: "#writers" },
+  { label: "How it works", href: "#how-it-works" },
+  { label: "Pricing", href: "#pricing" },
+];
+
+const FOOTER_LINKS = [
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Writers", href: "#writers" },
+  { label: "Pricing", href: "#pricing" },
+  { label: "Terms", href: "/terms" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "Contact", href: "/contact" },
+];
+
+const TICKER_ITEMS: TickerItem[] = [
+  { k: "Game of the week", v: "Lamar's Army 124.6 – Waddle It Be 122.9" },
+  { k: "Top score", v: "Bijan Mustard", n: "142.8" },
+  { k: "Standings", v: "Bijan Mustard 3-0 · Kittle Me This 2-1 · Run CMC 2-1" },
+  { k: "Winless", v: "Nacua Matata 0-3" },
+  { k: "New story", v: "Bijan Mustard Is 3-0 and Mel Diaper Would Like a Word" },
+  { k: "Week 4", v: "Bijan Mustard vs Kittle Me This · proj", n: "128.4 – 121.7" },
+  { k: "Waiver wire", v: "Stan Deviation says your claims are 0.23 correlated with optimal play" },
+];
+
+const WRITERS: WriterPlateProps[] = [
+  {
+    persona: "Mel Diaper",
+    index: 1,
+    role: "The Draft Disaster",
+    tagline: "I'm never wrong, you're just not listening!",
+    beat: ["Mock drafts", "Draft grades", "Power rankings"],
+  },
+  {
+    persona: "Stan Deviation",
+    index: 2,
+    role: "The Analytics Overlord",
+    tagline: "Your feelings are statistically insignificant.",
+    beat: ["Waiver-wire reports", "Injury analysis", "Deep dives"],
+  },
+  {
+    persona: `Vinny "The Sauce" Marinara`,
+    index: 3,
+    role: "Trade Rumor Mogul",
+    tagline: "My cousin's brother-in-law heard from a guy...",
+    beat: ["Trade rumors", "Bold predictions"],
+  },
+  {
+    persona: "Chad Thunderhype",
+    index: 4,
+    role: "The Glaze God",
+    tagline: "Your players are literally gods among men!",
+    beat: ["Stud alerts", "Team-name rankings"],
+  },
+  {
+    persona: `Rick "Two Beers" O'Sullivan`,
+    index: 5,
+    role: "The Drunk Uncle",
+    tagline: "I'm not drunk, you're drunk!",
+    beat: ["Weekly recaps", "Drunk trade evaluations"],
+  },
+];
+
+const STEPS = [
+  {
+    num: "01",
+    meta: "Commissioner · about a minute",
+    title: "Connect your ESPN league",
+    body: "The commissioner links the league once. FFSN pulls in teams, standings, matchups, transactions and the whole draft — every questionable pick included.",
+  },
+  {
+    num: "02",
+    meta: "Tue recaps · Thu previews",
+    title: "The writers get to work",
+    body: "Recaps land Tuesday, previews Thursday, power rankings when Mel feels like it, and trade rumors whenever Vinny's barber talks.",
+  },
+  {
+    num: "03",
+    meta: "Every week",
+    title: "Your league reads, reacts and gets quoted",
+    body: "Managers claim their team, react to stories and give locker-room quotes that get worked into the next article. Say something dumb, get printed.",
+  },
+];
+
+const INCLUDES = ["ESPN sync", "All five writers", "Scheduled stories", "Unlimited readers"];
 
 export default function Home() {
-  // useAuthSync(); // Ensure user is synced between Clerk and Convex
-  const basePrice = 99.99;
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900 relative overflow-hidden">
-      {/* Background decorative elements */}
-      <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))] opacity-10"></div>
-      <div className="absolute top-0 -left-4 w-72 h-72 bg-red-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
-      <div className="absolute top-0 -right-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-      <div className="absolute -bottom-8 left-20 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
-      
-      <header className="relative z-10 backdrop-blur-md bg-gray-900/20 border-b border-gray-700/30">
-        <div className="container mx-auto px-4 sm:px-6 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="p-1.5 sm:p-2 bg-red-600/20 rounded-lg">
-                <img
-                  src="/FFSN.png"
-                  alt="FFSN Logo"
-                  className="h-6 sm:h-8 w-auto"
-                />
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5 sm:gap-2">
-                  <h1 className="text-lg sm:text-2xl font-bold text-white">FFSN</h1>
-                  <Badge className="bg-orange-600/20 text-orange-300 border-orange-600/30 text-xs px-1.5 sm:px-2 py-0.5">
-                    BETA
-                  </Badge>
-                </div>
-                <p className="text-xs text-red-300 hidden sm:block">Fantasy Sports Network</p>
-              </div>
-            </div>
-            
-            {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center gap-8 text-gray-300">
-              <Link href="#features" className="hover:text-white transition-colors">Features</Link>
-              <Link href="#pricing" className="hover:text-white transition-colors">Pricing</Link>
-              <Link href="#about" className="hover:text-white transition-colors">About</Link>
-            </nav>
-            
-            {/* Desktop Auth Buttons */}
-            <div className="hidden md:block">
-              <SignedOut>
-                <div className="flex gap-2 sm:gap-3">
-                  <SignInButton>
-                    <Button variant="ghost" className="text-gray-300 hover:text-white hover:bg-white/10 text-sm sm:text-base px-3 sm:px-4">
-                      Sign In
-                    </Button>
-                  </SignInButton>
-                  <SignUpButton>
-                    <Button className="bg-red-600 hover:bg-red-700 shadow-lg text-sm sm:text-base px-3 sm:px-4">
-                      <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-                      Join Beta
-                    </Button>
-                  </SignUpButton>
-                </div>
-              </SignedOut>
-              <SignedIn>
-                <div className="flex items-center gap-2 sm:gap-4">
-                  <Link href="/dashboard">
-                    <Button variant="ghost" className="text-gray-300 hover:text-white hover:bg-white/10 text-sm sm:text-base px-3 sm:px-4">
-                      <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-                      Dashboard
-                    </Button>
-                  </Link>
-                  <UserButton />
-                </div>
-              </SignedIn>
-            </div>
-            
-            {/* Mobile User + Hamburger */}
-            <div className="md:hidden flex items-center gap-2">
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
-              <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-                <SheetTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="text-gray-300 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-all duration-200"
-                  >
-                    <Menu className="h-6 w-6" />
-                    <span className="sr-only">Open navigation menu</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent 
-                  side="right" 
-                  className="bg-gradient-to-b from-gray-900/98 via-gray-900/95 to-gray-800/95 backdrop-blur-xl border-l border-gray-700/50 w-80 p-0"
-                >
-                  <SheetHeader className="px-6 py-6 border-b border-gray-700/30">
-                    <SheetTitle className="text-white text-xl font-bold flex items-center gap-3">
-                      <div className="p-2 bg-red-600/20 rounded-lg">
-                        <img
-                          src="/FFSN.png"
-                          alt="FFSN Logo"
-                          className="h-6 w-auto"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        FFSN
-                        <Badge className="bg-orange-600/20 text-orange-300 border-orange-600/30 text-xs px-2 py-0.5">
-                          BETA
-                        </Badge>
-                      </div>
-                    </SheetTitle>
-                  </SheetHeader>
-                  
-                  <div className="flex flex-col h-full px-6">
-                    {/* Mobile Auth Section - Now Primary */}
-                    <div className="py-8">
-                      <SignedOut>
-                        <div className="rounded-xl border border-gray-700/40 bg-white/5 backdrop-blur-sm p-4 shadow-sm">
-                          <div className="flex flex-col gap-3">
-                            <SignUpButton>
-                              <Button
-                                size="lg"
-                                className="w-full h-12 bg-red-600 hover:bg-red-700 text-white shadow-md"
-                                onClick={() => setIsMobileMenuOpen(false)}
-                              >
-                                <Sparkles className="h-5 w-5" />
-                                Join Beta
-                              </Button>
-                            </SignUpButton>
-                            <div className="flex items-center gap-3 px-1">
-                              <div className="h-px bg-gray-700/50 flex-1" />
-                              <span className="text-xs text-gray-500">or</span>
-                              <div className="h-px bg-gray-700/50 flex-1" />
-                            </div>
-                            <SignInButton>
-                              <Button
-                                variant="outline"
-                                size="lg"
-                                className="w-full h-12 border-gray-700/60 text-gray-200 hover:text-white"
-                                onClick={() => setIsMobileMenuOpen(false)}
-                              >
-                                <Users className="h-5 w-5" />
-                                Sign In
-                              </Button>
-                            </SignInButton>
-                          </div>
-                        </div>
-                      </SignedOut>
-                      <SignedIn>
-                        <div className="flex flex-col gap-4">
-                          <Link href="/dashboard" onClick={() => setIsMobileMenuOpen(false)}>
-                            <Button 
-                              variant="outline"
-                              size="lg"
-                              className="w-full h-12 border-gray-700/60 text-gray-200 hover:text-white"
-                            >
-                              <LayoutDashboard className="h-5 w-5" />
-                              Dashboard
-                            </Button>
-                          </Link>
-                        </div>
-                      </SignedIn>
-                    </div>
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col bg-bc-ground">
+      <SiteHeader nav={NAV} />
+      <Ticker label="Sample feed" items={TICKER_ITEMS} />
 
-      <main className="relative z-10">
-        {/* Hero Section */}
-        <section className="container mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-20 text-center">
-          <div className="max-w-5xl mx-auto">
-            <div className="mb-6 sm:mb-8 flex flex-col items-center gap-3 sm:gap-4">
-              <Badge className="bg-orange-600/20 text-orange-300 border-orange-600/30 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold">
-                🚀 NOW IN BETA
-              </Badge>
-              <Badge className="bg-red-600/20 text-red-300 border-red-600/30 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm">
-                <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-                USE CODE &quot;BETA50&quot; FOR 50% OFF
-              </Badge>
-            </div>
-            
-            <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-white mb-6 sm:mb-8 leading-tight">
-              Fantasy Football
-              <br />
-              <span className="bg-gradient-to-r from-red-400 via-red-500 to-orange-500 bg-clip-text text-transparent">
-                Reimagined
-              </span>
-            </h1>
-            
-            <p className="text-lg sm:text-xl lg:text-2xl text-gray-300 mb-8 sm:mb-12 max-w-3xl mx-auto leading-relaxed px-2 sm:px-0">
-              Transform your league with <span className="text-white font-semibold">AI-powered content</span> that brings 
-              personality, insights, and excitement to every matchup. Get personalized recaps, trade analysis, 
-              and power rankings from <span className="text-red-400 font-semibold">5 distinct AI personas</span>. 
-              <span className="text-orange-300 font-semibold"> Join our exclusive beta</span> and shape the future of fantasy football!
-            </p>
-            
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center mb-10 sm:mb-16 px-4 sm:px-0">
-              <SignedOut>
-                <SignUpButton>
-                  <Button size="lg" className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-bold shadow-2xl hover:shadow-red-500/25 transition-all transform hover:scale-105">
-                    <Zap className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    Join Beta!
-                    <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-2" />
-                  </Button>
-                </SignUpButton>
-              </SignedOut>
-              
-              <SignedIn>
-                <Link href="/dashboard" className="w-full sm:w-auto">
-                  <Button size="lg" className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-bold shadow-2xl hover:shadow-red-500/25 transition-all transform hover:scale-105">
-                    <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    Go to Dashboard
-                    <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-2" />
-                  </Button>
-                </Link>
-              </SignedIn>
-            </div>
-            
-            <div className="flex flex-wrap justify-center gap-4 sm:gap-8 text-xs sm:text-sm text-gray-400 px-4 sm:px-0">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
-                <span>Beta Access</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
-                <span>ESPN Integration</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-400" />
-                <span>Early Adopter Discount</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Features Section */}
-        <section id="features" className="container mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-20">
-          <div className="text-center mb-12 sm:mb-16">
-            <Badge className="bg-blue-600/20 text-blue-300 border-blue-600/30 mb-4 sm:mb-6 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm">
-              <Star className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-              Core Features
-            </Badge>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white mb-4 sm:mb-6 px-2 sm:px-0">
-              Everything You Need to
-              <br />
-              <span className="text-red-400">Elevate Your League</span>
-            </h2>
-            <p className="text-lg sm:text-xl text-gray-300 max-w-2xl mx-auto px-4 sm:px-0">
-              From AI-generated content to advanced analytics, we&apos;ve got everything covered to make your fantasy league legendary.
-            </p>
-          </div>
-          
-          <div className="grid sm:grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 max-w-6xl mx-auto mb-12 sm:mb-20">
-            <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50 hover:bg-gray-800/50 transition-all duration-300 hover:scale-105 group">
-              <CardHeader className="text-center pb-3 sm:pb-4">
-                <div className="mx-auto mb-3 sm:mb-4 p-2.5 sm:p-3 bg-purple-600/20 rounded-xl w-fit group-hover:bg-purple-600/30 transition-colors">
-                  <Brain className="h-6 w-6 sm:h-8 sm:w-8 text-purple-400" />
-                </div>
-                <CardTitle className="text-xl sm:text-2xl font-bold text-white">AI Writer Personas</CardTitle>
-              </CardHeader>
-              <CardContent className="text-center">
-                <CardDescription className="text-gray-300 text-base sm:text-lg leading-relaxed">
-                  5 distinct AI personalities from hot-take artists to data analysts create engaging, 
-                  personalized content that brings your league to life every week.
-                </CardDescription>
-                <div className="mt-3 sm:mt-4 flex flex-wrap gap-1.5 sm:gap-2 justify-center">
-                  <Badge variant="secondary" className="text-xs">Hot Takes</Badge>
-                  <Badge variant="secondary" className="text-xs">Data Analysis</Badge>
-                  <Badge variant="secondary" className="text-xs">Comedy</Badge>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50 hover:bg-gray-800/50 transition-all duration-300 hover:scale-105 group">
-              <CardHeader className="text-center pb-3 sm:pb-4">
-                <div className="mx-auto mb-3 sm:mb-4 p-2.5 sm:p-3 bg-green-600/20 rounded-xl w-fit group-hover:bg-green-600/30 transition-colors">
-                  <Users className="h-6 w-6 sm:h-8 sm:w-8 text-green-400" />
-                </div>
-                <CardTitle className="text-xl sm:text-2xl font-bold text-white">League-Wide Coverage</CardTitle>
-              </CardHeader>
-              <CardContent className="text-center">
-                <CardDescription className="text-gray-300 text-base sm:text-lg leading-relaxed">
-                  One subscription covers your entire league with personalized content about 
-                  YOUR specific teams, players, and matchups. Everyone wins!
-                </CardDescription>
-                <div className="mt-3 sm:mt-4 flex flex-wrap gap-1.5 sm:gap-2 justify-center">
-                  <Badge variant="secondary" className="text-xs">All Teams</Badge>
-                  <Badge variant="secondary" className="text-xs">Custom Content</Badge>
-                  <Badge variant="secondary" className="text-xs">Fair Pricing</Badge>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50 hover:bg-gray-800/50 transition-all duration-300 hover:scale-105 group">
-              <CardHeader className="text-center pb-3 sm:pb-4">
-                <div className="mx-auto mb-3 sm:mb-4 p-2.5 sm:p-3 bg-red-600/20 rounded-xl w-fit group-hover:bg-red-600/30 transition-colors">
-                  <Globe className="h-6 w-6 sm:h-8 sm:w-8 text-red-400" />
-                </div>
-                <CardTitle className="text-xl sm:text-2xl font-bold text-white">ESPN Integration</CardTitle>
-              </CardHeader>
-              <CardContent className="text-center">
-                <CardDescription className="text-gray-300 text-base sm:text-lg leading-relaxed">
-                  Seamlessly connect your ESPN league for automatic data sync, real-time analysis, 
-                  and instant content generation based on actual league activity.
-                </CardDescription>
-                <div className="mt-3 sm:mt-4 flex flex-wrap gap-1.5 sm:gap-2 justify-center">
-                  <Badge variant="secondary" className="text-xs">Auto Sync</Badge>
-                  <Badge variant="secondary" className="text-xs">Real-time</Badge>
-                  <Badge variant="secondary" className="text-xs">Secure</Badge>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Additional Features Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 max-w-6xl mx-auto">
-            <div className="text-center p-4 sm:p-6 bg-gray-800/20 rounded-xl border border-gray-700/30">
-              <BarChart3 className="h-6 w-6 sm:h-8 sm:w-8 text-blue-400 mx-auto mb-2 sm:mb-3" />
-              <h3 className="font-semibold text-white mb-1 sm:mb-2 text-sm sm:text-base">Advanced Analytics</h3>
-              <p className="text-xs sm:text-sm text-gray-400">Deep insights and performance tracking</p>
-            </div>
-            <div className="text-center p-4 sm:p-6 bg-gray-800/20 rounded-xl border border-gray-700/30">
-              <Zap className="h-6 w-6 sm:h-8 sm:w-8 text-yellow-400 mx-auto mb-2 sm:mb-3" />
-              <h3 className="font-semibold text-white mb-1 sm:mb-2 text-sm sm:text-base">Instant Generation</h3>
-              <p className="text-xs sm:text-sm text-gray-400">Content ready in seconds, not hours</p>
-            </div>
-            <div className="text-center p-4 sm:p-6 bg-gray-800/20 rounded-xl border border-gray-700/30">
-              <TrendingUp className="h-6 w-6 sm:h-8 sm:w-8 text-green-400 mx-auto mb-2 sm:mb-3" />
-              <h3 className="font-semibold text-white mb-1 sm:mb-2 text-sm sm:text-base">Power Rankings</h3>
-              <p className="text-xs sm:text-sm text-gray-400">AI-driven weekly team rankings</p>
-            </div>
-            <div className="text-center p-4 sm:p-6 bg-gray-800/20 rounded-xl border border-gray-700/30">
-              <Star className="h-6 w-6 sm:h-8 sm:w-8 text-purple-400 mx-auto mb-2 sm:mb-3" />
-              <h3 className="font-semibold text-white mb-1 sm:mb-2 text-sm sm:text-base">Premium Quality</h3>
-              <p className="text-xs sm:text-sm text-gray-400">Professional-grade content every time</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Pricing Section */}
-        <section id="pricing" className="container mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-20">
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-10 sm:mb-14">
-              <Badge className="bg-green-600/20 text-green-300 border-green-600/30 mb-4 sm:mb-6 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm">
-                Simple Pricing
-              </Badge>
-              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white mb-3 sm:mb-4">
-                One Price. One League.
-              </h2>
-              <p className="text-base sm:text-lg text-gray-300">
-                $99.99 for a single league — use code <span className="font-semibold text-white">BETA50</span> for 50% off during beta.
+      <main className="flex-1">
+        {/* HERO */}
+        <section className="bc-scan relative overflow-hidden border-b border-bc-hairline bg-bc-ground px-4 py-16 sm:px-6 sm:py-20 lg:px-12 lg:py-24">
+          <div
+            className="pointer-events-none absolute -top-24 -right-32 h-[420px] w-[420px] opacity-70 sm:h-[600px] sm:w-[600px] lg:h-[720px] lg:w-[720px]"
+            style={{
+              background:
+                "radial-gradient(circle, rgba(201,22,24,0.22) 0%, rgba(201,22,24,0.08) 35%, rgba(14,12,12,0) 68%)",
+            }}
+            aria-hidden="true"
+          />
+          <div className="relative grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
+            <div className="flex flex-col gap-7 sm:gap-8">
+              <h1 className="bc-display text-bc-ink text-[38px] sm:text-[54px] lg:text-[60px] xl:text-[72px] 2xl:text-[84px]">
+                The sports network that only covers{" "}
+                <span className="text-bc-red-text">your league.</span>
+              </h1>
+              <p className="max-w-xl text-[15px] leading-relaxed text-bc-text-2 sm:text-[17px]">
+                FFSN syncs with your ESPN league and puts five unhinged AI sportswriters on the
+                beat — weekly recaps, power rankings, trade rumors and draft grades about your
+                teams, your trades, and your bad decisions.
               </p>
-            </div>
-
-            <Card className="bg-gray-800/30 backdrop-blur-sm border-gray-700/50">
-              <CardContent className="p-6 sm:p-8">
-                <div className="flex flex-col md:flex-row items-stretch gap-6 sm:gap-8">
-                  {/* Price */}
-                  <div className="flex-1 text-center md:text-left">
-                    <div className="mb-2 text-gray-300 uppercase tracking-wide text-xs sm:text-sm">Single League</div>
-                    <div className="flex items-end justify-center md:justify-start gap-3">
-                      <div className="text-4xl sm:text-5xl lg:text-6xl font-black text-white">
-                        ${basePrice.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="mt-2 text-gray-400 text-sm sm:text-base">Use code BETA50 at checkout to save 50%.</div>
-                  </div>
-
-                  {/* Promo / CTA */}
-                  <div className="flex-1">
-                    <div className="">
-                      <SignedOut>
-                        <SignUpButton>
-                          <Button className="w-full bg-red-600 hover:bg-red-700">
-                            Get Started
-                            <ArrowRight className="h-4 w-4 ml-2" />
-                          </Button>
-                        </SignUpButton>
-                      </SignedOut>
-                      <SignedIn>
-                        <Link href="/dashboard/credits" className="block">
-                          <Button className="w-full bg-red-600 hover:bg-red-700">
-                            Purchase Credits
-                            <ArrowRight className="h-4 w-4 ml-2" />
-                          </Button>
-                        </Link>
-                      </SignedIn>
-                      <p className="text-xs text-gray-400 mt-2">Coupon applied during checkout. One license covers your whole league.</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-
-        {/* CTA Section */}
-        <section className="container mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-20">
-          <div className="max-w-4xl mx-auto text-center">
-            <Card className="bg-gradient-to-r from-red-900/20 to-purple-900/20 border-red-500/30 backdrop-blur-sm">
-              <CardContent className="p-6 sm:p-8 lg:p-12">
-                <div className="mb-6 sm:mb-8">
-                  <div className="inline-flex p-2.5 sm:p-3 bg-red-600/20 rounded-full mb-3 sm:mb-4">
-                    <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-red-400" />
-                  </div>
-                  <h2 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white mb-3 sm:mb-4 px-2 sm:px-0">
-                    Ready to Join the FFSN Revolution?
-                  </h2>
-                  <p className="text-base sm:text-lg lg:text-xl text-gray-300 mb-6 sm:mb-8 px-2 sm:px-0">
-                    Be among the first to experience the future of fantasy football. Join our exclusive beta and help shape the platform that&apos;s revolutionizing fantasy leagues everywhere.
-                  </p>
-                </div>
-                
+              <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center">
                 <SignedOut>
-                  <SignUpButton>
-                    <Button size="lg" className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-8 sm:px-12 py-3 sm:py-4 text-lg sm:text-xl font-bold shadow-2xl hover:shadow-red-500/25 transition-all transform hover:scale-105">
-                      <Zap className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                      Join Beta Now
-                      <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6 ml-2" />
+                  <SignUpButton mode="modal">
+                    <Button type="button" variant="glow" size="lg">
+                      Get started
+                      <ArrowRight className="size-5" strokeWidth={2} />
                     </Button>
                   </SignUpButton>
                 </SignedOut>
-                
                 <SignedIn>
-                  <Link href="/dashboard" className="block">
-                    <Button size="lg" className="w-full sm:w-auto bg-red-600 hover:bg-red-700 px-8 sm:px-12 py-3 sm:py-4 text-lg sm:text-xl font-bold shadow-2xl hover:shadow-red-500/25 transition-all transform hover:scale-105">
-                      <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                      Access Your Dashboard
-                      <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6 ml-2" />
-                    </Button>
-                  </Link>
+                  <Button asChild variant="glow" size="lg">
+                    <Link href="/dashboard">
+                      Go to dashboard
+                      <ArrowRight className="size-5" strokeWidth={2} />
+                    </Link>
+                  </Button>
                 </SignedIn>
-                
-                <p className="text-xs sm:text-sm text-gray-400 mt-4 sm:mt-6 px-2 sm:px-0">
-                  Beta access • Help shape the future of fantasy football
+                <Button asChild variant="outline" size="lg">
+                  <Link href="#sample-story">
+                    <Play className="size-5" strokeWidth={2} />
+                    Read a sample story
+                  </Link>
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="bc-label text-bc-text-3">ESPN sync</span>
+                <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                <span className="bc-label text-bc-text-3">Five writers</span>
+                <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                <span className="bc-label text-bc-text-3">
+                  One price covers the whole league
+                </span>
+              </div>
+            </div>
+
+            {/* STUDIO MONITOR */}
+            <div className="flex flex-col gap-2.5">
+              <Panel
+                cut="tr"
+                className="relative h-[300px] overflow-hidden sm:h-[420px] lg:h-[464px]"
+              >
+                <div className="absolute inset-0">
+                  <BannerPlaceholder gradientId="hero" />
+                </div>
+                <div className="bc-scan absolute inset-0" aria-hidden="true" />
+                <div className="absolute top-4 left-4 flex items-center gap-2.5">
+                  <span className="bc-label text-bc-text-3">Cam 2</span>
+                  <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                  <span className="bc-label text-bc-text-3">Studio A</span>
+                </div>
+                <div className="absolute top-4 right-4">
+                  <Chip live>On air</Chip>
+                </div>
+                {/* The score bug needs room the phone frame does not have; it returns at sm. */}
+                <div className="absolute top-[96px] left-4 hidden w-[240px] sm:top-[112px] sm:block sm:w-[280px]">
+                  <ScoreBug
+                    mode="final"
+                    strip="Week 3 · Final"
+                    stripRight="Game of the week"
+                    stripRightTone="highlight"
+                    home={{
+                      name: "Lamar's Army",
+                      sub: "Priya Natarajan · 2-1",
+                      score: "124.6",
+                      winner: true,
+                    }}
+                    away={{
+                      name: "Waddle It Be",
+                      sub: "Chris Baptiste · 1-2",
+                      score: "122.9",
+                    }}
+                  />
+                </div>
+                <div className="absolute inset-x-4 bottom-4">
+                  <LowerThird
+                    name={`Rick "Two Beers" O'Sullivan`}
+                    role="The Drunk Uncle · Senior Recap Correspondent"
+                    avatar={<PersonaAvatar persona="Rick" size={56} variant="bust" />}
+                    tag="Weekly recap"
+                    note={`"Never text gg. That's rule one."`}
+                  />
+                </div>
+              </Panel>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="bc-label-sm text-bc-text-3">
+                  Sample coverage · The Sunday Scaries, a 10-team PPR league
+                </span>
+                <span className="bc-label-sm hidden text-bc-text-3 sm:inline">
+                  Studio monitor
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* WRITERS */}
+        <section
+          id="writers"
+          className="border-b border-bc-hairline bg-bc-ground px-4 py-16 sm:px-6 sm:py-20 lg:px-12 lg:py-24"
+        >
+          <div className="flex flex-col gap-10">
+            <div className="grid grid-cols-1 items-end gap-8 lg:grid-cols-[1fr_420px] lg:gap-12">
+              <div className="flex flex-col gap-3.5">
+                <SegmentSlate code="Seg 01" label="On-air talent" />
+                <h2 className="bc-display text-bc-ink text-[32px] sm:text-[44px] lg:text-[52px]">
+                  Ten teams. Five writers. Zero chill.
+                </h2>
+              </div>
+              <p className="text-[16px] leading-relaxed text-bc-text-2 sm:text-[17px]">
+                No real headshots, no real credentials, no real restraint. Five AI sportswriters,
+                each with a beat, an ego and a grudge against at least one manager in your league.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+              {WRITERS.map((writer) => (
+                <WriterPlate key={writer.persona} {...writer} />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* HOW IT WORKS: THE RUNDOWN */}
+        <section
+          id="how-it-works"
+          className="border-b border-bc-hairline bg-bc-panel px-4 py-16 sm:px-6 sm:py-20 lg:px-12 lg:py-24"
+        >
+          <div className="flex flex-col gap-10">
+            <div className="grid grid-cols-1 items-end gap-8 lg:grid-cols-[1fr_420px] lg:gap-12">
+              <div className="flex flex-col gap-3.5">
+                <SegmentSlate code="Seg 02" label="The rundown" />
+                <h2 className="bc-display text-bc-ink text-[32px] sm:text-[44px] lg:text-[52px]">
+                  How the show gets made.
+                </h2>
+              </div>
+              <p className="text-[16px] leading-relaxed text-bc-text-2 sm:text-[17px]">
+                Three steps between your ESPN league and a full-blown media circus. Only the
+                first one is your job.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 divide-y divide-bc-hairline border border-bc-hairline bg-bc-ground sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              {STEPS.map((step) => (
+                <div key={step.num} className="flex flex-col gap-5 p-7 sm:p-8 lg:p-9">
+                  <div className="flex items-end justify-between gap-3">
+                    <span className="bc-outline-num text-[48px] sm:text-[60px] lg:text-[72px]">
+                      {step.num}
+                    </span>
+                    <Badge variant="outline" className="text-right whitespace-normal">
+                      {step.meta}
+                    </Badge>
+                  </div>
+                  <div className="h-[3px] w-12 bg-bc-red" aria-hidden="true" />
+                  <h3 className="bc-display text-bc-ink text-[24px] sm:text-[26px] lg:text-[28px]">
+                    {step.title}
+                  </h3>
+                  <p className="text-[15px] leading-relaxed text-bc-text-2 sm:text-[16px]">
+                    {step.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* SAMPLE STORY */}
+        <section
+          id="sample-story"
+          className="border-b border-bc-hairline bg-bc-ground px-4 py-16 sm:px-6 sm:py-20 lg:px-12 lg:py-24"
+        >
+          <div className="flex flex-col gap-10">
+            <div className="flex flex-col gap-3.5">
+              <SegmentSlate code="Seg 03" label="Segment preview" />
+              <h2 className="bc-display text-bc-ink text-[32px] sm:text-[44px] lg:text-[52px]">
+                This is what your league sounds like on air.
+              </h2>
+            </div>
+            <Panel cut="tr" className="grid grid-cols-1 lg:grid-cols-2">
+              <div className="relative h-[260px] overflow-hidden border-b border-bc-hairline sm:h-[340px] lg:h-auto lg:border-r lg:border-b-0">
+                <BannerPlaceholder text="WK 3" gradientId="sample-story" />
+                <div className="absolute top-4 left-4 flex items-center gap-2.5">
+                  <span className="bc-label text-bc-text-3">Banner image</span>
+                  <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                  <span className="bc-label text-bc-text-3">16:9 slot</span>
+                </div>
+                <div className="absolute right-4 bottom-4">
+                  <Badge variant="outline">Week 3 · Final</Badge>
+                </div>
+              </div>
+              <div className="flex flex-col justify-center gap-5 p-6 sm:p-9 lg:p-11">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge>Weekly recap</Badge>
+                  <span className="bc-label text-bc-text-3">Week 3</span>
+                  <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                  <span className="bc-label text-bc-text-3">Sep 29, 2026</span>
+                  <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                  <span className="bc-label text-bc-text-3">8 min read</span>
+                </div>
+                <h3 className="bc-display text-bc-ink text-[24px] sm:text-[28px] lg:text-[32px]">
+                  {"Week 3 Recap: Lamar's Army Wins by 1.7 Points and I Need Another Beer"}
+                </h3>
+                <LowerThird
+                  name={`Rick "Two Beers" O'Sullivan`}
+                  role="The Drunk Uncle"
+                  avatar={<PersonaAvatar persona="Rick" size={40} variant="bust" />}
+                  compact
+                />
+                <p className="text-[16px] leading-relaxed text-bc-body sm:text-[17px]">
+                  {
+                    "Listen. I've been doing this since 1987, back when you had to call a 1-900 number to get your scores and Janet still answered the phone. And I have never, not once, seen a game decided by 1.7 points on a Monday night kicker."
+                  }
                 </p>
-              </CardContent>
-            </Card>
+              </div>
+            </Panel>
+          </div>
+        </section>
+
+        {/* PRICING */}
+        <section
+          id="pricing"
+          className="border-b border-bc-hairline bg-bc-panel px-4 py-16 sm:px-6 sm:py-20 lg:px-12 lg:py-24"
+        >
+          <div className="flex flex-col gap-10">
+            <div className="flex flex-col gap-3.5">
+              <SegmentSlate code="Seg 04" label="Pricing" />
+              <h2 className="bc-display text-bc-ink text-[32px] sm:text-[44px] lg:text-[52px]">
+                One license. The whole league.
+              </h2>
+            </div>
+            <div className="bc-glow">
+              <Panel cut="tr" className="grid grid-cols-1 border-t-4 border-t-bc-red lg:grid-cols-[440px_1fr]">
+                <div className="bc-scan flex flex-col gap-5 border-b border-bc-hairline p-8 lg:border-r lg:border-b-0 lg:p-11">
+                  <span className="bc-label text-bc-text-2">Per league, per season</span>
+                  <div className="flex items-start gap-1.5">
+                    <span className="bc-num pt-2 text-[30px] font-bold text-bc-red-text">$</span>
+                    <span className="bc-num text-[68px] leading-[0.86] font-extrabold tracking-tight text-bc-ink sm:text-[88px] lg:text-[104px]">
+                      99
+                      <span className="align-top text-[40px] sm:text-[50px]">.99</span>
+                    </span>
+                  </div>
+                  <p className="text-[15px] leading-relaxed text-bc-text-2 sm:text-[16px]">
+                    {
+                      "One license covers every manager in the league. Split it ten ways or make the commissioner pay. We don't judge."
+                    }
+                  </p>
+                </div>
+                <div className="flex flex-col justify-center gap-7 p-8 lg:p-11">
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-3.5 sm:grid-cols-2">
+                    {INCLUDES.map((item) => (
+                      <div
+                        key={item}
+                        className="flex h-11 items-center gap-3 border-b border-bc-hairline"
+                      >
+                        <span className="flex size-6 flex-none items-center justify-center bg-bc-red text-white">
+                          <Check className="size-3.5" strokeWidth={3} />
+                        </span>
+                        <span className="text-[16px] font-medium text-bc-ink sm:text-[17px]">
+                          {item}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                    <SignedOut>
+                      <SignUpButton mode="modal">
+                        <Button type="button" variant="glow" size="lg">
+                          Get started
+                        </Button>
+                      </SignUpButton>
+                    </SignedOut>
+                    <SignedIn>
+                      <Button asChild variant="glow" size="lg">
+                        <Link href="/dashboard/credits">Purchase credits</Link>
+                      </Button>
+                    </SignedIn>
+                    <span className="text-[14px] leading-relaxed text-bc-text-3">
+                      $99.99 per league, per season.
+                      <br />
+                      Every manager gets a seat in the press box.
+                    </span>
+                  </div>
+                </div>
+              </Panel>
+            </div>
           </div>
         </section>
       </main>
-      
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-gray-700/30 bg-gray-900/50 backdrop-blur-md mt-20">
-        <div className="container mx-auto px-4 sm:px-6 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Brand */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="p-1.5 bg-red-600/20 rounded-lg">
-                  <img
-                    src="/FFSN.png"
-                    alt="FFSN Logo"
-                    className="h-6 w-auto"
-                  />
-                </div>
-                <h3 className="text-lg font-bold text-white">FFSN</h3>
-              </div>
-              <p className="text-sm text-gray-400">
-                Your AI-powered fantasy football companion
-              </p>
-            </div>
-            
-            {/* Quick Links */}
-            <div>
-              <h4 className="text-white font-semibold mb-3">Quick Links</h4>
-              <ul className="space-y-2 text-sm">
-                <li>
-                  <Link href="/dashboard" className="text-gray-400 hover:text-white transition-colors">
-                    Dashboard
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#features" className="text-gray-400 hover:text-white transition-colors">
-                    Features
-                  </Link>
-                </li>
-                <li>
-                  <Link href="#pricing" className="text-gray-400 hover:text-white transition-colors">
-                    Pricing
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            
-            {/* Legal */}
-            <div>
-              <h4 className="text-white font-semibold mb-3">Legal</h4>
-              <ul className="space-y-2 text-sm">
-                <li>
-                  <Link href="/terms" className="text-gray-400 hover:text-white transition-colors">
-                    Terms of Service
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/privacy" className="text-gray-400 hover:text-white transition-colors">
-                    Privacy Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/contact" className="text-gray-400 hover:text-white transition-colors">
-                    Contact Us
-                  </Link>
-                </li>
-              </ul>
-            </div>
-          </div>
-          
-          <div className="border-t border-gray-700/30 mt-8 pt-8 text-center text-sm text-gray-400">
-            <p>&copy; {new Date().getFullYear()} FFSN. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
-      
-      {/* Custom CSS for animations */}
-      <style jsx>{`
-        @keyframes blob {
-          0% {
-            transform: translate(0px, 0px) scale(1);
-          }
-          33% {
-            transform: translate(30px, -50px) scale(1.1);
-          }
-          66% {
-            transform: translate(-20px, 20px) scale(0.9);
-          }
-          100% {
-            transform: translate(0px, 0px) scale(1);
-          }
-        }
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
+
+      <SiteFooter links={FOOTER_LINKS} />
     </div>
   );
 }

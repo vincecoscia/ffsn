@@ -2,91 +2,85 @@
 
 import { useRouter } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import Link from "next/link";
+import { ArrowLeft, CreditCard, XCircle } from "lucide-react";
+
+import { TopBar, ThemeToggle, Panel } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
-import { XCircle, ArrowLeft, CreditCard } from "lucide-react";
 
 export default function PaymentCancelledPage() {
   const router = useRouter();
 
   return (
-    <div className="min-h-screen bg-gray-900">
-      <header className="bg-gray-800 border-b border-gray-700">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-2xl font-bold text-white cursor-pointer">
-            FFSN
-          </Link>
-          <div className="flex items-center gap-4">
-            <span className="text-gray-300">Payment Cancelled</span>
-            <UserButton />
+    <div className="min-h-screen bg-bc-ground">
+      <TopBar title="New league" subtitle="Payment cancelled">
+        <ThemeToggle />
+        <UserButton />
+      </TopBar>
+
+      <main className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <span className="flex size-16 flex-none items-center justify-center border border-bc-border-strong text-bc-text-2">
+            <XCircle className="size-8" strokeWidth={1.6} />
+          </span>
+          <div className="flex flex-col gap-2">
+            <h1 className="bc-display text-bc-ink text-[32px] sm:text-[38px]">
+              Payment cancelled
+            </h1>
+            <p className="text-[15px] text-bc-text-2">No charges were made to your account.</p>
           </div>
         </div>
-      </header>
 
-      <main className="container mx-auto px-6 py-8 max-w-2xl">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <XCircle className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-black text-white mb-2">
-            Payment Cancelled
-          </h1>
-          <p className="text-gray-400">
-            No charges were made to your account
-          </p>
-        </div>
-
-        <div className="bg-gray-800 rounded-lg p-6 space-y-6">
-          <div className="text-center">
-            <p className="text-gray-300 mb-4">
-              You cancelled the payment process. Your league setup has not been completed and no charges were made.
+        <Panel padding="lg" className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4">
+            <p className="text-center text-[15px] leading-relaxed text-bc-text-2">
+              You cancelled the payment process. Your league setup has not been completed and no
+              charges were made.
             </p>
-            
-            <div className="bg-blue-900/50 border border-blue-500 p-4 rounded-lg text-left">
-              <h3 className="text-blue-200 font-semibold mb-2">What you&apos;re missing:</h3>
-              <ul className="text-blue-100 text-sm space-y-1">
-                <li>• Full season fantasy league access</li>
-                <li>• 1,000 AI content generation credits</li>
-                <li>• Weekly recaps, previews, and analysis</li>
-                <li>• Custom team roasts and power rankings</li>
-                <li>• 100 bonus credits for each league member</li>
+            <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
+              <h3 className="bc-label text-bc-signal">What you&apos;re missing</h3>
+              <ul className="mt-2.5 flex flex-col gap-1.5 text-[14px] leading-relaxed text-bc-text-2">
+                <li>Full season fantasy league access</li>
+                <li>1,000 AI content generation credits</li>
+                <li>Weekly recaps, previews, and analysis</li>
+                <li>Custom team roasts and power rankings</li>
+                <li>100 bonus credits for each league member</li>
               </ul>
             </div>
           </div>
 
-          <div className="border-t border-gray-700 pt-6 space-y-3">
-            <Button 
+          <div className="flex flex-col gap-3 border-t border-bc-hairline pt-6">
+            <Button
               onClick={() => router.push("/setup")}
-              className="w-full bg-green-600 hover:bg-green-700 text-lg py-3 flex items-center justify-center"
+              variant="glow"
+              size="lg"
+              className="w-full"
             >
-              <CreditCard className="w-5 h-5 mr-2" />
-              Continue with Payment ($99.99)
+              <CreditCard className="size-5" strokeWidth={1.8} />
+              Continue with payment ($99.99)
             </Button>
-            
-            <Button 
+            <Button
               onClick={() => router.back()}
               variant="outline"
-              className="w-full flex items-center justify-center"
+              size="lg"
+              className="w-full"
             >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to League Setup
+              <ArrowLeft className="size-4" strokeWidth={1.8} />
+              Back to league setup
             </Button>
-            
-            <Button 
+            <Button
               onClick={() => router.push("/dashboard")}
               variant="ghost"
-              className="w-full text-gray-400 hover:text-white"
+              size="lg"
+              className="w-full"
             >
-              Skip for Now & Go to Dashboard
+              Skip for now and go to dashboard
             </Button>
           </div>
 
-          <div className="text-center pt-4 border-t border-gray-700">
-            <p className="text-gray-500 text-xs">
-              Need help? Contact us at support@ffsn.com
-            </p>
-          </div>
-        </div>
+          <p className="border-t border-bc-hairline pt-5 text-center text-[13px] text-bc-text-3">
+            Need help? Contact us at support@ffsn.ai
+          </p>
+        </Panel>
       </main>
     </div>
   );

@@ -6,6 +6,8 @@ import { useLeagueSeason } from '../hooks/use-league-season';
 import { MatchupDisplay } from './MatchupDisplay';
 import { DraftOrderDisplay } from './DraftOrderDisplay';
 import { Id } from '../../convex/_generated/dataModel';
+import { SectionHeader } from '@/components/broadcast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Team {
   _id: string;
@@ -29,6 +31,20 @@ interface LeagueWeeklySectionProps {
   seasonId?: number;
 }
 
+function SeasonMeta({ seasonId }: { seasonId: number }) {
+  return <span className="bc-label text-bc-text-3">{seasonId} season</span>;
+}
+
+function LoadingGrid() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {[1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-[120px]" />
+      ))}
+    </div>
+  );
+}
+
 export function LeagueWeeklySection({ leagueId, teams, seasonId: seasonIdProp }: LeagueWeeklySectionProps) {
   // Default to the league's current season when no season is explicitly provided
   const { currentSeason } = useLeagueSeason(leagueId);
@@ -36,7 +52,7 @@ export function LeagueWeeklySection({ leagueId, teams, seasonId: seasonIdProp }:
 
   // Get draft status
   const { isDraftComplete, draftData, isLoading: draftLoading } = useDraftStatus(leagueId, seasonId);
-  
+
   // Get current week matchups (only if draft is complete)
   const matchupData = useQuery(
     api.matchups.getCurrentWeekMatchups,
@@ -46,15 +62,9 @@ export function LeagueWeeklySection({ leagueId, teams, seasonId: seasonIdProp }:
   // Loading state
   if (draftLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-4">
-        <div className="animate-pulse">
-          <div className="h-5 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="flex space-x-3">
-            <div className="flex-shrink-0 w-48 h-24 bg-gray-200 rounded-lg"></div>
-            <div className="flex-shrink-0 w-48 h-24 bg-gray-200 rounded-lg"></div>
-            <div className="flex-shrink-0 w-48 h-24 bg-gray-200 rounded-lg"></div>
-          </div>
-        </div>
+      <div className="flex flex-col gap-5">
+        <SectionHeader title="Scoreboard" actions={<SeasonMeta seasonId={seasonId} />} />
+        <LoadingGrid />
       </div>
     );
   }
@@ -63,43 +73,51 @@ export function LeagueWeeklySection({ leagueId, teams, seasonId: seasonIdProp }:
   if (isDraftComplete) {
     if (!matchupData) {
       return (
-        <div className="bg-white rounded-lg shadow-sm p-4">
-          <div className="animate-pulse">
-            <div className="h-5 bg-gray-200 rounded w-1/4 mb-4"></div>
-            <div className="flex space-x-3">
-              <div className="flex-shrink-0 w-64 h-32 bg-gray-200 rounded-lg"></div>
-              <div className="flex-shrink-0 w-64 h-32 bg-gray-200 rounded-lg"></div>
-              <div className="flex-shrink-0 w-64 h-32 bg-gray-200 rounded-lg"></div>
-            </div>
-          </div>
+        <div className="flex flex-col gap-5">
+          <SectionHeader title="Scoreboard" actions={<SeasonMeta seasonId={seasonId} />} />
+          <LoadingGrid />
         </div>
       );
     }
 
+    const isFinalWeek =
+      matchupData.matchups.length > 0 && matchupData.matchups.every((m) => !!m.winner);
+
     return (
-      <MatchupDisplay
-        matchups={matchupData.matchups}
-        teams={teams}
-        currentWeek={matchupData.currentWeek}
-      />
+      <div className="flex flex-col gap-5">
+        <SectionHeader
+          title="Scoreboard"
+          kicker={`Week ${matchupData.currentWeek} · ${isFinalWeek ? "Final" : "Live"}`}
+          actions={<SeasonMeta seasonId={seasonId} />}
+        />
+        <MatchupDisplay
+          matchups={matchupData.matchups}
+          teams={teams}
+          currentWeek={matchupData.currentWeek}
+        />
+      </div>
     );
   }
 
   // If draft is not complete, show draft order
   if (draftData?.draftSettings) {
     return (
-      <DraftOrderDisplay
-        teams={teams}
-        draftSettings={draftData.draftSettings}
-      />
+      <div className="flex flex-col gap-5">
+        <SectionHeader
+          title="Draft order"
+          kicker={draftData.draftSettings.type ? `${draftData.draftSettings.type} draft` : "Round 1"}
+          actions={<SeasonMeta seasonId={seasonId} />}
+        />
+        <DraftOrderDisplay teams={teams} draftSettings={draftData.draftSettings} />
+      </div>
     );
   }
 
   // Fallback - no data available
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4">
-      <h2 className="text-lg font-bold text-gray-900 mb-3">League Status</h2>
-      <p className="text-sm text-gray-500">
+    <div className="flex flex-col gap-5">
+      <SectionHeader title="Scoreboard" actions={<SeasonMeta seasonId={seasonId} />} />
+      <p className="text-[15px] text-bc-text-2">
         Draft and matchup information will be available once ESPN data is synced.
       </p>
     </div>

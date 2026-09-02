@@ -6,7 +6,11 @@ import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { TeamTile } from "@/components/broadcast";
 import { useLeagueSeason } from "@/hooks/use-league-season";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +60,14 @@ interface TeamInviteManagerProps {
   onClose?: () => void;
 }
 
+function initialsFor(team: Team): string {
+  if (team.abbreviation) return team.abbreviation.slice(0, 3).toUpperCase();
+  const words = team.name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "??";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
 export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, onClose }: TeamInviteManagerProps) {
   const [selectedTeamIds, setSelectedTeamIds] = useState<Set<Id<"teams">>>(new Set());
   const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
@@ -65,7 +77,7 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
     inviteUrl: string;
     email?: string;
   }>>([]);
-  
+
   const { currentSeason } = useLeagueSeason(league._id);
   const createInvitation = useMutation(api.teamInvitations.createInvitation);
   const invitations = useQuery(api.teamInvitations.getByLeague, {
@@ -115,7 +127,7 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
       for (const teamId of selectedTeamIds) {
         const team = teams.find(t => t._id === teamId);
         const email = emailInputs[teamId];
-        
+
         const result = await createInvitation({
           leagueId: league._id,
           teamId,
@@ -133,7 +145,7 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
       setCreatedInvites(newInvites);
       setSelectedTeamIds(new Set());
       setEmailInputs({});
-      
+
       toast.success("Team invitations created successfully!", {
         description: `Created ${newInvites.length} invitation${newInvites.length > 1 ? 's' : ''}.`
       });
@@ -152,30 +164,25 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">
-              Invitations Created!
-            </DialogTitle>
-            <DialogDescription className="text-gray-600">
+            <DialogTitle>Invitations created</DialogTitle>
+            <DialogDescription>
               Send these links to your league members to claim their teams
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 mb-6 max-h-96 overflow-y-auto">
+          <div className="flex max-h-96 flex-col gap-3 overflow-y-auto">
             {createdInvites.map((invite, index) => (
-              <div key={index} className="bg-gray-50 rounded-lg p-4 border">
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="font-semibold text-gray-900">{invite.teamName}</h3>
+              <div key={index} className="flex flex-col gap-2.5 border border-bc-hairline bg-bc-panel-2 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-display text-[16px] font-bold text-bc-ink uppercase">
+                    {invite.teamName}
+                  </span>
                   {invite.email && (
-                    <span className="text-sm text-gray-500">Email: {invite.email}</span>
+                    <span className="truncate text-[13px] text-bc-text-2">{invite.email}</span>
                   )}
                 </div>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={invite.inviteUrl}
-                    readOnly
-                    className="flex-1 bg-white border border-gray-300 text-gray-900 p-2 rounded text-sm"
-                  />
+                  <Input value={invite.inviteUrl} readOnly className="flex-1" />
                   <Button
                     onClick={async () => {
                       try {
@@ -189,35 +196,21 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
                         });
                       }
                     }}
-                    variant="default"
                     size="sm"
-                    className="bg-red-600 hover:bg-red-700 text-white"
                   >
                     Copy
                   </Button>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  This link expires in 7 days
-                </p>
+                <span className="bc-label-sm text-bc-text-3">This link expires in 7 days</span>
               </div>
             ))}
           </div>
 
           <DialogFooter>
-            <Button
-              onClick={() => setCreatedInvites([])}
-              variant="outline"
-              className="cursor-pointer"
-            >
-              Create More Invites
+            <Button onClick={() => setCreatedInvites([])} variant="outline">
+              Create more invites
             </Button>
-            <Button 
-              variant="default"
-              className="bg-red-600 hover:bg-red-700 text-white cursor-pointer"
-              onClick={onClose}
-            >
-              Continue to League
-            </Button>
+            <Button onClick={onClose}>Continue to league</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -226,68 +219,58 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[800px]">
+      <DialogContent className="sm:max-w-[760px]">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">
-            Invite League Members
-          </DialogTitle>
-          <DialogDescription className="text-gray-600">
+          <DialogTitle>Invite league members</DialogTitle>
+          <DialogDescription>
             Select teams and invite members to join {league.name}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-4">Available Teams</h3>
-          <div className="grid gap-3 md:grid-cols-2 max-h-96 overflow-y-auto">
+        <div className="flex flex-col gap-4">
+          <span className="bc-label text-bc-text-2">Available teams</span>
+          <div className="grid max-h-96 gap-3 overflow-y-auto sm:grid-cols-2">
             {unclaimedTeams.map((team) => {
               const isSelected = selectedTeamIds.has(team._id);
               const isInvited = invitedTeamIds.has(team._id);
-              
+
               return (
                 <div
                   key={team._id}
-                  className={`
-                    p-4 rounded-lg border-2 transition-all
-                    ${isInvited 
-                      ? "border-yellow-300 bg-yellow-50 opacity-75" 
+                  className={cn(
+                    "flex flex-col gap-3 border p-3.5 transition-colors",
+                    isInvited
+                      ? "cursor-not-allowed border-bc-hairline bg-bc-panel-2 opacity-60"
                       : isSelected
-                        ? "border-red-500 bg-red-50 cursor-pointer"
-                        : "border-gray-200 bg-white hover:border-gray-300 cursor-pointer"
-                    }
-                  `}
+                        ? "cursor-pointer border-bc-red bg-bc-panel-2"
+                        : "cursor-pointer border-bc-hairline bg-bc-panel hover:border-bc-border-strong"
+                  )}
                   onClick={() => !isInvited && handleTeamSelect(team._id)}
                 >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                      <span className="text-gray-600 font-bold text-sm">
-{team.name.substring(0, 2).toUpperCase()}
+                  <div className="flex items-center gap-3">
+                    <TeamTile initials={initialsFor(team)} src={team.logo} size={44} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="truncate font-display text-[16px] font-bold text-bc-ink uppercase">
+                        {team.name}
+                      </span>
+                      <span className="bc-num text-[13px] text-bc-text-2">
+                        {team.record
+                          ? `${team.record.wins}-${team.record.losses}${team.record.ties ? `-${team.record.ties}` : ""}`
+                          : "No record"}
                       </span>
                     </div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-gray-900">{team.name}</h4>
-                      <p className="text-sm text-gray-600">
-                        {team.record ? `${team.record.wins}-${team.record.losses}-${team.record.ties || 0}` : 'No record'}
-                      </p>
-                    </div>
-                    {isInvited && (
-                      <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
-                        Invited
-                      </span>
-                    )}
+                    {isInvited && <Badge variant="secondary">Invited</Badge>}
+                    {isSelected && !isInvited && <Badge variant="default">Selected</Badge>}
                   </div>
-                  
+
                   {isSelected && !isInvited && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Email (optional):
-                      </label>
-                      <input
+                    <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <label className="bc-label-sm text-bc-text-3">Email (optional)</label>
+                      <Input
                         type="email"
                         value={emailInputs[team._id] || ""}
                         onChange={(e) => handleEmailChange(team._id, e.target.value)}
                         placeholder="member@example.com"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                        onClick={(e) => e.stopPropagation()}
                       />
                     </div>
                   )}
@@ -298,20 +281,14 @@ export function TeamInviteManager({ league, teams, teamClaims, isOpen = true, on
         </div>
 
         <DialogFooter>
-          <Button 
-            variant="outline"
-            className="cursor-pointer"
-            onClick={onClose}
-          >
-            Skip for Now
+          <Button variant="outline" onClick={onClose}>
+            Skip for now
           </Button>
           <Button
             onClick={handleCreateInvites}
             disabled={selectedTeamIds.size === 0 || isCreatingInvites}
-            variant="default"
-            className="bg-red-600 hover:bg-red-700 text-white cursor-pointer"
           >
-            {isCreatingInvites ? "Creating..." : `Create ${selectedTeamIds.size} Invite${selectedTeamIds.size !== 1 ? 's' : ''}`}
+            {isCreatingInvites ? "Creating…" : `Create ${selectedTeamIds.size} invite${selectedTeamIds.size !== 1 ? 's' : ''}`}
           </Button>
         </DialogFooter>
       </DialogContent>

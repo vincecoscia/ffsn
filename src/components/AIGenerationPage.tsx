@@ -13,7 +13,6 @@ import {
   EyeOff,
   Send,
   Trash2,
-  CheckCircle,
   XCircle,
   RotateCcw,
   Pencil,
@@ -21,20 +20,14 @@ import {
   X
 } from "lucide-react";
 
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { PageHeader, Panel, Chip, EmptyState, Spinner } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface AIGenerationPageProps {
   leagueId: Id<"leagues">;
@@ -76,38 +69,34 @@ function getArticleSummary(article: Article): string {
   return plain.length > 200 ? `${plain.slice(0, 200).trim()}…` : plain;
 }
 
-// Status badges configuration
-const getStatusBadge = (status: string) => {
+// Status chip configuration
+function getStatusChip(status: string) {
   switch (status) {
     case "generating":
-      return <Badge variant="secondary" className="flex items-center gap-1">
-        <RotateCcw className="h-3 w-3 animate-spin" />
-        Generating
-      </Badge>;
+      return { variant: "signal" as const, live: true, label: "Generating", icon: RotateCcw };
     case "draft":
-      return <Badge variant="outline" className="flex items-center gap-1">
-        <Eye className="h-3 w-3" />
-        Draft
-      </Badge>;
+      return { variant: "outline" as const, live: false, label: "Draft", icon: Eye };
     case "review":
-      return <Badge variant="default" className="flex items-center gap-1">
-        <CheckCircle className="h-3 w-3" />
-        Ready to Publish
-      </Badge>;
+      return { variant: "default" as const, live: false, label: "Ready to publish", icon: Send };
     case "published":
-      return <Badge variant="default" className="flex items-center gap-1 bg-green-600">
-        <Send className="h-3 w-3" />
-        Published
-      </Badge>;
+      return { variant: "win" as const, live: false, label: "Published", icon: Send };
     case "error":
-      return <Badge variant="destructive" className="flex items-center gap-1">
-        <XCircle className="h-3 w-3" />
-        Error
-      </Badge>;
+      return { variant: "red" as const, live: false, label: "Error", icon: XCircle };
     default:
-      return <Badge variant="outline">{status}</Badge>;
+      return { variant: "outline" as const, live: false, label: status, icon: undefined };
   }
-};
+}
+
+function StatusChip({ status }: { status: string }) {
+  const chip = getStatusChip(status);
+  const Icon = chip.icon;
+  return (
+    <Chip variant={chip.variant} live={chip.live}>
+      {Icon && <Icon className={cn("size-3", status === "generating" && "animate-spin")} />}
+      {chip.label}
+    </Chip>
+  );
+}
 
 export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -121,10 +110,6 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
 
   // Get all articles for this league (for management)
   const articles = useQuery(api.aiContent.getAllByLeague, { leagueId }) || [];
-
-  // Debug logging
-  console.log("Articles Query Result:", articles);
-  console.log("Articles with generating status:", articles.filter(a => a.status === "generating"));
 
   // Mutations for article management
   const publishArticle = useMutation(api.aiContent.updateContentStatus);
@@ -205,309 +190,284 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
   }, [generatingArticles.length]);
 
   if (!league) {
-    return <div>Loading...</div>;
+    return (
+      <div className="min-h-screen bg-bc-ground">
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Spinner size={20} />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 sm:px-4">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <div className="p-2 bg-red-100 rounded-lg">
-          <Sparkles className="h-6 w-6 text-red-600" />
-        </div>
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">AI Content Generation</h1>
-          <p className="text-sm sm:text-base text-gray-600">Create and manage AI-generated content for {league.name}</p>
-        </div>
-      </div>
+    <div className="min-h-screen bg-bc-ground">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 sm:py-12 lg:px-12">
+        <PageHeader
+          kicker="Production desk"
+          title="AI content"
+          description={`Create and manage AI-generated content for ${league.name}.`}
+        />
 
-      {/* Tabs for different sections */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        {/* Responsive, scrollable tab list on mobile */}
-        <ScrollArea className="w-full">
-          <TabsList className="w-max inline-flex gap-2 px-1">
-            <TabsTrigger value="generate" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
-            <Sparkles className="h-4 w-4" />
-            Generate
-            </TabsTrigger>
-            <TabsTrigger value="generating" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
-            <RotateCcw className="h-4 w-4" />
-            In Progress ({generatingArticles.length})
-            </TabsTrigger>
-            <TabsTrigger value="review" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
-            <Eye className="h-4 w-4" />
-            Review ({draftArticles.length})
-            </TabsTrigger>
-            <TabsTrigger value="published" className="flex items-center gap-2 text-sm sm:text-base px-3 py-2 whitespace-nowrap">
-            <Send className="h-4 w-4" />
-            Published ({publishedArticles.length})
-            </TabsTrigger>
-          </TabsList>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+        {/* Tabs for different sections */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          {/* Responsive, scrollable tab list on mobile */}
+          <ScrollArea className="w-full">
+            <TabsList className="inline-flex w-max gap-2 px-1">
+              <TabsTrigger value="generate" className="flex items-center gap-2 whitespace-nowrap px-3 py-2 text-sm sm:text-base">
+                <Sparkles className="size-4" />
+                Generate
+              </TabsTrigger>
+              <TabsTrigger value="generating" className="flex items-center gap-2 whitespace-nowrap px-3 py-2 text-sm sm:text-base">
+                <RotateCcw className="size-4" />
+                In progress ({generatingArticles.length})
+              </TabsTrigger>
+              <TabsTrigger value="review" className="flex items-center gap-2 whitespace-nowrap px-3 py-2 text-sm sm:text-base">
+                <Eye className="size-4" />
+                Review ({draftArticles.length})
+              </TabsTrigger>
+              <TabsTrigger value="published" className="flex items-center gap-2 whitespace-nowrap px-3 py-2 text-sm sm:text-base">
+                <Send className="size-4" />
+                Published ({publishedArticles.length})
+              </TabsTrigger>
+            </TabsList>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
 
-        {/* Generate Content Tab */}
-        <TabsContent value="generate" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Generate New Content</CardTitle>
-              <CardDescription>
-                Create AI-generated fantasy football content for your league
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ContentGenerator 
-                leagueId={leagueId} 
-                isCommissioner={league.role === "commissioner"} 
+          {/* Generate Content Tab */}
+          <TabsContent value="generate" className="mt-6">
+            <ContentGenerator
+              leagueId={leagueId}
+              isCommissioner={league.role === "commissioner"}
+            />
+          </TabsContent>
+
+          {/* Generating Articles Tab */}
+          <TabsContent value="generating" className="mt-6 flex flex-col gap-4">
+            {generatingArticles.length === 0 ? (
+              <EmptyState
+                icon={<RotateCcw className="size-6" strokeWidth={1.8} />}
+                title="No articles currently generating"
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Generating Articles Tab */}
-        <TabsContent value="generating" className="space-y-4">
-          {generatingArticles.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12 text-center">
-                <div>
-                  <RotateCcw className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No articles currently generating</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            generatingArticles.map((article) => (
-              <Card key={article._id}>
-                <CardContent className="p-4 sm:p-6">
+            ) : (
+              generatingArticles.map((article) => (
+                <Panel key={article._id} padding="md">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold">{article.title}</h3>
-                        {getStatusBadge(article.status)}
+                      <div className="mb-2 flex items-center gap-2">
+                        <h3 className="font-display text-[18px] font-bold uppercase tracking-[0.01em] text-bc-ink">{article.title}</h3>
+                        <StatusChip status={article.status} />
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {article.type} • {article.persona} • {article.metadata.credits_used} credits
+                      <p className="text-sm text-bc-text-2">
+                        {article.type} &middot; {article.persona} &middot; {article.metadata.credits_used} credits
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-bc-text-3">
                         Started {new Date(article.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 self-start md:self-auto" />
+                    <Spinner size={22} className="self-start md:self-auto" />
                   </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </TabsContent>
+                </Panel>
+              ))
+            )}
+          </TabsContent>
 
-        {/* Review Articles Tab */}
-        <TabsContent value="review" className="space-y-4">
-          {draftArticles.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12 text-center">
-                <div>
-                  <Eye className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No articles ready for review</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            draftArticles.map((article) => {
-              const isEditing = editingArticleId === article._id;
-              return (
-              <Card key={article._id}>
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold">{article.title}</h3>
-                        {getStatusBadge(article.status)}
+          {/* Review Articles Tab */}
+          <TabsContent value="review" className="mt-6 flex flex-col gap-4">
+            {draftArticles.length === 0 ? (
+              <EmptyState
+                icon={<Eye className="size-6" strokeWidth={1.8} />}
+                title="No articles ready for review"
+              />
+            ) : (
+              draftArticles.map((article) => {
+                const isEditing = editingArticleId === article._id;
+                return (
+                  <Panel key={article._id} padding="md">
+                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="mb-2 flex items-center gap-2">
+                          <h3 className="font-display text-[18px] font-bold uppercase tracking-[0.01em] text-bc-ink">{article.title}</h3>
+                          <StatusChip status={article.status} />
+                        </div>
+                        <p className="text-sm text-bc-text-2">
+                          {article.type} &middot; {article.persona} &middot; {article.metadata.credits_used} credits
+                        </p>
+                        <p className="text-xs text-bc-text-3">
+                          Generated {new Date(article.createdAt).toLocaleString()}
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {article.type} • {article.persona} • {article.metadata.credits_used} credits
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Generated {new Date(article.createdAt).toLocaleString()}
-                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {isEditing ? (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => handleSaveEdit(article._id)}
+                              disabled={isSavingEdit}
+                            >
+                              <Save className="size-4" />
+                              Save
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleCancelEdit}
+                              disabled={isSavingEdit}
+                            >
+                              <X className="size-4" />
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedArticle(selectedArticle?._id === article._id ? null : article)}
+                            >
+                              {selectedArticle?._id === article._id ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                              {selectedArticle?._id === article._id ? "Hide" : "Preview"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleStartEdit(article)}
+                            >
+                              <Pencil className="size-4" />
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => handlePublishArticle(article._id)}
+                            >
+                              <Send className="size-4" />
+                              Publish
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteArticle(article._id)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex gap-2 flex-wrap">
-                      {isEditing ? (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => handleSaveEdit(article._id)}
-                            disabled={isSavingEdit}
-                          >
-                            <Save className="h-4 w-4 mr-2" />
-                            Save
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleCancelEdit}
-                            disabled={isSavingEdit}
-                          >
-                            <X className="h-4 w-4 mr-2" />
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedArticle(selectedArticle?._id === article._id ? null : article)}
-                          >
-                            {selectedArticle?._id === article._id ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            {selectedArticle?._id === article._id ? "Hide" : "Preview"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleStartEdit(article)}
-                          >
-                            <Pencil className="h-4 w-4 mr-2" />
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handlePublishArticle(article._id)}
-                          >
-                            <Send className="h-4 w-4 mr-2" />
-                            Publish
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDeleteArticle(article._id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
 
-                  {isEditing ? (
-                    <div className="mt-4 space-y-4 p-4 bg-gray-50 rounded-lg">
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`title-${article._id}`}>Title</Label>
-                        <Input
-                          id={`title-${article._id}`}
-                          value={editForm.title}
-                          onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
-                          disabled={isSavingEdit}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`summary-${article._id}`}>Summary</Label>
-                        <Textarea
-                          id={`summary-${article._id}`}
-                          value={editForm.summary}
-                          onChange={(e) => setEditForm((f) => ({ ...f, summary: e.target.value }))}
-                          rows={3}
-                          disabled={isSavingEdit}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`content-${article._id}`}>Content</Label>
-                        <Textarea
-                          id={`content-${article._id}`}
-                          value={editForm.content}
-                          onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
-                          rows={16}
-                          className="font-mono text-xs w-full"
-                          disabled={isSavingEdit}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    selectedArticle?._id === article._id && (
-                      <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
-                        <div className="prose prose-sm max-w-none">
-                          <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }} />
+                    {isEditing ? (
+                      <div className="mt-4 flex flex-col gap-4 border border-bc-hairline bg-bc-panel-2 p-4">
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor={`title-${article._id}`}>Title</Label>
+                          <Input
+                            id={`title-${article._id}`}
+                            value={editForm.title}
+                            onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                            disabled={isSavingEdit}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor={`summary-${article._id}`}>Summary</Label>
+                          <Textarea
+                            id={`summary-${article._id}`}
+                            value={editForm.summary}
+                            onChange={(e) => setEditForm((f) => ({ ...f, summary: e.target.value }))}
+                            rows={3}
+                            disabled={isSavingEdit}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor={`content-${article._id}`}>Content</Label>
+                          <Textarea
+                            id={`content-${article._id}`}
+                            value={editForm.content}
+                            onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                            rows={16}
+                            className="w-full font-mono text-xs"
+                            disabled={isSavingEdit}
+                          />
                         </div>
                       </div>
-                    )
-                  )}
-                </CardContent>
-              </Card>
-              );
-            })
-          )}
-        </TabsContent>
+                    ) : (
+                      selectedArticle?._id === article._id && (
+                        <Panel lifted padding="sm" className="mt-4 overflow-x-auto">
+                          <div
+                            className="bc-prose"
+                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }}
+                          />
+                        </Panel>
+                      )
+                    )}
+                  </Panel>
+                );
+              })
+            )}
+          </TabsContent>
 
-        {/* Published Articles Tab */}
-        <TabsContent value="published" className="space-y-4">
-          {publishedArticles.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center justify-center py-12 text-center">
-                <div>
-                  <Send className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No published articles yet</p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            publishedArticles.map((article) => (
-              <Card key={article._id}>
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+          {/* Published Articles Tab */}
+          <TabsContent value="published" className="mt-6 flex flex-col gap-4">
+            {publishedArticles.length === 0 ? (
+              <EmptyState
+                icon={<Send className="size-6" strokeWidth={1.8} />}
+                title="No published articles yet"
+              />
+            ) : (
+              publishedArticles.map((article) => (
+                <Panel key={article._id} padding="md">
+                  <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold">{article.title}</h3>
-                        {getStatusBadge(article.status)}
+                      <div className="mb-2 flex items-center gap-2">
+                        <h3 className="font-display text-[18px] font-bold uppercase tracking-[0.01em] text-bc-ink">{article.title}</h3>
+                        <StatusChip status={article.status} />
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {article.type} • {article.persona} • {article.metadata.credits_used} credits
+                      <p className="text-sm text-bc-text-2">
+                        {article.type} &middot; {article.persona} &middot; {article.metadata.credits_used} credits
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-bc-text-3">
                         Published {article.publishedAt ? new Date(article.publishedAt).toLocaleString() : "Unknown"}
                       </p>
                     </div>
-                    <div className="flex gap-2 flex-wrap">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setSelectedArticle(selectedArticle?._id === article._id ? null : article)}
                       >
-                        {selectedArticle?._id === article._id ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {selectedArticle?._id === article._id ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                         {selectedArticle?._id === article._id ? "Hide" : "View"}
                       </Button>
                     </div>
                   </div>
-                  
-                  {selectedArticle?._id === article._id && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
-                      <div className="prose prose-sm max-w-none">
-                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }} />
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </TabsContent>
-      </Tabs>
 
-      {/* Error Articles (show if any exist) */}
-      {errorArticles.length > 0 && (
-        <Card className="border-red-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-700">
-              <XCircle className="h-5 w-5" />
-              Failed Generations ({errorArticles.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+                  {selectedArticle?._id === article._id && (
+                    <Panel lifted padding="sm" className="mt-4 overflow-x-auto">
+                      <div
+                        className="bc-prose"
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }}
+                      />
+                    </Panel>
+                  )}
+                </Panel>
+              ))
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* Error Articles (show if any exist) */}
+        {errorArticles.length > 0 && (
+          <Panel padding="md" className="border-l-4 border-l-bc-red-deep">
+            <div className="flex items-center gap-2 text-bc-red-text">
+              <XCircle className="size-5" />
+              <h2 className="font-display text-[20px] font-bold uppercase tracking-[0.01em]">
+                Failed generations ({errorArticles.length})
+              </h2>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
               {errorArticles.map((article) => (
-                <div key={article._id} className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-3 bg-red-50 rounded-lg">
+                <div key={article._id} className="flex flex-col gap-3 border border-bc-red-deep/30 bg-bc-red-deep/10 p-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="font-medium text-red-900">{article.title}</p>
-                    <p className="text-sm text-red-700">
-                      {article.type} • {article.persona}
+                    <p className="font-medium text-bc-red-text">{article.title}</p>
+                    <p className="text-sm text-bc-text-2">
+                      {article.type} &middot; {article.persona}
                     </p>
                   </div>
                   <Button
@@ -515,14 +475,14 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                     size="sm"
                     onClick={() => handleDeleteArticle(article._id)}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </Panel>
+        )}
+      </div>
     </div>
   );
 }

@@ -4,13 +4,14 @@ import React, { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Label } from "./ui/label";
 import { Separator } from "./ui/separator";
+import { Progress } from "./ui/progress";
 import { Clock, Settings, Calendar, Zap, BarChart3, FileText, TrendingUp, Users } from "lucide-react";
+import { Panel, SectionHeader, Chip, PersonaAvatar, LoadingScreen } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface ContentScheduleManagerProps {
   leagueId: Id<"leagues">;
@@ -98,12 +99,12 @@ const CONTENT_TYPE_CONFIG = {
 };
 
 const PERSONAS = [
-  { value: "mel-diaper", label: "Mel Diaper - Bombastic draft expert who's never wrong" },
-  { value: "stan-deviation", label: "Stan Deviation - Cold analytics and statistics expert" },
-  { value: "vinny-marinara", label: "Vinny \"The Sauce\" Marinara - Mysterious insider with rumors" },
-  { value: "chad-thunderhype", label: "Chad Thunderhype - Aggressively positive hype man" },
-  { value: "rick-two-beers", label: "Rick \"Two Beers\" O'Sullivan - Bitter rambling ex-husband" },
-  { value: "mike-harrison", label: "Mike Harrison - Professional sportswriter with balanced analysis" },
+  { value: "mel-diaper", name: "Mel Diaper", label: "Mel Diaper - Bombastic draft expert who's never wrong" },
+  { value: "stan-deviation", name: "Stan Deviation", label: "Stan Deviation - Cold analytics and statistics expert" },
+  { value: "vinny-marinara", name: "Vinny \"The Sauce\" Marinara", label: "Vinny \"The Sauce\" Marinara - Mysterious insider with rumors" },
+  { value: "chad-thunderhype", name: "Chad Thunderhype", label: "Chad Thunderhype - Aggressively positive hype man" },
+  { value: "rick-two-beers", name: "Rick \"Two Beers\" O'Sullivan", label: "Rick \"Two Beers\" O'Sullivan - Bitter rambling ex-husband" },
+  { value: "mike-harrison", name: "Mike Harrison", label: "Mike Harrison - Professional sportswriter with balanced analysis" },
 ];
 
 const TIMEZONES = [
@@ -128,7 +129,7 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
 
   // Queries
   const scheduleData = useQuery(api.contentScheduling.getContentSchedules, { leagueId });
-  
+
   // Mutations
   const updateSchedule = useMutation(api.contentScheduling.updateContentSchedule);
   const updatePreferences = useMutation(api.contentScheduling.updateLeagueContentPreferences);
@@ -191,56 +192,57 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     delayDays?: number;
   }) => {
     switch (schedule.type) {
-      case "weekly":
+      case "weekly": {
         const day = DAYS_OF_WEEK.find(d => d.value === schedule.dayOfWeek)?.label || "Unknown";
         const time = `${(schedule.hour ?? 0).toString().padStart(2, '0')}:${(schedule.minute ?? 0).toString().padStart(2, '0')}`;
         return `${day} at ${time}`;
-      case "relative":
+      }
+      case "relative": {
         const direction = (schedule.offsetDays ?? 0) < 0 ? "before" : "after";
         const days = Math.abs(schedule.offsetDays ?? 0);
         return `${days} day${days !== 1 ? 's' : ''} ${direction} ${(schedule.relativeTo ?? '').replace('_', ' ')}`;
-      case "event_triggered":
+      }
+      case "event_triggered": {
         const delay = schedule.delayMinutes ? ` (${schedule.delayMinutes} min delay)` : "";
         return `When ${(schedule.trigger ?? '').replace('_', ' ')}${delay}`;
-      case "season_based":
+      }
+      case "season_based": {
         const seasonDelay = schedule.delayDays ? ` + ${schedule.delayDays} days` : "";
         return `${(schedule.trigger ?? '').replace('_', ' ')}${seasonDelay}`;
+      }
       default:
         return "Custom schedule";
     }
   };
 
   if (!scheduleData) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading content schedules...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen message="Loading content schedules" />;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-8">
       {/* Global Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            Global Content Settings
-          </CardTitle>
-          <CardDescription>
-            Master controls for your league&apos;s scheduled content generation
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+      <Panel padding="md">
+        <SectionHeader
+          title={
+            <span className="flex items-center gap-2">
+              <Settings className="size-4" />
+              Global content settings
+            </span>
+          }
+          kicker="Master controls"
+        />
+        <p className="mt-3 text-sm text-bc-text-2">
+          Master controls for your league&apos;s scheduled content generation.
+        </p>
+
+        <div className="mt-5 flex flex-col gap-5">
+          <div className="flex items-center justify-between gap-4 border border-bc-hairline bg-bc-panel-2 p-4">
             <div>
-              <Label htmlFor="content-enabled" className="text-sm font-medium">
-                Enable Scheduled Content
+              <Label htmlFor="content-enabled" className="text-[15px] text-bc-ink">
+                Enable scheduled content
               </Label>
-              <p className="text-sm text-slate-600">
+              <p className="mt-1 text-sm text-bc-text-2">
                 Master switch for all automated content generation
               </p>
             </div>
@@ -254,14 +256,14 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
 
           <Separator />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="timezone">Timezone</Label>
               <Select
                 value={preferences?.timezone || "America/New_York"}
                 onValueChange={(timezone) => handleUpdateGlobalSettings({ timezone })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="timezone">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -274,152 +276,160 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
               </Select>
             </div>
 
-            <div>
+            <div className="flex flex-col gap-2">
               <Label htmlFor="auto-publish">Publishing</Label>
               <Select
                 value={preferences?.autoPublish ? "auto" : "approval"}
-                onValueChange={(value) => 
-                  handleUpdateGlobalSettings({ 
+                onValueChange={(value) =>
+                  handleUpdateGlobalSettings({
                     autoPublish: value === "auto",
                     requireApproval: value === "approval"
                   })
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id="auto-publish">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="approval">Require Approval</SelectItem>  
-                  <SelectItem value="auto">Auto-Publish</SelectItem>
+                  <SelectItem value="approval">Require approval</SelectItem>
+                  <SelectItem value="auto">Auto-publish</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 border border-bc-hairline bg-bc-panel-2 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <Label htmlFor="notifications" className="text-sm font-medium">
-                Notifications
-              </Label>
-              <p className="text-sm text-slate-600">
+              <Label className="text-[15px] text-bc-ink">Notifications</Label>
+              <p className="mt-1 text-sm text-bc-text-2">
                 Get notified when content is generated or fails
               </p>
             </div>
-            <div className="space-x-4">
-              <Switch
-                id="notify-success"
-                checked={preferences?.notifyCommissioner ?? true}
-                onCheckedChange={(notify) => handleUpdateGlobalSettings({ notifyCommissioner: notify })}
-                disabled={isLoading}
-              />
-              <span className="text-sm">Success</span>
-              <Switch
-                id="notify-failures"  
-                checked={preferences?.notifyFailures ?? true}
-                onCheckedChange={(notify) => handleUpdateGlobalSettings({ notifyFailures: notify })}
-                disabled={isLoading}
-              />
-              <span className="text-sm">Failures</span>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2.5">
+                <Switch
+                  id="notify-success"
+                  checked={preferences?.notifyCommissioner ?? true}
+                  onCheckedChange={(notify) => handleUpdateGlobalSettings({ notifyCommissioner: notify })}
+                  disabled={isLoading}
+                />
+                <span className="text-sm text-bc-text-2">Success</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <Switch
+                  id="notify-failures"
+                  checked={preferences?.notifyFailures ?? true}
+                  onCheckedChange={(notify) => handleUpdateGlobalSettings({ notifyFailures: notify })}
+                  disabled={isLoading}
+                />
+                <span className="text-sm text-bc-text-2">Failures</span>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* Content Type Schedules */}
-      <div className="grid gap-4">
-        <h3 className="text-lg font-semibold">Content Schedules</h3>
-        {Object.entries(CONTENT_TYPE_CONFIG).map(([contentType, config]) => {
-          const schedule = schedules.find(s => s.contentType === contentType);
-          const IconComponent = config.icon;
+      <Panel padding="none">
+        <div className="p-6">
+          <SectionHeader title="Content schedules" kicker="Programming" />
+        </div>
+        <div className="flex flex-col">
+          {Object.entries(CONTENT_TYPE_CONFIG).map(([contentType, config]) => {
+            const schedule = schedules.find(s => s.contentType === contentType);
+            const IconComponent = config.icon;
+            const enabled = schedule?.enabled ?? false;
+            const selectedPersona = PERSONAS.find(p => p.value === (schedule?.preferredPersona || ""));
 
-          return (
-            <Card key={contentType} className={`${!schedule?.enabled ? "opacity-60" : ""}`}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <IconComponent className="h-5 w-5 text-blue-600" />
+            return (
+              <div
+                key={contentType}
+                className={cn(
+                  "flex flex-col gap-4 border-t border-bc-hairline px-6 py-5 first:border-t-0",
+                  !enabled && "opacity-60"
+                )}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <IconComponent className="mt-0.5 size-5 flex-none text-bc-signal" />
                     <div>
-                      <CardTitle className="text-base">{config.title}</CardTitle>
-                      <CardDescription className="text-sm">
-                        {config.description}
-                      </CardDescription>
+                      <div className="font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                        {config.title}
+                      </div>
+                      <p className="mt-0.5 text-sm text-bc-text-2">{config.description}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={schedule?.enabled ? "default" : "secondary"}>
-                      {schedule?.enabled ? "Enabled" : "Disabled"}
-                    </Badge>
+                  <div className="flex items-center gap-3">
+                    {enabled && <Chip variant="default" live>On air</Chip>}
                     <Switch
-                      checked={schedule?.enabled ?? false}
-                      onCheckedChange={(enabled) => 
-                        schedule && handleToggleContent(schedule._id, enabled)
+                      checked={enabled}
+                      onCheckedChange={(value) =>
+                        schedule && handleToggleContent(schedule._id, value)
                       }
                       disabled={isLoading || !schedule}
                     />
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs text-slate-600 uppercase tracking-wide">Schedule</Label>
-                    <p className="text-sm font-medium">
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="bc-label-sm text-bc-text-3">Cadence</span>
+                    <span className="text-sm font-medium text-bc-ink">
                       {schedule ? formatSchedule(schedule.schedule) : config.defaultSchedule}
-                    </p>
+                    </span>
                   </div>
-                  <div>
-                    <Label className="text-xs text-slate-600 uppercase tracking-wide">AI Persona</Label>
-                    <Select
-                      value={schedule?.preferredPersona || "analyst"}
-                      onValueChange={(persona) => 
-                        schedule && handleUpdatePersona(schedule._id, persona)
-                      }
-                      disabled={!schedule?.enabled || isLoading}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PERSONAS.map((persona) => (
-                          <SelectItem key={persona.value} value={persona.value}>
-                            {persona.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="bc-label-sm text-bc-text-3">Writer</span>
+                    <div className="flex items-center gap-2.5">
+                      <PersonaAvatar
+                        persona={selectedPersona?.name || "analyst"}
+                        size={32}
+                        className="flex-none border border-bc-border-strong"
+                      />
+                      <Select
+                        value={schedule?.preferredPersona || "analyst"}
+                        onValueChange={(persona) =>
+                          schedule && handleUpdatePersona(schedule._id, persona)
+                        }
+                        disabled={!schedule?.enabled || isLoading}
+                      >
+                        <SelectTrigger className="h-9 flex-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PERSONAS.map((persona) => (
+                            <SelectItem key={persona.value} value={persona.value}>
+                              {persona.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
 
       {/* Credit Usage Info */}
       {preferences && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Credit Usage This Month</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between text-sm">
-              <span>Used: {preferences.currentMonthSpent} credits</span>
-              {preferences.monthlyContentBudget && (
-                <span>Budget: {preferences.monthlyContentBudget} credits</span>
-              )}
-            </div>
+        <Panel lifted padding="md">
+          <span className="bc-label-sm text-bc-text-3">Credit usage this month</span>
+          <div className="mt-3 flex items-center justify-between text-sm text-bc-ink">
+            <span className="bc-num">{preferences.currentMonthSpent} credits used</span>
             {preferences.monthlyContentBudget && (
-              <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full"
-                  style={{
-                    width: `${Math.min(100, (preferences.currentMonthSpent / preferences.monthlyContentBudget) * 100)}%`
-                  }}
-                />
-              </div>
+              <span className="text-bc-text-2">Budget: {preferences.monthlyContentBudget} credits</span>
             )}
-          </CardContent>
-        </Card>
+          </div>
+          {preferences.monthlyContentBudget && (
+            <Progress
+              value={Math.min(100, (preferences.currentMonthSpent / preferences.monthlyContentBudget) * 100)}
+              className="mt-3"
+            />
+          )}
+        </Panel>
       )}
     </div>
   );

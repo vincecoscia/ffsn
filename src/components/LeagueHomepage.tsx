@@ -1,20 +1,24 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { useState } from "react";
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+
+import { Panel, SectionHeader, Chip, BannerPlaceholder, LowerThird, PersonaAvatar, RankPlate } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ContentGenerator } from "./ContentGenerator";
 import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
-import { TeamInviteManager } from "./TeamInviteManager";
-
-import { ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
-import { ESPNNewsWidget } from "./ESPNNewsWidget";
-import { CommissionerTeamSelection } from "./CommissionerTeamSelection";
 import { TeamLogo } from "./TeamLogo";
+import { LeagueSidebar } from "@/components/league/LeagueSidebar";
 import { useLeagueSeason } from "@/hooks/use-league-season";
+import { cn } from "@/lib/utils";
 
 interface Team {
   _id: Id<"teams">;
@@ -60,25 +64,49 @@ interface LeagueHomepageProps {
   isCommissioner: boolean;
 }
 
+// The five FFSN on-air personas and their broadcast roles. Any other byline
+// (e.g. a commissioner-edited article) falls back to a generic credit.
+// Mirrors src/app/articles/[id]/ArticleClient.tsx so bylines read the same
+// way everywhere in the app.
+const PERSONA_ROLES: { test: RegExp; role: string }[] = [
+  { test: /mel/i, role: "The Draft Disaster" },
+  { test: /stan/i, role: "The Analytics Overlord" },
+  { test: /vinny/i, role: "Trade Rumor Mogul" },
+  { test: /chad/i, role: "The Glaze God" },
+  { test: /rick/i, role: "The Drunk Uncle" },
+];
+
+function personaRole(persona: string): string {
+  return PERSONA_ROLES.find(({ test }) => test.test(persona))?.role ?? "FFSN correspondent";
+}
+
+// aiContent.persona is stored as a slug (e.g. "mel-diaper") — normalize it to
+// a readable byline ("Mel Diaper").
+function personaDisplayName(persona: string): string {
+  return persona
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+// "recap" / "power_rankings" -> "recap" / "power rankings"; the Badge itself
+// upper-cases via CSS so there's no need to title-case here.
+function formatStoryType(type: string): string {
+  return type.replace(/_/g, " ");
+}
+
 export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCommissioner }: LeagueHomepageProps) {
   const { currentSeason } = useLeagueSeason(league._id);
   const [showContentGenerator, setShowContentGenerator] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [showTeamClaimModal, setShowTeamClaimModal] = useState(false);
-  const [showTeamInviteManager, setShowTeamInviteManager] = useState(false);
-  
+
   // Get featured story (most recent AI content with image)
   const featuredStory = useQuery(api.aiContent.getMostRecentWithImage, {
     leagueId: league._id
   });
-  
-  // Get trending ESPN news (type='Media', limit to 3)
-  const trendingNews = useQuery(api.news.getLatestNews, {
-    type: "Media",
-    limit: 3
-  });
-  
+
   // Get AI content result for pagination controls
   const aiContentResult = useQuery(api.aiContent.getByLeague, {
     leagueId: league._id,
@@ -87,7 +115,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
       cursor: cursor
     }
   });
-  
+
   // Pagination functions
   const handleNextPage = () => {
     if (aiContentResult && !aiContentResult.isDone) {
@@ -108,9 +136,9 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
   const canGoNext = aiContentResult && !aiContentResult.isDone;
   const canGoPrevious = currentPage > 1;
 
-  // Get user's claimed team
+  // Get user's claimed team (for the standings "You" highlight)
   const userTeam = teams.find(team => {
-    const claim = teamClaims.find(claim => 
+    const claim = teamClaims.find(claim =>
       claim.teamId === team._id && claim.userId === currentUserId
     );
     return !!claim;
@@ -124,381 +152,206 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
     return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
   });
 
-  // Check if all teams are claimed for the current season
-  const claimedTeamIds = new Set(teamClaims.map(claim => claim.teamId));
-  const allTeamsClaimed = teams.length > 0 && claimedTeamIds.size === teams.length;
-  const shouldShowInviteOption = isCommissioner && !allTeamsClaimed;
+  const isRecent =
+    !!featuredStory &&
+    Date.now() - new Date(featuredStory.publishedAt || featuredStory.createdAt).getTime() <
+      1 * 24 * 60 * 60 * 1000;
 
   return (
-    <>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Main Content Area */}
-          <div className="lg:col-span-3 space-y-6">
-            {/* Featured Story Section */}
-            {featuredStory && (
-              <div 
-                className="bg-white rounded-lg overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => window.location.href = `/articles/${featuredStory._id}`}
-              >
-                <div 
-                  className="relative h-64"
-                  style={{
-                    background: featuredStory.bannerImageUrl 
-                      ? `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url(${featuredStory.bannerImageUrl}) center/cover no-repeat`
-                      : 'linear-gradient(to right, #2563eb, #9333ea)',
-                  }}
-                >
-                  <div className="absolute bottom-0 left-0 right-0 p-6 text-white z-10">
-                    <h1 className="text-3xl font-bold mb-2 line-clamp-2 drop-shadow-lg">
-                      {featuredStory.title}
-                    </h1>
-                    <div className="flex items-center gap-4 text-gray-100">
-                      <span className="text-sm font-medium drop-shadow">
-                        {featuredStory.type.charAt(0).toUpperCase() + featuredStory.type.slice(1).replace(/_/g, ' ')}
-                      </span>
-                      {featuredStory.metadata?.week && (
-                        <span className="text-sm drop-shadow">Week {featuredStory.metadata.week}</span>
-                      )}
-                      <span className="text-sm drop-shadow">
-                        {new Date(featuredStory.publishedAt || Date.now()).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Weekly Section - Matchups or Draft Order */}
-            <LeagueWeeklySection
-              leagueId={league._id}
-              teams={teams}
-              seasonId={currentSeason}
-            />
-
-            {/* League Articles & Stories */}
-            <div className="bg-white rounded-lg shadow-sm">
-              <div className="border-b border-gray-200 p-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold text-gray-900">League Stories</h2>
-                  {league.role === "commissioner" && (
-                    <Button
-                      onClick={() => setShowContentGenerator(!showContentGenerator)}
-                      variant="default"
-                      className="bg-red-600 hover:bg-red-700 text-white hover:cursor-pointer"
-                    >
-                      {showContentGenerator ? "Hide Generator" : "Generate Story"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-              
-              <div className="p-6">
-                {/* Show Content Generator if toggled */}
-                {showContentGenerator && league.role === "commissioner" && (
-                  <div className="mb-6">
-                    <ContentGenerator leagueId={league._id} isCommissioner={true} />
-                  </div>
-                )}
-
-                <ArticleList 
-                  leagueId={league._id} 
-                  cursor={cursor}
-                  isCommissioner={league.role === "commissioner"}
-                  onShowContentGenerator={() => setShowContentGenerator(true)}
+    <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
+      {/* Main content */}
+      <div className="flex min-w-0 flex-col gap-10">
+        {/* Featured story */}
+        {featuredStory && (
+          <Panel cut="tr" scan className="relative h-[320px] overflow-hidden sm:h-[400px] lg:h-[460px]">
+            <div className="absolute inset-0">
+              {featuredStory.bannerImageUrl ? (
+                <img
+                  src={featuredStory.bannerImageUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
                 />
-                
-                {/* Pagination Controls */}
-                {aiContentResult && aiContentResult.page && aiContentResult.page.length > 0 && (canGoNext || canGoPrevious) && (
-                  <div className="flex justify-center items-center gap-8 p-6 border-t border-gray-200">
-                    {/* Previous Button - Only show if we can go previous */}
-                    {canGoPrevious && (
-                      <button
-                        onClick={handlePreviousPage}
-                        className="flex items-center justify-center w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white transition-colors duration-200 shadow-lg hover:shadow-xl"
-                        aria-label="Previous page"
-                      >
-                        <ChevronLeft size={20} />
-                      </button>
-                    )}
-                    
-                    {/* Page Indicator */}
-                    <div className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-medium text-gray-700">
-                      Page {currentPage}
-                    </div>
-                    
-                    {/* Next Button - Only show if we can go next */}
-                    {canGoNext && (
-                      <button
-                        onClick={handleNextPage}
-                        className="flex items-center justify-center w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white transition-colors duration-200 shadow-lg hover:shadow-xl"
-                        aria-label="Next page"
-                      >
-                        <ChevronRight size={20} />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+              ) : (
+                <BannerPlaceholder
+                  text={typeof featuredStory.metadata.week === "number" ? `WK ${featuredStory.metadata.week}` : undefined}
+                />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-bc-ground via-bc-ground/55 to-transparent" />
             </div>
 
-            {/* League Standings */}
-            <div className="bg-white rounded-lg shadow-sm">
-              <div className="border-b border-gray-200 p-6">
-                <h2 className="text-2xl font-bold text-gray-900">League Standings</h2>
+            <div className="absolute inset-x-4 bottom-4 flex flex-col gap-4 sm:inset-x-6 sm:bottom-6">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {isRecent && <Chip live>New</Chip>}
+                <Badge variant="plate">{formatStoryType(featuredStory.type)}</Badge>
+                <span className="bc-label text-bc-text-2">
+                  {new Date(featuredStory.publishedAt || featuredStory.createdAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Rank
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Team
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Record
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Points For
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Points Against
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {sortedTeams.map((team, index) => (
-                      <tr key={team._id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-bold text-gray-900">{index + 1}</span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <TeamLogo 
-                              teamId={team._id}
-                              teamName={team.name}
-                              espnLogo={team.logo}
-                              customLogo={team.customLogo}
-                              size="md"
-                              className="mr-3"
-                            />
-                            <div>
-                              <div className="text-sm font-bold text-gray-900">{team.name}</div>
-                              <div className="text-sm text-gray-500">{team.owner}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-semibold text-gray-900">
-                            {team.record.wins}-{team.record.losses}
-                            {team.record.ties > 0 && `-${team.record.ties}`}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          {team.record.pointsFor?.toFixed(1) || '0.0'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          {team.record.pointsAgainst?.toFixed(1) || '0.0'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              <Link href={`/articles/${featuredStory._id}`}>
+                <h1 className="bc-display max-w-2xl text-[28px] text-bc-ink sm:text-[36px] lg:text-[44px]">
+                  {featuredStory.title}
+                </h1>
+              </Link>
+
+              <MarkdownPreview
+                content={featuredStory.content}
+                preview
+                maxLines={2}
+                className="max-w-xl text-[15px] leading-relaxed text-bc-text-2"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <LowerThird
+                  compact
+                  name={personaDisplayName(featuredStory.persona)}
+                  role={personaRole(featuredStory.persona)}
+                  avatar={<PersonaAvatar persona={featuredStory.persona} size={40} />}
+                />
+                <Button asChild variant="glow">
+                  <Link href={`/articles/${featuredStory._id}`}>
+                    Read the story
+                    <ArrowRight className="size-[18px]" strokeWidth={2} />
+                  </Link>
+                </Button>
               </div>
             </div>
-          </div>
+          </Panel>
+        )}
 
-          {/* Sidebar */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Your Team Card */}
-            {userTeam ? (
-              <div className="bg-white rounded-lg shadow-sm">
-                <div className="border-b border-gray-200 p-4">
-                  <h3 className="text-lg font-bold text-gray-900">Your Team</h3>
-                </div>
-                <div className="p-6">
-                  <div className="text-center">
-                    {(userTeam.logo || userTeam.customLogo) && (
-                      <TeamLogo 
-                        teamId={userTeam._id}
-                        teamName={userTeam.name}
-                        espnLogo={userTeam.logo}
-                        customLogo={userTeam.customLogo}
-                        size="md"
-                        className="w-20 h-20 mx-auto mb-4 rounded-lg"
-                      />
-                    )}
-                    <h4 className="font-bold text-xl text-gray-900 mb-1">{userTeam.name}</h4>
-                    {userTeam.abbreviation && (
-                      <p className="text-gray-600 text-sm mb-4">{userTeam.abbreviation}</p>
-                    )}
-                    <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                      <div>
-                        <div className="text-gray-600 text-sm">Record</div>
-                        <div className="font-bold text-2xl text-gray-900">
-                          {userTeam.record.wins}-{userTeam.record.losses}
-                          {userTeam.record.ties > 0 && `-${userTeam.record.ties}`}
-                        </div>
-                      </div>
-                      {userTeam.record.pointsFor && (
-                        <div>
-                          <div className="text-gray-600 text-sm">Points For</div>
-                          <div className="font-bold text-lg text-gray-900">
-                            {userTeam.record.pointsFor.toFixed(1)}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Invite Players button for commissioners */}
-                  {shouldShowInviteOption && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <Button
-                        onClick={() => setShowTeamInviteManager(true)}
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-red-600 border-red-600 hover:bg-red-50 hover:border-red-700 hover:cursor-pointer"
-                      >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Invite Players
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : currentUserId && (
-              <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                <div className="bg-gradient-to-r from-red-500 to-red-600 p-4">
-                  <h3 className="text-lg font-bold text-white">Your Team</h3>
-                </div>
-                <div className="p-6">
-                  <div className="text-center">
-                    <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center shadow-inner">
-                      <svg className="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
-                    </div>
-                    <h4 className="font-semibold text-gray-900 mb-2">No Team Claimed</h4>
-                    <p className="text-gray-600 text-sm mb-4">Join the league by claiming your team for the {currentSeason} season</p>
-                    <Button
-                      onClick={() => setShowTeamClaimModal(true)}
-                      variant="default"
-                      size="lg"
-                      className="bg-red-600 hover:bg-red-700 text-white w-full shadow-lg hover:shadow-xl transition-all"
-                    >
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                      Claim Your Team
-                    </Button>
-                    
-                    {/* Invite Players button for commissioners */}
-                    {shouldShowInviteOption && (
-                      <Button
-                        onClick={() => setShowTeamInviteManager(true)}
-                        variant="outline"
-                        size="sm"
-                        className="w-full mt-3 text-red-600 border-red-600 hover:bg-red-50 hover:border-red-700"
-                      >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Invite Players
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+        {/* Scoreboard */}
+        <LeagueWeeklySection leagueId={league._id} teams={teams} seasonId={currentSeason} />
 
-            {/* ESPN Top Headlines */}
-            <ESPNNewsWidget limit={5} />
+        {/* League stories */}
+        <div className="flex flex-col gap-5">
+          <SectionHeader
+            title="League stories"
+            actions={
+              isCommissioner ? (
+                <div className="flex items-center gap-3.5">
+                  <span className="bc-label hidden text-bc-text-3 sm:inline">Commissioner only</span>
+                  <Button variant="outline" onClick={() => setShowContentGenerator((v) => !v)}>
+                    {showContentGenerator ? "Hide generator" : "Generate a story"}
+                  </Button>
+                </div>
+              ) : undefined
+            }
+          />
 
-            {/* League Info */}
-            <div className="bg-white rounded-lg shadow-sm">
-              <div className="border-b border-gray-200 p-4">
-                <h3 className="text-lg font-bold text-gray-900">League Info</h3>
-              </div>
-              <div className="p-4 space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-gray-600 text-sm">Teams</span>
-                  <span className="font-semibold text-gray-900">{teams.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600 text-sm">Scoring</span>
-                  <span className="font-semibold text-gray-900 capitalize">{league.settings.scoringType}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600 text-sm">Your Role</span>
-                  <span className="font-semibold text-gray-900 capitalize">{league.role}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600 text-sm">Platform</span>
-                  <span className="font-semibold text-gray-900 uppercase">{league.platform}</span>
-                </div>
-              </div>
+          {showContentGenerator && isCommissioner && (
+            <Panel padding="md">
+              <ContentGenerator leagueId={league._id} isCommissioner={true} />
+            </Panel>
+          )}
+
+          <ArticleList
+            leagueId={league._id}
+            cursor={cursor}
+            isCommissioner={isCommissioner}
+            onShowContentGenerator={() => setShowContentGenerator(true)}
+          />
+
+          {aiContentResult && aiContentResult.page && aiContentResult.page.length > 0 && (canGoNext || canGoPrevious) && (
+            <div className="flex items-center justify-center gap-4">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handlePreviousPage}
+                disabled={!canGoPrevious}
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="size-5" strokeWidth={2} />
+              </Button>
+              <Badge variant="secondary">Page {currentPage}</Badge>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleNextPage}
+                disabled={!canGoNext}
+                aria-label="Next page"
+              >
+                <ChevronRight className="size-5" strokeWidth={2} />
+              </Button>
             </div>
+          )}
+        </div>
+      </div>
 
-            {/* Trending Now */}
-            {trendingNews && trendingNews.articles.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm">
-                <div className="border-b border-gray-200 p-4">
-                  <h3 className="text-lg font-bold text-gray-900">📰 Trending Now</h3>
-                </div>
-                <div className="p-4 space-y-3">
-                  {trendingNews.articles.map((article) => (
-                    <div key={article.espnId} className="flex items-start gap-3">
-                      {article.images && article.images.length > 0 && (
-                        <img 
-                          src={article.images[0].url} 
-                          alt={article.images[0].alt || article.headline}
-                          className="w-12 h-12 rounded object-cover flex-shrink-0"
+      {/* Sidebar */}
+      <LeagueSidebar leagueId={league._id} currentUserId={currentUserId} />
+
+      {/* Standings: full-width big board */}
+      <div className="col-span-full flex flex-col gap-5">
+        <SectionHeader
+          title="Standings"
+          actions={
+            <span className="bc-label text-bc-text-3">
+              {teams.length} teams &middot; {league.settings.scoringType.toUpperCase()}
+            </span>
+          }
+        />
+        <Panel className="overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="h-10 hover:bg-transparent">
+                <TableHead className="bc-label-sm w-[60px] text-bc-text-3">Rk</TableHead>
+                <TableHead className="bc-label-sm text-bc-text-3">Team</TableHead>
+                <TableHead className="bc-label-sm text-bc-text-3">Owner</TableHead>
+                <TableHead className="bc-label-sm text-right text-bc-text-3">W-L</TableHead>
+                <TableHead className="bc-label-sm text-right text-bc-text-3">PF</TableHead>
+                <TableHead className="bc-label-sm text-right text-bc-text-3">PA</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedTeams.map((team, index) => {
+                const rank = index + 1;
+                const isUser = userTeam?._id === team._id;
+                return (
+                  <TableRow key={team._id} className={cn("h-[54px]", isUser && "bg-bc-panel-2")}>
+                    <TableCell>
+                      <RankPlate rank={rank} tone={rank === 1 ? "first" : isUser ? "outline" : "default"} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <TeamLogo
+                          teamId={team._id}
+                          teamName={team.name}
+                          espnLogo={team.logo}
+                          customLogo={team.customLogo}
+                          size="sm"
                         />
-                      )}
-                      {(!article.images || article.images.length === 0) && (
-                        <div className="w-12 h-12 bg-red-600 rounded flex-shrink-0"></div>
-                      )}
-                      <div className="flex-1">
-                        <h4 className="font-bold text-sm text-gray-900 hover:text-red-600 cursor-pointer mb-1 line-clamp-2">
-                          <a 
-                            href={article.links.web} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                          >
-                            {article.headline}
-                          </a>
-                        </h4>
-                        {article.description && (
-                          <p className="text-xs text-gray-600 line-clamp-2">{article.description}</p>
+                        <span className="font-display text-[15px] font-bold tracking-[0.02em] text-bc-ink uppercase">
+                          {team.name}
+                        </span>
+                        {isUser && (
+                          <Badge className="text-[10px]" variant="default">
+                            You
+                          </Badge>
                         )}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Team Claim Modal */}
-        {showTeamClaimModal && currentUserId && !userTeam && (
-          <CommissionerTeamSelection 
-            league={league}
-            teams={teams}
-            onClose={() => setShowTeamClaimModal(false)}
-          />
-        )}
-
-        {/* Team Invite Manager Modal */}
-        {showTeamInviteManager && shouldShowInviteOption && (
-          <TeamInviteManager 
-            league={league}
-            teams={teams}
-            teamClaims={teamClaims}
-            isOpen={showTeamInviteManager}
-            onClose={() => setShowTeamInviteManager(false)}
-          />
-        )}
-    </>
+                    </TableCell>
+                    <TableCell className="bc-label-sm text-bc-text-3">{team.owner}</TableCell>
+                    <TableCell className="bc-num text-right text-[15px] text-bc-ink">
+                      {team.record.wins}-{team.record.losses}
+                      {team.record.ties > 0 && `-${team.record.ties}`}
+                    </TableCell>
+                    <TableCell className="bc-num text-right text-[15px] text-bc-ink">
+                      {(team.record.pointsFor ?? 0).toFixed(1)}
+                    </TableCell>
+                    <TableCell className="bc-num text-right text-[15px] text-bc-text-2">
+                      {(team.record.pointsAgainst ?? 0).toFixed(1)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Panel>
+      </div>
+    </div>
   );
 }

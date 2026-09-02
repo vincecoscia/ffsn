@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { Card } from "@/components/ui/card";
+import { Panel, SectionHeader, LowerThird } from "@/components/broadcast";
 import { MessageSquareQuote } from "lucide-react";
 
 interface LockerRoomProps {
@@ -25,20 +25,32 @@ export function LockerRoom({ articleId }: LockerRoomProps) {
   }
 
   return (
-    <section className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
-      <h2 className="flex items-center gap-2 text-lg sm:text-xl font-bold text-gray-900 mb-4">
-        <MessageSquareQuote className="size-5 text-red-600" />
-        Locker Room
-      </h2>
-      <div className="grid gap-3 sm:gap-4">
+    <section className="flex w-full flex-col gap-5">
+      <SectionHeader
+        title={
+          <span className="inline-flex items-center gap-3">
+            <MessageSquareQuote className="size-6" strokeWidth={1.8} />
+            Locker room
+          </span>
+        }
+        actions={
+          <span className="bc-label-sm hidden text-bc-text-3 sm:inline">Manager quotes</span>
+        }
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
         {quotes.map((quote, index) => (
-          <Card key={index} className="gap-2 p-4 sm:p-5">
-            <p className="text-gray-800 italic leading-relaxed">&ldquo;{quote.quote}&rdquo;</p>
-            <p className="text-sm text-gray-500">
-              &mdash; {quote.userName}
-              {quote.teamName ? `, ${quote.teamName}` : ""}
+          <Panel key={index} padding="md" className="relative flex flex-col gap-4 overflow-hidden">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-6 right-3 font-display text-[100px] leading-none font-extrabold text-bc-red/15"
+            >
+              &rdquo;
+            </span>
+            <p className="relative font-sans text-[20px] leading-relaxed text-bc-body italic">
+              &ldquo;{quote.quote}&rdquo;
             </p>
-          </Card>
+            <LowerThird compact name={quote.userName} role={quote.teamName ?? undefined} />
+          </Panel>
         ))}
       </div>
     </section>

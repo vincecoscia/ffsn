@@ -8,11 +8,29 @@ import { useAuth } from "@clerk/nextjs";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
 import { useLeagueSeason } from "@/hooks/use-league-season";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListX, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { TeamLogo } from "@/components/TeamLogo";
+import {
+  Panel,
+  SectionHeader,
+  ScoreBug,
+  RankPlate,
+  Chip,
+  LoadingScreen,
+  EmptyState,
+} from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface ScoresPageProps {
   params: Promise<{ id: string }>;
@@ -60,9 +78,9 @@ const calculateProjectedScore = (roster?: Roster): number => {
   if (!roster || !roster.players) {
     return 0;
   }
-  
+
   return roster.players
-    .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+    .filter((player) => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
     .reduce((total, player) => {
       return total + (player.projectedPoints || 0);
     }, 0);
@@ -73,9 +91,9 @@ const calculateActualScore = (roster?: Roster): number => {
   if (!roster || !roster.players) {
     return 0;
   }
-  
+
   return roster.players
-    .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
+    .filter((player) => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
     .reduce((total, player) => {
       return total + (player.points || 0);
     }, 0);
@@ -148,8 +166,6 @@ export default function ScoresPage({ params }: ScoresPageProps) {
       seasonId: selectedSeason,
       matchupPeriod: selectedWeek || currentWeek,
     }) || [];
-
-  console.log("Matchups:", matchups);
 
   // Get top scores all time
   const topScoresAllTime =
@@ -234,39 +250,61 @@ export default function ScoresPage({ params }: ScoresPageProps) {
   };
 
   if (!userId || !league) {
-    return <div>Loading...</div>;
+    return <LoadingScreen message="Loading scores" />;
   }
+
+  // Find the closest completed matchup this week for the "game of the week" strip
+  let gameOfWeekId: string | null = null;
+  let smallestMargin = Infinity;
+  matchups.forEach((m) => {
+    if (!m.winner) return;
+    const home = m.homeRoster ? calculateActualScore(m.homeRoster) : m.homeScore;
+    const away = m.awayRoster ? calculateActualScore(m.awayRoster) : m.awayScore;
+    const margin = Math.abs(home - away);
+    if (margin < smallestMargin) {
+      smallestMargin = margin;
+      gameOfWeekId = m._id;
+    }
+  });
+
+  const topScores = (() => {
+    if (scoreDirection === "highest") {
+      return topScoresView === "all-time" ? topScoresAllTime : topScoresBySeason;
+    }
+    return topScoresView === "all-time" ? lowestScoresAllTime : lowestScoresBySeason;
+  })();
 
   return (
     <LeaguePageLayout leagueId={leagueId} currentUserId={userId} title="Scores">
-      <Tabs defaultValue="weekly" className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="weekly">Weekly Scores</TabsTrigger>
-          <TabsTrigger value="top-scores">Top Scores</TabsTrigger>
+      <Tabs defaultValue="weekly" className="w-full gap-6">
+        <TabsList>
+          <TabsTrigger value="weekly">Weekly scores</TabsTrigger>
+          <TabsTrigger value="top-scores">Top scores</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="weekly">
-          {/* Controls */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <TabsContent value="weekly" className="flex flex-col gap-6">
+          {/* Week + season controls */}
+          <Panel padding="md">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => handleWeekChange("prev")}
                   disabled={!selectedWeek || selectedWeek <= 1}
+                  aria-label="Previous week"
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="size-4" />
                 </Button>
 
-                <div className="text-center">
-                  <h2 className="text-xl font-bold">
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className="bc-display text-[28px] leading-none">
                     Week {selectedWeek || currentWeek}
-                  </h2>
+                  </span>
                   {selectedWeek === currentWeek && (
-                    <Badge variant="secondary" className="mt-1">
-                      Current Week
-                    </Badge>
+                    <Chip variant="signal" live>
+                      Current week
+                    </Chip>
                   )}
                 </div>
 
@@ -275,8 +313,9 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                   size="icon"
                   onClick={() => handleWeekChange("next")}
                   disabled={!selectedWeek || selectedWeek >= maxWeek}
+                  aria-label="Next week"
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="size-4" />
                 </Button>
               </div>
 
@@ -287,150 +326,91 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                 availableSeasons={availableSeasons}
               />
             </div>
-          </div>
+          </Panel>
 
-          {/* Scores Display */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <Tabs defaultValue="cards" className="w-full">
-              <TabsList className="mb-4">
-                <TabsTrigger value="cards">Card View</TabsTrigger>
-                <TabsTrigger value="list">List View</TabsTrigger>
+          {/* Scores display */}
+          <Panel padding="md">
+            <Tabs defaultValue="cards" className="w-full gap-5">
+              <TabsList>
+                <TabsTrigger value="cards">Scoreboard</TabsTrigger>
+                <TabsTrigger value="list">List</TabsTrigger>
               </TabsList>
 
               <TabsContent value="cards">
                 {matchups.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">
-                    No matchups available for this week.
-                  </p>
+                  <EmptyState
+                    icon={<ListX className="size-6" strokeWidth={1.8} />}
+                    title="No matchups"
+                    description="No matchups available for this week."
+                  />
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     {matchups.map((matchup) => {
                       const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                       const awayTeam = getTeamByExternalId(matchup.awayTeamId);
                       const isComplete = !!matchup.winner;
-                      console.log("Winner:", matchup.winner);
-                      console.log("Is Complete:", isComplete);
+                      const isLive = !isComplete && currentWeek === matchup.matchupPeriod;
+                      const isFuture = !isComplete && currentWeek < matchup.matchupPeriod;
 
                       // Calculate projected scores from roster data if available, otherwise use stored values
-                      const homeProjectedScore = matchup.homeRoster 
+                      const homeProjectedScore = matchup.homeRoster
                         ? calculateProjectedScore(matchup.homeRoster)
-                        : (matchup.homeProjectedScore || 0);
-                      
-                      const awayProjectedScore = matchup.awayRoster 
+                        : matchup.homeProjectedScore || 0;
+
+                      const awayProjectedScore = matchup.awayRoster
                         ? calculateProjectedScore(matchup.awayRoster)
-                        : (matchup.awayProjectedScore || 0);
+                        : matchup.awayProjectedScore || 0;
 
                       // Calculate actual scores from roster data if available, otherwise use stored values
-                      const homeActualScore = matchup.homeRoster 
+                      const homeActualScore = matchup.homeRoster
                         ? calculateActualScore(matchup.homeRoster)
                         : matchup.homeScore;
-                      
-                      const awayActualScore = matchup.awayRoster 
+
+                      const awayActualScore = matchup.awayRoster
                         ? calculateActualScore(matchup.awayRoster)
                         : matchup.awayScore;
 
+                      const homeLiveScore =
+                        matchup.homePointsByScoringPeriod?.[matchup.matchupPeriod] ??
+                        homeActualScore;
+                      const awayLiveScore =
+                        matchup.awayPointsByScoringPeriod?.[matchup.matchupPeriod] ??
+                        awayActualScore;
+
+                      const homeScoreValue = isFuture
+                        ? homeProjectedScore.toFixed(1)
+                        : isLive
+                          ? homeLiveScore.toFixed(1)
+                          : homeActualScore.toFixed(1);
+                      const awayScoreValue = isFuture
+                        ? awayProjectedScore.toFixed(1)
+                        : isLive
+                          ? awayLiveScore.toFixed(1)
+                          : awayActualScore.toFixed(1);
+
+                      const strip = isComplete ? "Final" : isLive ? "Live" : "Scheduled";
+                      const isGameOfWeek = matchup._id === gameOfWeekId;
+
                       return (
-                        <div
+                        <ScoreBug
                           key={matchup._id}
-                          className="border rounded-lg p-4 hover:shadow-md transition-shadow"
-                        >
-                          <div className="space-y-3">
-                            {/* Away Team */}
-                            <div
-                              className={`flex items-center justify-between ${matchup.winner === "away" ? "font-bold" : ""}`}
-                            >
-                              <div className="flex items-center gap-3">
-                              {(awayTeam?.logo || awayTeam?.customLogo) && (
-                                  <TeamLogo
-                                    teamId={awayTeam._id}
-                                    teamName={awayTeam.name}
-                                    espnLogo={awayTeam.logo}
-                                    customLogo={awayTeam.customLogo}
-                                    size="md"
-                                    className="w-10 h-10 rounded"
-                                  />
-                                )}
-                                <div>
-                                  <div className="font-medium">
-                                    {awayTeam?.name || "Unknown Team"}
-                                  </div>
-                                  <div className="text-sm text-gray-500">
-                                    {awayTeam?.owner}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-xl font-bold">
-                                  {isComplete
-                                    ? awayActualScore.toFixed(1)
-                                    : matchup.awayPointsByScoringPeriod?.[
-                                        matchup.matchupPeriod
-                                      ]?.toFixed(1) || awayActualScore.toFixed(1)}
-                                </div>
-                                {!isComplete && awayProjectedScore > 0 && (
-                                  <div className="text-xs text-gray-500">
-                                    Proj:{" "}
-                                    {awayProjectedScore.toFixed(1)}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="border-t"></div>
-
-                            {/* Home Team */}
-                            <div
-                              className={`flex items-center justify-between ${matchup.winner === "home" ? "font-bold" : ""}`}
-                            >
-                              <div className="flex items-center gap-3">
-                                {(homeTeam?.logo || homeTeam?.customLogo) && (
-                                  <TeamLogo
-                                    teamId={homeTeam._id}
-                                    teamName={homeTeam.name}
-                                    espnLogo={homeTeam.logo}
-                                    customLogo={homeTeam.customLogo}
-                                    size="md"
-                                    className="w-10 h-10 rounded"
-                                  />
-                                )}
-                                <div>
-                                  <div className="font-medium">
-                                    {homeTeam?.name || "Unknown Team"}
-                                  </div>
-                                  <div className="text-sm text-gray-500">
-                                    {homeTeam?.owner}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-xl font-bold">
-                                  {isComplete
-                                    ? homeActualScore.toFixed(1)
-                                    : matchup.homePointsByScoringPeriod?.[
-                                        matchup.matchupPeriod
-                                      ]?.toFixed(1) || homeActualScore.toFixed(1)}
-                                </div>
-                                {!isComplete && homeProjectedScore > 0 && (
-                                  <div className="text-xs text-gray-500">
-                                    Proj:{" "}
-                                    {homeProjectedScore.toFixed(1)}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Status Badge */}
-                          <div className="mt-3 text-center">
-                          {isComplete && currentWeek > matchup.matchupPeriod ? (
-                                  <Badge variant="secondary">Final</Badge>
-                                  ) : currentWeek === matchup.matchupPeriod ? (
-                                  <Badge variant="default">In Progress</Badge>
-                                ) : (
-                                  <Badge variant="outline">Scheduled</Badge>
-                                )}
-                          </div>
-                        </div>
+                          mode={isFuture ? "projected" : "final"}
+                          strip={strip}
+                          stripRight={isGameOfWeek ? "Game of the week" : undefined}
+                          stripRightTone="highlight"
+                          away={{
+                            name: awayTeam?.name || "Unknown team",
+                            sub: awayTeam?.owner,
+                            score: awayScoreValue,
+                            winner: matchup.winner === "away",
+                          }}
+                          home={{
+                            name: homeTeam?.name || "Unknown team",
+                            sub: homeTeam?.owner,
+                            score: homeScoreValue,
+                            winner: matchup.winner === "home",
+                          }}
+                        />
                       );
                     })}
                   </div>
@@ -439,350 +419,304 @@ export default function ScoresPage({ params }: ScoresPageProps) {
 
               <TabsContent value="list">
                 {matchups.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">
-                    No matchups available for this week.
-                  </p>
+                  <EmptyState
+                    icon={<ListX className="size-6" strokeWidth={1.8} />}
+                    title="No matchups"
+                    description="No matchups available for this week."
+                  />
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Away Team
-                          </th>
-                          <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-bc-hairline hover:bg-transparent">
+                          <TableHead className="bc-label-sm text-bc-text-3">Away</TableHead>
+                          <TableHead className="bc-label-sm text-bc-text-3 text-center">
                             Score
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Home Team
-                          </th>
-                          <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          </TableHead>
+                          <TableHead className="bc-label-sm text-bc-text-3">Home</TableHead>
+                          <TableHead className="hidden bc-label-sm text-bc-text-3 text-center md:table-cell">
                             Status
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {matchups.map((matchup) => {
-                          const homeTeam = getTeamByExternalId(
-                            matchup.homeTeamId
-                          );
-                          const awayTeam = getTeamByExternalId(
-                            matchup.awayTeamId
-                          );
+                          const homeTeam = getTeamByExternalId(matchup.homeTeamId);
+                          const awayTeam = getTeamByExternalId(matchup.awayTeamId);
                           const isComplete = !!matchup.winner;
 
-                          // Calculate projected scores from roster data if available, otherwise use stored values
-                          const homeProjectedScore = matchup.homeRoster 
-                            ? calculateProjectedScore(matchup.homeRoster)
-                            : (matchup.homeProjectedScore || 0);
-                          
-                          const awayProjectedScore = matchup.awayRoster 
-                            ? calculateProjectedScore(matchup.awayRoster)
-                            : (matchup.awayProjectedScore || 0);
-
-                          // Calculate actual scores from roster data if available, otherwise use stored values
-                          const homeActualScore = matchup.homeRoster 
+                          const homeActualScore = matchup.homeRoster
                             ? calculateActualScore(matchup.homeRoster)
                             : matchup.homeScore;
-                          
-                          const awayActualScore = matchup.awayRoster 
+
+                          const awayActualScore = matchup.awayRoster
                             ? calculateActualScore(matchup.awayRoster)
                             : matchup.awayScore;
 
+                          const homeScoreValue = isComplete
+                            ? homeActualScore.toFixed(1)
+                            : matchup.homePointsByScoringPeriod?.[
+                                matchup.matchupPeriod
+                              ]?.toFixed(1) || homeActualScore.toFixed(1);
+                          const awayScoreValue = isComplete
+                            ? awayActualScore.toFixed(1)
+                            : matchup.awayPointsByScoringPeriod?.[
+                                matchup.matchupPeriod
+                              ]?.toFixed(1) || awayActualScore.toFixed(1);
+
                           return (
-                            <tr key={matchup._id}>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center">
+                            <TableRow
+                              key={matchup._id}
+                              className="border-bc-hairline hover:bg-bc-panel-2"
+                            >
+                              <TableCell>
+                                <div className="flex items-center gap-3">
                                   {(awayTeam?.logo || awayTeam?.customLogo) && (
                                     <TeamLogo
                                       teamId={awayTeam._id}
                                       teamName={awayTeam.name}
                                       espnLogo={awayTeam.logo}
                                       customLogo={awayTeam.customLogo}
-                                      size="md"
-                                      className="w-8 h-8 rounded mr-3"
+                                      size="sm"
                                     />
                                   )}
-                                  <div>
-                                    <div
-                                      className={`font-medium ${matchup.winner === "away" ? "font-bold" : ""}`}
+                                  <div className="flex min-w-0 flex-col gap-0.5">
+                                    <span
+                                      className={cn(
+                                        "truncate font-display text-[15px] font-bold uppercase leading-none",
+                                        matchup.winner === "away"
+                                          ? "text-bc-ink"
+                                          : "text-bc-text-2"
+                                      )}
                                     >
-                                      {awayTeam?.name || "Unknown Team"}
-                                    </div>
-                                    <div className="text-sm text-gray-500">
+                                      {awayTeam?.name || "Unknown team"}
+                                    </span>
+                                    <span className="bc-label-sm text-bc-text-3 truncate">
                                       {awayTeam?.owner}
-                                    </div>
+                                    </span>
                                   </div>
                                 </div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <div className="text-lg font-bold">
-                                  {isComplete ? ( 
-                                    awayActualScore.toFixed(1)
-                                  ) : (
-                                    matchup.awayPointsByScoringPeriod?.[
-                                      matchup.matchupPeriod
-                                    ]?.toFixed(1) || awayActualScore.toFixed(1)
-                                  )} -{" "}
-                                  {isComplete ? (
-                                    homeActualScore.toFixed(1)
-                                  ) : (
-                                    matchup.homePointsByScoringPeriod?.[
-                                      matchup.matchupPeriod
-                                    ]?.toFixed(1) || homeActualScore.toFixed(1)
-                                  )}
-                                </div>
-                                {!isComplete && awayProjectedScore > 0 && homeProjectedScore > 0 && (
-                                  <div className="text-xs text-gray-500">
-                                    Proj:{" "}
-                                    {awayProjectedScore.toFixed(1)} -{" "}
-                                    {homeProjectedScore.toFixed(1)}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center">
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <span className="bc-num text-bc-ink">
+                                  {awayScoreValue} – {homeScoreValue}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-3">
                                   {(homeTeam?.logo || homeTeam?.customLogo) && (
                                     <TeamLogo
                                       teamId={homeTeam._id}
                                       teamName={homeTeam.name}
                                       espnLogo={homeTeam.logo}
                                       customLogo={homeTeam.customLogo}
-                                      size="md"
-                                      className="w-8 h-8 rounded mr-3"
+                                      size="sm"
                                     />
                                   )}
-                                  <div>
-                                    <div
-                                      className={`font-medium ${matchup.winner === "home" ? "font-bold" : ""}`}
+                                  <div className="flex min-w-0 flex-col gap-0.5">
+                                    <span
+                                      className={cn(
+                                        "truncate font-display text-[15px] font-bold uppercase leading-none",
+                                        matchup.winner === "home"
+                                          ? "text-bc-ink"
+                                          : "text-bc-text-2"
+                                      )}
                                     >
-                                      {homeTeam?.name || "Unknown Team"}
-                                    </div>
-                                    <div className="text-sm text-gray-500">
+                                      {homeTeam?.name || "Unknown team"}
+                                    </span>
+                                    <span className="bc-label-sm text-bc-text-3 truncate">
                                       {homeTeam?.owner}
-                                    </div>
+                                    </span>
                                   </div>
                                 </div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                              </TableCell>
+                              <TableCell className="hidden text-center md:table-cell">
                                 {isComplete && currentWeek > matchup.matchupPeriod ? (
                                   <Badge variant="secondary">Final</Badge>
-                                  ) : currentWeek === matchup.matchupPeriod ? (
-                                  <Badge variant="default">In Progress</Badge>
+                                ) : currentWeek === matchup.matchupPeriod ? (
+                                  <Badge variant="signal">In progress</Badge>
                                 ) : (
                                   <Badge variant="outline">Scheduled</Badge>
                                 )}
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           );
                         })}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </TabsContent>
             </Tabs>
-          </div>
+          </Panel>
         </TabsContent>
 
         <TabsContent value="top-scores">
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="mb-6 space-y-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h2 className="text-2xl font-bold">
-                  {scoreDirection === "highest" ? "Top" : "Lowest"} Scores
-                </h2>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <Tabs
-                    value={scoreDirection}
-                    onValueChange={(value) =>
-                      setScoreDirection(value as "highest" | "lowest")
-                    }
-                  >
-                    <TabsList>
-                      <TabsTrigger value="highest">Highest</TabsTrigger>
-                      <TabsTrigger value="lowest">Lowest</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                  <Tabs
-                    value={scoreType}
-                    onValueChange={(value) =>
-                      setScoreType(value as "single" | "twoWeek")
-                    }
-                  >
-                    <TabsList>
-                      <TabsTrigger value="single">Single Week</TabsTrigger>
-                      <TabsTrigger value="twoWeek">Two Week Games</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                  <Tabs
-                    value={topScoresView}
-                    onValueChange={(value) =>
-                      setTopScoresView(value as "all-time" | "season")
-                    }
-                  >
-                    <TabsList>
-                      <TabsTrigger value="all-time">All Time</TabsTrigger>
-                      <TabsTrigger value="season">Season</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-              </div>
+          <Panel padding="md">
+            <SectionHeader
+              title={scoreDirection === "highest" ? "Top scores" : "Lowest scores"}
+              kicker="League scoring leaders"
+            />
 
-              {/* Season selector with smooth transition */}
-              <div
-                className={`transition-all duration-300 ease-in-out overflow-hidden ${
-                  topScoresView === "season"
-                    ? "max-h-20 opacity-100"
-                    : "max-h-0 opacity-0"
-                }`}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Tabs
+                value={scoreDirection}
+                onValueChange={(value) => setScoreDirection(value as "highest" | "lowest")}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-600">Season:</span>
-                  <SeasonSelector
-                    currentSeason={currentSeason}
-                    selectedSeason={selectedSeason}
-                    onSeasonChange={setSelectedSeason}
-                    availableSeasons={availableSeasons}
-                  />
-                </div>
-              </div>
+                <TabsList>
+                  <TabsTrigger value="highest">Highest</TabsTrigger>
+                  <TabsTrigger value="lowest">Lowest</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Tabs
+                value={scoreType}
+                onValueChange={(value) => setScoreType(value as "single" | "twoWeek")}
+              >
+                <TabsList>
+                  <TabsTrigger value="single">Single week</TabsTrigger>
+                  <TabsTrigger value="twoWeek">Two-week</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Tabs
+                value={topScoresView}
+                onValueChange={(value) => setTopScoresView(value as "all-time" | "season")}
+              >
+                <TabsList>
+                  <TabsTrigger value="all-time">All-time</TabsTrigger>
+                  <TabsTrigger value="season">Season</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {topScoresView === "season" && (
+                <SeasonSelector
+                  currentSeason={currentSeason}
+                  selectedSeason={selectedSeason}
+                  onSeasonChange={setSelectedSeason}
+                  availableSeasons={availableSeasons}
+                />
+              )}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Rank
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Team
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {scoreType === "twoWeek" ? "Total Score" : "Score"}
-                    </th>
-                    {scoreType === "twoWeek" && (
-                      <>
-                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Week 1
-                        </th>
-                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Week 2
-                        </th>
-                      </>
-                    )}
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {scoreType === "twoWeek" ? "Weeks" : "Week"}
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Season
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {(() => {
-                    let scores;
-                    if (scoreDirection === "highest") {
-                      scores =
-                        topScoresView === "all-time"
-                          ? topScoresAllTime
-                          : topScoresBySeason;
-                    } else {
-                      scores =
-                        topScoresView === "all-time"
-                          ? lowestScoresAllTime
-                          : lowestScoresBySeason;
-                    }
-                    return scores.map((score, index) => {
+            {topScores.length === 0 ? (
+              <div className="mt-5">
+                <EmptyState
+                  icon={<Trophy className="size-6" strokeWidth={1.8} />}
+                  title="No scores yet"
+                  description="Scores will appear here once games have been played."
+                />
+              </div>
+            ) : (
+              <div className="mt-5 overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-bc-hairline hover:bg-transparent">
+                      <TableHead className="bc-label-sm text-bc-text-3">Rank</TableHead>
+                      <TableHead className="bc-label-sm text-bc-text-3">Team</TableHead>
+                      <TableHead className="bc-label-sm text-bc-text-3 text-right">
+                        {scoreType === "twoWeek" ? "Total" : "Score"}
+                      </TableHead>
+                      {scoreType === "twoWeek" && (
+                        <>
+                          <TableHead className="hidden bc-label-sm text-bc-text-3 text-right sm:table-cell">
+                            Week 1
+                          </TableHead>
+                          <TableHead className="hidden bc-label-sm text-bc-text-3 text-right sm:table-cell">
+                            Week 2
+                          </TableHead>
+                        </>
+                      )}
+                      <TableHead className="hidden bc-label-sm text-bc-text-3 text-right md:table-cell">
+                        {scoreType === "twoWeek" ? "Weeks" : "Week"}
+                      </TableHead>
+                      <TableHead className="hidden bc-label-sm text-bc-text-3 text-right md:table-cell">
+                        Season
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {topScores.map((score, index) => {
                       const team =
                         topScoresView === "all-time"
-                          ? getTeamByExternalIdAndSeason(
-                              score.teamId,
-                              score.seasonId
-                            )
+                          ? getTeamByExternalIdAndSeason(score.teamId, score.seasonId)
                           : getTeamByExternalId(score.teamId);
                       const isTwoWeek = scoreType === "twoWeek";
                       const twoWeekScore = score as TwoWeekScore;
                       const singleScore = score as SingleWeekScore;
 
                       return (
-                        <tr
+                        <TableRow
                           key={
                             isTwoWeek
                               ? `${twoWeekScore.matchupIds?.join("-")}-${score.isHome}`
                               : `${singleScore.matchupId}-${score.isHome}`
                           }
-                          className={index === 0 ? "bg-yellow-50" : ""}
+                          className={cn(
+                            "border-bc-hairline hover:bg-bc-panel-2",
+                            index === 0 && "bg-bc-panel-2"
+                          )}
                         >
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-lg font-bold">
-                              {index === 0 &&
-                                (scoreDirection === "highest"
-                                  ? "🏆"
-                                  : "💩")}{" "}
-                              #{index + 1}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              {(team?.logo || team?.customLogo) && (
+                          <TableCell>
+                            <RankPlate rank={index + 1} tone={index === 0 ? "first" : "default"} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              {team && (team.logo || team.customLogo) && (
                                 <TeamLogo
                                   teamId={team._id}
                                   teamName={team.name}
                                   espnLogo={team.logo}
                                   customLogo={team.customLogo}
-                                  size="md"
-                                  className="w-10 h-10 rounded mr-3"
+                                  size="sm"
                                 />
                               )}
-                              <div>
-                                <div className="font-medium">
-                                  {team?.name || "Unknown Team"}
-                                </div>
-                                <div className="text-sm text-gray-500">
+                              <div className="flex min-w-0 flex-col gap-0.5">
+                                <span className="truncate font-display text-[15px] font-bold uppercase leading-none text-bc-ink">
+                                  {team?.name || "Unknown team"}
+                                </span>
+                                <span className="bc-label-sm text-bc-text-3 truncate">
                                   {team?.owner}
-                                </div>
+                                </span>
                               </div>
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <div className="text-xl font-bold">
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className="bc-num text-[19px] text-bc-ink">
                               {isTwoWeek
                                 ? twoWeekScore.totalScore?.toFixed(1)
                                 : singleScore.score?.toFixed(1)}
-                            </div>
-                          </td>
+                            </span>
+                          </TableCell>
                           {scoreType === "twoWeek" && (
                             <>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <div className="text-sm">
+                              <TableCell className="hidden text-right sm:table-cell">
+                                <span className="bc-num text-bc-text-2">
                                   {twoWeekScore.week1Score?.toFixed(1)}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <div className="text-sm">
+                                </span>
+                              </TableCell>
+                              <TableCell className="hidden text-right sm:table-cell">
+                                <span className="bc-num text-bc-text-2">
                                   {twoWeekScore.week2Score?.toFixed(1)}
-                                </div>
-                              </td>
+                                </span>
+                              </TableCell>
                             </>
                           )}
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            {isTwoWeek
-                              ? `${twoWeekScore.startWeek}-${twoWeekScore.startWeek + 1}`
-                              : `Week ${singleScore.matchupPeriod}`}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            {score.seasonId}
-                          </td>
-                        </tr>
+                          <TableCell className="hidden text-right md:table-cell">
+                            <span className="bc-label-sm text-bc-text-2">
+                              {isTwoWeek
+                                ? `${twoWeekScore.startWeek}-${twoWeekScore.startWeek + 1}`
+                                : `Week ${singleScore.matchupPeriod}`}
+                            </span>
+                          </TableCell>
+                          <TableCell className="hidden text-right md:table-cell">
+                            <span className="bc-label-sm text-bc-text-2">{score.seasonId}</span>
+                          </TableCell>
+                        </TableRow>
                       );
-                    });
-                  })()}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </Panel>
         </TabsContent>
       </Tabs>
     </LeaguePageLayout>

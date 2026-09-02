@@ -14,9 +14,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Trophy, Users } from "lucide-react";
+import { TeamTile } from "@/components/broadcast";
 import { useLeagueSeason } from "@/hooks/use-league-season";
+import { cn } from "@/lib/utils";
 
 interface Team {
   _id: Id<"teams">;
@@ -50,11 +52,19 @@ interface CommissionerTeamSelectionProps {
   onClose?: () => void;
 }
 
+function initialsFor(team: Team): string {
+  if (team.abbreviation) return team.abbreviation.slice(0, 3).toUpperCase();
+  const words = team.name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "??";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
 export function CommissionerTeamSelection({ league, teams, onClose }: CommissionerTeamSelectionProps) {
   const [selectedTeamId, setSelectedTeamId] = useState<Id<"teams"> | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
   const [isOpen, setIsOpen] = useState(true);
-  
+
   const claimTeam = useMutation(api.teamClaims.claimTeam);
   const { currentSeason } = useLeagueSeason(league._id);
 
@@ -68,11 +78,11 @@ export function CommissionerTeamSelection({ league, teams, onClose }: Commission
         teamId: selectedTeamId,
         seasonId: currentSeason,
       });
-      
+
       toast.success("Team claimed successfully!", {
         description: "You are now the owner of this team."
       });
-      
+
       setIsOpen(false);
       // Page will automatically re-render and move to next flow
       onClose?.();
@@ -95,66 +105,55 @@ export function CommissionerTeamSelection({ league, teams, onClose }: Commission
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">
-            Claim Your Team
-          </DialogTitle>
-          <DialogDescription className="text-gray-600">
+          <DialogTitle>Claim your team</DialogTitle>
+          <DialogDescription>
             Select a team to claim for the {currentSeason} season in {league.name}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="my-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Users className="w-5 h-5" />
-            Available Teams
-          </h3>
-          <div className="grid gap-3 md:grid-cols-2 max-h-[400px] overflow-y-auto pr-2">
-            {teams.map((team) => (
-              <Card
-                key={team._id}
-                onClick={() => setSelectedTeamId(team._id)}
-                className={`
-                  p-4 cursor-pointer transition-all hover:shadow-md
-                  ${selectedTeamId === team._id
-                    ? "border-red-500 bg-red-50 ring-2 ring-red-500"
-                    : "border-gray-200 hover:border-gray-300"
-                  }
-                `}
-              >
-                <div className="flex items-start gap-3">
-                  {team.logo ? (
-                    <img 
-                      src={team.logo} 
-                      alt={`${team.name} logo`}
-                      className="w-12 h-12 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">
-                        {team.abbreviation || team.name.substring(0, 2).toUpperCase()}
-                      </span>
-                    </div>
+        <div className="flex flex-col gap-4">
+          <span className="bc-label flex items-center gap-2 text-bc-text-2">
+            <Users className="size-4" strokeWidth={1.8} />
+            Available teams
+          </span>
+          <div className="grid max-h-[420px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+            {teams.map((team) => {
+              const selected = selectedTeamId === team._id;
+              return (
+                <button
+                  key={team._id}
+                  type="button"
+                  onClick={() => setSelectedTeamId(team._id)}
+                  className={cn(
+                    "flex items-start gap-3 border p-3.5 text-left transition-colors",
+                    selected
+                      ? "border-bc-red bg-bc-panel-2"
+                      : "border-bc-hairline bg-bc-panel hover:border-bc-border-strong"
                   )}
-                  <div className="flex-1">
-                    <h4 className="font-bold text-gray-900">{team.name}</h4>
-                    <p className="text-sm text-gray-600">{team.owner}</p>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-sm font-medium text-gray-700">
+                >
+                  <TeamTile initials={initialsFor(team)} src={team.logo} size={44} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="truncate font-display text-[16px] font-bold text-bc-ink uppercase">
+                      {team.name}
+                    </span>
+                    <span className="truncate text-[13px] text-bc-text-2">{team.owner}</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="bc-num text-[13px] text-bc-text-2">
                         {team.record.wins}-{team.record.losses}
                         {team.record.ties > 0 && `-${team.record.ties}`}
                       </span>
-                      {selectedTeamId === team._id && (
-                        <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full">
+                      {selected && (
+                        <Badge variant="default" className="text-[10px]">
                           Selected
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -162,13 +161,9 @@ export function CommissionerTeamSelection({ league, teams, onClose }: Commission
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            onClick={handleClaimTeam}
-            disabled={!selectedTeamId || isClaiming}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            <Trophy className="w-4 h-4 mr-2" />
-            {isClaiming ? "Claiming..." : "Claim Team"}
+          <Button onClick={handleClaimTeam} disabled={!selectedTeamId || isClaiming}>
+            <Trophy className="size-4" strokeWidth={1.8} />
+            {isClaiming ? "Claiming…" : "Claim team"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -29,20 +29,23 @@ export function SeasonSelector({
   );
 
   return (
-    <Select
-      value={selectedSeason.toString()}
-      onValueChange={(value) => onSeasonChange(parseInt(value))}
-    >
-      <SelectTrigger className="w-[180px] bg-background border">
-        <SelectValue placeholder="Select a season" />
-      </SelectTrigger>
-      <SelectContent>
-        {seasons.map((season) => (
-          <SelectItem key={season} value={season.toString()}>
-            {season} Season
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-2">
+      <span className="bc-label-sm text-bc-text-3">Season</span>
+      <Select
+        value={selectedSeason.toString()}
+        onValueChange={(value) => onSeasonChange(parseInt(value))}
+      >
+        <SelectTrigger className="w-[140px]">
+          <SelectValue placeholder="Select a season" />
+        </SelectTrigger>
+        <SelectContent>
+          {seasons.map((season) => (
+            <SelectItem key={season} value={season.toString()}>
+              {season} Season
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

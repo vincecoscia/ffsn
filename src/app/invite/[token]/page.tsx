@@ -1,15 +1,56 @@
-"use client"
+"use client";
 
 import { use } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
+
+import {
+  BrandLogo,
+  ThemeToggle,
+  Panel,
+  StatBlock,
+  TeamTile,
+  LoadingScreen,
+} from "@/components/broadcast";
+import { Button } from "@/components/ui/button";
 
 interface InvitePageProps {
   params: Promise<{ token: string }>;
+}
+
+function getInitials(name: string | undefined) {
+  if (!name) return "FF";
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "FF";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+function StudioBackdrop({ children }: { children: ReactNode }) {
+  return (
+    <div className="bc-scan relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-bc-ground px-4 py-16">
+      <div
+        className="pointer-events-none absolute -top-24 -right-24 h-[420px] w-[420px] opacity-70"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(201,22,24,0.22) 0%, rgba(201,22,24,0.08) 35%, rgba(14,12,12,0) 68%)",
+        }}
+        aria-hidden="true"
+      />
+      <div className="absolute top-4 left-4 sm:top-6 sm:left-6">
+        <BrandLogo size="md" />
+      </div>
+      <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
+        <ThemeToggle />
+      </div>
+      <div className="relative w-full max-w-xl">{children}</div>
+    </div>
+  );
 }
 
 export default function InvitePage({ params }: InvitePageProps) {
@@ -17,14 +58,14 @@ export default function InvitePage({ params }: InvitePageProps) {
   const router = useRouter();
   const [isClaiming, setIsClaiming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Unwrap the params Promise
   const { token } = use(params);
-  
-  const invitation = useQuery(api.teamInvitations.getByToken, { 
-    token: token 
+
+  const invitation = useQuery(api.teamInvitations.getByToken, {
+    token: token,
   });
-  
+
   const claimInvitation = useMutation(api.teamInvitations.claimInvitation);
 
   const handleClaimTeam = async () => {
@@ -36,22 +77,18 @@ export default function InvitePage({ params }: InvitePageProps) {
 
     setIsClaiming(true);
     setError(null);
-    
+
     try {
-      console.log("🔄 Claiming invitation...");
       const leagueId = await claimInvitation({ token: token });
-      
-      console.log("✅ Invitation claimed successfully!");
-      console.log("🔄 Redirecting to league:", leagueId);
-      
+
       // Add a small delay before redirect to ensure Convex reactivity catches up
-      await new Promise(resolve => setTimeout(resolve, 250));
-      
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
       router.push(`/leagues/${leagueId}`);
     } catch (error) {
-      console.error("❌ Error claiming invitation:", error);
+      console.error("Error claiming invitation:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-      
+
       // Provide more specific error messages based on the error
       if (errorMessage.includes("database consistency issue")) {
         setError("There was a temporary database issue. Please try again in a moment.");
@@ -71,114 +108,84 @@ export default function InvitePage({ params }: InvitePageProps) {
 
   if (!userLoaded || invitation === undefined) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white">Loading...</div>
-      </div>
+      <StudioBackdrop>
+        <LoadingScreen message="Loading invitation" />
+      </StudioBackdrop>
     );
   }
 
   if (!invitation) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="bg-gray-800 rounded-lg p-8 max-w-md mx-auto text-center">
-          <div className="text-red-500 mb-4">
-            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0L4.168 15.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
+      <StudioBackdrop>
+        <Panel padding="lg" className="flex flex-col items-center gap-5 text-center">
+          <AlertTriangle className="size-10 text-bc-red-text" strokeWidth={1.6} />
+          <div className="flex flex-col gap-2">
+            <h1 className="bc-display text-bc-ink text-[32px]">Invalid invitation</h1>
+            <p className="text-[15px] leading-relaxed text-bc-text-2">
+              This invitation link is invalid or has expired.
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">Invalid Invitation</h1>
-          <p className="text-gray-400 mb-6">
-            This invitation link is invalid or has expired.
-          </p>
-          <Link
-            href="/dashboard"
-            className="bg-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors inline-block"
-          >
-            Go to Dashboard
-          </Link>
-        </div>
-      </div>
+          <Button asChild variant="glow" size="lg">
+            <Link href="/dashboard">Go to dashboard</Link>
+          </Button>
+        </Panel>
+      </StudioBackdrop>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
-      <header className="bg-red-600 border-b border-red-700">
-        <div className="container mx-auto px-6 py-4">
-          <Link href="/" className="flex items-center cursor-pointer">
-            <img 
-              src="/FFSN.png" 
-              alt="FFSN Logo" 
-              className="h-8 w-auto"
-            />
-          </Link>
+    <StudioBackdrop>
+      <Panel padding="lg" className="flex flex-col gap-8">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <CheckCircle2 className="size-10 text-bc-win" strokeWidth={1.6} />
+          <span className="bc-label text-bc-text-3">You&apos;re invited</span>
+          <h1 className="bc-display text-bc-ink text-[32px] sm:text-[40px]">
+            Join {invitation.league?.name}
+          </h1>
+          <p className="text-[15px] text-bc-text-2">Claim your team and get in the game.</p>
         </div>
-      </header>
 
-      <main className="container mx-auto px-6 py-8">
-        <div className="max-w-2xl mx-auto">
-          <div className="bg-gray-800 rounded-lg p-8 text-center">
-            <div className="mb-6">
-              <div className="text-green-500 mb-4">
-                <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">
-                You&apos;re Invited!
-              </h1>
-              <p className="text-gray-400 text-lg">
-                Join {invitation.league?.name} and claim your team
-              </p>
-            </div>
-
-            <div className="bg-gray-700 rounded-lg p-6 mb-6">
-              <div className="flex items-center justify-center gap-4 mb-4">
-                {invitation.team?.logo && (
-                  <img 
-                    src={invitation.team.logo} 
-                    alt={`${invitation.teamName} logo`}
-                    className="w-16 h-16 rounded-full"
-                  />
-                )}
-                <div>
-                  <h2 className="text-2xl font-bold text-white">
-                    {invitation.teamName}
-                  </h2>
-                  <p className="text-gray-400">
-                    {invitation.league?.name}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="text-sm text-gray-400">
-                Season: {invitation.seasonId}
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-900/50 border border-red-500 rounded-lg p-4 mb-6">
-                <p className="text-red-200">{error}</p>
-                <p className="text-red-300 text-sm mt-2">
-                  Please try again or contact support if the issue persists.
-                </p>
-              </div>
-            )}
-
-            <button
-              onClick={handleClaimTeam}
-              disabled={isClaiming}
-              className="bg-red-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isClaiming ? "Claiming Team..." : user ? "Claim Team" : "Sign In to Claim Team"}
-            </button>
-
-            <p className="text-gray-500 text-sm mt-4">
-              {user ? "Click to claim this team and join the league" : "You&apos;ll need to sign in first to claim this team"}
-            </p>
+        <div className="flex flex-col items-center gap-6 border-y border-bc-hairline py-6 sm:flex-row">
+          <TeamTile
+            initials={getInitials(invitation.teamName)}
+            src={invitation.team?.logo}
+            alt={invitation.teamName}
+            size={64}
+            tone="accent"
+          />
+          <div className="flex flex-1 flex-wrap items-center justify-center gap-x-10 gap-y-4 sm:justify-start">
+            <StatBlock label="Team" value={invitation.teamName} />
+            <StatBlock label="League" value={invitation.league?.name ?? "—"} />
+            <StatBlock label="Season" value={invitation.seasonId} />
           </div>
         </div>
-      </main>
-    </div>
+
+        {error && (
+          <div className="border border-bc-red bg-bc-red/10 p-4">
+            <p className="text-[14px] text-bc-red-text">{error}</p>
+            <p className="mt-1.5 text-[13px] text-bc-text-2">
+              Please try again or contact support if the issue persists.
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            onClick={handleClaimTeam}
+            disabled={isClaiming}
+            variant="glow"
+            size="lg"
+            className="w-full sm:w-auto"
+          >
+            {isClaiming ? "Claiming team..." : user ? "Claim team" : "Sign in to claim team"}
+          </Button>
+          <p className="text-[13px] text-bc-text-3">
+            {user
+              ? "Click to claim this team and join the league"
+              : "You'll need to sign in first to claim this team"}
+          </p>
+        </div>
+      </Panel>
+    </StudioBackdrop>
   );
 }

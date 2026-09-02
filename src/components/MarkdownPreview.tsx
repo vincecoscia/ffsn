@@ -11,11 +11,11 @@ interface MarkdownPreviewProps {
   maxLines?: number; // For preview mode
 }
 
-export function MarkdownPreview({ 
-  content, 
-  className, 
-  preview = false, 
-  maxLines = 3 
+export function MarkdownPreview({
+  content,
+  className,
+  preview = false,
+  maxLines = 3
 }: MarkdownPreviewProps) {
   // Helper function to get static line-clamp class
   const getLineClampClass = (lines: number) => {
@@ -46,7 +46,7 @@ export function MarkdownPreview({
 
     return (
       <p className={cn(
-        "text-gray-700 leading-relaxed",
+        "text-bc-body leading-relaxed",
         getLineClampClass(maxLines),
         className
       )}>
@@ -55,16 +55,20 @@ export function MarkdownPreview({
     );
   }
 
+  // Rendered markdown: no typographic classes of our own — headings, lists,
+  // blockquotes, tables and links are styled entirely by the `.bc-prose`
+  // wrapper the consuming page provides (see globals.css), so this stays a
+  // plain semantic render and never fights those tokens.
   return (
-    <div className={cn("prose prose-sm max-w-none prose-a:text-red-600 prose-a:hover:text-red-800", className)}>
-      <Markdown 
+    <div className={className}>
+      <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
           // Customize link rendering for security
           a: ({ ...props }) => (
-            <a 
-              {...props} 
-              target="_blank" 
+            <a
+              {...props}
+              target="_blank"
               rel="noopener noreferrer"
             />
           ),

@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Info } from "lucide-react";
 
@@ -113,10 +114,10 @@ export function TradeRumorDialog({
             Share trade rumors with Vinny for article generation
           </DialogDescription>
         </DialogHeader>
-        <div className="flex items-start gap-2 mb-4">
-          <Info className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-          <span className="text-sm text-muted-foreground">
-            Vinny will take your &quot;inside information&quot; and spin it into a mysterious rumor article. 
+        <div className="mb-4 flex items-start gap-2 border-l-2 border-l-bc-signal bg-bc-panel-2 p-3">
+          <Info className="mt-0.5 size-4 shrink-0 text-bc-signal" />
+          <span className="text-sm text-bc-text-2">
+            Vinny will take your &quot;inside information&quot; and spin it into a mysterious rumor article.
             Remember, he takes some creative liberties with the truth...
           </span>
         </div>
@@ -172,38 +173,37 @@ export function TradeRumorDialog({
                     ? "Which player(s) are you looking to trade?" 
                     : "Which player(s) were offered?"}
                 </Label>
-                <div className="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                <div className="flex max-h-48 flex-col gap-2 overflow-y-auto border border-bc-hairline p-3">
                   {playersToShow?.map((player) => (
-                    <div key={player._id} className="flex items-start space-x-2 py-2 hover:bg-muted/50 rounded-md px-2">
-                      <input
-                        type="checkbox"
+                    <div key={player._id} className="flex items-start gap-2.5 px-2 py-2 hover:bg-bc-panel-2">
+                      <Checkbox
                         id={player.playerId}
                         checked={selectedPlayers.includes(player.playerId)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
+                        onCheckedChange={(checked) => {
+                          if (checked) {
                             setSelectedPlayers([...selectedPlayers, player.playerId]);
                           } else {
                             setSelectedPlayers(selectedPlayers.filter(p => p !== player.playerId));
                           }
                         }}
-                        className="h-4 w-4 rounded border-gray-300 mt-1"
+                        className="mt-1"
                       />
-                      <Label 
-                        htmlFor={player.playerId} 
-                        className="text-sm font-normal cursor-pointer flex-1"
+                      <Label
+                        htmlFor={player.playerId}
+                        className="flex-1 cursor-pointer text-sm font-normal"
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <div className="font-medium">
+                            <div className="font-medium text-bc-ink">
                               {player.name} - {player.position} ({player.team})
                               {player.injured && (
-                                <span className="ml-2 text-xs text-destructive">
+                                <span className="ml-2 text-xs text-bc-red-text">
                                   {player.injuryStatus || "Injured"}
                                 </span>
                               )}
                             </div>
                             {player.stats && (
-                              <div className="text-xs text-muted-foreground mt-1">
+                              <div className="mt-1 text-xs text-bc-text-3">
                                 {player.stats.gamesPlayed > 0 && (
                                   <>
                                     {player.position === "QB" && (
@@ -227,17 +227,17 @@ export function TradeRumorDialog({
                                       <span>{player.stats.points.toFixed(1)} pts</span>
                                     )}
                                     {player.stats.pointsPerGame > 0 && (
-                                      <span className="ml-2">• {player.stats.pointsPerGame.toFixed(1)} PPG</span>
+                                      <span className="ml-2">&middot; {player.stats.pointsPerGame.toFixed(1)} PPG</span>
                                     )}
                                   </>
                                 )}
                               </div>
                             )}
                             {player.ownership && player.ownership.percentOwned > 0 && (
-                              <div className="text-xs text-muted-foreground mt-0.5">
+                              <div className="mt-0.5 text-xs text-bc-text-3">
                                 {player.ownership.percentOwned.toFixed(1)}% owned
                                 {player.ownership.averageDraftPosition && (
-                                  <span> • ADP: {player.ownership.averageDraftPosition.toFixed(1)}</span>
+                                  <span> &middot; ADP: {player.ownership.averageDraftPosition.toFixed(1)}</span>
                                 )}
                               </div>
                             )}
@@ -247,7 +247,7 @@ export function TradeRumorDialog({
                     </div>
                   ))}
                   {(!playersToShow || playersToShow.length === 0) && (
-                    <p className="text-sm text-muted-foreground">No players available</p>
+                    <p className="text-sm text-bc-text-2">No players available</p>
                   )}
                 </div>
               </div>

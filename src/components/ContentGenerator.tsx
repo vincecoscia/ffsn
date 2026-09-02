@@ -29,13 +29,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  SelectGroup,
-  SelectLabel,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -43,6 +39,8 @@ import { Sparkles, Zap, Clock, CreditCard, Users, MessageSquare } from "lucide-r
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { Panel, SectionHeader, PersonaAvatar, StatBlock, Spinner } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface ContentGeneratorProps {
   leagueId: Id<"leagues">;
@@ -50,12 +48,54 @@ interface ContentGeneratorProps {
 }
 
 const personas = [
-  { id: "mel-diaper", name: "Mel Diaper", tagline: "The Draft Disaster", icon: "🔥" },
-  { id: "stan-deviation", name: "Stan Deviation", tagline: "The Analytics Overlord", icon: "📊" },
-  { id: "vinny-marinara", name: "Vinny 'The Sauce' Marinara", tagline: "Trade Rumor Mogul", icon: "🕵️" },
-  { id: "chad-thunderhype", name: "Chad Thunderhype", tagline: "The Glaze God", icon: "🎉" },
-  { id: "rick-two-beers", name: "Rick 'Two Beers' O'Sullivan", tagline: "The Drunk Uncle", icon: "🍺" },
-  { id: "mike-harrison", name: "Mike Harrison", tagline: "The Professional Analyst", icon: "📝" },
+  { id: "mel-diaper", name: "Mel Diaper", tagline: "The Draft Disaster" },
+  { id: "stan-deviation", name: "Stan Deviation", tagline: "The Analytics Overlord" },
+  { id: "vinny-marinara", name: "Vinny \"The Sauce\" Marinara", tagline: "Trade Rumor Mogul" },
+  { id: "chad-thunderhype", name: "Chad Thunderhype", tagline: "The Glaze God" },
+  { id: "rick-two-beers", name: "Rick \"Two Beers\" O'Sullivan", tagline: "The Drunk Uncle" },
+  { id: "mike-harrison", name: "Mike Harrison", tagline: "The Professional Analyst" },
+];
+
+interface ContentTypeOption {
+  value: string;
+  label: string;
+  credits: number;
+}
+
+const CONTENT_TYPE_GROUPS: { label: string; options: ContentTypeOption[] }[] = [
+  {
+    label: "Weekly content",
+    options: [
+      { value: "weekly_recap", label: "Weekly recap", credits: 10 },
+      { value: "weekly_preview", label: "Weekly preview", credits: 10 },
+      { value: "power_rankings", label: "Power rankings", credits: 8 },
+      { value: "waiver_wire_report", label: "Waiver wire report", credits: 12 },
+      { value: "mock_draft", label: "Mock draft", credits: 15 },
+      { value: "draft_rankings", label: "Post-draft rankings & grades", credits: 15 },
+    ],
+  },
+  {
+    label: "Special content",
+    options: [
+      { value: "trade_analysis", label: "Trade analysis", credits: 5 },
+      { value: "rivalry_week_special", label: "Rivalry week special", credits: 10 },
+      { value: "emergency_hot_takes", label: "Emergency hot takes", credits: 5 },
+      { value: "trade_rumor_mill", label: "Trade rumor leak", credits: 8 },
+    ],
+  },
+  {
+    label: "Season content",
+    options: [
+      { value: "mid_season_awards", label: "Mid-season awards", credits: 12 },
+      { value: "championship_manifesto", label: "Championship manifesto", credits: 10 },
+      { value: "season_recap", label: "Season recap", credits: 20 },
+    ],
+  },
+];
+
+const PREMIUM_CONTENT_TYPES: ContentTypeOption[] = [
+  { value: "custom_roast", label: "Custom roast", credits: 25 },
+  { value: "season_welcome", label: "Season welcome package", credits: 30 },
 ];
 
 const formSchema = z.object({
@@ -68,6 +108,41 @@ const formSchema = z.object({
   articleGenerationTime: z.date().optional(),
   targetUserIds: z.array(z.string()).optional(),
 });
+
+function ContentTypeCard({
+  option,
+  selected,
+  onSelect,
+  tone = "default",
+}: {
+  option: ContentTypeOption;
+  selected: boolean;
+  onSelect: () => void;
+  tone?: "default" | "premium";
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex items-center justify-between gap-3 border px-4 py-3 text-left transition-colors",
+        selected
+          ? "border-bc-red bg-bc-red/10"
+          : tone === "premium"
+            ? "border-bc-red-deep/40 bg-bc-panel-2 hover:border-bc-red-deep"
+            : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+      )}
+    >
+      <span className="text-[15px] font-semibold text-bc-ink">{option.label}</span>
+      <span className="flex flex-none items-baseline gap-1">
+        <span className="bc-num text-[16px] text-bc-ink">{option.credits}</span>
+        <span className="bc-label-sm text-bc-text-3">cr</span>
+      </span>
+    </button>
+  );
+}
 
 export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorProps) {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -100,23 +175,23 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   // Get recommended personas for selected content type
   const getRecommendedPersonas = (selectedContentType: string) => {
     if (!selectedContentType) return personas;
-    
+
     const recommended = contentTypePersonaMap[selectedContentType];
     if (!recommended || recommended.includes("any")) return personas;
-    
+
     return personas.filter(p => recommended.includes(p.id));
   };
 
   // Watch content type changes
   const contentType = form.watch("contentType");
-  
+
   // Handle content type change
   useEffect(() => {
     if (contentType === "weekly_recap" && completedWeeks && completedWeeks.length > 0) {
       // Set default to most recent completed week
       const mostRecentSeason = completedWeeks[0];
       const mostRecentWeek = mostRecentSeason.weeks[mostRecentSeason.weeks.length - 1];
-      
+
       setSelectedSeason(mostRecentSeason.seasonId);
       setSelectedWeek(mostRecentWeek);
       form.setValue("seasonId", mostRecentSeason.seasonId);
@@ -125,7 +200,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       // For draft rankings, use current year instead of most recent completed season
       // since we want to analyze the current season's draft, not last season's
       const currentYear = new Date().getFullYear();
-      
+
       setSelectedSeason(currentYear);
       setSelectedWeek(null); // No week needed for draft rankings
       form.setValue("seasonId", currentYear);
@@ -145,7 +220,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       setShowTradeRumorDialog(true);
       return;
     }
-    
+
     setIsGenerating(true);
     try {
       // Check if we should request comments first
@@ -154,7 +229,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
           toast.error("Please select when the article should be generated");
           return;
         }
-        
+
         // For draft-related content, we need to pass draft data through
         // The backend will fetch the draft data when creating comment requests
         await createGenerationWithComments({
@@ -204,27 +279,27 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const handleTradeRumorConfirm = async (rumorData: TradeRumorData) => {
     setIsGenerating(true);
 
-    
+
     try {
       // Build context string for the trade rumor
       const contextParts = [];
-      
+
       if (rumorData.rumorType === "my_trade") {
         contextParts.push("Rumor source wants to trade their player(s).");
       } else {
         contextParts.push("Rumor about another team's trade offer.");
       }
-      
+
       if (rumorData.targetTeamId) {
         contextParts.push(`Offering team ID: ${rumorData.targetTeamId}`);
       }
-      
+
       contextParts.push(`Players involved: ${rumorData.playersInvolved.join(", ")}`);
-      
+
       if (rumorData.additionalContext) {
         contextParts.push(`Additional context: ${rumorData.additionalContext}`);
       }
-      
+
       await createGenerationRequest({
         leagueId,
         type: "trade_rumor_mill",
@@ -256,229 +331,134 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const recommendedPersonas = getRecommendedPersonas(selectedContentType);
 
   return (
-    <Card className="w-full max-w-4xl mx-auto">
-      <CardHeader className="text-center">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Sparkles className="h-6 w-6 text-primary" />
-          <CardTitle className="text-xl sm:text-2xl font-bold">AI Content Generator</CardTitle>
+    <Panel padding="lg" className="mx-auto w-full max-w-4xl">
+      <div className="flex flex-col items-center gap-2 pb-8 text-center">
+        <span className="bc-label text-bc-text-2">Production desk</span>
+        <div className="flex items-center gap-2.5">
+          <Sparkles className="size-6 text-bc-red-text" />
+          <h2 className="font-display text-[26px] font-extrabold uppercase tracking-[0.01em] text-bc-ink sm:text-[30px]">
+            AI content generator
+          </h2>
         </div>
-        <CardDescription className="text-sm sm:text-base">
-          Generate engaging fantasy football content with AI-powered personas
-        </CardDescription>
-      </CardHeader>
+        <p className="max-w-md text-[15px] text-bc-text-2">
+          Generate engaging fantasy football content with AI-powered personas.
+        </p>
+      </div>
 
-      <CardContent className="space-y-6 sm:space-y-8">
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleGenerate)} className="space-y-6 sm:space-y-8">
-            {/* Content Type Selection */}
-            <FormField
-              control={form.control}
-              name="contentType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-base font-semibold flex items-center gap-2">
-                    <Zap className="h-4 w-4" />
-                    Content Type
-                  </FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(handleGenerate)} className="flex flex-col gap-7 sm:gap-8">
+          {/* Content Type Selection */}
+          <FormField
+            control={form.control}
+            name="contentType"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2 text-base font-semibold">
+                  <Zap className="size-4" />
+                  Content type
+                </FormLabel>
+                <FormControl>
+                  <div role="radiogroup" className="flex flex-col gap-5">
+                    {CONTENT_TYPE_GROUPS.map((group) => (
+                      <div key={group.label} className="flex flex-col gap-2.5">
+                        <span className="bc-label-sm text-bc-text-3">{group.label}</span>
+                        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                          {group.options.map((option) => (
+                            <ContentTypeCard
+                              key={option.value}
+                              option={option}
+                              selected={field.value === option.value}
+                              onSelect={() => field.onChange(option.value)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
+                    {isCommissioner && (
+                      <div className="flex flex-col gap-2.5">
+                        <span className="bc-label-sm text-bc-text-3">Premium content</span>
+                        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                          {PREMIUM_CONTENT_TYPES.map((option) => (
+                            <ContentTypeCard
+                              key={option.value}
+                              option={option}
+                              selected={field.value === option.value}
+                              onSelect={() => field.onChange(option.value)}
+                              tone="premium"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </FormControl>
+                {selectedTemplate && (
+                  <FormDescription>{selectedTemplate.description}</FormDescription>
+                )}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* Season/Week Selection for Weekly Recap and Draft Rankings */}
+          {(selectedContentType === "weekly_recap" || selectedContentType === "draft_rankings") && (
+            (selectedContentType === "weekly_recap" && completedWeeks) ||
+            selectedContentType === "draft_rankings"
+          ) && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="seasonId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-base font-semibold">Season</FormLabel>
                     <FormControl>
-                      <SelectTrigger className="h-11 sm:h-12 w-full sm:max-w-xs">
-                        <SelectValue placeholder="Select Content Type" />
-                      </SelectTrigger>
+                      <SeasonSelector
+                        currentSeason={selectedContentType === "draft_rankings"
+                          ? new Date().getFullYear()
+                          : (completedWeeks && completedWeeks[0]?.seasonId || new Date().getFullYear())
+                        }
+                        selectedSeason={field.value || (selectedContentType === "draft_rankings"
+                          ? new Date().getFullYear()
+                          : (completedWeeks && completedWeeks[0]?.seasonId || new Date().getFullYear()))
+                        }
+                        onSeasonChange={(season) => {
+                          field.onChange(season);
+                          setSelectedSeason(season);
+                          // Reset week when season changes (only for weekly_recap)
+                          if (selectedContentType === "weekly_recap" && completedWeeks) {
+                            const seasonData = completedWeeks.find(s => s.seasonId === season);
+                            if (seasonData && seasonData.weeks.length > 0) {
+                              const defaultWeek = seasonData.weeks[seasonData.weeks.length - 1];
+                              setSelectedWeek(defaultWeek);
+                              form.setValue("week", defaultWeek);
+                            }
+                          }
+                        }}
+                        availableSeasons={selectedContentType === "draft_rankings"
+                          ? Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
+                          : (completedWeeks ? completedWeeks.map(s => s.seasonId) : [])
+                        }
+                      />
                     </FormControl>
-                    <SelectContent className="max-h-[60vh] overflow-y-auto sm:min-w-[20rem]">
-                      <SelectGroup>
-                      <SelectLabel>Weekly Content</SelectLabel>
-                        <SelectItem
-                          value="weekly_recap"
-                          textValue="Weekly Recap"
-                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
-                        >
-                          Weekly Recap
-                        </SelectItem>
-                        <SelectItem
-                          value="weekly_preview"
-                          textValue="Weekly Preview"
-                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
-                        >
-                          Weekly Preview
-                        </SelectItem>
-                        <SelectItem
-                          value="power_rankings"
-                          textValue="Power Rankings"
-                          rightAdornment={<Badge variant="secondary">8 credits</Badge>}
-                        >
-                          Power Rankings
-                        </SelectItem>
-                        <SelectItem
-                          value="waiver_wire_report"
-                          textValue="Waiver Wire Report"
-                          rightAdornment={<Badge variant="secondary">12 credits</Badge>}
-                        >
-                          Waiver Wire Report
-                        </SelectItem>
-                        <SelectItem
-                          value="mock_draft"
-                          textValue="Mock Draft"
-                          rightAdornment={<Badge variant="secondary">15 credits</Badge>}
-                        >
-                          Mock Draft
-                        </SelectItem>
-                        <SelectItem
-                          value="draft_rankings"
-                          textValue="Post-Draft Rankings & Grades"
-                          rightAdornment={<Badge variant="secondary">15 credits</Badge>}
-                        >
-                          Post-Draft Rankings & Grades
-                        </SelectItem>
-                      </SelectGroup>
-                      
-                      <SelectGroup>
-                        <SelectLabel>Special Content</SelectLabel>
-                        <SelectItem
-                          value="trade_analysis"
-                          textValue="Trade Analysis"
-                          rightAdornment={<Badge variant="secondary">5 credits</Badge>}
-                        >
-                          Trade Analysis
-                        </SelectItem>
-                        <SelectItem
-                          value="rivalry_week_special"
-                          textValue="Rivalry Week Special"
-                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
-                        >
-                          Rivalry Week Special
-                        </SelectItem>
-                        <SelectItem
-                          value="emergency_hot_takes"
-                          textValue="Emergency Hot Takes"
-                          rightAdornment={<Badge variant="secondary">5 credits</Badge>}
-                        >
-                          Emergency Hot Takes
-                        </SelectItem>
-                        <SelectItem
-                          value="trade_rumor_mill"
-                          textValue="Trade Rumor Leak"
-                          rightAdornment={<Badge variant="secondary">8 credits</Badge>}
-                        >
-                          Trade Rumor Leak
-                        </SelectItem>
-                      </SelectGroup>
-                      
-                      <SelectGroup>
-                        <SelectLabel>Season Content</SelectLabel>
-                        <SelectItem
-                          value="mid_season_awards"
-                          textValue="Mid-Season Awards"
-                          rightAdornment={<Badge variant="secondary">12 credits</Badge>}
-                        >
-                          Mid-Season Awards
-                        </SelectItem>
-                        <SelectItem
-                          value="championship_manifesto"
-                          textValue="Championship Manifesto"
-                          rightAdornment={<Badge variant="secondary">10 credits</Badge>}
-                        >
-                          Championship Manifesto
-                        </SelectItem>
-                        <SelectItem
-                          value="season_recap"
-                          textValue="Season Recap"
-                          rightAdornment={<Badge variant="secondary">20 credits</Badge>}
-                        >
-                          Season Recap
-                        </SelectItem>
-                      </SelectGroup>
-                      
-                      {isCommissioner && (
-                        <SelectGroup>
-                          <SelectLabel>Premium Content</SelectLabel>
-                          <SelectItem
-                            value="custom_roast"
-                            textValue="Custom Roast"
-                            rightAdornment={<Badge variant="destructive">25 credits</Badge>}
-                          >
-                            Custom Roast
-                          </SelectItem>
-                          <SelectItem
-                            value="season_welcome"
-                            textValue="Season Welcome Package"
-                            rightAdornment={<Badge variant="destructive">30 credits</Badge>}
-                          >
-                            Season Welcome Package
-                          </SelectItem>
-                        </SelectGroup>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {selectedTemplate && (
-                    <FormDescription className="text-sm text-muted-foreground">
-                      {selectedTemplate.description}
-                    </FormDescription>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* Season/Week Selection for Weekly Recap and Draft Rankings */}
-            {(selectedContentType === "weekly_recap" || selectedContentType === "draft_rankings") && (
-              (selectedContentType === "weekly_recap" && completedWeeks) || 
-              selectedContentType === "draft_rankings"
-            ) && (
-              <div className="space-y-4">
+              {selectedContentType === "weekly_recap" && (
                 <FormField
                   control={form.control}
-                  name="seasonId"
+                  name="week"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-base font-semibold">Season</FormLabel>
-                      <FormControl>
-                        <SeasonSelector
-                          currentSeason={selectedContentType === "draft_rankings" 
-                            ? new Date().getFullYear() 
-                            : (completedWeeks && completedWeeks[0]?.seasonId || new Date().getFullYear())
-                          }
-                          selectedSeason={field.value || (selectedContentType === "draft_rankings" 
-                            ? new Date().getFullYear() 
-                            : (completedWeeks && completedWeeks[0]?.seasonId || new Date().getFullYear()))
-                          }
-                          onSeasonChange={(season) => {
-                            field.onChange(season);
-                            setSelectedSeason(season);
-                            // Reset week when season changes (only for weekly_recap)
-                            if (selectedContentType === "weekly_recap" && completedWeeks) {
-                              const seasonData = completedWeeks.find(s => s.seasonId === season);
-                              if (seasonData && seasonData.weeks.length > 0) {
-                                const defaultWeek = seasonData.weeks[seasonData.weeks.length - 1];
-                                setSelectedWeek(defaultWeek);
-                                form.setValue("week", defaultWeek);
-                              }
-                            }
-                          }}
-                          availableSeasons={selectedContentType === "draft_rankings"
-                            ? Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
-                            : (completedWeeks ? completedWeeks.map(s => s.seasonId) : [])
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {selectedContentType === "weekly_recap" && (
-                  <FormField
-                    control={form.control}
-                    name="week"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-base font-semibold">Week</FormLabel>
-                      <Select 
+                      <FormLabel className="text-base font-semibold">Week</FormLabel>
+                      <Select
                         onValueChange={(value) => {
                           field.onChange(parseInt(value));
                           setSelectedWeek(parseInt(value));
-                        }} 
+                        }}
                         value={field.value?.toString()}
                       >
                         <FormControl>
@@ -503,279 +483,299 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                     </FormItem>
                   )}
                 />
-                )}
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {/* Persona Selection */}
-            <FormField
-              control={form.control}
-              name="persona"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-base font-semibold">
-                    AI Persona
-                  </FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="grid grid-cols-1 md:grid-cols-2 gap-4"
-                    >
-                      {recommendedPersonas.map((persona) => (
-                        <div key={persona.id} className="flex items-center space-x-2">
-                          <RadioGroupItem 
-                            value={persona.id} 
-                            id={persona.id}
-                            className="sr-only peer"
-                          />
+          {/* Persona Selection */}
+          <FormField
+            control={form.control}
+            name="persona"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-base font-semibold">AI persona</FormLabel>
+                <FormControl>
+                  <RadioGroup
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                    className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                  >
+                    {recommendedPersonas.map((persona) => {
+                      const selected = field.value === persona.id;
+                      return (
+                        <div key={persona.id} className="flex items-center">
+                          <RadioGroupItem value={persona.id} id={persona.id} className="sr-only" />
                           <Label
                             htmlFor={persona.id}
-                            className="flex items-start gap-3 p-3 sm:p-4 rounded-lg border-2 cursor-pointer transition-all hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 w-full break-words leading-tight"
+                            className={cn(
+                              "flex w-full cursor-pointer items-center gap-3 border p-3.5 transition-colors",
+                              selected
+                                ? "border-bc-red bg-bc-plate text-bc-plate-fg"
+                                : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                            )}
                           >
-                            <span className="text-2xl">{persona.icon}</span>
-                            <div className="flex-1 text-left">
-                              <div className="font-semibold text-sm sm:text-base">{persona.name}</div>
-                              <div className="text-sm text-muted-foreground">
+                            <PersonaAvatar
+                              persona={persona.name}
+                              size={44}
+                              className="border border-bc-border-strong"
+                            />
+                            <div className="min-w-0 flex-1 text-left">
+                              <div className="truncate font-display text-[16px] font-bold uppercase tracking-[0.01em]">
+                                {persona.name}
+                              </div>
+                              <div
+                                className={cn(
+                                  "truncate text-sm",
+                                  selected ? "text-bc-plate-fg/70" : "text-bc-text-3"
+                                )}
+                              >
                                 {persona.tagline}
                               </div>
                             </div>
                           </Label>
                         </div>
-                      ))}
-                    </RadioGroup>
-                  </FormControl>
-                  <FormDescription>
-                    Choose the AI persona that will write your content
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+                      );
+                    })}
+                  </RadioGroup>
+                </FormControl>
+                <FormDescription>
+                  Choose the AI persona that will write your content
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* Custom Context */}
+          <FormField
+            control={form.control}
+            name="customContext"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-base font-semibold">
+                  Additional context (optional)
+                </FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder="Add any specific events, rivalries, or context you want included in the content..."
+                    className="min-h-[100px] resize-none"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  Provide specific details to make your content more personalized and relevant
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* Comment Request Section */}
+          <Panel lifted padding="md">
+            <SectionHeader
+              size="sm"
+              kicker="Optional"
+              title={
+                <span className="flex items-center gap-2">
+                  <MessageSquare className="size-4" />
+                  Request team comments
+                </span>
+              }
             />
+            <p className="mt-3 text-sm text-bc-text-2">
+              Gather feedback from league members before generating the article.
+            </p>
 
-            {/* Custom Context */}
-            <FormField
-              control={form.control}
-              name="customContext"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-base font-semibold">
-                    Additional Context (Optional)
-                  </FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Add any specific events, rivalries, or context you want included in the content..."
-                      className="min-h-[100px] resize-none"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Provide specific details to make your content more personalized and relevant
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Comment Request Section */}
-            <Card className="border-2">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" />
-                  Request Team Comments
-                </CardTitle>
-                <CardDescription>
-                  Gather feedback from league members before generating the article
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="requestComments"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Enable Comment Requests</FormLabel>
-                        <FormDescription>
-                          Send questions to selected teams and wait for their responses
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={(checked) => {
-                            field.onChange(checked);
-                            setRequestComments(checked);
-                            if (!checked) {
-                              form.setValue("targetUserIds", []);
-                              setSelectedUserIds([]);
-                            }
-                          }}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                {requestComments && (
-                  <>
-                    <FormField
-                      control={form.control}
-                      name="articleGenerationTime"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Article Generation Date & Time</FormLabel>
-                          <FormControl>
-                            <DateTimePicker
-                              value={field.value}
-                              onChange={field.onChange}
-                              placeholder="Select when to generate the article"
-                              minDate={new Date(Date.now() + 15 * 60 * 1000)} // Minimum 15 minutes from now
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            The article will be generated at this exact date and time, regardless of comment responses
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="targetUserIds"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="flex items-center gap-2">
-                            <Users className="h-4 w-4" />
-                            Select Teams to Request Comments From
-                          </FormLabel>
-                          <div className="space-y-2 rounded-lg border p-3 max-h-[200px] overflow-y-auto">
-                            {claimedTeams && claimedTeams.length > 0 ? (
-                              claimedTeams.map((team) => (
-                                <div key={team._id} className="flex items-center space-x-2">
-                                  <Checkbox
-                                    id={team._id}
-                                    checked={field.value?.includes(team._id)}
-                                    onCheckedChange={(checked: boolean) => {
-                                      const currentValues = field.value || [];
-                                      if (checked) {
-                                        field.onChange([...currentValues, team._id]);
-                                        setSelectedUserIds([...currentValues, team._id]);
-                                      } else {
-                                        const newValues = currentValues.filter(id => id !== team._id);
-                                        field.onChange(newValues);
-                                        setSelectedUserIds(newValues);
-                                      }
-                                    }}
-                                  />
-                                  <Label
-                                    htmlFor={team._id}
-                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                  >
-                                    {team.name}
-                                  </Label>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-sm text-muted-foreground">
-                                No teams have been claimed yet. Team members need to claim their teams before you can request comments.
-                              </p>
-                            )}
-                          </div>
-                          <FormDescription>
-                            Selected teams will receive personalized questions about the article topic
-                          </FormDescription>
-                        </FormItem>
-                      )}
-                    />
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Generation Summary */}
-            {selectedTemplate && selectedPersona && (
-              <>
-                <Separator />
-                <Card className="bg-muted/50">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      Generation Summary
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                          <span className="font-medium">Content Type:</span>
-                          <span className="text-sm">{selectedTemplate.name}</span>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                          <span className="font-medium">Persona:</span>
-                          <span className="text-sm">{personas.find(p => p.id === selectedPersona)?.name}</span>
-                        </div>
-                        {selectedContentType === "weekly_recap" && selectedSeason && selectedWeek && (
-                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                            <span className="font-medium">Period:</span>
-                            <span className="text-sm">{selectedSeason} - Week {selectedWeek}</span>
-                          </div>
-                        )}
-                        {selectedContentType === "draft_rankings" && selectedSeason && (
-                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                            <span className="font-medium">Season:</span>
-                            <span className="text-sm">{selectedSeason} Draft</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                          <span className="font-medium">Estimated Length:</span>
-                          <span className="text-sm">~{selectedTemplate.estimatedWords} words</span>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
-                          <span className="font-medium">Credits Required:</span>
-                          <Badge variant="outline" className="flex items-center gap-1">
-                            <CreditCard className="h-3 w-3" />
-                            {selectedTemplate.creditCost}
-                          </Badge>
-                        </div>
-                      </div>
+            <div className="mt-5 flex flex-col gap-4">
+              <FormField
+                control={form.control}
+                name="requestComments"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between gap-4 border border-bc-hairline bg-bc-panel p-3.5">
+                    <div className="flex flex-col gap-0.5">
+                      <FormLabel className="text-base">Enable comment requests</FormLabel>
+                      <FormDescription>
+                        Send questions to selected teams and wait for their responses
+                      </FormDescription>
                     </div>
-                  </CardContent>
-                </Card>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={(checked) => {
+                          field.onChange(checked);
+                          setRequestComments(checked);
+                          if (!checked) {
+                            form.setValue("targetUserIds", []);
+                            setSelectedUserIds([]);
+                          }
+                        }}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {requestComments && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="articleGenerationTime"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Article generation date &amp; time</FormLabel>
+                        <FormControl>
+                          <DateTimePicker
+                            value={field.value}
+                            onChange={field.onChange}
+                            placeholder="Select when to generate the article"
+                            minDate={new Date(Date.now() + 15 * 60 * 1000)} // Minimum 15 minutes from now
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          The article will be generated at this exact date and time, regardless of comment responses
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="targetUserIds"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <Users className="size-4" />
+                          Select teams to request comments from
+                        </FormLabel>
+                        <div className="flex max-h-[200px] flex-col gap-2 overflow-y-auto border border-bc-hairline bg-bc-panel p-3.5">
+                          {claimedTeams && claimedTeams.length > 0 ? (
+                            claimedTeams.map((team) => (
+                              <div key={team._id} className="flex items-center gap-2.5">
+                                <Checkbox
+                                  id={team._id}
+                                  checked={field.value?.includes(team._id)}
+                                  onCheckedChange={(checked: boolean) => {
+                                    const currentValues = field.value || [];
+                                    if (checked) {
+                                      field.onChange([...currentValues, team._id]);
+                                      setSelectedUserIds([...currentValues, team._id]);
+                                    } else {
+                                      const newValues = currentValues.filter(id => id !== team._id);
+                                      field.onChange(newValues);
+                                      setSelectedUserIds(newValues);
+                                    }
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={team._id}
+                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                >
+                                  {team.name}
+                                </Label>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-bc-text-2">
+                              No teams have been claimed yet. Team members need to claim their teams before you can request comments.
+                            </p>
+                          )}
+                        </div>
+                        <FormDescription>
+                          Selected teams will receive personalized questions about the article topic
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+            </div>
+          </Panel>
+
+          {/* Generation Summary */}
+          {selectedTemplate && selectedPersona && (
+            <>
+              <Separator />
+              <Panel lifted padding="md">
+                <SectionHeader
+                  size="sm"
+                  kicker="Before you generate"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <Clock className="size-4" />
+                      Generation summary
+                    </span>
+                  }
+                />
+                <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-medium text-bc-text-2">Content type</span>
+                      <span className="text-bc-ink">{selectedTemplate.name}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-medium text-bc-text-2">Persona</span>
+                      <span className="text-bc-ink">{personas.find(p => p.id === selectedPersona)?.name}</span>
+                    </div>
+                    {selectedContentType === "weekly_recap" && selectedSeason && selectedWeek && (
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="font-medium text-bc-text-2">Period</span>
+                        <span className="text-bc-ink">{selectedSeason} &middot; Week {selectedWeek}</span>
+                      </div>
+                    )}
+                    {selectedContentType === "draft_rankings" && selectedSeason && (
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="font-medium text-bc-text-2">Season</span>
+                        <span className="text-bc-ink">{selectedSeason} draft</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-6 sm:justify-end">
+                    <StatBlock label="Estimated length" value={`~${selectedTemplate.estimatedWords}w`} />
+                    <StatBlock
+                      label="Credits required"
+                      value={
+                        <span className="inline-flex items-center gap-1.5">
+                          <CreditCard className="size-4 text-bc-text-3" />
+                          {selectedTemplate.creditCost}
+                        </span>
+                      }
+                    />
+                  </div>
+                </div>
+              </Panel>
+            </>
+          )}
+
+          {/* Generate Button */}
+          <Button
+            type="submit"
+            variant="glow"
+            size="lg"
+            className="w-full"
+            disabled={isGenerating}
+          >
+            {isGenerating ? (
+              <>
+                <Spinner size={16} className="[&>span]:bg-white" />
+                Generating content&hellip;
+              </>
+            ) : form.watch("contentType") === "trade_rumor_mill" ? (
+              <>
+                <Sparkles className="size-4" />
+                Configure trade rumor
+              </>
+            ) : (
+              <>
+                <Sparkles className="size-4" />
+                Generate content
+                {selectedTemplate && <span className="bc-num opacity-80">&middot; {selectedTemplate.creditCost} credits</span>}
               </>
             )}
+          </Button>
+        </form>
+      </Form>
 
-            {/* Generate Button */}
-            <Button
-              type="submit"
-              size="lg"
-              className="w-full h-12 text-base font-semibold"
-              disabled={isGenerating}
-            >
-              {isGenerating ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Generating Content...
-                </>
-              ) : form.watch("contentType") === "trade_rumor_mill" ? (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Configure Trade Rumor
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Generate Content
-                </>
-              )}
-            </Button>
-          </form>
-        </Form>
-      </CardContent>
-      
       {/* Trade Rumor Dialog */}
       <TradeRumorDialog
         open={showTradeRumorDialog}
@@ -784,6 +784,6 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
         currentTeamId={currentUserTeam?._id}
         onConfirm={handleTradeRumorConfirm}
       />
-    </Card>
+    </Panel>
   );
 }

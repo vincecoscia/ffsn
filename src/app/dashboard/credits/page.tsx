@@ -5,10 +5,10 @@ import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader, Panel, SectionHeader, StatBlock, Chip, Spinner } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
-import { Zap, CreditCard, History, Plus, AlertCircle, Check, ArrowLeft } from "lucide-react";
+import { CreditCard, History, Plus, AlertCircle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 const CREDIT_PACKAGES = [
@@ -23,7 +23,7 @@ const CREDIT_PACKAGES = [
   },
   {
     id: "value",
-    name: "Value Pack", 
+    name: "Value Pack",
     credits: 250,
     price: 19.99,
     popular: true,
@@ -39,6 +39,19 @@ const CREDIT_PACKAGES = [
     description: "For power users and multiple leagues",
     features: ["500 AI credits", "~33-40 articles", "Valid for 12 months", "25% bonus credits"],
   },
+];
+
+const LIFETIME_STATS = [
+  { label: "Earned", key: "totalEarned" as const },
+  { label: "Spent", key: "totalSpent" as const },
+  { label: "Purchased", key: "totalPurchased" as const },
+];
+
+const CONTENT_COSTS = [
+  { label: "Weekly recap", cost: 15 },
+  { label: "Trade analysis", cost: 20 },
+  { label: "Power rankings", cost: 18 },
+  { label: "Custom roast", cost: 8 },
 ];
 
 export default function CreditsPage() {
@@ -97,198 +110,167 @@ export default function CreditsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-red-900">
-    <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-6xl">
-      <div className="mb-8">
-
-        <div className="flex justify-between items-center">
-        <Button variant="secondary" className="mb-4 !bg-gray-700 !hover:bg-gray-600 text-white flex items-center">
-          <Link href="/dashboard" className="text-white flex items-center">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
+    <div className="min-h-screen bg-bc-ground">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-12">
+        <Button asChild variant="outline" size="sm" className="mb-6">
+          <Link href="/dashboard">
+            <ArrowLeft className="size-4" strokeWidth={2} />
+            Back to dashboard
           </Link>
         </Button>
-        </div>
-        <h1 className="text-3xl font-bold text-white mb-2 flex items-center">
-          <Zap className="w-8 h-8 mr-3 text-yellow-400" />
-          Credits
-        </h1>
-        <p className="text-gray-400">
-          Purchase credits to generate AI-powered fantasy football content
-        </p>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Current Balance */}
-        <Card className="bg-gray-800 border-gray-700">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center">
-              <Zap className="w-5 h-5 mr-2 text-yellow-400" />
-              Current Balance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-yellow-400 mb-2">
-              {userCredits?.balance || 0}
-            </div>
-            <p className="text-gray-400 text-sm">credits available</p>
-          </CardContent>
-        </Card>
+        <PageHeader
+          kicker="Wallet"
+          title="Credits"
+          description="Purchase credits to generate AI-powered fantasy football content."
+        />
 
-        {/* Lifetime Stats */}
-        <Card className="bg-gray-800 border-gray-700">
-          <CardHeader>
-            <CardTitle className="text-white">Lifetime Stats</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Earned:</span>
-              <span className="text-green-400">{userCredits?.totalEarned || 0}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Spent:</span>
-              <span className="text-red-400">{userCredits?.totalSpent || 0}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Purchased:</span>
-              <span className="text-blue-400">{userCredits?.totalPurchased || 0}</span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <Panel padding="md" className="flex flex-col justify-center">
+            <StatBlock label="Current balance" value={userCredits?.balance ?? 0} size="lg" />
+          </Panel>
 
-        {/* Credit Costs */}
-        <Card className="bg-gray-800 border-gray-700">
-          <CardHeader>
-            <CardTitle className="text-white">Content Costs</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Weekly Recap:</span>
-              <span className="text-white">15 credits</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Trade Analysis:</span>
-              <span className="text-white">20 credits</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Power Rankings:</span>
-              <span className="text-white">18 credits</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Custom Roast:</span>
-              <span className="text-white">8 credits</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="bg-red-900/50 border border-red-500 p-4 rounded-lg mb-6 flex items-start">
-          <AlertCircle className="w-5 h-5 text-red-400 mr-3 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-red-200 font-medium">Purchase Error</p>
-            <p className="text-red-300 text-sm mt-1">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Credit Packages */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-white mb-4">Purchase Credits</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {CREDIT_PACKAGES.map((pkg) => (
-            <Card 
-              key={pkg.id} 
-              className={`bg-gray-800 border-gray-700 relative ${
-                pkg.popular ? 'border-red-500' : ''
-              }`}
-            >
-              {pkg.popular && (
-                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                  <Badge className="bg-red-600 text-white">Most Popular</Badge>
+          <Panel padding="md" className="flex flex-col gap-4">
+            <SectionHeader size="sm" title="Lifetime stats" />
+            <dl className="flex flex-col gap-2.5">
+              {LIFETIME_STATS.map(({ label, key }) => (
+                <div key={key} className="flex items-center justify-between gap-4">
+                  <dt className="flex items-center gap-2.5 text-sm text-bc-text-2">
+                    <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                    {label}
+                  </dt>
+                  <dd className="bc-num text-bc-ink">{userCredits?.[key] ?? 0}</dd>
                 </div>
-              )}
-              
-              <CardHeader>
-                <CardTitle className="text-white flex items-center justify-between">
-                  {pkg.name}
-                  <div className="text-right">
-                    <div className="text-2xl font-bold">${pkg.price}</div>
-                    <div className="text-xs text-gray-400">one-time</div>
-                  </div>
-                </CardTitle>
-                <CardDescription>{pkg.description}</CardDescription>
-              </CardHeader>
-              
-              <CardContent className="space-y-4">
-                <div className="text-center py-4">
-                  <div className="text-4xl font-bold text-yellow-400 mb-2">
-                    {pkg.credits}
-                  </div>
-                  <div className="text-gray-400">credits</div>
+              ))}
+            </dl>
+          </Panel>
+
+          <Panel padding="md" className="flex flex-col gap-4">
+            <SectionHeader size="sm" title="Content costs" />
+            <dl className="flex flex-col gap-2.5">
+              {CONTENT_COSTS.map(({ label, cost }) => (
+                <div key={label} className="flex items-center justify-between gap-4">
+                  <dt className="flex items-center gap-2.5 text-sm text-bc-text-2">
+                    <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                    {label}
+                  </dt>
+                  <dd className="bc-num text-bc-ink">{cost}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        </div>
+
+        {error && (
+          <Panel padding="md" className="mt-8 flex items-start gap-3 border-bc-red">
+            <AlertCircle className="mt-0.5 size-5 flex-none text-bc-red-text" strokeWidth={1.8} />
+            <div>
+              <p className="font-display font-bold text-bc-ink uppercase">Purchase error</p>
+              <p className="mt-1 text-sm text-bc-text-2">{error}</p>
+            </div>
+          </Panel>
+        )}
+
+        <div className="mt-10">
+          <SectionHeader title="Purchase credits" />
+          <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
+            {CREDIT_PACKAGES.map((pkg) => (
+              <Panel
+                key={pkg.id}
+                padding="md"
+                className={cn(
+                  "relative flex flex-col gap-5",
+                  pkg.popular && "border-bc-red"
+                )}
+              >
+                {pkg.popular && (
+                  <Chip
+                    variant="red"
+                    className="absolute -top-3.5 left-1/2 -translate-x-1/2"
+                  >
+                    Most popular
+                  </Chip>
+                )}
+
+                <div className="flex flex-col gap-1">
+                  <h3 className="font-display text-xl font-extrabold text-bc-ink uppercase">
+                    {pkg.name}
+                  </h3>
+                  <p className="text-sm text-bc-text-2">{pkg.description}</p>
                 </div>
 
-                <ul className="space-y-2">
-                  {pkg.features.map((feature, index) => (
-                    <li key={index} className="flex items-center text-sm">
-                      <Check className="w-4 h-4 text-green-400 mr-2 flex-shrink-0" />
-                      <span className="text-gray-300">{feature}</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="bc-num text-[36px] font-extrabold text-bc-ink">
+                    ${pkg.price}
+                  </span>
+                  <span className="bc-label-sm text-bc-text-3">one-time</span>
+                </div>
+
+                <div className="border-t border-bc-hairline pt-4">
+                  <StatBlock label="Credits" value={pkg.credits} size="lg" />
+                </div>
+
+                <ul className="flex flex-col gap-2">
+                  {pkg.features.map((feature) => (
+                    <li key={feature} className="flex items-center gap-2.5 text-sm text-bc-body">
+                      <span className="bc-sep" aria-hidden="true" />
+                      {feature}
                     </li>
                   ))}
                 </ul>
 
                 <Button
+                  type="button"
                   onClick={() => handlePurchase(pkg.id)}
                   disabled={isProcessing}
-                  className={`w-full ${
-                    pkg.popular 
-                      ? 'bg-red-600 hover:bg-red-700' 
-                      : 'bg-gray-700 hover:bg-gray-600'
-                  }`}
+                  className="mt-auto w-full"
                 >
                   {isProcessing && selectedPackage === pkg.id ? (
                     <>
-                      <CreditCard className="w-4 h-4 mr-2 animate-pulse" />
-                      Processing...
+                      <Spinner size={14} />
+                      Processing…
                     </>
                   ) : (
                     <>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Purchase Credits
+                      <Plus className="size-4" strokeWidth={2} />
+                      Purchase credits
                     </>
                   )}
                 </Button>
-              </CardContent>
-            </Card>
-          ))}
+              </Panel>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Credit History */}
-      <Card className="bg-gray-800 border-gray-700">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center">
-            <History className="w-5 h-5 mr-2" />
-            Recent Transactions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        <Panel padding="md" className="mt-10 flex flex-col gap-4">
+          <SectionHeader
+            title="Recent transactions"
+            actions={<History className="size-5 text-bc-text-3" strokeWidth={1.8} />}
+          />
           {creditHistory && creditHistory.length > 0 ? (
-            <div className="space-y-3">
+            <div className="flex flex-col">
               {creditHistory.map((transaction) => (
-                <div key={transaction.id} className="flex items-center justify-between py-3 border-b border-gray-700 last:border-b-0">
-                  <div>
-                    <p className="text-white font-medium">{transaction.description}</p>
-                    <p className="text-gray-400 text-sm">{formatDate(transaction.createdAt)}</p>
+                <div
+                  key={transaction.id}
+                  className="flex items-center justify-between gap-4 border-t border-bc-hairline py-3.5 first:border-t-0"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <p className="font-display font-semibold text-bc-ink">
+                      {transaction.description}
+                    </p>
+                    <p className="text-sm text-bc-text-3">{formatDate(transaction.createdAt)}</p>
                   </div>
-                  <div className="text-right">
-                    <div className={`font-bold ${
-                      transaction.amount > 0 ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {transaction.amount > 0 ? '+' : ''}{transaction.amount} credits
+                  <div className="flex flex-col items-end gap-0.5">
+                    <div
+                      className={cn(
+                        "bc-num",
+                        transaction.amount > 0 ? "text-bc-win" : "text-bc-red-text"
+                      )}
+                    >
+                      {transaction.amount > 0 ? "+" : ""}
+                      {transaction.amount} credits
                     </div>
-                    <div className="text-gray-400 text-sm">
+                    <div className="text-sm text-bc-text-3">
                       Balance: {transaction.balanceAfter}
                     </div>
                   </div>
@@ -296,13 +278,13 @@ export default function CreditsPage() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <p className="text-gray-400">No credit transactions yet</p>
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <CreditCard className="size-6 text-bc-text-3" strokeWidth={1.8} />
+              <p className="text-bc-text-2">No credit transactions yet</p>
             </div>
           )}
-          </CardContent>
-        </Card>
-      </div>
+        </Panel>
+      </main>
     </div>
   );
 }

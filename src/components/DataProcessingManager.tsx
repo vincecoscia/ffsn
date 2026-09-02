@@ -7,6 +7,7 @@ import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Cpu, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface DataProcessingManagerProps {
   leagueId: Id<"leagues">;
@@ -45,8 +46,8 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
   const processLeagueData = useMutation(api.dataProcessing.runDataProcessing);
 
   const updateStepStatus = (stepId: string, status: ProcessingStep["status"]) => {
-    setProcessingSteps(prev => 
-      prev.map(step => 
+    setProcessingSteps(prev =>
+      prev.map(step =>
         step.id === stepId ? { ...step, status } : step
       )
     );
@@ -54,9 +55,9 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
 
   const handleProcessData = async () => {
     setIsProcessing(true);
-    
+
     // Reset all steps to pending
-    setProcessingSteps(prev => 
+    setProcessingSteps(prev =>
       prev.map(step => ({ ...step, status: "pending" }))
     );
 
@@ -64,19 +65,19 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
       // Process team metrics
       updateStepStatus("team-metrics", "processing");
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate processing
-      
+
       // Process rivalries
       updateStepStatus("team-metrics", "completed");
       updateStepStatus("rivalries", "processing");
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       // Process manager activity
       updateStepStatus("rivalries", "completed");
       updateStepStatus("manager-activity", "processing");
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       // Run the actual data processing
-      const result = await processLeagueData({ 
+      const result = await processLeagueData({
         leagueId,
         seasonId: new Date().getFullYear()
       });
@@ -95,7 +96,7 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
       if (currentStep) {
         updateStepStatus(currentStep.id, "error");
       }
-      
+
       toast.error("Failed to process league data", {
         description: error instanceof Error ? error.message : "Please try again or contact support."
       });
@@ -108,69 +109,59 @@ export function DataProcessingManager({ leagueId }: DataProcessingManagerProps) 
   const getStepIcon = (status: ProcessingStep["status"]) => {
     switch (status) {
       case "pending":
-        return <div className="w-5 h-5 rounded-full border-2 border-gray-300" />;
+        return <div className="size-5 border-2 border-bc-border-strong" />;
       case "processing":
-        return <Loader2 className="w-5 h-5 animate-spin text-red-600" />;
+        return <Loader2 className="size-5 animate-spin text-bc-red-text" />;
       case "completed":
-        return <CheckCircle2 className="w-5 h-5 text-green-600" />;
+        return <CheckCircle2 className="size-5 text-bc-win" />;
       case "error":
-        return <AlertCircle className="w-5 h-5 text-red-600" />;
+        return <AlertCircle className="size-5 text-bc-red-text" />;
     }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex gap-3">
-          <Cpu className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-medium text-blue-800">Data Processing</h4>
-            <p className="text-sm text-blue-700 mt-1">
-              Process league data to calculate advanced metrics for AI content generation. 
-              This includes team strength analysis, rivalry detection, and manager activity tracking.
-            </p>
-          </div>
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-3 border-l-4 border-l-bc-signal bg-bc-panel-2 p-4">
+        <Cpu className="mt-0.5 size-5 flex-none text-bc-signal" />
+        <div>
+          <p className="font-display text-[15px] font-bold uppercase tracking-[0.02em] text-bc-ink">Data processing</p>
+          <p className="mt-1 text-sm leading-relaxed text-bc-text-2">
+            Process league data to calculate advanced metrics for AI content generation.
+            This includes team strength analysis, rivalry detection, and manager activity tracking.
+          </p>
         </div>
       </div>
 
       {/* Processing Steps */}
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-gray-700">
-          Processing Steps
-        </label>
-        <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+      <div className="flex flex-col gap-3">
+        <span className="bc-label-sm text-bc-text-3">Processing steps</span>
+        <div className="flex flex-col gap-3 border border-bc-hairline bg-bc-panel-2 p-4">
           {processingSteps.map((step) => (
             <div key={step.id} className="flex items-start gap-3">
               {getStepIcon(step.status)}
               <div className="flex-1">
-                <div className="font-medium text-sm text-gray-900">{step.name}</div>
-                <div className="text-xs text-gray-600">{step.description}</div>
+                <div
+                  className={cn(
+                    "text-sm font-semibold",
+                    step.status === "error" ? "text-bc-red-text" : "text-bc-ink"
+                  )}
+                >
+                  {step.name}
+                </div>
+                <div className="text-xs text-bc-text-3">{step.description}</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      <Button
-        onClick={handleProcessData}
-        disabled={isProcessing}
-        className="w-full bg-red-600 hover:bg-red-700"
-        size="lg"
-      >
-        {isProcessing ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Processing League Data...
-          </>
-        ) : (
-          <>
-            <Cpu className="h-5 w-5" />
-            Run Data Processing
-          </>
-        )}
+      <Button onClick={handleProcessData} disabled={isProcessing} size="lg" className="w-full">
+        <Loader2 className={cn("size-5", isProcessing ? "animate-spin" : "hidden")} />
+        <Cpu className={cn("size-5", isProcessing ? "hidden" : "")} />
+        {isProcessing ? "Processing league data" : "Run data processing"}
       </Button>
-      
-      <p className="text-xs text-gray-500 text-center">
+
+      <p className="text-center text-xs text-bc-text-3">
         This process analyzes your league data to generate insights for AI-powered content creation.
       </p>
     </div>

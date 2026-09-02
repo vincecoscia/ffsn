@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { requireLeagueMember } from "./lib/auth";
@@ -575,5 +576,77 @@ export const getFreeAgentsWithStats = query({
     return withStats
       .sort((a, b) => b.stats.actualTotal - a.stats.actualTotal)
       .slice(0, limit);
+  },
+});
+
+// Pre-draft "draft board" - every player in the season's pool ordered by ESPN
+// average draft position, paginated.
+export const getDraftBoard = query({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    position: v.optional(v.string()),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: paginationResultValidator(
+    v.object({
+      espnId: v.string(),
+      fullName: v.string(),
+      defaultPosition: v.string(),
+      proTeamAbbrev: v.optional(v.string()),
+      injured: v.boolean(),
+      injuryStatus: v.optional(v.string()),
+      adp: v.number(),
+      percentOwned: v.number(),
+      auctionValue: v.optional(v.number()),
+      espnRank: v.optional(v.number()),
+      projectedTotal: v.optional(v.number()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { page: [], isDone: true, continueCursor: "" };
+    await requireLeagueMember(ctx, args.leagueId);
+
+    const league = await ctx.db.get(args.leagueId);
+    const rankType = league?.settings.scoringType.toLowerCase().includes("ppr")
+      ? "PPR"
+      : "STANDARD";
+
+    const position = args.position && args.position !== "ALL" ? args.position : undefined;
+
+    let dbQuery = ctx.db
+      .query("playersEnhanced")
+      .withIndex("by_season_adp", (q) =>
+        q.eq("season", args.seasonId).gt("ownership.averageDraftPosition", 0)
+      )
+      .order("asc")
+      .filter((q) => q.eq(q.field("active"), true));
+    if (position !== undefined) {
+      dbQuery = dbQuery.filter((q) => q.eq(q.field("defaultPosition"), position));
+    }
+    const result = await dbQuery.paginate(args.paginationOpts);
+
+    return {
+      ...result,
+      page: result.page.map((player) => {
+        const rank = player.draftRanksByRankType?.[rankType]?.rank;
+        const projectedTotal = player.projectedStats?.["120"];
+        const auctionValue = player.ownership.auctionValueAverage;
+        return {
+          espnId: player.espnId,
+          fullName: player.fullName,
+          defaultPosition: player.defaultPosition,
+          ...(player.proTeamAbbrev !== undefined && { proTeamAbbrev: player.proTeamAbbrev }),
+          injured: player.injured,
+          ...(player.injuryStatus !== undefined && { injuryStatus: player.injuryStatus }),
+          adp: player.ownership.averageDraftPosition ?? 0,
+          percentOwned: player.ownership.percentOwned,
+          ...(typeof auctionValue === "number" && auctionValue > 0 && { auctionValue }),
+          ...(typeof rank === "number" && { espnRank: rank }),
+          ...(typeof projectedTotal === "number" && { projectedTotal }),
+        };
+      }),
+    };
   },
 });

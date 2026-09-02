@@ -4,16 +4,19 @@ import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { MessageSquare, Clock, ChevronRight } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import CommentConversation from "./CommentConversation";
+import { Panel, SectionHeader, Chip, EmptyState, LoadingScreen, PersonaAvatar } from "@/components/broadcast";
 import { cn } from "@/lib/utils";
 
 interface CommentRequestsListProps {
   userId: Id<"users">;
+}
+
+function titleCase(value?: string) {
+  return value?.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 export default function CommentRequestsList({ userId: _userId }: CommentRequestsListProps) {
@@ -26,126 +29,115 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
   const activeRequests = useQuery(api.commentConversations.getActiveRequests, {});
 
   if (!activeRequests) {
-    return (
-      <Card>
-        <CardContent className="py-8">
-          <div className="text-center text-gray-500">
-            Loading comment requests...
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <LoadingScreen message="Loading comment requests" />;
   }
 
   if (activeRequests.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-8">
-          <div className="text-center">
-            <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">No active comment requests</p>
-            <p className="text-sm text-gray-400 mt-1">
-              You&apos;ll be notified when content creators need your input
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={<MessageSquare className="size-6" strokeWidth={1.8} />}
+        title="No active comment requests"
+        description="You'll be notified when content creators need your input."
+      />
     );
   }
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
-            <MessageSquare className="h-5 w-5" />
-            Active Comment Requests
-          </CardTitle>
-          <CardDescription>
-            Share your thoughts for upcoming articles
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {activeRequests.map((request) => {
-              const hasUnread = request.lastMessage && !request.lastMessage.isRead && 
-                               request.lastMessage.messageType.startsWith("ai_");
-              const timeUntilArticle = request.articleGenerationTime 
-                ? formatDistanceToNow(new Date(request.articleGenerationTime))
-                : null;
-              
-              return (
-                <div
-                  key={request._id}
-                  className={cn(
-                    "border rounded-lg p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer",
-                    hasUnread && "border-blue-200 bg-blue-50/50"
-                  )}
-                  onClick={() => setSelectedRequest(request._id)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-medium text-gray-900 text-sm sm:text-base">
-                          {request.articleType?.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
-                        </h4>
-                        {hasUnread && (
-                          <Badge variant="default" className="text-xs">
-                            New Message
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs sm:text-sm text-gray-600 mb-2">
-                        {request.leagueName} • Week {request.articleContext?.week}
-                      </p>
-                      
-                      {request.lastMessage && (
-                        <div className="text-sm text-gray-500 mb-2">
-                          <p className="line-clamp-2 text-sm">
-                            {request.lastMessage.messageType.startsWith("ai_") 
-                              ? "Q: " 
-                              : "You: "}
-                            {request.lastMessage.content}
-                          </p>
-                          <p className="text-xs mt-1">
-                            {formatDistanceToNow(new Date(request.lastMessage.createdAt), { addSuffix: true })}
-                          </p>
-                        </div>
-                      )}
+      <Panel padding="md">
+        <SectionHeader
+          title={
+            <span className="flex items-center gap-2">
+              <MessageSquare className="size-5" />
+              Active comment requests
+            </span>
+          }
+          kicker="Share your thoughts for upcoming articles"
+        />
 
-                      <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-gray-500">
-                        <div className="flex items-center gap-1">
-                          <MessageSquare className="h-3 w-3" />
-                          {request.messageCount} messages
-                        </div>
-                        {timeUntilArticle && (
-                          <div className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Article in {timeUntilArticle}
-                          </div>
-                        )}
-                      </div>
+        <div className="mt-5 flex flex-col gap-3">
+          {activeRequests.map((request) => {
+            const hasUnread = request.lastMessage && !request.lastMessage.isRead &&
+                             request.lastMessage.messageType.startsWith("ai_");
+            const timeUntilArticle = request.articleGenerationTime
+              ? formatDistanceToNow(new Date(request.articleGenerationTime))
+              : null;
+            const generatingSoon = !!request.articleGenerationTime &&
+              new Date(request.articleGenerationTime) < new Date(Date.now() + 60 * 60 * 1000);
+
+            return (
+              <button
+                type="button"
+                key={request._id}
+                className={cn(
+                  "flex items-start gap-4 border p-4 text-left transition-colors",
+                  hasUnread
+                    ? "border-bc-signal bg-bc-signal/5"
+                    : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                )}
+                onClick={() => setSelectedRequest(request._id)}
+              >
+                <PersonaAvatar
+                  persona="FFSN AI"
+                  size={40}
+                  className="flex-none border border-bc-border-strong"
+                />
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <h4 className="font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                      {titleCase(request.articleType)}
+                    </h4>
+                    {hasUnread && <Chip variant="signal" live>New message</Chip>}
+                  </div>
+                  <p className="mb-2 text-sm text-bc-text-2">
+                    {request.leagueName} &middot; Week {request.articleContext?.week}
+                  </p>
+
+                  {request.lastMessage && (
+                    <div className="mb-2 text-sm text-bc-text-2">
+                      <p className="line-clamp-2">
+                        {request.lastMessage.messageType.startsWith("ai_") ? "Q: " : "You: "}
+                        {request.lastMessage.content}
+                      </p>
+                      <p className="mt-1 text-xs text-bc-text-3">
+                        {formatDistanceToNow(new Date(request.lastMessage.createdAt), { addSuffix: true })}
+                      </p>
                     </div>
-                    <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 text-gray-400 flex-shrink-0 ml-2 mt-1" />
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-bc-text-3">
+                    <div className="flex items-center gap-1.5">
+                      <MessageSquare className="size-3" />
+                      {request.messageCount} messages
+                    </div>
+                    {timeUntilArticle && (
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="size-3" />
+                        Article in {timeUntilArticle}
+                      </div>
+                    )}
                   </div>
 
-                  {request.articleGenerationTime && new Date(request.articleGenerationTime) < new Date(Date.now() + 60 * 60 * 1000) && (
-                    <div className="mt-3 flex items-center gap-2 text-blue-600 bg-blue-50 rounded px-2 py-1">
-                      <Clock className="h-3 w-3" />
+                  {generatingSoon && request.articleGenerationTime && (
+                    <div className="mt-3 flex items-center gap-2 border-l-2 border-l-bc-signal bg-bc-signal/10 px-2.5 py-1.5 text-bc-signal">
+                      <Clock className="size-3.5" />
                       <span className="text-xs font-medium">
                         Article generates {formatDistanceToNow(new Date(request.articleGenerationTime), { addSuffix: true })}
                       </span>
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
 
-      <Dialog 
-        open={!!selectedRequest} 
+                <ChevronRight className="mt-1 size-5 flex-none text-bc-text-3" />
+              </button>
+            );
+          })}
+        </div>
+      </Panel>
+
+      <Dialog
+        open={!!selectedRequest}
         onOpenChange={(open) => !open && setSelectedRequest(null)}
       >
         <DialogContent className="w-[95vw] max-w-2xl p-0 sm:w-auto">

@@ -9,12 +9,10 @@ import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { RivalriesTab } from "@/components/RivalriesTab";
-import { TeamLogo } from "@/components/TeamLogo";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronDown, ChevronUp, Users, Trophy, TrendingUp, Swords } from "lucide-react";
+import { ChevronDown, ChevronUp, Users, Swords } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -28,6 +26,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Panel, SectionHeader, RankPlate, TeamTile, StatBlock, LoadingScreen } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface TeamsPageProps {
   params: Promise<{ id: string }>;
@@ -68,11 +68,19 @@ interface Team {
 
 const POSITION_ORDER = ["QB", "RB", "WR", "TE", "FLEX", "K", "D/ST", "BE"];
 
+function initialsFor(team: Pick<Team, "name" | "abbreviation">) {
+  if (team.abbreviation) return team.abbreviation.slice(0, 3).toUpperCase();
+  const words = team.name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "??";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
 export default function TeamsPage({ params }: TeamsPageProps) {
   const resolvedParams = React.use(params);
   const leagueId = resolvedParams.id as Id<"leagues">;
   const { userId } = useAuth();
-  
+
   // Get current/available seasons for the league
   const { currentSeason, availableSeasons, isLoading: isSeasonLoading } = useLeagueSeason(leagueId);
 
@@ -93,13 +101,13 @@ export default function TeamsPage({ params }: TeamsPageProps) {
   const league = useQuery(api.leagues.getById, { id: leagueId });
 
   // Get teams for the selected season
-  const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
+  const teamsData = useQuery(api.teams.getByLeagueAndSeason, {
     leagueId,
-    seasonId: selectedSeason 
+    seasonId: selectedSeason
   });
-  
+
   const teams = React.useMemo(() => teamsData || [], [teamsData]);
-  
+
   // Sort teams by record
   const sortedTeams = React.useMemo(() => {
     return [...teams].sort((a, b) => {
@@ -128,276 +136,223 @@ export default function TeamsPage({ params }: TeamsPageProps) {
       // lineupSlotId === 20 indicates bench player, lineupSlotId === 21 indicates IR
       const aIsBench = a.lineupSlotId === 20 || a.lineupSlotId === 21;
       const bIsBench = b.lineupSlotId === 20 || b.lineupSlotId === 21;
-      
+
       // Starting players come first
       if (aIsBench && !bIsBench) return 1;
       if (!aIsBench && bIsBench) return -1;
-      
+
       // If both are starting or both are bench/IR, sort by position
       const aIndex = POSITION_ORDER.indexOf(a.position);
       const bIndex = POSITION_ORDER.indexOf(b.position);
-      
+
       if (aIndex === -1 && bIndex === -1) return 0;
       if (aIndex === -1) return 1;
       if (bIndex === -1) return -1;
-      
+
       return aIndex - bIndex;
     });
   };
 
   if (!userId || !league) {
-    return <div>Loading...</div>;
+    return <LoadingScreen message="Loading teams" />;
   }
 
   return (
-    <LeaguePageLayout 
-      leagueId={leagueId} 
+    <LeaguePageLayout
+      leagueId={leagueId}
       currentUserId={userId}
       title="Teams"
     >
-      {/* Season Selector */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">{selectedSeason} Season Teams</h2>
-          <SeasonSelector
-            currentSeason={currentSeason}
-            selectedSeason={selectedSeason}
-            onSeasonChange={setSelectedSeason}
-            availableSeasons={availableSeasons}
-          />
-        </div>
-      </div>
+      <Panel padding="md">
+        <SectionHeader
+          title="Teams"
+          kicker={`${selectedSeason} season`}
+          actions={
+            <SeasonSelector
+              currentSeason={currentSeason}
+              selectedSeason={selectedSeason}
+              onSeasonChange={setSelectedSeason}
+              availableSeasons={availableSeasons}
+            />
+          }
+        />
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-none sm:inline-flex sm:justify-start">
-          <TabsTrigger value="teams" className="flex items-center gap-2 sm:flex-none">
-            <Users className="h-4 w-4" />
-            Teams
-          </TabsTrigger>
-          <TabsTrigger value="rivalries" className="flex items-center gap-2 sm:flex-none">
-            <Swords className="h-4 w-4" />
-            Rivalries
-          </TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="teams" className="mt-6">
-          {/* Teams Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {sortedTeams.map((team, index) => {
-          const isExpanded = expandedTeams.has(team._id);
-          const totalGames = team.record.wins + team.record.losses + team.record.ties;
-          const winPercentage = totalGames > 0 ? (team.record.wins / totalGames) : 0;
-          const pointDiff = (team.record.pointsFor || 0) - (team.record.pointsAgainst || 0);
-          
-          return (
-            <Card key={team._id} className="overflow-hidden">
-              <CardHeader className="pb-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-4">
-                    <TeamLogo
-                      teamId={team._id}
-                      teamName={team.name}
-                      espnLogo={team.logo}
-                      customLogo={team.customLogo}
-                      size="lg"
-                      className="rounded-lg"
-                    />
-                    <div>
-                      <CardTitle className="text-xl">{team.name}</CardTitle>
-                      <CardDescription className="text-base">
-                        {team.ownerInfo?.displayName || team.owner}
-                      </CardDescription>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-5 w-full gap-5">
+          <TabsList>
+            <TabsTrigger value="teams" className="gap-2">
+              <Users className="size-4" />
+              Teams
+            </TabsTrigger>
+            <TabsTrigger value="rivalries" className="gap-2">
+              <Swords className="size-4" />
+              Rivalries
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="teams">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {sortedTeams.map((team, index) => {
+                const isExpanded = expandedTeams.has(team._id);
+                const totalGames = team.record.wins + team.record.losses + team.record.ties;
+                const winPercentage = totalGames > 0 ? (team.record.wins / totalGames) : 0;
+                const pointDiff = (team.record.pointsFor || 0) - (team.record.pointsAgainst || 0);
+
+                return (
+                  <Panel key={team._id} padding="md" lifted>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 items-center gap-4">
+                        <TeamTile initials={initialsFor(team)} src={team.logo} size={56} />
+                        <div className="min-w-0">
+                          <span className="block truncate font-display text-[22px] font-extrabold uppercase leading-none text-bc-ink">
+                            {team.name}
+                          </span>
+                          <span className="mt-1.5 block truncate bc-label-sm text-bc-text-3">
+                            {team.ownerInfo?.displayName || team.owner}
+                          </span>
+                        </div>
+                      </div>
+                      <RankPlate rank={index + 1} tone={index === 0 ? "first" : "default"} />
                     </div>
-                  </div>
-                  <Badge variant="secondary" className="text-lg px-3 py-1">
-                    #{index + 1}
-                  </Badge>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="space-y-4">
-                {/* Team Stats */}
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-center gap-1 text-gray-600 mb-1">
-                      <Trophy className="h-4 w-4" />
-                      <span className="text-xs">Record</span>
+
+                    <div className="mt-5 grid grid-cols-3 border border-bc-hairline bg-bc-ground">
+                      <StatBlock
+                        align="center"
+                        className="border-r border-bc-hairline p-3"
+                        label="Record"
+                        value={
+                          <>
+                            {team.record.wins}-{team.record.losses}
+                            {team.record.ties > 0 && `-${team.record.ties}`}
+                          </>
+                        }
+                      />
+                      <StatBlock
+                        align="center"
+                        className="border-r border-bc-hairline p-3"
+                        label={`Points for · ${(winPercentage * 100).toFixed(0)}% win`}
+                        value={team.record.pointsFor?.toFixed(1) || "0.0"}
+                      />
+                      <StatBlock
+                        align="center"
+                        className="p-3"
+                        label={`Diff · vs ${team.record.pointsAgainst?.toFixed(1) || "0.0"}`}
+                        value={
+                          <span className={pointDiff > 0 ? "text-bc-win" : pointDiff < 0 ? "text-bc-red-text" : undefined}>
+                            {pointDiff > 0 && "+"}
+                            {pointDiff.toFixed(1)}
+                          </span>
+                        }
+                      />
                     </div>
-                    <div className="font-bold text-lg">
-                      {team.record.wins}-{team.record.losses}
-                      {team.record.ties > 0 && `-${team.record.ties}`}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {(winPercentage * 100).toFixed(0)}% Win
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-center gap-1 text-gray-600 mb-1">
-                      <TrendingUp className="h-4 w-4" />
-                      <span className="text-xs">Points For</span>
-                    </div>
-                    <div className="font-bold text-lg">
-                      {team.record.pointsFor?.toFixed(1) || '0.0'}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {((team.record.pointsFor || 0) / Math.max(totalGames, 1)).toFixed(1)} PPG
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-center gap-1 text-gray-600 mb-1">
-                      <Users className="h-4 w-4" />
-                      <span className="text-xs">Diff</span>
-                    </div>
-                    <div className={`font-bold text-lg ${pointDiff > 0 ? 'text-green-600' : pointDiff < 0 ? 'text-red-600' : ''}`}>
-                      {pointDiff > 0 && '+'}{pointDiff.toFixed(1)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      vs {team.record.pointsAgainst?.toFixed(1) || '0.0'}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Roster Collapsible */}
-                <Collapsible open={isExpanded} onOpenChange={() => toggleTeamExpansion(team._id)}>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="outline" className="w-full">
-                      <span>View Roster ({team.roster.length} players)</span>
-                      {isExpanded ? (
-                        <ChevronUp className="h-4 w-4 ml-2" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 ml-2" />
-                      )}
-                    </Button>
-                  </CollapsibleTrigger>
-                  
-                  <CollapsibleContent className="mt-4">
-                    <div className="border rounded-lg overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-gray-50">
-                            <TableHead>Player</TableHead>
-                            <TableHead className="text-center">Pos</TableHead>
-                            <TableHead className="text-center">Team</TableHead>
-                            <TableHead className="text-right">Points</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(() => {
-                            const sortedRoster = sortRosterByPosition(team.roster);
-                            const startingPlayers = sortedRoster.filter(player => player.lineupSlotId !== 20 && player.lineupSlotId !== 21);
-                            const benchPlayers = sortedRoster.filter(player => player.lineupSlotId === 20);
-                            const irPlayers = sortedRoster.filter(player => player.lineupSlotId === 21);
-                            
-                            return (
-                              <>
-                                {/* Starting Players */}
-                                {startingPlayers.length > 0 && (
-                                  <>
-                                    <TableRow className="bg-green-50">
-                                      <TableCell colSpan={4} className="font-semibold text-green-800 py-2">
-                                        Starting Lineup ({startingPlayers.length})
-                                      </TableCell>
-                                    </TableRow>
-                                    {startingPlayers.map((player, idx) => (
-                                      <TableRow key={`starting-${player.playerId}-${idx}`}>
-                                        <TableCell className="font-medium">
-                                          {player.playerName}
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                          <Badge variant="default">
-                                            {player.position}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-center text-sm">
-                                          {player.team}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
+
+                    <Collapsible open={isExpanded} onOpenChange={() => toggleTeamExpansion(team._id)}>
+                      <CollapsibleTrigger asChild>
+                        <Button variant="outline" className="mt-5 w-full">
+                          <span>Roster ({team.roster.length} players)</span>
+                          {isExpanded ? (
+                            <ChevronUp className="ml-2 size-4" />
+                          ) : (
+                            <ChevronDown className="ml-2 size-4" />
+                          )}
+                        </Button>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent className="mt-4">
+                        <div className="overflow-x-auto border border-bc-hairline">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="border-bc-hairline bg-bc-panel-2 hover:bg-bc-panel-2">
+                                <TableHead className="bc-label-sm text-bc-text-3">Player</TableHead>
+                                <TableHead className="bc-label-sm text-bc-text-3 text-center">Pos</TableHead>
+                                <TableHead className="hidden bc-label-sm text-bc-text-3 text-center md:table-cell">
+                                  Team
+                                </TableHead>
+                                <TableHead className="bc-label-sm text-bc-text-3 text-right">Points</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(() => {
+                                const sortedRoster = sortRosterByPosition(team.roster);
+                                const startingPlayers = sortedRoster.filter(player => player.lineupSlotId !== 20 && player.lineupSlotId !== 21);
+                                const benchPlayers = sortedRoster.filter(player => player.lineupSlotId === 20);
+                                const irPlayers = sortedRoster.filter(player => player.lineupSlotId === 21);
+
+                                const section = (
+                                  key: string,
+                                  label: string,
+                                  players: typeof sortedRoster,
+                                  tone: "starting" | "bench" | "ir"
+                                ) =>
+                                  players.length > 0 && (
+                                    <React.Fragment key={key}>
+                                      <TableRow className="border-bc-hairline hover:bg-transparent">
+                                        <TableCell
+                                          colSpan={4}
+                                          className={cn(
+                                            "bc-label-sm py-2",
+                                            tone === "starting" && "text-bc-ink",
+                                            tone === "bench" && "text-bc-text-3",
+                                            tone === "ir" && "text-bc-red-text"
+                                          )}
+                                        >
+                                          {label} ({players.length})
                                         </TableCell>
                                       </TableRow>
-                                    ))}
-                                  </>
-                                )}
-                                
-                                {/* Bench Players */}
-                                {benchPlayers.length > 0 && (
+                                      {players.map((player, idx) => (
+                                        <TableRow
+                                          key={`${key}-${player.playerId}-${idx}`}
+                                          className="border-bc-hairline hover:bg-bc-panel-2"
+                                        >
+                                          <TableCell
+                                            className={cn(
+                                              "font-medium",
+                                              tone !== "starting" && "text-bc-text-2"
+                                            )}
+                                          >
+                                            {player.playerName}
+                                          </TableCell>
+                                          <TableCell className="text-center">
+                                            <Badge variant={tone === "ir" ? "red" : tone === "bench" ? "secondary" : "outline"}>
+                                              {player.position}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className="hidden text-center md:table-cell">
+                                            <span className="bc-label-sm text-bc-text-3">{player.team}</span>
+                                          </TableCell>
+                                          <TableCell className="text-right">
+                                            <span className="bc-num text-bc-ink">
+                                              {player.playerStats?.appliedTotal?.toFixed(1) || "–"}
+                                            </span>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </React.Fragment>
+                                  );
+
+                                return (
                                   <>
-                                    <TableRow className="bg-gray-100">
-                                      <TableCell colSpan={4} className="font-semibold text-gray-700 py-2">
-                                        Bench ({benchPlayers.length})
-                                      </TableCell>
-                                    </TableRow>
-                                    {benchPlayers.map((player, idx) => (
-                                      <TableRow key={`bench-${player.playerId}-${idx}`}>
-                                        <TableCell className="font-medium text-gray-600">
-                                          {player.playerName}
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                          <Badge variant="secondary">
-                                            {player.position}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-center text-sm text-gray-600">
-                                          {player.team}
-                                        </TableCell>
-                                        <TableCell className="text-right text-gray-600">
-                                          {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
+                                    {section("starting", "Starting lineup", startingPlayers, "starting")}
+                                    {section("bench", "Bench", benchPlayers, "bench")}
+                                    {section("ir", "Injured reserve", irPlayers, "ir")}
                                   </>
-                                )}
-                                
-                                {/* IR Players */}
-                                {irPlayers.length > 0 && (
-                                  <>
-                                    <TableRow className="bg-red-50">
-                                      <TableCell colSpan={4} className="font-semibold text-red-700 py-2">
-                                        Injured Reserve ({irPlayers.length})
-                                      </TableCell>
-                                    </TableRow>
-                                    {irPlayers.map((player, idx) => (
-                                      <TableRow key={`ir-${player.playerId}-${idx}`}>
-                                        <TableCell className="font-medium text-red-600">
-                                          {player.playerName}
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                          <Badge variant="destructive">
-                                            {player.position}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-center text-sm text-red-600">
-                                          {player.team}
-                                        </TableCell>
-                                        <TableCell className="text-right text-red-600">
-                                          {player.playerStats?.appliedTotal?.toFixed(1) || '-'}
-                                        </TableCell>
-                                      </TableRow>
-                                    ))}
-                                  </>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </CardContent>
-            </Card>
-          );
-        })}
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="rivalries" className="mt-6">
-          <RivalriesTab leagueId={leagueId} />
-        </TabsContent>
-      </Tabs>
+                                );
+                              })()}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </Panel>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="rivalries">
+            <RivalriesTab leagueId={leagueId} />
+          </TabsContent>
+        </Tabs>
+      </Panel>
     </LeaguePageLayout>
   );
 }

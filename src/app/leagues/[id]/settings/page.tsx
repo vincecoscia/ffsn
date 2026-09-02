@@ -8,6 +8,7 @@ import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { LeagueSettingsPage } from "../../../../components/LeagueSettingsPage";
 import { useLeagueSeason } from "@/hooks/use-league-season";
+import { LoadingScreen } from "@/components/broadcast";
 
 interface LeagueSettingsPageProps {
   params: Promise<{ id: string }>;
@@ -42,8 +43,8 @@ export default function LeagueSettings({ params }: LeagueSettingsPageProps) {
 
   if (!userLoaded || league === undefined || teams === undefined || teamClaims === undefined || teamInvitations === undefined) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white">Loading...</div>
+      <div className="min-h-screen bg-bc-ground">
+        <LoadingScreen message="Loading league settings" />
       </div>
     );
   }

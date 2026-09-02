@@ -8,8 +8,11 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CreditCard, Check, AlertCircle } from "lucide-react";
+import { AlertCircle, Check, CreditCard, KeyRound } from "lucide-react";
+
+import { TopBar, ThemeToggle, Panel, SectionHeader, TeamTile } from "@/components/broadcast";
 
 interface EspnTeam {
   id: string;
@@ -69,6 +72,56 @@ interface EspnData {
   history: HistoricalSeason[];
 }
 
+const STEPS = [
+  { code: "Seg 01", label: "Connect ESPN" },
+  { code: "Seg 02", label: "League details" },
+  { code: "Seg 03", label: "Confirm league" },
+  { code: "Seg 04", label: "License" },
+];
+
+function StepIndicator({ step }: { step: number }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        {STEPS.map((s, i) => {
+          const num = i + 1;
+          const done = num < step;
+          const current = num === step;
+          return (
+            <div key={s.code} className="flex items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className={
+                    "bc-label inline-flex h-[26px] flex-none items-center px-2.5 " +
+                    (done || current
+                      ? "bg-bc-red text-white"
+                      : "border border-bc-border-strong text-bc-text-3")
+                  }
+                >
+                  {s.code}
+                </span>
+                <span
+                  className={
+                    "bc-label-sm " +
+                    (current ? "text-bc-ink" : done ? "text-bc-text-2" : "text-bc-text-3")
+                  }
+                >
+                  {s.label}
+                </span>
+              </div>
+              {num < STEPS.length && (
+                <span className="hidden h-px w-6 bg-bc-hairline sm:block" aria-hidden="true" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <span className="bc-label-sm text-bc-text-3">
+        Step {step} of {STEPS.length}
+      </span>
+    </div>
+  );
+}
 
 export default function SetupPage() {
   const [step, setStep] = useState(1);
@@ -76,7 +129,7 @@ export default function SetupPage() {
     leagueName: "",
     platform: "espn" as const,
     externalId: "",
-    scoringType: "standard", 
+    scoringType: "standard",
     rosterSize: 16,
     playoffWeeks: 3,
   });
@@ -89,7 +142,7 @@ export default function SetupPage() {
   const [espnError, setEspnError] = useState<string | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  
+
   const { user } = useUser();
   const createLeague = useMutation(api.leagues.create);
   const fetchEspnData = useAction(api.espn.fetchLeagueData);
@@ -97,36 +150,29 @@ export default function SetupPage() {
 
   const loadEspnData = async () => {
     if (!formData.externalId) return;
-    
+
     setIsLoadingEspnData(true);
     setEspnError(null);
-    
+
     try {
       const result = await fetchEspnData({
         leagueId: formData.externalId,
         espnS2: authData.espnS2 || undefined,
         swid: authData.swid || undefined,
       });
-      
+
       if (result.success && result.data) {
         // First set the basic ESPN data
         setEspnData(result.data);
-        
+
         // Auto-populate form with ESPN data
-        setFormData(prev => ({
+        setFormData((prev) => ({
           ...prev,
           leagueName: prev.leagueName || result.data.name,
           scoringType: result.data.scoringType,
           rosterSize: result.data.rosterSize,
           playoffWeeks: result.data.playoffWeeks,
         }));
-
-        // Log historical data fetch results
-        if (result.data.history && result.data.history.length > 0) {
-          console.log(`✅ Historical data fetched: ${result.data.history.length} seasons found`);
-        } else {
-          console.log('ℹ️ No historical data found - this may be a new league or data may not be available');
-        }
       } else {
         setEspnError(result.error || "Failed to load ESPN data");
       }
@@ -159,8 +205,6 @@ export default function SetupPage() {
 
     try {
       // Step 1: Create the league with all ESPN data BEFORE payment
-      console.log("Creating league with ESPN data before payment...");
-      
       const leagueId = await createLeague({
         name: formData.leagueName,
         platform: formData.platform,
@@ -174,19 +218,19 @@ export default function SetupPage() {
           playoffTeamCount: espnData?.settings?.playoffTeamCount,
           regularSeasonMatchupPeriods: espnData?.settings?.regularSeasonMatchupPeriods,
         },
-        espnData: espnData ? {
-          seasonId: espnData.seasonId,
-          currentScoringPeriod: espnData.currentScoringPeriod,
-          size: espnData.size,
-          lastSyncedAt: Date.now(),
-          isPrivate: espnData.isPrivate || false,
-          espnS2: authData.espnS2 || undefined,
-          swid: authData.swid || undefined,
-        } : undefined,
+        espnData: espnData
+          ? {
+              seasonId: espnData.seasonId,
+              currentScoringPeriod: espnData.currentScoringPeriod,
+              size: espnData.size,
+              lastSyncedAt: Date.now(),
+              isPrivate: espnData.isPrivate || false,
+              espnS2: authData.espnS2 || undefined,
+              swid: authData.swid || undefined,
+            }
+          : undefined,
         history: espnData?.history,
       });
-
-      console.log(`League created with ID: ${leagueId}`);
 
       // Step 2: Create Stripe checkout session with the league ID
       const result = await createLeagueCheckout({
@@ -211,100 +255,55 @@ export default function SetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900">
-      <header className="bg-gray-800 border-b border-gray-700">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-2xl font-bold text-white cursor-pointer">
-            FFSN
-          </Link>
-          <div className="flex items-center gap-4">
-            <span className="text-gray-300">League Setup</span>
-            <UserButton />
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-bc-ground">
+      <TopBar title="New league" subtitle="Pre-production">
+        <ThemeToggle />
+        <UserButton />
+      </TopBar>
 
-      <main className="container mx-auto px-6 py-8 max-w-2xl">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-black text-white mb-2">
-            Welcome to FFSN!
-          </h1>
-          <p className="text-gray-400">
-            Let&apos;s set up your first fantasy football league to get started with AI-generated content
+      <main className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-10 sm:px-6 sm:py-14">
+        <div className="flex flex-col gap-3">
+          <h1 className="bc-display text-bc-ink text-[32px] sm:text-[40px]">Welcome to FFSN</h1>
+          <p className="text-[15px] leading-relaxed text-bc-text-2">
+            Let&apos;s set up your first fantasy football league to get started with AI-generated
+            content.
           </p>
         </div>
 
-        {/* Progress indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-center space-x-4">
-            {[1, 2, 3, 4].map((num) => (
-              <div key={num} className="flex items-center">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                    num <= step
-                      ? "bg-red-600 text-white"
-                      : "bg-gray-700 text-gray-400"
-                  }`}
-                >
-                  {num}
-                </div>
-                {num < 4 && (
-                  <div
-                    className={`w-12 h-1 mx-2 ${
-                      num < step ? "bg-red-600" : "bg-gray-700"
-                    }`}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-center mt-2">
-            <span className="text-gray-400 text-sm">
-              Step {step} of 4
-            </span>
-          </div>
-        </div>
+        <StepIndicator step={step} />
 
-        <div className="bg-gray-800 rounded-lg p-8">
+        <Panel padding="lg" className="flex flex-col gap-8">
           {step === 1 && (
-            <div>
-              <h2 className="text-xl font-bold text-white mb-4">
-                Basic League Information
-              </h2>
-              <div className="space-y-4">
+            <div className="flex flex-col gap-6">
+              <SectionHeader kicker="Seg 01" title="Basic league information" />
+              <div className="flex flex-col gap-5">
                 <div>
-                  <Label className="text-gray-300">
-                    League Name *
-                  </Label>
+                  <Label className="text-bc-ink">League name *</Label>
                   <Input
                     type="text"
                     value={formData.leagueName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, leagueName: e.target.value })
-                    }
-                    className=" !bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2"
+                    onChange={(e) => setFormData({ ...formData, leagueName: e.target.value })}
+                    className="mt-2"
                     placeholder="My Fantasy League"
                   />
                 </div>
                 <div>
-                  <Label className="text-gray-300">
-                    Platform
-                  </Label>
+                  <Label className="text-bc-ink">Platform</Label>
                   <Select
                     value={formData.platform}
                     onValueChange={(value) =>
                       setFormData({ ...formData, platform: value as "espn" })
                     }
                   >
-                    <SelectTrigger className="w-full !bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                    <SelectTrigger className="mt-2 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="espn">ESPN</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-gray-500 text-sm mt-1">
-                    Currently only ESPN leagues are supported
+                  <p className="mt-1.5 text-[13px] text-bc-text-3">
+                    Currently only ESPN leagues are supported.
                   </p>
                 </div>
               </div>
@@ -312,16 +311,12 @@ export default function SetupPage() {
           )}
 
           {step === 2 && (
-            <div>
-              <h2 className="text-xl font-bold text-white mb-4">
-                ESPN League Connection
-              </h2>
-              <div className="space-y-4">
+            <div className="flex flex-col gap-6">
+              <SectionHeader kicker="Seg 02" title="ESPN league connection" />
+              <div className="flex flex-col gap-5">
                 <div>
-                  <Label className="text-gray-300">
-                    ESPN League ID *
-                  </Label>
-                  <div className="flex gap-2 mt-2">
+                  <Label className="text-bc-ink">ESPN league ID *</Label>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                     <Input
                       type="text"
                       value={formData.externalId}
@@ -330,30 +325,31 @@ export default function SetupPage() {
                         setEspnData(null);
                         setEspnError(null);
                       }}
-                      className="flex-1 !bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600"
+                      className="flex-1"
                       placeholder="123456789"
                     />
                     <Button
                       onClick={loadEspnData}
                       disabled={!formData.externalId || isLoadingEspnData}
-                      className="bg-blue-600 hover:bg-blue-700"
+                      variant="secondary"
                     >
-                      {isLoadingEspnData ? "Loading ESPN Data & History..." : "Fetch Data"}
+                      {isLoadingEspnData ? "Loading data..." : "Fetch data"}
                     </Button>
                   </div>
-                  <p className="text-gray-500 text-sm mt-1">
-                    You can find your League ID in your ESPN league URL
+                  <p className="mt-1.5 text-[13px] text-bc-text-3">
+                    You can find your League ID in your ESPN league URL.
                   </p>
                 </div>
 
                 {espnError && (
-                  <div className="bg-red-900/50 border border-red-500 p-4 rounded-lg">
-                    <p className="text-red-200 text-sm">{espnError}</p>
+                  <div className="border border-bc-red bg-bc-red/10 p-4">
+                    <p className="text-[14px] text-bc-red-text">{espnError}</p>
                     {espnError.includes("401") && (
-                      <div className="mt-3 pt-3 border-t border-red-400">
-                        <p className="text-red-200 text-sm font-semibold">Private League Detected</p>
-                        <p className="text-red-300 text-xs mt-1">
-                          Your league is private. Please provide your ESPN authentication cookies below to access it.
+                      <div className="mt-3 border-t border-bc-red/30 pt-3">
+                        <p className="bc-label text-bc-red-text">Private league detected</p>
+                        <p className="mt-1 text-[13px] text-bc-red-text/80">
+                          Your league is private. Please provide your ESPN authentication cookies
+                          below to access it.
                         </p>
                       </div>
                     )}
@@ -361,96 +357,116 @@ export default function SetupPage() {
                 )}
 
                 {(espnError?.includes("401") || authData.espnS2 || authData.swid) && (
-                  <div className="bg-yellow-900/50 border border-yellow-500 p-4 rounded-lg">
-                    <h3 className="text-yellow-200 font-semibold mb-2">
-                      🔒 Private League Authentication
+                  <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
+                    <h3 className="bc-label flex items-center gap-2 text-bc-signal">
+                      <KeyRound className="size-4" strokeWidth={1.8} />
+                      Private league authentication
                     </h3>
-                    <p className="text-yellow-100 text-sm mb-3">
-                      For private leagues, you need to provide your ESPN cookies. These are safe to use and only allow read access to your league.
+                    <p className="mt-2 text-[14px] leading-relaxed text-bc-text-2">
+                      For private leagues, you need to provide your ESPN cookies. These are safe
+                      to use and only allow read access to your league.
                     </p>
-                    
-                    <div className="space-y-3">
+
+                    <div className="mt-4 flex flex-col gap-3">
                       <div>
-                        <Label className="text-yellow-200 text-sm">
-                          ESPN S2 Cookie
-                        </Label>
+                        <Label className="text-bc-ink">ESPN S2 cookie</Label>
                         <Input
                           type="text"
                           value={authData.espnS2}
                           onChange={(e) => setAuthData({ ...authData, espnS2: e.target.value })}
-                          className="w-full !bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
+                          className="mt-1.5"
                           placeholder="AEB..."
                         />
                       </div>
                       <div>
-                        <Label className="text-yellow-200 text-sm">
-                          SWID Cookie
-                        </Label>
+                        <Label className="text-bc-ink">SWID cookie</Label>
                         <Input
                           type="text"
                           value={authData.swid}
                           onChange={(e) => setAuthData({ ...authData, swid: e.target.value })}
-                          className="w-full !bg-gray-700 border-gray-600 text-white focus:ring-yellow-500 focus:border-yellow-500 mt-1"
+                          className="mt-1.5"
                           placeholder="{...}"
                         />
                       </div>
                       <Button
                         onClick={loadEspnData}
-                        disabled={!formData.externalId || !authData.espnS2 || !authData.swid || isLoadingEspnData}
-                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-sm"
+                        disabled={
+                          !formData.externalId ||
+                          !authData.espnS2 ||
+                          !authData.swid ||
+                          isLoadingEspnData
+                        }
+                        variant="signal"
                       >
-                        {isLoadingEspnData ? "Loading ESPN Data & History..." : "Fetch Private League Data"}
+                        {isLoadingEspnData ? "Loading data..." : "Fetch private league data"}
                       </Button>
                     </div>
                   </div>
                 )}
 
                 {espnData && (
-                  <div className="bg-green-900/50 border border-green-500 p-4 rounded-lg">
-                    <h3 className="text-green-200 font-semibold mb-2">
-                      ✅ ESPN League Found!
-                    </h3>
-                    <div className="text-green-100 text-sm space-y-1">
-                      <p><strong>Name:</strong> {espnData.name}</p>
-                      <p><strong>Teams:</strong> {espnData.size}</p>
-                      <p><strong>Scoring:</strong> {espnData.scoringType.toUpperCase()}</p>
-                      <p><strong>Season:</strong> {espnData.seasonId}</p>
-                      <p><strong>League Type:</strong> {espnData.isPrivate ? '🔒 Private' : '🌐 Public'}</p>
+                  <div className="border border-bc-win/40 bg-bc-win/10 p-4">
+                    <h3 className="bc-label text-bc-win">ESPN league found</h3>
+                    <div className="mt-2 flex flex-col gap-1 text-[14px] text-bc-text-2">
+                      <p>
+                        <strong className="text-bc-ink">Name:</strong> {espnData.name}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Teams:</strong> {espnData.size}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Scoring:</strong>{" "}
+                        {espnData.scoringType.toUpperCase()}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Season:</strong> {espnData.seasonId}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">League type:</strong>{" "}
+                        {espnData.isPrivate ? "Private" : "Public"}
+                      </p>
                       {espnData.history && espnData.history.length > 0 && (
-                        <div className="mt-3 p-3 bg-green-800/30 rounded-lg border border-green-600/30">
-                          <p className="text-green-200 font-semibold mb-2">🏆 League History Found ({espnData.history.length} seasons)</p>
-                          <div className="space-y-1 text-sm">
+                        <div className="mt-3 border border-bc-win/30 bg-bc-win/10 p-3">
+                          <p className="bc-label-sm text-bc-win">
+                            League history found ({espnData.history.length} seasons)
+                          </p>
+                          <div className="mt-2 flex flex-col gap-1 text-[13px]">
                             {espnData.history.slice(0, 3).map((season) => (
-                              <div key={season.seasonId} className="text-green-100">
-                                <span className="font-semibold">{season.seasonId}:</span>
-                                <span className="ml-1">🏆 {season.winner.teamName} ({season.winner.owner})</span>
+                              <div key={season.seasonId}>
+                                <span className="font-semibold text-bc-ink">
+                                  {season.seasonId}:
+                                </span>
+                                <span className="ml-1">
+                                  {season.winner.teamName} ({season.winner.owner})
+                                </span>
                                 {season.runnerUp && (
-                                  <span className="ml-2 text-green-200">🥈 {season.runnerUp.teamName} ({season.runnerUp.owner})</span>
+                                  <span className="ml-2 text-bc-text-3">
+                                    runner-up {season.runnerUp.teamName} ({season.runnerUp.owner})
+                                  </span>
                                 )}
                               </div>
                             ))}
                             {espnData.history.length > 3 && (
-                              <p className="text-green-300 text-xs mt-2">+ {espnData.history.length - 3} more seasons found</p>
+                              <p className="mt-1 text-[12px] text-bc-text-3">
+                                + {espnData.history.length - 3} more seasons found
+                              </p>
                             )}
                           </div>
                         </div>
                       )}
                       {espnData.isPrivate && (
-                        <div className="mt-3 pt-2 border-t border-green-400">
-                          <p className="text-green-300 text-xs">
-                            🔐 Authentication credentials will be securely stored for daily data syncing
-                          </p>
-                        </div>
+                        <p className="mt-2 border-t border-bc-win/30 pt-2 text-[12px] text-bc-text-3">
+                          Authentication credentials will be securely stored for daily data
+                          syncing.
+                        </p>
                       )}
                     </div>
                   </div>
                 )}
 
-                <div className="bg-gray-700 p-4 rounded-lg">
-                  <h3 className="text-white font-semibold mb-2">
-                    How to find your ESPN League ID:
-                  </h3>
-                  <ol className="text-gray-300 text-sm space-y-1 list-decimal list-inside">
+                <div className="border border-bc-hairline bg-bc-panel-2 p-4">
+                  <h3 className="bc-label text-bc-ink">How to find your ESPN league ID</h3>
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-[14px] text-bc-text-2">
                     <li>Go to your ESPN Fantasy Football league</li>
                     <li>Look at the URL in your browser</li>
                     <li>Find the number after &quot;leagueId=&quot; in the URL</li>
@@ -459,26 +475,31 @@ export default function SetupPage() {
                 </div>
 
                 {(espnError?.includes("401") || authData.espnS2 || authData.swid) && (
-                  <div className="bg-gray-700 p-4 rounded-lg">
-                    <h3 className="text-white font-semibold mb-2">
-                      How to find your ESPN Cookies:
-                    </h3>
-                    <ol className="text-gray-300 text-sm space-y-2 list-decimal list-inside">
+                  <div className="border border-bc-hairline bg-bc-panel-2 p-4">
+                    <h3 className="bc-label text-bc-ink">How to find your ESPN cookies</h3>
+                    <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[14px] text-bc-text-2">
                       <li>Go to your ESPN Fantasy league in your browser</li>
                       <li>Right-click and select &quot;Inspect Element&quot; or press F12</li>
                       <li>Go to the &quot;Application&quot; or &quot;Storage&quot; tab</li>
                       <li>Click on &quot;Cookies&quot; in the left sidebar</li>
                       <li>Click on &quot;https://fantasy.espn.com&quot;</li>
-                      <li>Find and copy the values for:
-                        <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
-                          <li><strong>espn_s2</strong> - Long string starting with &quot;AEB&quot;</li>
-                          <li><strong>SWID</strong> - String in curly braces like &quot;{'{12345678-1234-1234-1234-123456789012}'}&quot;</li>
+                      <li>
+                        Find and copy the values for:
+                        <ul className="mt-1 ml-4 list-disc space-y-1">
+                          <li>
+                            <strong>espn_s2</strong> — long string starting with &quot;AEB&quot;
+                          </li>
+                          <li>
+                            <strong>SWID</strong> — string in curly braces like &quot;
+                            {"{12345678-1234-1234-1234-123456789012}"}&quot;
+                          </li>
                         </ul>
                       </li>
                       <li>Paste these values in the fields above</li>
                     </ol>
-                    <p className="text-yellow-300 text-xs mt-2">
-                      💡 These cookies are only used to authenticate with ESPN and are never stored permanently.
+                    <p className="mt-2 text-[12px] text-bc-text-3">
+                      These cookies are only used to authenticate with ESPN and are never stored
+                      permanently.
                     </p>
                   </div>
                 )}
@@ -487,56 +508,105 @@ export default function SetupPage() {
           )}
 
           {step === 3 && (
-            <div>
-              <h2 className="text-xl font-bold text-white mb-4">
-                League Settings & Summary {espnData && <span className="text-green-400 text-sm">(Auto-imported from ESPN)</span>}
-              </h2>
-              
+            <div className="flex flex-col gap-6">
+              <SectionHeader
+                kicker="Seg 03"
+                title="League settings & summary"
+                actions={
+                  espnData && <Badge variant="win">Auto-imported from ESPN</Badge>
+                }
+              />
+
               {espnData && (
                 <>
-                  <div className="bg-blue-900/50 border border-blue-500 p-4 rounded-lg mb-4">
-                    <p className="text-blue-200 text-sm">
-                      🎯 Settings have been automatically imported from your ESPN league. You can adjust them below if needed.
+                  <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
+                    <p className="text-[14px] text-bc-signal">
+                      Settings have been automatically imported from your ESPN league. You can
+                      adjust them below if needed.
                     </p>
                   </div>
 
-                  {/* League Summary */}
-                  <div className="bg-gray-700/50 border border-gray-600 p-4 rounded-lg mb-6">
-                    <h3 className="text-white font-semibold mb-3 flex items-center">
-                      📊 League Summary
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-300"><strong className="text-white">League:</strong> {espnData.name}</p>
-                        <p className="text-gray-300"><strong className="text-white">Teams:</strong> {espnData.size}</p>
-                        <p className="text-gray-300"><strong className="text-white">Scoring:</strong> {espnData.scoringType.toUpperCase()}</p>
-                        <p className="text-gray-300"><strong className="text-white">Season:</strong> {espnData.seasonId}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-300"><strong className="text-white">Type:</strong> {espnData.isPrivate ? '🔒 Private' : '🌐 Public'}</p>
-                        <p className="text-gray-300"><strong className="text-white">Playoff Teams:</strong> {espnData.settings.playoffTeamCount}</p>
-                        <p className="text-gray-300"><strong className="text-white">Playoff Weeks:</strong> {espnData.settings.playoffWeeks}</p>
-                        <p className="text-gray-300"><strong className="text-white">Regular Season:</strong> {espnData.settings.regularSeasonMatchupPeriods} weeks</p>
-                      </div>
+                  <div className="border border-bc-hairline bg-bc-panel-2 p-5">
+                    <h3 className="bc-label text-bc-ink">League summary</h3>
+                    <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1.5 text-[14px] text-bc-text-2 sm:grid-cols-2">
+                      <p>
+                        <strong className="text-bc-ink">League:</strong> {espnData.name}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Type:</strong>{" "}
+                        {espnData.isPrivate ? "Private" : "Public"}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Teams:</strong> {espnData.size}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Playoff teams:</strong>{" "}
+                        {espnData.settings.playoffTeamCount}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Scoring:</strong>{" "}
+                        {espnData.scoringType.toUpperCase()}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Playoff weeks:</strong>{" "}
+                        {espnData.settings.playoffWeeks}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Season:</strong> {espnData.seasonId}
+                      </p>
+                      <p>
+                        <strong className="text-bc-ink">Regular season:</strong>{" "}
+                        {espnData.settings.regularSeasonMatchupPeriods} weeks
+                      </p>
                     </div>
 
-                    {/* Historical Data Display */}
-                    {espnData.history && espnData.history.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-600">
-                        <h4 className="text-white font-semibold mb-2 flex items-center">
-                          🏆 League Champions ({espnData.history.length} seasons found)
+                    {espnData.teams && espnData.teams.length > 0 && (
+                      <div className="mt-4 border-t border-bc-hairline pt-4">
+                        <h4 className="bc-label-sm text-bc-text-3">
+                          Teams ({espnData.teams.length})
                         </h4>
-                        <div className="space-y-2">
+                        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                          {espnData.teams.map((team) => (
+                            <div key={team.id} className="flex items-center gap-2.5">
+                              <TeamTile initials={team.abbreviation || team.name.slice(0, 2)} size={32} />
+                              <div className="flex min-w-0 flex-col">
+                                <span className="truncate text-[13px] font-medium text-bc-ink">
+                                  {team.name}
+                                </span>
+                                <span className="bc-num text-[12px] text-bc-text-3">
+                                  {team.wins}-{team.losses}
+                                  {team.ties ? `-${team.ties}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {espnData.history && espnData.history.length > 0 && (
+                      <div className="mt-4 border-t border-bc-hairline pt-4">
+                        <h4 className="bc-label-sm text-bc-text-3">
+                          League champions ({espnData.history.length} seasons found)
+                        </h4>
+                        <div className="mt-2 flex flex-col gap-1.5">
                           {espnData.history.map((season) => (
-                            <div key={season.seasonId} className="flex flex-wrap items-center gap-2 text-sm">
-                              <span className="font-semibold text-yellow-400">{season.seasonId}:</span>
-                              <span className="text-green-400">🏆 {season.winner.teamName}</span>
-                              <span className="text-gray-400">({season.winner.owner})</span>
+                            <div
+                              key={season.seasonId}
+                              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]"
+                            >
+                              <span className="bc-num text-bc-red-text">{season.seasonId}:</span>
+                              <span className="text-bc-ink">{season.winner.teamName}</span>
+                              <span className="text-bc-text-3">({season.winner.owner})</span>
                               {season.runnerUp && (
                                 <>
-                                  <span className="text-gray-500">•</span>
-                                  <span className="text-gray-300">🥈 {season.runnerUp.teamName}</span>
-                                  <span className="text-gray-400">({season.runnerUp.owner})</span>
+                                  <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                                  <span className="text-bc-text-2">
+                                    {season.runnerUp.teamName}
+                                  </span>
+                                  <span className="text-bc-text-3">
+                                    ({season.runnerUp.owner})
+                                  </span>
                                 </>
                               )}
                             </div>
@@ -548,30 +618,30 @@ export default function SetupPage() {
                 </>
               )}
 
-              <div className="space-y-4">
+              <div className="flex flex-col gap-5">
                 <div>
-                  <Label className="text-gray-300">
-                    Scoring Type {espnData && <span className="text-xs text-green-400">(from ESPN)</span>}
+                  <Label className="text-bc-ink">
+                    Scoring type{" "}
+                    {espnData && <span className="text-[12px] text-bc-win">(from ESPN)</span>}
                   </Label>
                   <Select
                     value={formData.scoringType}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, scoringType: value })
-                    }
+                    onValueChange={(value) => setFormData({ ...formData, scoringType: value })}
                   >
-                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                    <SelectTrigger className="mt-2 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="standard">Standard</SelectItem>
-                      <SelectItem value="ppr">PPR (Point Per Reception)</SelectItem>
+                      <SelectItem value="ppr">PPR (point per reception)</SelectItem>
                       <SelectItem value="half-ppr">Half PPR</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-gray-300">
-                    Roster Size {espnData && <span className="text-xs text-green-400">(from ESPN)</span>}
+                  <Label className="text-bc-ink">
+                    Roster size{" "}
+                    {espnData && <span className="text-[12px] text-bc-win">(from ESPN)</span>}
                   </Label>
                   <Select
                     value={formData.rosterSize.toString()}
@@ -579,7 +649,7 @@ export default function SetupPage() {
                       setFormData({ ...formData, rosterSize: parseInt(value) })
                     }
                   >
-                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                    <SelectTrigger className="mt-2 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -594,8 +664,9 @@ export default function SetupPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-gray-300">
-                    Playoff Weeks {espnData && <span className="text-xs text-green-400">(from ESPN)</span>}
+                  <Label className="text-bc-ink">
+                    Playoff weeks{" "}
+                    {espnData && <span className="text-[12px] text-bc-win">(from ESPN)</span>}
                   </Label>
                   <Select
                     value={formData.playoffWeeks.toString()}
@@ -603,7 +674,7 @@ export default function SetupPage() {
                       setFormData({ ...formData, playoffWeeks: parseInt(value) })
                     }
                   >
-                    <SelectTrigger className="w-full bg-gray-700 border-gray-600 text-white focus:ring-red-600 focus:border-red-600 mt-2">
+                    <SelectTrigger className="mt-2 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -617,16 +688,22 @@ export default function SetupPage() {
 
                 {espnData?.settings?.rosterComposition && (
                   <div>
-                    <Label className="text-gray-300">
-                      Roster Composition <span className="text-xs text-green-400">(from ESPN)</span>
+                    <Label className="text-bc-ink">
+                      Roster composition{" "}
+                      <span className="text-[12px] text-bc-win">(from ESPN)</span>
                     </Label>
-                    <div className="bg-gray-700 p-3 rounded-lg">
-                      <div className="grid grid-cols-4 gap-2 text-sm">
-                        {Object.entries(espnData.settings.rosterComposition).map(([pos, count]) => (
-                          <div key={pos} className="text-gray-300">
-                            <span className="font-semibold text-white">{pos === 'DST' ? 'D/ST' : pos}:</span> {count as number}
-                          </div>
-                        ))}
+                    <div className="mt-2 border border-bc-hairline bg-bc-panel-2 p-3">
+                      <div className="grid grid-cols-3 gap-2 text-[14px] text-bc-text-2 sm:grid-cols-4">
+                        {Object.entries(espnData.settings.rosterComposition).map(
+                          ([pos, count]) => (
+                            <div key={pos}>
+                              <span className="font-semibold text-bc-ink">
+                                {pos === "DST" ? "D/ST" : pos}:
+                              </span>{" "}
+                              {count as number}
+                            </div>
+                          )
+                        )}
                       </div>
                     </div>
                   </div>
@@ -636,97 +713,85 @@ export default function SetupPage() {
           )}
 
           {step === 4 && (
-            <div>
-              <h2 className="text-xl font-bold text-white mb-4 flex items-center">
-                <CreditCard className="w-6 h-6 mr-2" />
-                Payment & League Creation
-              </h2>
+            <div className="flex flex-col gap-6">
+              <SectionHeader kicker="Seg 04" title="Payment & league creation" />
 
-              <div className="space-y-6">
-                <div className="bg-gradient-to-r from-red-900/50 to-gray-800/50 border border-red-500/30 p-6 rounded-lg">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-white mb-2">
-                        Fantasy League: {formData.leagueName}
-                      </h3>
-                      <p className="text-gray-300 text-sm">
-                        Full season access for {new Date().getFullYear()} + AI-generated content
-                      </p>
+              <div className="flex flex-col gap-6">
+                <div className="bc-glow">
+                  <Panel cut="tr" className="border-t-4 border-t-bc-red p-6">
+                    <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
+                      <div>
+                        <h3 className="bc-display text-bc-ink text-[24px]">
+                          {formData.leagueName || "Your league"}
+                        </h3>
+                        <p className="mt-1 text-[14px] text-bc-text-2">
+                          Full season access for {new Date().getFullYear()} + AI-generated
+                          content.
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="bc-num text-[36px] font-extrabold text-bc-ink">
+                          $99.99
+                        </div>
+                        <div className="text-[13px] text-bc-text-3">one-time payment</div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold text-white">$99.99</div>
-                      <div className="text-sm text-gray-400">one-time payment</div>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center text-green-400">
-                        <Check className="w-4 h-4 mr-2" />
-                        <span className="text-sm">Full season league access</span>
-                      </div>
-                      <div className="flex items-center text-green-400">
-                        <Check className="w-4 h-4 mr-2" />
-                        <span className="text-sm">1,000 credits for AI content</span>
-                      </div>
-                      <div className="flex items-center text-green-400">
-                        <Check className="w-4 h-4 mr-2" />
-                        <span className="text-sm">Weekly recaps & previews</span>
-                      </div>
+                    <div className="mt-5 grid grid-cols-1 gap-2.5 border-t border-bc-hairline pt-5 sm:grid-cols-2">
+                      {[
+                        "Full season league access",
+                        "1,000 credits for AI content",
+                        "Weekly recaps & previews",
+                        "Trade analysis & power rankings",
+                        "Custom team roasts & content",
+                        "League members get 100 bonus credits",
+                      ].map((item) => (
+                        <div key={item} className="flex items-center gap-2.5">
+                          <span className="flex size-5 flex-none items-center justify-center bg-bc-red text-white">
+                            <Check className="size-3" strokeWidth={3} />
+                          </span>
+                          <span className="text-[14px] text-bc-text-2">{item}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center text-green-400">
-                        <Check className="w-4 h-4 mr-2" />
-                        <span className="text-sm">Trade analysis & power rankings</span>
-                      </div>
-                      <div className="flex items-center text-green-400">
-                        <Check className="w-4 h-4 mr-2" />
-                        <span className="text-sm">Custom team roasts & content</span>
-                      </div>
-                      <div className="flex items-center text-green-400">
-                        <Check className="w-4 h-4 mr-2" />
-                        <span className="text-sm">League members get 100 bonus credits</span>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="border-t border-gray-600 pt-4">
-                    <p className="text-xs text-gray-400">
-                      Secure payment processed by Stripe • Cancel anytime • 30-day money-back guarantee
+                    <p className="mt-5 border-t border-bc-hairline pt-4 text-[12px] text-bc-text-3">
+                      Secure payment processed by Stripe · Cancel anytime · 30-day money-back
+                      guarantee
                     </p>
-                  </div>
+                  </Panel>
                 </div>
 
                 {paymentError && (
-                  <div className="bg-red-900/50 border border-red-500 p-4 rounded-lg flex items-start">
-                    <AlertCircle className="w-5 h-5 text-red-400 mr-3 mt-0.5 flex-shrink-0" />
+                  <div className="flex items-start gap-3 border border-bc-red bg-bc-red/10 p-4">
+                    <AlertCircle className="mt-0.5 size-5 flex-none text-bc-red-text" strokeWidth={1.8} />
                     <div>
-                      <p className="text-red-200 text-sm font-medium">Payment Error</p>
-                      <p className="text-red-300 text-sm mt-1">{paymentError}</p>
+                      <p className="text-[14px] font-medium text-bc-red-text">Payment error</p>
+                      <p className="mt-1 text-[14px] text-bc-red-text/80">{paymentError}</p>
                     </div>
                   </div>
                 )}
 
-                <div className="bg-blue-900/50 border border-blue-500 p-4 rounded-lg">
-                  <p className="text-blue-200 text-sm">
-                    🚀 <strong>What happens next?</strong> After payment, we&apos;ll create your league, sync all ESPN data, 
-                    and grant you 1,000 credits. Your league members will receive join invitations with 100 bonus credits each.
+                <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
+                  <p className="text-[14px] leading-relaxed text-bc-signal">
+                    <strong>What happens next?</strong> After payment, we&apos;ll create your
+                    league, sync all ESPN data, and grant you 1,000 credits. Your league members
+                    will receive join invitations with 100 bonus credits each.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="flex justify-between mt-8">
+          <div className="flex items-center justify-between border-t border-bc-hairline pt-6">
             <Button
               onClick={handleBack}
               disabled={step === 1 || isProcessingPayment}
               variant="secondary"
-              className="bg-gray-700 hover:bg-gray-600"
             >
               Back
             </Button>
-            
+
             {step < 4 ? (
               <Button
                 onClick={handleNext}
@@ -735,7 +800,7 @@ export default function SetupPage() {
                   (step === 2 && !formData.externalId) ||
                   (step === 3 && !espnData)
                 }
-                className="bg-red-600 hover:bg-red-700"
+                variant="glow"
               >
                 Next
               </Button>
@@ -743,31 +808,18 @@ export default function SetupPage() {
               <Button
                 onClick={handlePayment}
                 disabled={isProcessingPayment || !user}
-                className="bg-green-600 hover:bg-green-700 text-lg px-8 py-3 font-bold"
+                variant="glow"
+                size="lg"
               >
-                {isProcessingPayment ? (
-                  <>
-                    <CreditCard className="w-5 h-5 mr-2 animate-pulse" />
-                    Processing Payment...
-                  </>
-                ) : (
-                  <>
-                    <CreditCard className="w-5 h-5 mr-2" />
-                    Pay $99.99 & Create League
-                  </>
-                )}
+                <CreditCard className="size-5" strokeWidth={1.8} />
+                {isProcessingPayment ? "Processing payment..." : "Pay $99.99 & create league"}
               </Button>
             )}
           </div>
+        </Panel>
 
-          {/* Progress Bar Section - removed as syncProgress state was unused */}
-        </div>
-
-        <div className="mt-6 text-center">
-          <Link
-            href="/dashboard"
-            className="text-gray-400 hover:text-white transition-colors cursor-pointer"
-          >
+        <div className="text-center">
+          <Link href="/dashboard" className="bc-label-sm text-bc-text-3 hover:text-bc-ink">
             Skip setup and go to dashboard →
           </Link>
         </div>

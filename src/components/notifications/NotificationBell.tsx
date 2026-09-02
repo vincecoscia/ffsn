@@ -2,9 +2,9 @@
 
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useNotifications } from "./hooks/useNotifications";
 import { Id } from "../../../convex/_generated/dataModel";
+import { cn } from "@/lib/utils";
 
 interface NotificationBellProps {
   leagueId?: Id<"leagues">;
@@ -13,33 +13,33 @@ interface NotificationBellProps {
   showCount?: boolean;
 }
 
-export function NotificationBell({ 
-  leagueId, 
-  onClick, 
-  className = "",
-  showCount = true 
+export function NotificationBell({
+  leagueId,
+  onClick,
+  className,
+  showCount = true
 }: NotificationBellProps) {
   const { unreadCount, hasUnreadNotifications, isLoading } = useNotifications({ leagueId });
 
   return (
     <Button
-      variant="ghost"
+      type="button"
+      variant="outline"
       size="icon"
       onClick={onClick}
-      className={`relative text-white hover:text-red-200 hover:bg-red-700 ${className}`}
+      className={cn("relative", className)}
       aria-label={`Notifications${hasUnreadNotifications ? ` (${unreadCount} unread)` : ""}`}
     >
-      <Bell className="h-5 w-5" />
-      
+      <Bell className="size-5" strokeWidth={1.8} />
+
       {showCount && hasUnreadNotifications && !isLoading && (
-        <Badge 
-          variant="outline"
-          className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs font-bold flex items-center justify-center min-w-[20px] bg-blue-500 text-white border border-blue-500"
+        <span
+          aria-hidden="true"
+          className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center bg-bc-red px-1 font-display text-[11px] leading-none font-extrabold text-white"
         >
           {unreadCount > 99 ? "99+" : unreadCount}
-        </Badge>
+        </span>
       )}
-    
     </Button>
   );
 }

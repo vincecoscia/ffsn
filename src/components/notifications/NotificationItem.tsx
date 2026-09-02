@@ -1,27 +1,57 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
+import {
+  MessageSquare,
+  Clock,
+  RotateCw,
+  PartyPopper,
+  Newspaper,
+  Sparkles,
+  Megaphone,
+  Trophy,
+  Settings,
+  Bell,
+  type LucideIcon,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useNotifications } from "./hooks/useNotifications";
 import { Doc } from "../../../convex/_generated/dataModel";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 interface NotificationItemProps {
   notification: Doc<"userNotifications">;
   onClick?: () => void;
-  showActions?: boolean;
   compact?: boolean;
+}
+
+// Icon per notification type — no emoji in the UI, per the design system.
+const TYPE_ICONS: Record<string, LucideIcon> = {
+  comment_request: MessageSquare,
+  comment_reminder: Clock,
+  comment_follow_up: RotateCw,
+  comment_thank_you: PartyPopper,
+  article_published: Newspaper,
+  article_generated: Sparkles,
+  system_announcement: Megaphone,
+  league_invitation: Trophy,
+  account_update: Settings,
+};
+
+function typeLabel(type: string): string {
+  return type.replace(/_/g, " ");
 }
 
 export function NotificationItem({
   notification,
   onClick,
-  showActions = true,
   compact = false
 }: NotificationItemProps) {
-  const { markAsRead, getNotificationIcon } = useNotifications();
+  const { markAsRead } = useNotifications();
   const isUnread = notification.status === "unread";
   const timeAgo = formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true });
-  const icon = getNotificationIcon(notification.type);
+  const Icon = TYPE_ICONS[notification.type] ?? Bell;
 
   const handleItemClick = () => {
     // Mark as read when clicked
@@ -37,60 +67,61 @@ export function NotificationItem({
     onClick?.();
   };
 
-  const NotificationContent = () => (
+  return (
     <div
-      className={`px-4 py-3 transition-colors cursor-pointer border-b border-gray-100 hover:bg-gray-50 ${
-        isUnread ? "bg-blue-50/30" : ""
-      }`}
+      className={cn(
+        "flex cursor-pointer items-start gap-3 border-t border-bc-hairline px-4 py-3.5 transition-colors hover:bg-bc-panel-2",
+        isUnread && "bg-bc-panel-2"
+      )}
       onClick={handleItemClick}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2 flex-1 min-w-0">
-          <span className="text-base leading-none mt-0.5 flex-shrink-0" aria-hidden="true">{icon}</span>
-          <div className="flex-1 min-w-0">
-            <h4 className={`text-sm font-medium truncate ${
-              isUnread ? "text-gray-900" : "text-gray-700"
-            }`}>
-              {notification.title}
-            </h4>
-            {notification.message && (
-              <p className={`text-xs text-gray-500 mt-0.5 ${compact ? "truncate" : "line-clamp-2"}`}>
-                {notification.message}
-              </p>
+      <span className="mt-0.5 inline-flex size-8 flex-none items-center justify-center border border-bc-hairline bg-bc-ground text-bc-text-2">
+        <Icon className="size-4" strokeWidth={1.8} aria-hidden="true" />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "truncate font-display text-[15px] font-bold tracking-[0.01em] uppercase",
+              isUnread ? "text-bc-ink" : "text-bc-text-2"
             )}
-          </div>
+          >
+            {notification.title}
+          </span>
+          <Badge variant="secondary" className="text-[10px]">
+            {typeLabel(notification.type)}
+          </Badge>
         </div>
 
-        <div className="flex items-center gap-2 ml-3 flex-shrink-0">
-          <span className="text-xs text-gray-500 whitespace-nowrap">{timeAgo}</span>
-          {isUnread && <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0" />}
-        </div>
+        {notification.message && (
+          <p className={cn("mt-1 text-[13px] text-bc-text-2", compact ? "truncate" : "line-clamp-2")}>
+            {notification.message}
+          </p>
+        )}
+
+        <span className="bc-label-sm mt-1.5 block text-bc-text-3">{timeAgo}</span>
       </div>
+
+      {isUnread && <span className="mt-1.5 size-2 flex-none bg-bc-red" aria-hidden="true" />}
     </div>
   );
-
-  return <NotificationContent />;
 }
 
 // Skeleton component for loading states
 export function NotificationItemSkeleton({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="p-3 sm:p-4 rounded-lg border bg-white">
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 animate-pulse"></div>
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
-          {!compact && (
-            <>
-              <div className="h-3 bg-gray-200 rounded animate-pulse w-full"></div>
-              <div className="h-3 bg-gray-200 rounded animate-pulse w-2/3"></div>
-            </>
-          )}
-          <div className="flex items-center gap-2">
-            <div className="h-3 bg-gray-200 rounded animate-pulse w-20"></div>
-            <div className="h-3 bg-gray-200 rounded animate-pulse w-16"></div>
-          </div>
-        </div>
+    <div className="flex items-start gap-3 border-t border-bc-hairline px-4 py-3.5">
+      <Skeleton className="size-8 flex-none" />
+      <div className="flex-1 space-y-2">
+        <Skeleton className="h-4 w-3/4" />
+        {!compact && (
+          <>
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </>
+        )}
+        <Skeleton className="h-3 w-20" />
       </div>
     </div>
   );

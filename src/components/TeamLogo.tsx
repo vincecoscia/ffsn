@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import { TeamTile } from "@/components/broadcast";
 
 interface TeamLogoProps {
   teamId: Id<"teams">;
@@ -14,68 +14,43 @@ interface TeamLogoProps {
   className?: string;
 }
 
-export function TeamLogo({ 
-  teamId, 
-  teamName, 
-  espnLogo, 
+const SIZE_PX: Record<NonNullable<TeamLogoProps["size"]>, number> = {
+  sm: 32,
+  md: 36,
+  lg: 64,
+  xl: 88,
+};
+
+function getInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "??";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+/** Team logo/monogram, rendered through the kit's `TeamTile`: the custom or ESPN logo image when available, an initials tile otherwise. */
+export function TeamLogo({
+  teamId,
+  teamName,
+  espnLogo,
   customLogo,
   size = "md",
-  className = ""
+  className = "",
 }: TeamLogoProps) {
-  const [showEspnLogo, setShowEspnLogo] = useState(true);
-  const customLogoUrl = useQuery(api.teams.getCustomLogoUrl, 
+  const customLogoUrl = useQuery(
+    api.teams.getCustomLogoUrl,
     customLogo ? { teamId } : "skip"
   );
 
-  const sizeClasses = {
-    sm: "h-8 w-8",
-    md: "h-12 w-12",
-    lg: "h-16 w-16",
-    xl: "h-20 w-20"
-  };
+  const src = customLogoUrl || espnLogo || undefined;
 
-  const iconSizeClasses = {
-    sm: "h-4 w-4",
-    md: "h-6 w-6",
-    lg: "h-8 w-8",
-    xl: "h-10 w-10"
-  };
-
-  // Prioritize custom logo over ESPN logo
-  const logoUrl = customLogoUrl || (showEspnLogo && espnLogo ? espnLogo : null);
-
-  if (logoUrl) {
-    return (
-      <img
-        src={logoUrl}
-        alt={`${teamName} logo`}
-        className={`${sizeClasses[size]} rounded object-cover ${className}`}
-        onError={() => {
-          if (logoUrl === espnLogo) {
-            // ESPN logo failed to load
-            setShowEspnLogo(false);
-          }
-        }}
-      />
-    );
-  }
-
-  // Fallback placeholder
   return (
-    <div className={`${sizeClasses[size]} rounded bg-gray-200 flex items-center justify-center ${className}`}>
-      <svg 
-        className={`${iconSizeClasses[size]} text-gray-400`} 
-        fill="none" 
-        viewBox="0 0 24 24" 
-        stroke="currentColor"
-      >
-        <path 
-          strokeLinecap="round" 
-          strokeLinejoin="round" 
-          strokeWidth={2} 
-          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" 
-        />
-      </svg>
-    </div>
+    <TeamTile
+      initials={getInitials(teamName)}
+      src={src}
+      alt={`${teamName} logo`}
+      size={SIZE_PX[size]}
+      className={className}
+    />
   );
 }

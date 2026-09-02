@@ -6,16 +6,53 @@ import { useAction, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { UserButton } from "@clerk/nextjs";
-import Link from "next/link";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, CreditCard, Users, Zap, AlertCircle } from "lucide-react";
+import { CheckCircle2, CreditCard, Users, Zap, AlertCircle } from "lucide-react";
+
+import { TopBar, ThemeToggle, Panel, Chip, LoadingScreen } from "@/components/broadcast";
 
 interface SyncProgress {
   step: number;
   totalSteps: number;
   message: string;
   percentage: number;
+}
+
+function ChecklistRow({
+  icon,
+  title,
+  description,
+  done,
+  active,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  done: boolean;
+  active: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-4">
+      <span
+        className={
+          "flex size-10 flex-none items-center justify-center border " +
+          (done
+            ? "border-bc-win bg-bc-win text-white"
+            : active
+              ? "border-bc-red text-bc-red-text"
+              : "border-bc-border-strong text-bc-text-3")
+        }
+      >
+        {icon}
+      </span>
+      <div className="flex flex-1 flex-col gap-0.5">
+        <h3 className="bc-label text-bc-ink">{title}</h3>
+        <p className="text-[13px] text-bc-text-2">{description}</p>
+      </div>
+      {done && <CheckCircle2 className="size-5 flex-none text-bc-win" strokeWidth={1.8} />}
+    </div>
+  );
 }
 
 function PaymentSuccessContent() {
@@ -28,125 +65,141 @@ function PaymentSuccessContent() {
 
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
   const verifyPayment = useAction(api.stripe.verifyPaymentCompleted);
   const completeOnboarding = useMutation(api.users.completeOnboarding);
   const syncAllLeagueData = useAction(api.espnSync.syncAllLeagueData);
-  const syncHistoricalLeaguePlayerStats = useAction(api.playerHistoricalSync.syncHistoricalLeaguePlayerStats);
+  const syncHistoricalLeaguePlayerStats = useAction(
+    api.playerHistoricalSync.syncHistoricalLeaguePlayerStats
+  );
   const linkPaymentToLeague = useMutation(api.payments.linkPaymentToLeague);
 
-  const processPaymentSuccess = useCallback(async (sessionId: string) => {
-    try {
-      // Step 1: Verify payment with Stripe
-      setSyncProgress({ 
-        step: 1, 
-        totalSteps: 6, 
-        message: "Verifying payment...", 
-        percentage: 10 
-      });
+  const processPaymentSuccess = useCallback(
+    async (sessionId: string) => {
+      try {
+        // Step 1: Verify payment with Stripe
+        setSyncProgress({
+          step: 1,
+          totalSteps: 6,
+          message: "Verifying payment...",
+          percentage: 10,
+        });
 
-      const paymentResult = await verifyPayment({ sessionId });
-      
-      if (!paymentResult.fulfilled) {
-        throw new Error("Payment verification failed");
+        const paymentResult = await verifyPayment({ sessionId });
+
+        if (!paymentResult.fulfilled) {
+          throw new Error("Payment verification failed");
+        }
+
+        setPaymentVerified(true);
+
+        // Step 2: Extract league data from payment metadata
+        setSyncProgress({
+          step: 2,
+          totalSteps: 6,
+          message: "Processing league data...",
+          percentage: 25,
+        });
+
+        const metadata = paymentResult.metadata;
+        if (!metadata || !metadata.leagueId) {
+          throw new Error("Missing league information in payment");
+        }
+
+        // Step 3: Get the existing league ID from metadata
+        setSyncProgress({
+          step: 3,
+          totalSteps: 6,
+          message: "Retrieving league information...",
+          percentage: 40,
+        });
+
+        const leagueId = metadata.leagueId;
+        if (!leagueId) {
+          throw new Error("League ID not found in payment metadata");
+        }
+
+        setLeagueId(leagueId);
+        setLeagueCreated(true);
+
+        // Link the payment to the existing league
+        await linkPaymentToLeague({
+          userId: metadata.userId,
+          leagueId: leagueId as Id<"leagues">,
+          paymentType: "league_creation" as const,
+        });
+
+        // Step 4: Sync ESPN data
+        setSyncProgress({
+          step: 4,
+          totalSteps: 6,
+          message: "Syncing ESPN data...",
+          percentage: 60,
+        });
+
+        await syncAllLeagueData({
+          leagueId: leagueId as Id<"leagues">,
+          includeCurrentSeason: true,
+          historicalYears: 5,
+        });
+
+        // Step 5: Backfill top performers for older seasons (skip if already cached)
+        setSyncProgress({
+          step: 5,
+          totalSteps: 6,
+          message: "Backfilling top performers for prior seasons...",
+          percentage: 70,
+        });
+
+        await syncHistoricalLeaguePlayerStats({
+          leagueId: leagueId as Id<"leagues">,
+        });
+
+        // Step 6: Finalize setup
+        setSyncProgress({
+          step: 6,
+          totalSteps: 6,
+          message: "Finalizing setup...",
+          percentage: 80,
+        });
+
+        await completeOnboarding();
+
+        // Step 7: Complete
+        setSyncProgress({
+          step: 7,
+          totalSteps: 7,
+          message: "All done! Welcome to FFSN!",
+          percentage: 100,
+        });
+
+        // Small delay to show completion
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      } catch (error) {
+        console.error("Payment processing error:", error);
+        setError(error instanceof Error ? error.message : "An unexpected error occurred");
+      } finally {
+        setIsLoading(false);
       }
-
-      setPaymentVerified(true);
-      
-      // Step 2: Extract league data from payment metadata
-      setSyncProgress({ 
-        step: 2, 
-        totalSteps: 6, 
-        message: "Processing league data...", 
-        percentage: 25 
-      });
-
-      const metadata = paymentResult.metadata;
-      if (!metadata || !metadata.leagueId) {
-        throw new Error("Missing league information in payment");
-      }
-
-      // Step 3: Get the existing league ID from metadata
-      setSyncProgress({ 
-        step: 3, 
-        totalSteps: 6, 
-        message: "Retrieving league information...", 
-        percentage: 40 
-      });
-
-      const leagueId = metadata.leagueId;
-      if (!leagueId) {
-        throw new Error("League ID not found in payment metadata");
-      }
-
-      setLeagueId(leagueId);
-      setLeagueCreated(true);
-
-      // Link the payment to the existing league
-      await linkPaymentToLeague({
-        userId: metadata.userId,
-        leagueId: leagueId as Id<"leagues">,
-        paymentType: "league_creation" as const,
-      });
-
-      // Step 4: Sync ESPN data
-      setSyncProgress({ 
-        step: 4, 
-        totalSteps: 6, 
-        message: "Syncing ESPN data...", 
-        percentage: 60 
-      });
-
-      await syncAllLeagueData({
-        leagueId: leagueId as Id<"leagues">,
-        includeCurrentSeason: true,
-        historicalYears: 5,
-      });
-
-      // Step 5: Backfill top performers for older seasons (skip if already cached)
-      setSyncProgress({
-        step: 5,
-        totalSteps: 6,
-        message: "Backfilling top performers for prior seasons...",
-        percentage: 70,
-      });
-
-      await syncHistoricalLeaguePlayerStats({
-        leagueId: leagueId as Id<"leagues">,
-      });
-
-      // Step 6: Finalize setup
-      setSyncProgress({ 
-        step: 6, 
-        totalSteps: 6, 
-        message: "Finalizing setup...", 
-        percentage: 80 
-      });
-
-      await completeOnboarding();
-
-      // Step 7: Complete
-      setSyncProgress({ 
-        step: 7, 
-        totalSteps: 7, 
-        message: "All done! Welcome to FFSN!", 
-        percentage: 100 
-      });
-
-      // Small delay to show completion
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-    } catch (error) {
-      console.error("Payment processing error:", error);
-      setError(error instanceof Error ? error.message : "An unexpected error occurred");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [verifyPayment, setPaymentVerified, setLeagueId, setLeagueCreated, linkPaymentToLeague, syncAllLeagueData, syncHistoricalLeaguePlayerStats, completeOnboarding, setSyncProgress, setError, setIsLoading]);
+    },
+    [
+      verifyPayment,
+      setPaymentVerified,
+      setLeagueId,
+      setLeagueCreated,
+      linkPaymentToLeague,
+      syncAllLeagueData,
+      syncHistoricalLeaguePlayerStats,
+      completeOnboarding,
+      setSyncProgress,
+      setError,
+      setIsLoading,
+    ]
+  );
 
   useEffect(() => {
     const sessionId = searchParams?.get("session_id");
-    
+
     if (!sessionId) {
       setError("No payment session found. Please try again.");
       setIsLoading(false);
@@ -158,141 +211,115 @@ function PaymentSuccessContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="max-w-md w-full mx-4">
-          <div className="bg-red-900/50 border border-red-500 p-6 rounded-lg text-center">
-            <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-white mb-2">Payment Processing Error</h2>
-            <p className="text-red-200 text-sm mb-4">{error}</p>
-            <div className="space-y-2">
-              <Button 
-                onClick={() => router.push("/setup")}
-                className="w-full bg-red-600 hover:bg-red-700"
-              >
-                Return to Setup
+      <div className="min-h-screen bg-bc-ground">
+        <TopBar title="New league" subtitle="Payment processing">
+          <ThemeToggle />
+          <UserButton />
+        </TopBar>
+        <main className="mx-auto flex max-w-md flex-col px-4 py-16 sm:px-6">
+          <Panel padding="lg" className="flex flex-col items-center gap-4 border-bc-red text-center">
+            <AlertCircle className="size-10 text-bc-red-text" strokeWidth={1.6} />
+            <h2 className="bc-display text-bc-ink text-[26px]">Payment processing error</h2>
+            <p className="text-[14px] leading-relaxed text-bc-text-2">{error}</p>
+            <div className="flex w-full flex-col gap-3 pt-2">
+              <Button onClick={() => router.push("/setup")} variant="glow" size="lg" className="w-full">
+                Return to setup
               </Button>
-              <Button 
+              <Button
                 onClick={() => router.push("/dashboard")}
                 variant="outline"
+                size="lg"
                 className="w-full"
               >
-                Go to Dashboard
+                Go to dashboard
               </Button>
             </div>
-          </div>
-        </div>
+          </Panel>
+        </main>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-900">
-      <header className="bg-gray-800 border-b border-gray-700">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-2xl font-bold text-white cursor-pointer">
-            FFSN
-          </Link>
-          <div className="flex items-center gap-4">
-            <span className="text-gray-300">Payment Processing</span>
-            <UserButton />
-          </div>
-        </div>
-      </header>
+  const isComplete = syncProgress?.percentage === 100;
 
-      <main className="container mx-auto px-6 py-8 max-w-2xl">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-black text-white mb-2">
-            Payment Successful!
-          </h1>
-          <p className="text-gray-400">
-            Setting up your fantasy league with AI-powered content
+  return (
+    <div className="min-h-screen bg-bc-ground">
+      <TopBar title="New league" subtitle="Payment processing">
+        <ThemeToggle />
+        <UserButton />
+      </TopBar>
+
+      <main className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-12 sm:px-6 sm:py-16">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <Chip live>Live</Chip>
+          <h1 className="bc-display text-bc-ink text-[40px] sm:text-[52px]">You&apos;re on the air</h1>
+          <p className="text-[15px] text-bc-text-2">
+            Setting up your fantasy league with AI-powered content.
           </p>
         </div>
 
         {syncProgress && (
-          <div className="bg-gray-800 rounded-lg p-6 mb-6">
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-gray-300">{syncProgress.message}</span>
-              <span className="text-gray-400">{syncProgress.percentage}%</span>
+          <Panel padding="md" className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[14px] text-bc-text-2">{syncProgress.message}</span>
+              <span className="bc-num text-[14px] text-bc-text-3">{syncProgress.percentage}%</span>
             </div>
-            <Progress value={syncProgress.percentage} className="h-3 mb-2" />
-            <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>Step {syncProgress.step} of {syncProgress.totalSteps}</span>
-              {syncProgress.percentage === 100 && (
-                <span className="text-green-400">✓ Complete</span>
-              )}
+            <Progress value={syncProgress.percentage} className="h-2" />
+            <div className="flex items-center justify-between text-[12px] text-bc-text-3">
+              <span>
+                Step {syncProgress.step} of {syncProgress.totalSteps}
+              </span>
+              {isComplete && <span className="text-bc-win">Complete</span>}
             </div>
+          </Panel>
+        )}
+
+        {syncProgress && !isComplete && (
+          <div className="border border-bc-signal/40 bg-bc-signal/10 p-3.5 text-[14px] text-bc-signal">
+            This sync can take up to 5 minutes depending on your league size.
           </div>
         )}
 
-        {syncProgress && syncProgress.percentage < 100 && (
-          <div className="bg-blue-900/50 border border-blue-500 p-3 rounded-md mb-6 text-blue-100 text-sm">
-            ⏱️ This sync can take up to 5 minutes depending on your league size.
-          </div>
-        )}
+        <Panel padding="lg" className="flex flex-col gap-6">
+          <ChecklistRow
+            icon={<CreditCard className="size-4" strokeWidth={1.8} />}
+            title="Payment processed"
+            description="$99.99 charged successfully"
+            done={paymentVerified}
+            active={!paymentVerified}
+          />
+          <ChecklistRow
+            icon={<Users className="size-4" strokeWidth={1.8} />}
+            title="League created"
+            description="ESPN data synced and ready"
+            done={leagueCreated}
+            active={paymentVerified && !leagueCreated}
+          />
+          <ChecklistRow
+            icon={<Zap className="size-4" strokeWidth={1.8} />}
+            title="1,000 credits added"
+            description="Ready for AI content generation"
+            done={isComplete}
+            active={leagueCreated && !isComplete}
+          />
+        </Panel>
 
-        <div className="bg-gray-800 rounded-lg p-6 space-y-4">
-          <div className="flex items-center space-x-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              paymentVerified ? 'bg-green-600' : 'bg-gray-600'
-            }`}>
-              <CreditCard className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h3 className="text-white font-semibold">Payment Processed</h3>
-              <p className="text-gray-400 text-sm">$99.99 charged successfully</p>
-            </div>
-            {paymentVerified && <CheckCircle className="w-5 h-5 text-green-400" />}
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              leagueCreated ? 'bg-green-600' : paymentVerified ? 'bg-blue-600' : 'bg-gray-600'
-            }`}>
-              <Users className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h3 className="text-white font-semibold">League Created</h3>
-              <p className="text-gray-400 text-sm">ESPN data synced and ready</p>
-            </div>
-            {leagueCreated && <CheckCircle className="w-5 h-5 text-green-400" />}
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              syncProgress?.percentage === 100 ? 'bg-green-600' : leagueCreated ? 'bg-blue-600' : 'bg-gray-600'
-            }`}>
-              <Zap className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h3 className="text-white font-semibold">1,000 Credits Added</h3>
-              <p className="text-gray-400 text-sm">Ready for AI content generation</p>
-            </div>
-            {syncProgress?.percentage === 100 && <CheckCircle className="w-5 h-5 text-green-400" />}
-          </div>
-        </div>
-
-        {syncProgress?.percentage === 100 && (
-          <div className="mt-6 text-center space-y-4">
-            <div className="bg-green-900/50 border border-green-500 p-4 rounded-lg">
-              <p className="text-green-200 text-sm">
-                🎉 <strong>Success!</strong> Your league is ready. Team members who join will receive 100 bonus credits each.
+        {isComplete && (
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-full border border-bc-win/40 bg-bc-win/10 p-4 text-center">
+              <p className="text-[14px] leading-relaxed text-bc-win">
+                Success. Your league is ready. Team members who join will receive 100 bonus
+                credits each.
               </p>
             </div>
-            
-            <div className="space-y-2">
-              <Button 
-                onClick={() => router.push("/dashboard")}
-                className="w-full bg-red-600 hover:bg-red-700 text-lg py-3"
-              >
-                Go to Dashboard
-              </Button>
-              
-              {/* Removed "View League Details" button as it's not relevant here */}
-            </div>
+            <Button
+              onClick={() => router.push("/dashboard")}
+              variant="glow"
+              size="lg"
+              className="w-full"
+            >
+              Go to dashboard
+            </Button>
           </div>
         )}
       </main>
@@ -302,14 +329,13 @@ function PaymentSuccessContent() {
 
 export default function PaymentSuccessPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading payment details...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-bc-ground">
+          <LoadingScreen message="Loading payment details" />
         </div>
-      </div>
-    }>
+      }
+    >
       <PaymentSuccessContent />
     </Suspense>
   );

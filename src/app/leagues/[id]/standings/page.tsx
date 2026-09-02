@@ -9,9 +9,23 @@ import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Minus } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Panel,
+  SectionHeader,
+  RankPlate,
+  LoadingScreen,
+  EmptyState,
+} from "@/components/broadcast";
 import { TeamLogo } from "@/components/TeamLogo";
+import { Minus, Trophy } from "lucide-react";
 
 interface StandingsPageProps {
   params: Promise<{ id: string }>;
@@ -40,11 +54,154 @@ interface Team {
   };
 }
 
+function StandingsTable({
+  teams,
+  showRank = true,
+  playoffLineAfter,
+}: {
+  teams: Team[];
+  showRank?: boolean;
+  playoffLineAfter?: number;
+}) {
+  if (teams.length === 0) {
+    return (
+      <EmptyState
+        icon={<Trophy className="size-6" strokeWidth={1.8} />}
+        title="No teams yet"
+        description="Standings will appear once teams have results for this season."
+      />
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-bc-hairline hover:bg-transparent">
+            {showRank && (
+              <TableHead className="bc-label-sm text-bc-text-3">Rk</TableHead>
+            )}
+            <TableHead className="bc-label-sm text-bc-text-3">Team</TableHead>
+            <TableHead className="hidden bc-label-sm text-bc-text-3 md:table-cell">
+              Owner
+            </TableHead>
+            <TableHead className="bc-label-sm text-bc-text-3 text-right">W-L</TableHead>
+            <TableHead className="hidden bc-label-sm text-bc-text-3 text-right sm:table-cell">
+              Win %
+            </TableHead>
+            <TableHead className="hidden bc-label-sm text-bc-text-3 text-right sm:table-cell">
+              PF
+            </TableHead>
+            <TableHead className="hidden bc-label-sm text-bc-text-3 text-right md:table-cell">
+              PA
+            </TableHead>
+            <TableHead className="hidden bc-label-sm text-bc-text-3 text-right xl:table-cell">
+              Diff
+            </TableHead>
+            <TableHead className="hidden bc-label-sm text-bc-text-3 text-right xl:table-cell">
+              Streak
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {teams.map((team, index) => {
+            const totalGames = team.record.wins + team.record.losses + team.record.ties;
+            const winPercentage = totalGames > 0 ? team.record.wins / totalGames : 0;
+            const pointDiff = (team.record.pointsFor || 0) - (team.record.pointsAgainst || 0);
+            const isPlayoffLine =
+              playoffLineAfter !== undefined && index + 1 === playoffLineAfter;
+
+            return (
+              <TableRow
+                key={team._id}
+                className={
+                  isPlayoffLine
+                    ? "border-b-2 border-bc-red hover:bg-bc-panel-2"
+                    : "border-bc-hairline hover:bg-bc-panel-2"
+                }
+              >
+                {showRank && (
+                  <TableCell>
+                    <RankPlate rank={index + 1} tone={index === 0 ? "first" : "default"} />
+                  </TableCell>
+                )}
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <TeamLogo
+                      teamId={team._id}
+                      teamName={team.name}
+                      espnLogo={team.logo}
+                      customLogo={team.customLogo}
+                      size="sm"
+                    />
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-display text-[17px] font-bold uppercase leading-none text-bc-ink truncate">
+                        {team.name}
+                      </span>
+                      <span className="bc-label-sm text-bc-text-3 md:hidden truncate">
+                        {team.owner}
+                      </span>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="hidden md:table-cell">
+                  <span className="bc-label-sm text-bc-text-2">{team.owner}</span>
+                </TableCell>
+                <TableCell className="text-right">
+                  <span className="bc-num text-bc-ink">
+                    {team.record.wins}-{team.record.losses}
+                    {team.record.ties > 0 && `-${team.record.ties}`}
+                  </span>
+                </TableCell>
+                <TableCell className="hidden text-right sm:table-cell">
+                  <span className="bc-num text-bc-text-2">
+                    {(winPercentage * 100).toFixed(1)}%
+                  </span>
+                </TableCell>
+                <TableCell className="hidden text-right sm:table-cell">
+                  <span className="bc-num text-bc-ink">
+                    {team.record.pointsFor?.toFixed(1) || "0.0"}
+                  </span>
+                </TableCell>
+                <TableCell className="hidden text-right md:table-cell">
+                  <span className="bc-num text-bc-text-2">
+                    {team.record.pointsAgainst?.toFixed(1) || "0.0"}
+                  </span>
+                </TableCell>
+                <TableCell className="hidden text-right xl:table-cell">
+                  <span
+                    className={
+                      pointDiff > 0
+                        ? "bc-num text-bc-win"
+                        : pointDiff < 0
+                          ? "bc-num text-bc-red-text"
+                          : "bc-num text-bc-ink"
+                    }
+                  >
+                    {pointDiff > 0 && "+"}
+                    {pointDiff.toFixed(1)}
+                  </span>
+                </TableCell>
+                <TableCell className="hidden text-right xl:table-cell">
+                  <div className="flex items-center justify-end">
+                    {/* Placeholder for streak - would need to calculate from recent matchups */}
+                    <Minus className="size-4 text-bc-text-3" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 export default function StandingsPage({ params }: StandingsPageProps) {
   const resolvedParams = React.use(params);
   const leagueId = resolvedParams.id as Id<"leagues">;
   const { userId } = useAuth();
-  
+
   // Get current/available seasons for the league
   const { currentSeason, availableSeasons, isLoading: isSeasonLoading } = useLeagueSeason(leagueId);
 
@@ -63,13 +220,13 @@ export default function StandingsPage({ params }: StandingsPageProps) {
   const league = useQuery(api.leagues.getById, { id: leagueId });
 
   // Get teams for the selected season
-  const teamsData = useQuery(api.teams.getByLeagueAndSeason, { 
+  const teamsData = useQuery(api.teams.getByLeagueAndSeason, {
     leagueId,
-    seasonId: selectedSeason 
+    seasonId: selectedSeason,
   });
-  
+
   const teams = React.useMemo(() => teamsData || [], [teamsData]);
-  
+
   // Sort teams by various criteria
   const sortedByRecord = React.useMemo(() => {
     return [...teams].sort((a, b) => {
@@ -87,25 +244,25 @@ export default function StandingsPage({ params }: StandingsPageProps) {
       return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
     });
   }, [teams]);
-  
+
   // Sort by points (power rankings)
   const sortedByPoints = React.useMemo(() => {
     return [...teams].sort((a, b) => {
       return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
     });
   }, [teams]);
-  
+
   // Group teams by division if applicable
   const teamsByDivision = React.useMemo(() => {
     const divisions = new Map<number, Team[]>();
-    teams.forEach(team => {
+    teams.forEach((team) => {
       const divId = team.divisionId || 0;
       if (!divisions.has(divId)) {
         divisions.set(divId, []);
       }
       divisions.get(divId)!.push(team);
     });
-    
+
     // Sort teams within each division
     divisions.forEach((divTeams) => {
       divTeams.sort((a, b) => {
@@ -124,185 +281,56 @@ export default function StandingsPage({ params }: StandingsPageProps) {
         return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
       });
     });
-    
+
     return divisions;
   }, [teams]);
-  
+
   const hasDivisions = league?.settings?.divisions && league.settings.divisions.length > 0;
+  const playoffTeamCount = league?.settings?.playoffTeamCount;
 
   if (!userId || !league) {
-    return <div>Loading...</div>;
+    return <LoadingScreen message="Loading standings" />;
   }
 
-  const StandingsTable = ({ teams, showRank = true }: { teams: Team[], showRank?: boolean }) => (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead className="bg-gray-50">
-          <tr>
-            {showRank && (
-              <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Rank
-              </th>
-            )}
-            <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Team
-            </th>
-            <th className="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Record
-            </th>
-            <th className="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Win %
-            </th>
-            <th className="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              PF
-            </th>
-            <th className="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              PA
-            </th>
-            <th className="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Diff
-            </th>
-            <th className="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Streak
-            </th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {teams.map((team, index) => {
-            const totalGames = team.record.wins + team.record.losses + team.record.ties;
-            const winPercentage = totalGames > 0 ? (team.record.wins / totalGames) : 0;
-            const pointDiff = (team.record.pointsFor || 0) - (team.record.pointsAgainst || 0);
-            const isPlayoffTeam = team.record.playoffSeed && team.record.playoffSeed <= (league?.settings?.playoffTeamCount || 6);
-            
-            return (
-              <tr key={team._id} className="hover:bg-gray-50 transition-colors">
-                {showRank && (
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-gray-900">{index + 1}</span>
-                      {isPlayoffTeam && (
-                        <Badge variant="secondary" className="text-xs">
-                          Playoff
-                        </Badge>
-                      )}
-                    </div>
-                  </td>
-                )}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <TeamLogo 
-                      teamId={team._id}
-                      teamName={team.name}
-                      espnLogo={team.logo}
-                      customLogo={team.customLogo}
-                      size="md"
-                      className="mr-3"
-                    />
-                    <div>
-                      <div className="text-sm font-bold text-gray-900">{team.name}</div>
-                      <div className="text-sm text-gray-500">{team.owner}</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <span className="text-sm font-semibold text-gray-900">
-                    {team.record.wins}-{team.record.losses}
-                    {team.record.ties > 0 && `-${team.record.ties}`}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <span className="text-sm font-medium text-gray-900">
-                    {(winPercentage * 100).toFixed(1)}%
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-900">
-                  {team.record.pointsFor?.toFixed(1) || '0.0'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-900">
-                  {team.record.pointsAgainst?.toFixed(1) || '0.0'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <span className={`text-sm font-semibold ${pointDiff > 0 ? 'text-green-600' : pointDiff < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                    {pointDiff > 0 && '+'}{pointDiff.toFixed(1)}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <div className="flex items-center justify-center">
-                    {/* Placeholder for streak - would need to calculate from recent matchups */}
-                    <Minus className="h-4 w-4 text-gray-400" />
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-
   return (
-    <LeaguePageLayout 
-      leagueId={leagueId} 
-      currentUserId={userId}
-      title="Standings"
-    >
-      {/* Season Selector */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">{selectedSeason} Season Standings</h2>
-          <SeasonSelector
-            currentSeason={currentSeason}
-            selectedSeason={selectedSeason}
-            onSeasonChange={setSelectedSeason}
-            availableSeasons={availableSeasons}
-          />
-        </div>
-      </div>
+    <LeaguePageLayout leagueId={leagueId} currentUserId={userId} title="Standings">
+      <Panel padding="md">
+        <SectionHeader
+          title="Standings"
+          kicker={`${selectedSeason} season`}
+          actions={
+            <SeasonSelector
+              currentSeason={currentSeason}
+              selectedSeason={selectedSeason}
+              onSeasonChange={setSelectedSeason}
+              availableSeasons={availableSeasons}
+            />
+          }
+        />
 
-      {/* Standings Tabs */}
-      <div className="bg-white rounded-lg shadow-sm">
-        <Tabs defaultValue="overall" className="w-full">
-          <div className="border-b border-gray-200">
-            <TabsList className="h-auto p-0 bg-transparent">
-              <TabsTrigger 
-                value="overall" 
-                className="data-[state=active]:border-b-2 data-[state=active]:border-red-600 rounded-none px-6 py-4"
-              >
-                Overall
-              </TabsTrigger>
-              {hasDivisions && (
-                <TabsTrigger 
-                  value="division" 
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-red-600 rounded-none px-6 py-4"
-                >
-                  Division
-                </TabsTrigger>
-              )}
-              <TabsTrigger 
-                value="power" 
-                className="data-[state=active]:border-b-2 data-[state=active]:border-red-600 rounded-none px-6 py-4"
-              >
-                Power Rankings
-              </TabsTrigger>
-            </TabsList>
-          </div>
-          
-          <TabsContent value="overall" className="p-0">
-            <StandingsTable teams={sortedByRecord} />
+        <Tabs defaultValue="overall" className="mt-5 w-full gap-0">
+          <TabsList>
+            <TabsTrigger value="overall">Overall</TabsTrigger>
+            {hasDivisions && <TabsTrigger value="division">Division</TabsTrigger>}
+            <TabsTrigger value="power">Power rankings</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overall" className="mt-5">
+            <StandingsTable teams={sortedByRecord} playoffLineAfter={playoffTeamCount} />
           </TabsContent>
-          
+
           {hasDivisions && (
-            <TabsContent value="division" className="p-0">
-              <div className="divide-y divide-gray-200">
+            <TabsContent value="division" className="mt-5">
+              <div className="flex flex-col gap-8">
                 {Array.from(teamsByDivision.entries()).map(([divisionId, divTeams]) => {
-                  const division = league.settings.divisions?.find(d => d.id === divisionId.toString());
+                  const division = league.settings.divisions?.find(
+                    (d) => d.id === divisionId.toString()
+                  );
                   return (
-                    <div key={divisionId}>
-                      <div className="px-6 py-4 bg-gray-50">
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {division?.name || `Division ${divisionId}`}
-                        </h3>
-                      </div>
+                    <div key={divisionId} className="flex flex-col gap-3">
+                      <span className="bc-h-title text-[20px]">
+                        {division?.name || `Division ${divisionId}`}
+                      </span>
                       <StandingsTable teams={divTeams} showRank={false} />
                     </div>
                   );
@@ -310,17 +338,16 @@ export default function StandingsPage({ params }: StandingsPageProps) {
               </div>
             </TabsContent>
           )}
-          
-          <TabsContent value="power" className="p-0">
-            <div className="p-6">
-              <p className="text-sm text-gray-600 mb-4">
-                Teams ranked by total points scored, reflecting offensive performance regardless of record.
-              </p>
-            </div>
+
+          <TabsContent value="power" className="mt-5">
+            <p className="bc-label-sm text-bc-text-3 mb-4">
+              Teams ranked by total points scored, reflecting offensive performance regardless of
+              record.
+            </p>
             <StandingsTable teams={sortedByPoints} />
           </TabsContent>
         </Tabs>
-      </div>
+      </Panel>
     </LeaguePageLayout>
   );
 }

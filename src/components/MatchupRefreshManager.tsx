@@ -8,6 +8,8 @@ import { triggerHistoricalSync, getCurrentLeagueSync } from "../app/sync/actions
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface MatchupRefreshManagerProps {
   leagueId: Id<"leagues">;
@@ -20,14 +22,14 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    
+
     try {
       let result;
-      
+
       if (refreshType === "current") {
         // Only refresh current season
         result = await getCurrentLeagueSync(leagueId);
-        
+
         if (result.success) {
           toast.success("Current season data synced!", {
             description: "All league data for the current season has been updated (teams, owners, logos, rosters, matchups)."
@@ -38,17 +40,17 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
       } else {
         // Refresh all historical data
         result = await triggerHistoricalSync(leagueId, historicalYears, true);
-        
+
         if (result.success && result.data) {
           const { totalSynced, totalErrors, results } = result.data;
-          
+
           if (totalSynced > 0) {
             toast.success(`Successfully synced ${totalSynced} season${totalSynced > 1 ? 's' : ''}!`, {
-              description: totalErrors > 0 
+              description: totalErrors > 0
                 ? `${totalErrors} season${totalErrors > 1 ? 's' : ''} had errors. Check console for details.`
                 : "All league data has been updated across all seasons."
             });
-            
+
             // Log detailed results for debugging
             console.log("Sync results:", results);
           } else {
@@ -69,70 +71,66 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
   };
 
   return (
-    <div className="space-y-4">
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <div className="flex gap-3">
-          <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-medium text-yellow-800">Important Information</h4>
-            <p className="text-sm text-yellow-700 mt-1">
-              Syncing league data will refresh all information from ESPN, including teams, 
-              owners, logos, rosters, matchups, scores, and playoff details. This process 
-              may take a few moments depending on the amount of data.
-            </p>
-          </div>
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-3 border-l-4 border-l-bc-signal bg-bc-panel-2 p-4">
+        <AlertTriangle className="mt-0.5 size-5 flex-none text-bc-signal" />
+        <div>
+          <p className="font-display text-[15px] font-bold uppercase tracking-[0.02em] text-bc-ink">Important information</p>
+          <p className="mt-1 text-sm leading-relaxed text-bc-text-2">
+            Syncing league data will refresh all information from ESPN, including teams,
+            owners, logos, rosters, matchups, scores, and playoff details. This process
+            may take a few moments depending on the amount of data.
+          </p>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <Label className="text-sm font-medium text-gray-700">
-          Refresh Type
-        </Label>
-        <div className="grid grid-cols-2 gap-4">
-          <Button
-            variant={refreshType === "current" ? "default" : "outline"}
+      <div className="flex flex-col gap-3">
+        <Label>Refresh type</Label>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <button
+            type="button"
             onClick={() => setRefreshType("current")}
-            className={`p-4 h-auto flex-col ${
+            className={cn(
+              "flex flex-col items-start gap-2 border p-4 text-left transition-colors",
               refreshType === "current"
-                ? "border-red-500 bg-red-50 text-gray-900 hover:bg-red-100"
-                : "border-gray-200 hover:border-gray-300"
-            }`}
+                ? "border-bc-red bg-bc-red/10"
+                : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+            )}
           >
-            <Calendar className="h-6 w-6 mb-2 text-gray-600" />
-            <div className="font-medium">Current Season</div>
-            <div className="text-sm text-gray-600 mt-1 hidden md:block">
+            <Calendar className="size-6 text-bc-text-2" />
+            <div className="font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">Current season</div>
+            <div className="hidden text-sm text-bc-text-2 md:block">
               Sync only the current season&apos;s data
             </div>
-          </Button>
-          
-          <Button
-            variant={refreshType === "all" ? "default" : "outline"}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setRefreshType("all")}
-            className={`p-4 h-auto flex-col ${
+            className={cn(
+              "flex flex-col items-start gap-2 border p-4 text-left transition-colors",
               refreshType === "all"
-                ? "border-red-500 bg-red-50 text-gray-900 hover:bg-red-100"
-                : "border-gray-200 hover:border-gray-300"
-            }`}
+                ? "border-bc-red bg-bc-red/10"
+                : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+            )}
           >
-            <RefreshCw className="h-6 w-6 mb-2 text-gray-600" />
-            <div className="font-medium">All Seasons</div>
-            <div className="text-sm text-gray-600 mt-1 hidden md:block">
+            <RefreshCw className="size-6 text-bc-text-2" />
+            <div className="font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">All seasons</div>
+            <div className="hidden text-sm text-bc-text-2 md:block">
               Sync current and historical league data
             </div>
-          </Button>
+          </button>
         </div>
       </div>
 
       {refreshType === "all" && (
-        <div>
-          <Label className="text-sm font-medium text-gray-700">
-            Historical Years to Sync
-          </Label>
+        <div className="flex flex-col gap-2">
+          <Label>Historical years to sync</Label>
           <Select
             value={historicalYears.toString()}
             onValueChange={(value) => setHistoricalYears(Number(value))}
           >
-            <SelectTrigger className="w-full mt-2">
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -145,26 +143,14 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
         </div>
       )}
 
-      <Button
-        onClick={handleRefresh}
-        disabled={isRefreshing}
-        className="w-full bg-red-600 hover:bg-red-700"
-        size="lg"
-      >
-        {isRefreshing ? (
-          <>
-            <RefreshCw className="h-5 w-5 animate-spin" />
-            Syncing League Data...
-          </>
-        ) : (
-          <>
-            <RefreshCw className="h-5 w-5" />
-            Sync {refreshType === "current" ? "Current Season" : "All"} League Data
-          </>
-        )}
+      <Button onClick={handleRefresh} disabled={isRefreshing} size="lg" className="w-full">
+        {isRefreshing ? <Spinner size={16} className="[&>span]:bg-white" /> : <RefreshCw className="size-5" />}
+        {isRefreshing
+          ? "Syncing league data"
+          : `Sync ${refreshType === "current" ? "current season" : "all"} league data`}
       </Button>
-      
-      <p className="text-xs text-gray-500 text-center">
+
+      <p className="text-center text-xs text-bc-text-3">
         Last sync information is not currently tracked. Consider running a sync if league data seems outdated.
       </p>
     </div>

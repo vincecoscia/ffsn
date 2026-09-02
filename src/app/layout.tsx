@@ -1,26 +1,31 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Barlow_Condensed } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/themes";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
-// import { AuthSync } from "@/components/auth-sync";
+import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { Analytics } from "@vercel/analytics/next";
-import { Theme } from "@radix-ui/themes";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
+  style: ["normal", "italic"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const barlowCondensed = Barlow_Condensed({
+  variable: "--font-barlow-condensed",
   subsets: ["latin"],
+  weight: ["500", "600", "700", "800", "900"],
+  style: ["normal", "italic"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "FFSN - Fantasy Football Sports Network",
-  description: "AI-powered fantasy football content for your league",
+  description: "The sports network that only covers your league. AI sportswriters covering your fantasy football league.",
   keywords: ["fantasy football", "NFL", "AI content", "league management", "fantasy sports"],
   authors: [{ name: "FFSN Team" }],
   creator: "FFSN",
@@ -35,9 +40,9 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'en_US',
     url: process.env.NEXT_PUBLIC_SITE_URL || 'https://ffsn.ai',
-    siteName: 'FFSN - Fantasy Football Social Network',
+    siteName: 'FFSN - Fantasy Football Sports Network',
     title: 'FFSN - Fantasy Football Sports Network',
-    description: 'AI-powered fantasy football content for your league',
+    description: 'The sports network that only covers your league.',
     images: [
       {
         url: '/FFSN.png',
@@ -52,7 +57,7 @@ export const metadata: Metadata = {
     site: '@ffsn_ai',
     creator: '@ffsn_ai',
     title: 'FFSN - Fantasy Football Sports Network',
-    description: 'AI-powered fantasy football content for your league',
+    description: 'The sports network that only covers your league.',
     images: ['/FFSN.png'],
   },
   robots: {
@@ -68,27 +73,59 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Clerk's hosted UI follows the app theme through the `shadcn` base theme,
+ * which reads the same CSS variables the Broadcast tokens define for both
+ * `.dark` and light. Keeping ClerkProvider in this server layout lets it
+ * pass the request's auth state down, so SignedIn/SignedOut render
+ * identically on the server and the client.
+ */
+const clerkAppearance = {
+  baseTheme: shadcn,
+  variables: {
+    colorPrimary: "#C91618",
+    borderRadius: "0px",
+    fontFamily: "var(--font-archivo), 'Helvetica Neue', Helvetica, Arial, sans-serif",
+  },
+  elements: {
+    cardBox: "shadow-none border border-bc-hairline",
+    card: "shadow-none",
+    formButtonPrimary:
+      "font-display uppercase tracking-[0.08em] font-bold text-base shadow-none hover:bg-[#A81214]",
+    headerTitle: "font-display uppercase font-extrabold tracking-normal text-2xl",
+  },
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" style={{ colorScheme: "dark" }} suppressHydrationWarning>
       <head>
         <meta name="apple-mobile-web-app-title" content="FFSN" />
+        {/*
+          Applies the stored theme before first paint; see theme-provider.tsx.
+          suppressHydrationWarning: browser extensions inject their own <script>
+          into <head> before React hydrates, which would otherwise be reported
+          as a mismatch against this one (the script has already run by then).
+        */}
+        <script
+          id="ffsn-theme-init"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <ClerkProvider>
-          <ConvexClientProvider>
-            {/* <AuthSync> */}
-              <Theme>{children}</Theme>
-            {/* </AuthSync> */}
-            <Toaster />
-            <Analytics />
-          </ConvexClientProvider>
+      <body className={`${archivo.variable} ${barlowCondensed.variable} antialiased`}>
+        <ClerkProvider appearance={clerkAppearance}>
+          <ThemeProvider>
+            <ConvexClientProvider>
+              {children}
+              <Toaster />
+              <Analytics />
+            </ConvexClientProvider>
+          </ThemeProvider>
         </ClerkProvider>
       </body>
     </html>

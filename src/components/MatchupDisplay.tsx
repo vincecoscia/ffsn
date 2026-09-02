@@ -1,4 +1,5 @@
 import React from 'react';
+import { ScoreBug } from '@/components/broadcast';
 
 interface Team {
   _id: string;
@@ -53,6 +54,10 @@ interface MatchupDisplayProps {
   currentWeek: number;
 }
 
+function recordLabel(record: Team["record"]): string {
+  return `${record.wins}-${record.losses}${record.ties > 0 ? `-${record.ties}` : ""}`;
+}
+
 export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayProps) {
   // Create a map for quick team lookup by external ID
   const teamMap = React.useMemo(() => {
@@ -72,7 +77,7 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
     if (!roster || !roster.players) {
       return 0;
     }
-    
+
     return roster.players
       .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
       .reduce((total, player) => {
@@ -85,7 +90,7 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
     if (!roster || !roster.players) {
       return 0;
     }
-    
+
     return roster.players
       .filter(player => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
       .reduce((total, player) => {
@@ -95,131 +100,78 @@ export function MatchupDisplay({ matchups, teams, currentWeek }: MatchupDisplayP
 
   if (matchups.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Week {currentWeek} Matchups</h2>
-        <p className="text-gray-500">No matchups available for this week.</p>
-      </div>
+      <p className="text-[15px] text-bc-text-2">
+        No matchups available for Week {currentWeek}.
+      </p>
     );
   }
 
+  // "Game of the week" = the completed matchup with the closest final margin.
+  const completed = matchups.filter(m => m.winner && m.winner !== "tie");
+  const gameOfWeekId =
+    completed.length > 0
+      ? [...completed].sort(
+          (a, b) => Math.abs(a.homeScore - a.awayScore) - Math.abs(b.homeScore - b.awayScore)
+        )[0]._id
+      : null;
+
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-gray-900">Week {currentWeek} Matchups</h2>
-        {matchups.some(m => !m.winner) && (
-          <span className="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded font-medium">
-            Projected Scores
-          </span>
-        )}
-      </div>
-      
-      {/* Horizontal scrollable grid of matchup cards */}
-      <div className="overflow-x-auto">
-        <div className="flex space-x-3 pb-2" style={{ minWidth: 'fit-content' }}>
-          {matchups.map((matchup) => {
-            const homeTeam = getTeamByExternalId(matchup.homeTeamId);
-            const awayTeam = getTeamByExternalId(matchup.awayTeamId);
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {matchups.map((matchup) => {
+        const homeTeam = getTeamByExternalId(matchup.homeTeamId);
+        const awayTeam = getTeamByExternalId(matchup.awayTeamId);
 
-            if (!homeTeam || !awayTeam) {
-              return null; // Skip if teams not found
-            }
+        if (!homeTeam || !awayTeam) {
+          return null; // Skip if teams not found
+        }
 
-            const isComplete = matchup.winner !== undefined;
-            const homeWins = matchup.winner === 'home';
-            const awayWins = matchup.winner === 'away';
+        const isComplete = matchup.winner !== undefined;
+        const homeWins = matchup.winner === 'home';
+        const awayWins = matchup.winner === 'away';
 
-            // Calculate projected scores from roster data if available, otherwise use stored values
-            const homeProjectedScore = matchup.homeRoster 
-              ? calculateProjectedScore(matchup.homeRoster)
-              : (matchup.homeProjectedScore || 0);
-            
-            const awayProjectedScore = matchup.awayRoster 
-              ? calculateProjectedScore(matchup.awayRoster)
-              : (matchup.awayProjectedScore || 0);
+        // Calculate projected scores from roster data if available, otherwise use stored values
+        const homeProjectedScore = matchup.homeRoster
+          ? calculateProjectedScore(matchup.homeRoster)
+          : (matchup.homeProjectedScore || 0);
 
-            // Calculate actual scores from roster data if available, otherwise use stored values
-            const homeActualScore = matchup.homeRoster 
-              ? calculateActualScore(matchup.homeRoster)
-              : matchup.homeScore;
-            
-            const awayActualScore = matchup.awayRoster 
-              ? calculateActualScore(matchup.awayRoster)
-              : matchup.awayScore;
+        const awayProjectedScore = matchup.awayRoster
+          ? calculateProjectedScore(matchup.awayRoster)
+          : (matchup.awayProjectedScore || 0);
 
-            return (
-              <div key={matchup._id} className="flex-shrink-0 w-64 border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
-                {/* Status indicator */}
-                <div className="text-center mb-2">
-                  <span className={`text-xs font-medium px-2 py-1 rounded ${
-                    isComplete 
-                      ? 'bg-green-100 text-green-700' 
-                      : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {isComplete ? 'FINAL' : 'LIVE'}
-                  </span>
-                </div>
+        // Calculate actual scores from roster data if available, otherwise use stored values
+        const homeActualScore = matchup.homeRoster
+          ? calculateActualScore(matchup.homeRoster)
+          : matchup.homeScore;
 
-                {/* Teams and scores */}
-                <div className="space-y-2">
-                  {/* Away Team */}
-                  <div className={`flex items-center justify-between p-2 rounded ${
-                    awayWins ? 'bg-green-50 border border-green-200' : 'bg-gray-50'
-                  }`}>
-                    <div className="flex-1">
-                      <div className={`text-sm font-medium ${awayWins ? 'text-green-900' : 'text-gray-900'}`}>
-                        {awayTeam.name}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {awayTeam.record.wins}-{awayTeam.record.losses}
-                        {awayTeam.record.ties > 0 && `-${awayTeam.record.ties}`}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {/* Projected Score - Small text on top */}
-                      <div className="text-xs text-gray-500">
-                        {awayProjectedScore.toFixed(1)}
-                      </div>
-                      {/* Actual Score - Large text below */}
-                      <div className={`text-lg font-bold ${
-                        isComplete ? (awayWins ? 'text-green-700' : 'text-gray-600') : 'text-blue-600'
-                      }`}>
-                        {awayActualScore.toFixed(1)}
-                      </div>
-                    </div>
-                  </div>
+        const awayActualScore = matchup.awayRoster
+          ? calculateActualScore(matchup.awayRoster)
+          : matchup.awayScore;
 
-                  {/* Home Team */}
-                  <div className={`flex items-center justify-between p-2 rounded ${
-                    homeWins ? 'bg-green-50 border border-green-200' : 'bg-gray-50'
-                  }`}>
-                    <div className="flex-1">
-                      <div className={`text-sm font-medium ${homeWins ? 'text-green-900' : 'text-gray-900'}`}>
-                        {homeTeam.name}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {homeTeam.record.wins}-{homeTeam.record.losses}
-                        {homeTeam.record.ties > 0 && `-${homeTeam.record.ties}`}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {/* Projected Score - Small text on top */}
-                      <div className="text-xs text-gray-500">
-                        {homeProjectedScore.toFixed(1)}
-                      </div>
-                      {/* Actual Score - Large text below */}
-                      <div className={`text-lg font-bold ${
-                        isComplete ? (homeWins ? 'text-green-700' : 'text-gray-600') : 'text-blue-600'
-                      }`}>
-                        {homeActualScore.toFixed(1)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+        const mode = isComplete ? "final" : "projected";
+        const isGameOfWeek = matchup._id === gameOfWeekId;
+
+        return (
+          <ScoreBug
+            key={matchup._id}
+            mode={mode}
+            strip={isComplete ? `Week ${currentWeek} · Final` : `Week ${currentWeek} · Projected`}
+            stripRight={isGameOfWeek ? "Game of the week" : undefined}
+            stripRightTone="highlight"
+            home={{
+              name: homeTeam.name,
+              sub: `${homeTeam.owner} · ${recordLabel(homeTeam.record)}`,
+              score: (isComplete ? homeActualScore : homeProjectedScore).toFixed(1),
+              winner: homeWins,
+            }}
+            away={{
+              name: awayTeam.name,
+              sub: `${awayTeam.owner} · ${recordLabel(awayTeam.record)}`,
+              score: (isComplete ? awayActualScore : awayProjectedScore).toFixed(1),
+              winner: awayWins,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

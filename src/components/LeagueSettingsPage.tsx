@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
+import { Pencil, Check, X, Upload, Trash2, Copy, Inbox } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { PlayerManagement } from "./PlayerManagement";
@@ -12,6 +13,10 @@ import { MatchupRefreshManager } from "./MatchupRefreshManager";
 import { DataProcessingManager } from "./DataProcessingManager";
 import { TeamLogo } from "./TeamLogo";
 import { useLeagueSeason } from "@/hooks/use-league-season";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PageHeader, Panel, SectionHeader, Chip, EmptyState, Spinner } from "@/components/broadcast";
+import { cn } from "@/lib/utils";
 
 interface League {
   _id: Id<"leagues">;
@@ -63,10 +68,25 @@ interface LeagueSettingsPageProps {
   currentUserId?: string;
 }
 
-export function LeagueSettingsPage({ 
-  league, 
-  teams, 
-  teamClaims, 
+function FieldCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-2 border border-bc-hairline bg-bc-ground p-4">
+      <span className="bc-label-sm text-bc-text-3">{label}</span>
+      <span className="font-sans text-[16px] font-semibold capitalize text-bc-ink">{value}</span>
+    </div>
+  );
+}
+
+const INVITE_STATUS_CHIP: Record<TeamInvitation["status"], { variant: "outline" | "win" | "muted"; label: string }> = {
+  pending: { variant: "outline", label: "Pending" },
+  claimed: { variant: "win", label: "Claimed" },
+  expired: { variant: "muted", label: "Expired" },
+};
+
+export function LeagueSettingsPage({
+  league,
+  teams,
+  teamClaims,
   teamInvitations
 }: LeagueSettingsPageProps) {
   const [editingLeague, setEditingLeague] = useState(false);
@@ -86,7 +106,7 @@ export function LeagueSettingsPage({
   // Get unclaimed teams
   const unclaimedTeams = teams.filter(team => {
     const isAlreadyClaimed = teamClaims.some(claim => claim.teamId === team._id);
-    const hasActiveInvite = teamInvitations.some(invite => 
+    const hasActiveInvite = teamInvitations.some(invite =>
       invite.teamId === team._id && invite.status === "pending"
     );
     return !isAlreadyClaimed && !hasActiveInvite;
@@ -94,10 +114,10 @@ export function LeagueSettingsPage({
 
   const handleCreateInvites = async () => {
     if (selectedTeamIds.length === 0) return;
-    
+
     setIsCreatingInvites(true);
     try {
-      const promises = selectedTeamIds.map(teamId => 
+      const promises = selectedTeamIds.map(teamId =>
         createInvitation({
           leagueId: league._id,
           teamId: teamId as Id<"teams">,
@@ -105,13 +125,13 @@ export function LeagueSettingsPage({
           email: emailInputs[teamId] || undefined,
         })
       );
-      
+
       await Promise.all(promises);
-      
+
       toast.success("Invitations created successfully!", {
         description: `Sent ${promises.length} team invitation${promises.length > 1 ? 's' : ''}.`
       });
-      
+
       // Reset form
       setSelectedTeamIds([]);
       setEmailInputs({});
@@ -168,28 +188,28 @@ export function LeagueSettingsPage({
     try {
       // Get upload URL
       const uploadUrl = await generateUploadUrl();
-      
+
       // Upload the file
       const result = await fetch(uploadUrl, {
         method: "POST",
         headers: { "Content-Type": file.type },
         body: file,
       });
-      
+
       if (!result.ok) {
         throw new Error("Failed to upload image");
       }
-      
+
       const { storageId } = await result.json();
-      
+
       // Update team with custom logo
       await updateCustomLogo({
         teamId: teamId as Id<"teams">,
         storageId,
       });
-      
+
       toast.success("Logo uploaded successfully!");
-      
+
       // Clear the file input
       if (fileInputRefs.current[teamId]) {
         fileInputRefs.current[teamId]!.value = "";
@@ -213,370 +233,348 @@ export function LeagueSettingsPage({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-          
-          {/* League Settings Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">League Settings</h2>
-              <p className="text-gray-600 mt-1">Manage your league information and preferences</p>
-            </div>
-            
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    League Name
-                  </label>
-                  {editingLeague ? (
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={leagueName}
-                        onChange={(e) => setLeagueName(e.target.value)}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                      />
-                      <button
-                        onClick={() => {
-                          // TODO: Implement league name update
-                          setEditingLeague(false);
-                        }}
-                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => {
-                          setLeagueName(league.name);
-                          setEditingLeague(false);
-                        }}
-                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                      <span className="text-gray-900">{league.name}</span>
-                      <button
-                        onClick={() => setEditingLeague(true)}
-                        className="text-red-600 hover:text-red-700 text-sm font-medium"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                  )}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Platform
-                  </label>
-                  <div className="p-3 bg-gray-50 rounded-md">
-                    <span className="text-gray-900 capitalize">{league.platform}</span>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Scoring Type
-                  </label>
-                  <div className="p-3 bg-gray-50 rounded-md">
-                    <span className="text-gray-900">{league.settings.scoringType}</span>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Roster Size
-                  </label>
-                  <div className="p-3 bg-gray-50 rounded-md">
-                    <span className="text-gray-900">{league.settings.rosterSize}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen bg-bc-ground">
+      <div className="mx-auto flex max-w-6xl flex-col gap-12 px-4 py-10 sm:px-6 sm:py-12 lg:px-12">
+        <PageHeader
+          kicker="Control room"
+          title="League settings"
+          description="Manage league info, team logos, invitations, and syncing with ESPN."
+        />
 
-          {/* Team Logo Management Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Team Logo Management</h2>
-              <p className="text-gray-600 mt-1">Manage custom logos for teams. Logo not showing up? ESPN&apos;s new restrictions for logos prevents new ones from loading after a certain date. Upload a custom logo here!</p>
-            </div>
-            
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {teams.map((team) => {
-                  const teamClaim = teamClaims.find(claim => claim.teamId === team._id);
-                  const isCommissioner = league.role === "commissioner";
-                  const canManageLogo = isCommissioner || teamClaim?.status === "active";
-                  
-                  return (
-                    <div key={team._id} className="p-4 border border-gray-200 rounded-lg">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="relative">
-                          <TeamLogo
-                            teamId={team._id}
-                            teamName={team.name}
-                            espnLogo={team.logo}
-                            customLogo={team.customLogo}
-                            size="md"
-                          />
-                          {team.customLogo && (
-                            <div className="absolute -top-1 -right-1 h-3 w-3 bg-green-500 rounded-full"></div>
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="font-semibold text-gray-900">{team.name}</div>
-                          <div className="text-sm text-gray-600">{team.abbreviation}</div>
-                        </div>
-                      </div>
-                      
-                      {canManageLogo ? (
-                        <div className="space-y-2">
-                          <input
-                            ref={el => {fileInputRefs.current[team._id] = el}}
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                handleLogoUpload(team._id, file);
-                              }
-                            }}
-                            className="hidden"
-                            id={`logo-upload-${team._id}`}
-                          />
-                          <label
-                            htmlFor={`logo-upload-${team._id}`}
-                            className="block w-full px-3 py-2 text-sm text-center bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {uploadingLogoForTeam === team._id ? "Uploading..." : "Upload Custom Logo"}
-                          </label>
-                          {team.customLogo && (
-                            <button
-                              onClick={() => handleRemoveCustomLogo(team._id)}
-                              className="w-full px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-                            >
-                              Remove Custom Logo
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-gray-500 text-center">
-                          {teamClaim ? "Claimed by user" : "Not your team"}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Team Invitations Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Team Invitations</h2>
-              <p className="text-gray-600 mt-1">Send invite links to team owners for the {currentSeason} season</p>
-            </div>
-            
-            <div className="p-6">
-              {/* Create New Invitations */}
-              {unclaimedTeams.length > 0 && (
-                <div className="mb-8">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Create New Invitations</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                    {unclaimedTeams.map((team) => (
-                      <div
-                        key={team._id}
-                        className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                          isTeamSelected(team._id)
-                            ? "border-red-500 bg-red-50"
-                            : "border-gray-200 hover:border-gray-300"
-                        }`}
-                        onClick={() => toggleTeamSelection(team._id)}
-                      >
-                        <div className="flex items-center gap-3 mb-3">
-                          <TeamLogo
-                            teamId={team._id}
-                            teamName={team.name}
-                            espnLogo={team.logo}
-                            customLogo={team.customLogo}
-                            size="sm"
-                          />
-                          <div>
-                            <div className="font-semibold text-gray-900">{team.name}</div>
-                            <div className="text-sm text-gray-600">{team.abbreviation}</div>
-                          </div>
-                        </div>
-                        
-                        {isTeamSelected(team._id) && (
-                          <input
-                            type="email"
-                            placeholder="Optional: Enter email"
-                            value={emailInputs[team._id] || ""}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              setEmailInputs(prev => ({
-                                ...prev,
-                                [team._id]: e.target.value
-                              }));
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {selectedTeamIds.length > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">
-                        {selectedTeamIds.length} team{selectedTeamIds.length !== 1 ? "s" : ""} selected
-                      </span>
-                      <button
-                        onClick={handleCreateInvites}
-                        disabled={isCreatingInvites}
-                        className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isCreatingInvites ? "Creating..." : "Create Invitations"}
-                      </button>
-                    </div>
-                  )}
+        {/* League info */}
+        <Panel padding="md">
+          <SectionHeader title="League info" kicker="Basics" />
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <span className="bc-label-sm text-bc-text-3">League name</span>
+              {editingLeague ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={leagueName}
+                    onChange={(e) => setLeagueName(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    size="icon-sm"
+                    aria-label="Save league name"
+                    onClick={() => {
+                      // TODO: Implement league name update
+                      setEditingLeague(false);
+                    }}
+                  >
+                    <Check className="size-4" />
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="Cancel"
+                    onClick={() => {
+                      setLeagueName(league.name);
+                      setEditingLeague(false);
+                    }}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 border border-bc-hairline bg-bc-ground px-4 py-3">
+                  <span className="font-sans text-[16px] font-semibold text-bc-ink">{league.name}</span>
+                  <Button variant="ghost" size="sm" onClick={() => setEditingLeague(true)}>
+                    <Pencil className="size-3.5" />
+                    Edit
+                  </Button>
                 </div>
               )}
+            </div>
+            <FieldCard label="Platform" value={league.platform} />
+            <FieldCard label="Scoring type" value={league.settings.scoringType} />
+            <FieldCard label="Roster size" value={String(league.settings.rosterSize)} />
+          </div>
+        </Panel>
 
-              {/* Existing Invitations */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Existing Invitations</h3>
-                {teamInvitations.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <svg className="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2 2v-5m16 0h-2M4 13h2m13-8-4 4-4-4m-6 8l4-4 4 4" />
-                    </svg>
-                    <p>No invitations sent yet</p>
+        {/* Team logo management */}
+        <Panel padding="md">
+          <SectionHeader
+            title="Team logos"
+            kicker="Branding"
+            actions={
+              <span className="bc-label-sm max-w-xs text-right text-bc-text-3">
+                ESPN&apos;s new logo restrictions block some logos from loading &mdash; upload a custom one here.
+              </span>
+            }
+          />
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {teams.map((team) => {
+              const teamClaim = teamClaims.find(claim => claim.teamId === team._id);
+              const isCommissioner = league.role === "commissioner";
+              const canManageLogo = isCommissioner || teamClaim?.status === "active";
+              const inputId = `logo-upload-${team._id}`;
+
+              return (
+                <Panel key={team._id} lifted padding="sm" className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-none">
+                      <TeamLogo
+                        teamId={team._id}
+                        teamName={team.name}
+                        espnLogo={team.logo}
+                        customLogo={team.customLogo}
+                        size="md"
+                      />
+                      {team.customLogo && (
+                        <span className="absolute -right-1 -top-1 size-3 border border-bc-win bg-bc-win" aria-hidden="true" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                        {team.name}
+                      </div>
+                      <div className="bc-label-sm text-bc-text-3">{team.abbreviation}</div>
+                    </div>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    {teamInvitations.map((invitation) => (
-                      <div key={invitation._id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+
+                  {canManageLogo ? (
+                    <div className="flex flex-col gap-2">
+                      <input
+                        ref={el => {fileInputRefs.current[team._id] = el}}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleLogoUpload(team._id, file);
+                          }
+                        }}
+                        className="hidden"
+                        id={inputId}
+                      />
+                      <label
+                        htmlFor={inputId}
+                        className={cn(
+                          "inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap bc-cut-sm border border-bc-red bg-bc-red font-display text-[15px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-[#A81214]",
+                          uploadingLogoForTeam === team._id && "pointer-events-none opacity-60"
+                        )}
+                      >
+                        {uploadingLogoForTeam === team._id ? (
+                          <>
+                            <Spinner size={14} className="[&>span]:bg-white" />
+                            Uploading
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="size-3.5" />
+                            Upload logo
+                          </>
+                        )}
+                      </label>
+                      {team.customLogo && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleRemoveCustomLogo(team._id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                          Remove custom logo
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bc-label-sm text-center text-bc-text-3">
+                      {teamClaim ? "Claimed by user" : "Not your team"}
+                    </div>
+                  )}
+                </Panel>
+              );
+            })}
+          </div>
+        </Panel>
+
+        {/* Team invitations */}
+        <Panel padding="md">
+          <SectionHeader
+            title="Team invitations"
+            kicker="Rostering"
+            actions={<span className="bc-label-sm text-bc-text-3">{currentSeason} season</span>}
+          />
+
+          <div className="mt-6 flex flex-col gap-8">
+            {/* Create new invitations */}
+            {unclaimedTeams.length > 0 && (
+              <div className="flex flex-col gap-4">
+                <span className="bc-label text-bc-text-2">Create new invitations</span>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {unclaimedTeams.map((team) => (
+                    <button
+                      type="button"
+                      key={team._id}
+                      onClick={() => toggleTeamSelection(team._id)}
+                      className={cn(
+                        "flex flex-col gap-3 border p-4 text-left transition-colors",
+                        isTeamSelected(team._id)
+                          ? "border-bc-red bg-bc-red/10"
+                          : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <TeamLogo
+                          teamId={team._id}
+                          teamName={team.name}
+                          espnLogo={team.logo}
+                          customLogo={team.customLogo}
+                          size="sm"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                            {team.name}
+                          </div>
+                          <div className="bc-label-sm text-bc-text-3">{team.abbreviation}</div>
+                        </div>
+                      </div>
+
+                      {isTeamSelected(team._id) && (
+                        <Input
+                          type="email"
+                          placeholder="Optional: enter email"
+                          value={emailInputs[team._id] || ""}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setEmailInputs(prev => ({
+                              ...prev,
+                              [team._id]: e.target.value
+                            }));
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-sm"
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {selectedTeamIds.length > 0 && (
+                  <div className="flex items-center justify-between border-t border-bc-hairline pt-4">
+                    <span className="bc-label-sm text-bc-text-3">
+                      {selectedTeamIds.length} team{selectedTeamIds.length !== 1 ? "s" : ""} selected
+                    </span>
+                    <Button onClick={handleCreateInvites} disabled={isCreatingInvites}>
+                      {isCreatingInvites && <Spinner size={14} className="[&>span]:bg-white" />}
+                      {isCreatingInvites ? "Creating" : "Create invitations"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Existing invitations */}
+            <div className="flex flex-col gap-4">
+              <span className="bc-label text-bc-text-2">Existing invitations</span>
+              {teamInvitations.length === 0 ? (
+                <EmptyState
+                  icon={<Inbox className="size-6" strokeWidth={1.8} />}
+                  title="No invitations sent yet"
+                  description="Invite team owners to claim their roster for this season."
+                />
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {teamInvitations.map((invitation) => {
+                    const chip = INVITE_STATUS_CHIP[invitation.status];
+                    return (
+                      <Panel key={invitation._id} lifted padding="sm" className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex items-center gap-4">
                           {invitation.teamLogo && (
                             <img
                               src={invitation.teamLogo}
                               alt={`${invitation.teamName} logo`}
-                              className="h-10 w-10 rounded"
+                              className="size-10 border border-bc-border-strong object-cover"
                             />
                           )}
                           <div>
-                            <div className="font-semibold text-gray-900">{invitation.teamName}</div>
-                            <div className="text-sm text-gray-600">
-                              {invitation.email ? (
-                                <>Sent to: {invitation.email}</>
-                              ) : (
-                                "No email specified"
-                              )}
+                            <div className="font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                              {invitation.teamName}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              Created: {new Date(invitation.createdAt).toLocaleDateString()}
+                            <div className="text-sm text-bc-text-2">
+                              {invitation.email ? <>Sent to: {invitation.email}</> : "No email specified"}
+                            </div>
+                            <div className="bc-label-sm text-bc-text-3">
+                              Created {new Date(invitation.createdAt).toLocaleDateString()}
                               {invitation.status === "pending" && (
-                                <> • Expires: {new Date(invitation.expiresAt).toLocaleDateString()}</>
+                                <> &middot; Expires {new Date(invitation.expiresAt).toLocaleDateString()}</>
                               )}
                             </div>
                           </div>
                         </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            invitation.status === "pending" 
-                              ? "bg-yellow-100 text-yellow-800"
-                              : invitation.status === "claimed"
-                              ? "bg-green-100 text-green-800" 
-                              : "bg-red-100 text-red-800"
-                          }`}>
-                            {invitation.status}
-                          </span>
-                          
+
+                        <div className="flex items-center gap-3">
+                          <Chip variant={chip.variant}>{chip.label}</Chip>
                           {invitation.status === "pending" && (
-                            <button
-                              onClick={() => copyInviteLink(invitation.inviteToken)}
-                              className="px-3 py-1 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                            >
-                              Copy Link
-                            </button>
+                            <Button size="sm" variant="outline" onClick={() => copyInviteLink(invitation.inviteToken)}>
+                              <Copy className="size-3.5" />
+                              Copy link
+                            </Button>
                           )}
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      </Panel>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
+        </Panel>
 
-          {/* Matchup Refresh Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Sync League Data</h2>
-              <p className="text-gray-600 mt-1">Sync all league data from ESPN including teams, owners, logos, rosters, matchups, and scores</p>
-            </div>
-            
-            <div className="p-6">
-              <MatchupRefreshManager leagueId={league._id} />
-            </div>
+        {/* Sync league data */}
+        <Panel padding="md">
+          <SectionHeader title="Sync league data" kicker="ESPN sync" />
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
+            Sync all league data from ESPN including teams, owners, logos, rosters, matchups, and scores.
+          </p>
+          <div className="mt-6">
+            <MatchupRefreshManager leagueId={league._id} />
           </div>
+        </Panel>
 
-          {/* Player Management Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Player Management</h2>
-              <p className="text-gray-600 mt-1">Sync and manage NFL player data for your league</p>
-            </div>
-            
-            <div className="p-6">
-              <PlayerManagement leagueId={league._id} />
-            </div>
+        {/* Player management */}
+        <Panel padding="md">
+          <SectionHeader title="Player management" kicker="NFL players" />
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
+            Sync and manage NFL player data for your league.
+          </p>
+          <div className="mt-6">
+            <PlayerManagement leagueId={league._id} />
           </div>
+        </Panel>
 
-          {/* Historical Rosters Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Historical Rosters</h2>
-              <p className="text-gray-600 mt-1">Fetch detailed roster information from previous seasons</p>
-            </div>
-            
-            <div className="p-6">
-              <HistoricalRosterManager leagueId={league._id} />
-            </div>
+        {/* Historical rosters */}
+        <Panel padding="md">
+          <SectionHeader title="Historical rosters" kicker="Archive" />
+          <div className="mt-6">
+            <HistoricalRosterManager leagueId={league._id} />
           </div>
+        </Panel>
 
-          {/* Draft Data Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Draft Data</h2>
-              <p className="text-gray-600 mt-1">View draft order and historical draft picks for all seasons</p>
-            </div>
-            
-            <div className="p-6">
-              <DraftDataViewer leagueId={league._id} />
-            </div>
+        {/* Draft data */}
+        <Panel padding="md">
+          <SectionHeader title="Draft data" kicker="Archive" />
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
+            View draft order and historical draft picks for all seasons.
+          </p>
+          <div className="mt-6">
+            <DraftDataViewer leagueId={league._id} />
           </div>
+        </Panel>
 
-          {/* Data Processing Section */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-2xl font-bold text-gray-900">Data Processing</h2>
-              <p className="text-gray-600 mt-1">Process league data for AI content generation</p>
-            </div>
-            
-            <div className="p-6">
-              <DataProcessingManager leagueId={league._id} />
-            </div>
+        {/* Data processing */}
+        <Panel padding="md">
+          <SectionHeader title="Data processing" kicker="AI pipeline" />
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
+            Process league data for AI content generation.
+          </p>
+          <div className="mt-6">
+            <DataProcessingManager leagueId={league._id} />
           </div>
-
+        </Panel>
+      </div>
     </div>
   );
 }

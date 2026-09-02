@@ -12,13 +12,9 @@ export function CreateLeagueForm() {
   };
 
   return (
-    <Button
-      onClick={handleCreateLeague}
-      className="bg-red-600 hover:bg-red-700"
-      size="lg"
-    >
-      <Plus className="h-5 w-5 mr-2" />
-      Create New League
+    <Button onClick={handleCreateLeague} size="lg">
+      <Plus className="size-5" strokeWidth={2} />
+      Create new league
     </Button>
   );
 }

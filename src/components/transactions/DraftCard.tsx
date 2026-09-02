@@ -1,9 +1,7 @@
 "use client";
 
 import React from "react";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowRight, Trophy } from "lucide-react";
+import { RankPlate, TeamTile } from "@/components/broadcast";
 import { DraftPick } from "./types";
 
 interface DraftCardProps {
@@ -11,58 +9,38 @@ interface DraftCardProps {
   teamCount: number;
 }
 
+function initialsFor(name?: string, abbreviation?: string) {
+  if (abbreviation) return abbreviation.slice(0, 3).toUpperCase();
+  const words = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "??";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
 export const DraftCard: React.FC<DraftCardProps> = ({ draftPick, teamCount }) => {
   const item = draftPick.items[0]; // Draft picks should have one item
   const pickNumber = item?.overallPickNumber;
-  const round = pickNumber ? Math.ceil(pickNumber / teamCount) : 'Unknown';
-  const pickInRound = pickNumber ? ((pickNumber - 1) % teamCount) + 1 : 'Unknown';
-  
+  const round = pickNumber ? Math.ceil(pickNumber / teamCount) : "?";
+  const pickInRound = pickNumber ? ((pickNumber - 1) % teamCount) + 1 : "?";
+
   return (
-    <div className="border rounded-lg p-3 mb-3 bg-card hover:bg-accent/50 transition-colors">
-      {/* Mobile-optimized layout */}
-      <div className="space-y-2 sm:space-y-0">
-        {/* Header with pick info */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-yellow-600" />
-            <Badge variant="outline" className="text-xs">
-              #{pickNumber}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              R{round}P{pickInRound}
-            </span>
-          </div>
-          
-          {/* Player info - mobile first */}
-          <div className="text-right sm:hidden">
-            <div className="text-sm font-medium truncate max-w-[120px]">
-              {item.player?.name || 'Unknown Player'}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {item.player?.position}
-            </div>
-          </div>
+    <div className="flex items-center gap-3 border border-bc-hairline bg-bc-panel p-3">
+      <RankPlate rank={pickNumber ?? "?"} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <TeamTile
+            initials={initialsFor(item.toTeam?.name, item.toTeam?.abbreviation)}
+            src={item.toTeam?.logo}
+            size={24}
+          />
+          <span className="truncate bc-label-sm text-bc-text-3">{item.toTeam?.name}</span>
         </div>
-        
-        {/* Team and player info */}
-        <div className="flex items-center justify-between sm:mt-0">
-          <div className="flex items-center gap-2">
-            <ArrowRight className="w-3 h-3 text-muted-foreground" />
-            <Avatar className="w-5 h-5">
-              <AvatarImage src={item.toTeam?.logo} />
-              <AvatarFallback className="text-xs">{item.toTeam?.abbreviation || "?"}</AvatarFallback>
-            </Avatar>
-            <span className="text-sm font-medium truncate">{item.toTeam?.name}</span>
+        <div className="min-w-0">
+          <div className="truncate font-display text-[15px] font-bold uppercase leading-none text-bc-ink">
+            {item.player?.name || "Unknown player"}
           </div>
-          
-          {/* Player info - desktop */}
-          <div className="text-right flex-shrink-0 hidden sm:block">
-            <div className="text-sm font-medium">
-              {item.player?.name || 'Unknown Player'}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {item.player?.position} - {item.player?.team}
-            </div>
+          <div className="bc-label-sm mt-1 text-bc-text-3">
+            {item.player?.position} · R{round}P{pickInRound}
           </div>
         </div>
       </div>

@@ -4,12 +4,19 @@ import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Bell, Mail, Settings, Shield } from "lucide-react";
+import { Bell, Mail, Shield } from "lucide-react";
+import { PageHeader, Panel, SectionHeader } from "@/components/broadcast";
+
+const EMAIL_TOPICS = [
+  "Comment requests for articles",
+  "Follow-up questions in conversations",
+  "Reminders for pending comment requests",
+  "Thank you messages when articles are published",
+  "Important league updates and announcements",
+];
 
 export default function NotificationSettingsPage() {
   const { user } = useUser();
@@ -43,8 +50,8 @@ export default function NotificationSettingsPage() {
 
       setEmailNotifications(enabled);
       toast.success(
-        enabled 
-          ? "Email notifications enabled successfully" 
+        enabled
+          ? "Email notifications enabled successfully"
           : "Email notifications disabled successfully"
       );
     } catch (error) {
@@ -57,48 +64,45 @@ export default function NotificationSettingsPage() {
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center bg-bc-ground">
         <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Please sign in</h2>
-          <p className="text-muted-foreground">You need to be signed in to access notification settings.</p>
+          <h2 className="font-display mb-2 text-xl font-bold text-bc-ink uppercase">
+            Please sign in
+          </h2>
+          <p className="text-bc-text-2">You need to be signed in to access notification settings.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container max-w-4xl mx-auto px-4 sm:px-6 py-6">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Settings className="h-6 w-6" />
-            <h1 className="text-3xl font-bold">Notification Settings</h1>
-          </div>
-          <p className="text-muted-foreground">
-            Manage how you receive notifications from FFSN. You can control both in-app and email notifications.
-          </p>
-        </div>
+    <div className="min-h-screen bg-bc-ground">
+      <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-12">
+        <PageHeader
+          kicker="Preferences"
+          title="Notification settings"
+          description="Manage how you receive notifications from FFSN — both in-app and email."
+        />
 
-        {/* Email Notifications Card */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />
-              <CardTitle>Email Notifications</CardTitle>
-            </div>
-            <CardDescription>
-              Control when FFSN sends you email notifications. You&apos;ll still receive in-app notifications regardless of this setting.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label htmlFor="email-notifications" className="text-base font-medium">
+        <div className="mt-10 flex flex-col gap-6">
+          <Panel padding="md" className="flex flex-col gap-5">
+            <SectionHeader
+              title="Email notifications"
+              actions={<Mail className="size-5 text-bc-text-3" strokeWidth={1.8} />}
+            />
+            <p className="text-sm text-bc-text-2">
+              Control when FFSN sends you email notifications. You&apos;ll still receive in-app
+              notifications regardless of this setting.
+            </p>
+
+            <div className="flex items-center justify-between gap-4 border-t border-bc-hairline pt-4">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="email-notifications" className="font-display text-base font-semibold text-bc-ink">
                   Send email notifications
                 </Label>
-                <p className="text-sm text-muted-foreground">
-                  Receive email notifications for comment requests, article updates, and other important activities.
+                <p className="max-w-md text-sm text-bc-text-2">
+                  Receive email notifications for comment requests, article updates, and other
+                  important activities.
                 </p>
               </div>
               <Switch
@@ -109,91 +113,75 @@ export default function NotificationSettingsPage() {
               />
             </div>
 
-            <Separator />
-
-            <div className="space-y-3">
-              <h4 className="font-medium flex items-center gap-2">
-                <Bell className="h-4 w-4" />
-                What you&apos;ll receive emails for:
+            <div className="flex flex-col gap-3 border-t border-bc-hairline pt-4">
+              <h4 className="flex items-center gap-2.5 font-display text-sm font-semibold text-bc-ink uppercase tracking-[0.04em]">
+                <Bell className="size-4" strokeWidth={1.8} />
+                What you&apos;ll receive emails for
               </h4>
-              <ul className="space-y-2 text-sm text-muted-foreground ml-6">
-                <li>• Comment requests for articles</li>
-                <li>• Follow-up questions in conversations</li>
-                <li>• Reminders for pending comment requests</li>
-                <li>• Thank you messages when articles are published</li>
-                <li>• Important league updates and announcements</li>
+              <ul className="flex flex-col gap-2">
+                {EMAIL_TOPICS.map((topic) => (
+                  <li key={topic} className="flex items-center gap-2.5 text-sm text-bc-body">
+                    <span className="bc-sep bc-sep-muted" aria-hidden="true" />
+                    {topic}
+                  </li>
+                ))}
               </ul>
             </div>
 
-            <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-              <div className="flex items-start gap-2">
-                <Shield className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Privacy & Unsubscribe</p>
-                  <p className="text-sm text-muted-foreground">
-                    All emails include an unsubscribe link. You can also manage your preferences here at any time. 
-                    We never share your email address with third parties.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* In-App Notifications Card */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              <CardTitle>In-App Notifications</CardTitle>
-            </div>
-            <CardDescription>
-              In-app notifications appear in the notification bell at the top of the page. These cannot be disabled.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label className="text-base font-medium">
-                  In-app notifications
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Always enabled to ensure you don&apos;t miss important updates about your leagues and comment requests.
+            <div className="flex items-start gap-2.5 bg-bc-panel-2 p-4">
+              <Shield className="mt-0.5 size-4 flex-none text-bc-text-3" strokeWidth={1.8} />
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-semibold text-bc-ink">Privacy and unsubscribe</p>
+                <p className="text-sm text-bc-text-2">
+                  All emails include an unsubscribe link. You can also manage your preferences here
+                  at any time. We never share your email address with third parties.
                 </p>
               </div>
-              <Switch
-                checked={true}
-                disabled={true}
-                className="opacity-50"
-              />
             </div>
-          </CardContent>
-        </Card>
+          </Panel>
 
-        {/* Account Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Account Information</CardTitle>
-            <CardDescription>
-              Your account details used for notifications.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-sm font-medium">Email Address:</span>
-              <span className="text-sm text-muted-foreground">
-                {user.emailAddresses[0]?.emailAddress || "No email address"}
-              </span>
+          <Panel padding="md" className="flex flex-col gap-5">
+            <SectionHeader
+              title="In-app notifications"
+              actions={<Bell className="size-5 text-bc-text-3" strokeWidth={1.8} />}
+            />
+            <p className="text-sm text-bc-text-2">
+              In-app notifications appear in the notification bell at the top of the page. These
+              cannot be disabled.
+            </p>
+            <div className="flex items-center justify-between gap-4 border-t border-bc-hairline pt-4">
+              <div className="flex flex-col gap-1">
+                <Label className="font-display text-base font-semibold text-bc-ink">
+                  In-app notifications
+                </Label>
+                <p className="max-w-md text-sm text-bc-text-2">
+                  Always enabled to ensure you don&apos;t miss important updates about your leagues
+                  and comment requests.
+                </p>
+              </div>
+              <Switch checked disabled className="opacity-50" />
             </div>
-            <div className="flex justify-between">
-              <span className="text-sm font-medium">Name:</span>
-              <span className="text-sm text-muted-foreground">
-                {user.fullName || user.firstName || "No name set"}
-              </span>
+          </Panel>
+
+          <Panel padding="md" className="flex flex-col gap-4">
+            <SectionHeader title="Account information" />
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm font-semibold text-bc-ink">Email address</span>
+                <span className="text-sm text-bc-text-2">
+                  {user.emailAddresses[0]?.emailAddress || "No email address"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-bc-hairline pt-2.5">
+                <span className="text-sm font-semibold text-bc-ink">Name</span>
+                <span className="text-sm text-bc-text-2">
+                  {user.fullName || user.firstName || "No name set"}
+                </span>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </Panel>
+        </div>
+      </main>
     </div>
   );
 }
