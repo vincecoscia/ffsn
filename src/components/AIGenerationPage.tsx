@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import DOMPurify from "dompurify";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -291,7 +292,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                   {selectedArticle?._id === article._id && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
                       <div className="prose prose-sm max-w-none">
-                        <div dangerouslySetInnerHTML={{ __html: article.content.replace(/\n/g, '<br>') }} />
+                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }} />
                       </div>
                     </div>
                   )}
@@ -344,7 +345,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                   {selectedArticle?._id === article._id && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
                       <div className="prose prose-sm max-w-none">
-                        <div dangerouslySetInnerHTML={{ __html: article.content.replace(/\n/g, '<br>') }} />
+                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }} />
                       </div>
                     </div>
                   )}

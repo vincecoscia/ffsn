@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
 // import { AuthSync } from "@/components/auth-sync";
 import { Toaster } from "@/components/ui/sonner";
+import { Analytics } from "@vercel/analytics/next";
 import { Theme } from "@radix-ui/themes";
 import "./globals.css";
 
@@ -86,6 +87,7 @@ export default function RootLayout({
               <Theme>{children}</Theme>
             {/* </AuthSync> */}
             <Toaster />
+            <Analytics />
           </ConvexClientProvider>
         </ClerkProvider>
       </body>
