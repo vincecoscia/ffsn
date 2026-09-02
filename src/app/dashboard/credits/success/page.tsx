@@ -24,11 +24,11 @@ function CreditsPurchaseSuccessContent() {
     try {
       const paymentResult = await verifyPayment({ sessionId });
       
-      if (!paymentResult.success) {
+      if (!paymentResult.fulfilled) {
         throw new Error("Payment verification failed");
       }
 
-      const metadata = paymentResult.session?.metadata;
+      const metadata = paymentResult.metadata;
       const creditsAmount = metadata?.creditsPurchased ? parseInt(metadata.creditsPurchased) : 0;
 
       setCreditsGranted(creditsAmount);

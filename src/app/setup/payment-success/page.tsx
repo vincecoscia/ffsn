@@ -47,7 +47,7 @@ function PaymentSuccessContent() {
 
       const paymentResult = await verifyPayment({ sessionId });
       
-      if (!paymentResult.success) {
+      if (!paymentResult.fulfilled) {
         throw new Error("Payment verification failed");
       }
 
@@ -61,7 +61,7 @@ function PaymentSuccessContent() {
         percentage: 25 
       });
 
-      const metadata = paymentResult.session?.metadata;
+      const metadata = paymentResult.metadata;
       if (!metadata || !metadata.leagueId) {
         throw new Error("Missing league information in payment");
       }

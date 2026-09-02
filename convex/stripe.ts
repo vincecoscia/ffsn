@@ -145,16 +145,9 @@ export const verifyPaymentCompleted = action({
   ): Promise<{
     status: string;
     fulfilled: boolean;
-    // Back-compat fields for existing frontend callers
-    // (src/app/dashboard/credits/success/page.tsx and
-    // src/app/setup/payment-success/page.tsx) that read `.success` and
-    // `.session.metadata` - outside this task's edit scope to migrate.
-    // `session` here is intentionally NOT the raw Stripe session: only the
-    // metadata WE set at checkout-session creation (userId/leagueId/
-    // creditsPurchased/paymentType) is exposed, none of Stripe's own fields
-    // (customerEmail, paymentIntentId/Status, etc.) that the old shape leaked.
-    success: boolean;
-    session: { metadata: Record<string, string> };
+    // Only the metadata WE set at checkout-session creation (userId/leagueId/
+    // creditsPurchased/paymentType) is exposed, none of Stripe's own fields.
+    metadata: Record<string, string>;
   }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
@@ -191,8 +184,7 @@ export const verifyPaymentCompleted = action({
     return {
       status: session.payment_status,
       fulfilled,
-      success: fulfilled,
-      session: { metadata: session.metadata || {} },
+      metadata: session.metadata || {},
     };
   },
 });
