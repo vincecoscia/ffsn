@@ -122,10 +122,14 @@ function CreditWalletHeaderChip({
   if (isLoading || balance == null) return null;
 
   return (
-    <Chip asChild variant="outline" className={className} title="Buy credits and generate stories">
-      <Link href={`/leagues/${leagueId}/ai-generation`}>
+    <Link
+      href={`/leagues/${leagueId}/ai-generation`}
+      className={className}
+      title="Buy credits and generate stories"
+    >
+      <Chip variant="outline">
         <span className="bc-num">{balance}</span> credits
-      </Link>
-    </Chip>
+      </Chip>
+    </Link>
   );
 }
