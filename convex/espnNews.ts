@@ -4,7 +4,9 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
 // ESPN News API endpoint
-const ESPN_NEWS_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news";
+// site.web.api.espn.com serves the same payload as site.api.espn.com but without the
+// bot filter that returns 403 to non-browser clients (Convex's fetch included).
+const ESPN_NEWS_URL = "https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/news";
 
 // Helper to process categories and extract relevant data
 function processCategories(categories: any[]) {
@@ -92,13 +94,8 @@ export const fetchESPNNews = internalAction({
 
       const response = await fetch(url.toString(), {
         headers: {
-          // Browser-like headers (mirrors the lm-api-reads headers used in espnSync.ts) -
-          // ESPN's public news API started rejecting the bare fetch with 403s.
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+          'User-Agent': 'FFSN/1.0 (+https://www.ffsn.ai)',
           'Accept': 'application/json',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://www.espn.com/',
-          'Origin': 'https://www.espn.com',
         },
         signal: controller.signal,
       });
