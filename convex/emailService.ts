@@ -22,6 +22,13 @@ export interface EmailResult {
   error?: string;
 }
 
+// Kill switch. Set EMAIL_SENDING_DISABLED=true on a deployment (e.g. the beta backend, which
+// holds a copy of production's leagues and members) to stop every outbound email while leaving
+// data, notifications, and scheduling untouched. Production leaves it unset.
+function emailSendingDisabled(): boolean {
+  return process.env.EMAIL_SENDING_DISABLED === "true";
+}
+
 // ===============================
 // EMAIL QUEUE SYSTEM
 // ===============================
@@ -108,6 +115,11 @@ export const sendNow = internalAction({
     console.log(`Sending email to ${email.email} with template ${email.templateId}`);
     console.log(`Template data:`, JSON.stringify(templateData, null, 2));
 
+    if (emailSendingDisabled()) {
+      console.log(`Email sending is disabled on this deployment; not sending ${email.email} (${email.templateId})`);
+      await ctx.runMutation(internal.emailService.markFailed, { id, error: "EMAIL_SENDING_DISABLED", statusCode: 0 });
+      return;
+    }
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
@@ -341,6 +353,10 @@ export const sendPlainEmail = internalAction({
         },
       };
 
+      if (emailSendingDisabled()) {
+        console.log(`Email sending is disabled on this deployment; not sending "${args.subject}" to ${args.to}`);
+        return { success: false, error: "EMAIL_SENDING_DISABLED" };
+      }
       const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
         method: "POST",
         headers: {
@@ -703,6 +719,10 @@ export const sendTestEmail = internalAction({
         categories: ["test"],
       };
 
+      if (emailSendingDisabled()) {
+        console.log("Email sending is disabled on this deployment; test email not sent");
+        return { success: false, error: "EMAIL_SENDING_DISABLED" };
+      }
       const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
         method: "POST",
         headers: {
