@@ -11,8 +11,9 @@ import {
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { requireLeagueMember } from "./lib/auth";
+import { requireCommissioner, requireLeagueMember } from "./lib/auth";
 import { leagueSeatAllowance } from "./credits";
+import { normalizeEspnCredentials } from "./lib/espnClient";
 
 /**
  * The error a full league throws (spec §10.1). A machine-readable code rather
@@ -347,6 +348,133 @@ export const getByIdInternal = internalQuery({
     return league;
   },
 });
+
+/* ========================================================================== *
+ * ESPN connection health (audit: credential health / cron alerting)
+ * ========================================================================== */
+
+/**
+ * Persist the outcome of an ESPN credential probe. Called by
+ * `espnSync.testEspnConnection` (when testing the STORED credentials, not a
+ * caller-supplied trial pair) and by the sync crons whenever they classify a
+ * private league's credentials as good or bad. Internal only: it writes
+ * `credentialStatus`/`credentialError`, which a client must never set
+ * directly - only a real probe against ESPN gets to decide that.
+ *
+ * `alertedAt`, when passed, stamps `credentialAlertedAt` so the cron's
+ * "alert at most once per 24h" check has something to read next time.
+ */
+export const setEspnCredentialStatus = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    status: v.union(v.literal("valid"), v.literal("invalid"), v.literal("unknown")),
+    error: v.optional(v.string()),
+    alertedAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league || !league.espnData) return null;
+
+    await ctx.db.patch(args.leagueId, {
+      espnData: {
+        ...league.espnData,
+        credentialStatus: args.status,
+        credentialCheckedAt: Date.now(),
+        // Never leave a stale error message sitting under a "valid" status.
+        credentialError: args.status === "valid" ? undefined : args.error,
+        ...(args.alertedAt !== undefined ? { credentialAlertedAt: args.alertedAt } : {}),
+      },
+    });
+    return null;
+  },
+});
+
+/**
+ * The ESPN connection panel's read model (contract with the setup/settings
+ * UI). Member-gated like every other per-league read; NEVER returns the
+ * cookie values themselves - only whether they're present and, per the last
+ * probe, whether ESPN still accepts them.
+ */
+export const getEspnConnection = query({
+  args: { leagueId: v.id("leagues") },
+  returns: v.object({
+    hasCredentials: v.boolean(),
+    isPrivate: v.boolean(),
+    credentialStatus: v.union(v.literal("valid"), v.literal("invalid"), v.literal("unknown")),
+    credentialCheckedAt: v.optional(v.number()),
+    credentialError: v.optional(v.string()),
+    lastSyncedAt: v.optional(v.number()),
+  }),
+  handler: async (ctx, args) => {
+    await requireLeagueMember(ctx, args.leagueId);
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) throw new Error("League not found");
+
+    const espnData = league.espnData;
+    return {
+      hasCredentials: !!(espnData?.espnS2 && espnData?.swid),
+      isPrivate: !!espnData?.isPrivate,
+      credentialStatus: espnData?.credentialStatus ?? "unknown",
+      credentialCheckedAt: espnData?.credentialCheckedAt,
+      credentialError: espnData?.credentialError,
+      lastSyncedAt: espnData?.lastSyncedAt,
+    };
+  },
+});
+
+/**
+ * Save a fresh espn_s2/SWID pair for a private league. Commissioner-gated:
+ * these are live ESPN session cookies for whoever's account is connected, so
+ * only the person running the league gets to change them. Normalizes before
+ * storing (trims, decodes espn_s2 once, brace-wraps SWID) so every downstream
+ * ESPN call site can assume the stored value is already clean.
+ *
+ * Marks the credentials `unknown` rather than `valid` - saving a pair doesn't
+ * prove ESPN accepts it; that's what `espnSync.testEspnConnection` is for,
+ * and the setup/settings UI is expected to call it right after this.
+ */
+export const updateEspnCredentials = mutation({
+  args: {
+    leagueId: v.id("leagues"),
+    espnS2: v.string(),
+    swid: v.string(),
+  },
+  returns: v.object({ ok: v.literal(true) }),
+  handler: async (ctx, args) => {
+    await requireCommissioner(ctx, args.leagueId);
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) throw new Error("League not found");
+
+    const normalized = normalizeEspnCredentials({ espnS2: args.espnS2, swid: args.swid });
+    if (!normalized.hasCredentials) {
+      throw new Error("Both espn_s2 and SWID are required");
+    }
+
+    const existingEspnData = league.espnData ?? {
+      seasonId: new Date().getFullYear(),
+      currentScoringPeriod: 1,
+      size: 0,
+      lastSyncedAt: 0,
+      isPrivate: true,
+    };
+
+    await ctx.db.patch(args.leagueId, {
+      espnData: {
+        ...existingEspnData,
+        isPrivate: true,
+        espnS2: normalized.espnS2,
+        swid: normalized.swid,
+        credentialStatus: "unknown" as const,
+        credentialCheckedAt: undefined,
+        credentialError: undefined,
+      },
+    });
+
+    return { ok: true as const };
+  },
+});
+
 export const getDraftData = query({
   args: { 
     leagueId: v.id("leagues"),
@@ -668,6 +796,32 @@ export const getMembershipRoleInternal = internalQuery({
       )
       .first();
     return membership?.role ?? null;
+  },
+});
+
+// The `users` row id for every commissioner membership of a league. Internal
+// only - used by the ESPN-credential-invalid alert (espnSync.ts) to notify
+// each commissioner in-app; mirrors the join `claimRollover.ts` does for its
+// own "team changed owner" notice.
+export const getCommissionerUserIdsInternal = internalQuery({
+  args: { leagueId: v.id("leagues") },
+  returns: v.array(v.id("users")),
+  handler: async (ctx, args): Promise<Id<"users">[]> => {
+    const commissionerMemberships = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => q.eq(q.field("role"), "commissioner"))
+      .collect();
+
+    const userIds: Id<"users">[] = [];
+    for (const membership of commissionerMemberships) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", membership.userId))
+        .first();
+      if (user) userIds.push(user._id);
+    }
+    return userIds;
   },
 });
 

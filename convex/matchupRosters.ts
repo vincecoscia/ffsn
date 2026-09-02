@@ -3,6 +3,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { transformStats } from "./espnStatsMapping";
+import { fetchEspn, normalizeEspnCredentials } from "./lib/espnClient";
 
 
 
@@ -32,7 +33,11 @@ const transformRosterData = (rosterData: any) => {
       const projectedStatsEntry = player.stats?.find((stat: any) => stat.statSourceId === 1);
       
       const appliedStats = transformStats(actualStatsEntry ? actualStatsEntry.appliedStats : undefined);
-      const projectedPoints = projectedStatsEntry ? parseFloat(projectedStatsEntry.appliedTotal.toFixed(1)) : undefined;
+      // ESPN sometimes omits appliedTotal (or sends a non-number); guard
+      // rather than throw on `.toFixed` of undefined.
+      const projectedPoints = typeof projectedStatsEntry?.appliedTotal === "number"
+        ? parseFloat(projectedStatsEntry.appliedTotal.toFixed(1))
+        : undefined;
       const projectedStats = transformStats(projectedStatsEntry ? projectedStatsEntry.appliedStats : undefined);
 
       // Ensure appliedStatTotal is a valid number for the player too
@@ -91,28 +96,7 @@ export const fetchMatchupRosters = internalAction({
       throw new Error("No ESPN data found for league");
     }
 
-    const headers: HeadersInit = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-      'Accept': 'application/json',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      'Origin': 'https://fantasy.espn.com',
-      'Referer': 'https://fantasy.espn.com/',
-      'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-      'Sec-Ch-Ua-Mobile': '?0',
-      'Sec-Ch-Ua-Platform': '"Windows"',
-      'Sec-Fetch-Dest': 'empty',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Site': 'same-site',
-      'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
-      'X-Fantasy-Source': 'kona'
-    };
-
-    if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-      headers['Cookie'] = `espn_s2=${league.espnData.espnS2}; SWID=${league.espnData.swid}`;
-    }
+    const creds = normalizeEspnCredentials(league.espnData);
 
     // Determine matchup periods to fetch
     const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
@@ -128,9 +112,10 @@ export const fetchMatchupRosters = internalAction({
       try {
         console.log(`Fetching rosters for matchup period ${matchupPeriod}...`);
         
-        const response = await fetch(`${baseUrl}?scoringPeriodId=${matchupPeriod}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav`, {
-          headers
-        });
+        const { response } = await fetchEspn(
+          `${baseUrl}?scoringPeriodId=${matchupPeriod}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav`,
+          { creds }
+        );
 
         if (!response.ok) {
           console.warn(`Failed to fetch matchup period ${matchupPeriod}: ${response.status}`);

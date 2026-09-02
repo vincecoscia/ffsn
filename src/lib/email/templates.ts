@@ -89,6 +89,13 @@ function greeting(recipientName?: string): string {
   return first ? `Hi ${first}.` : "Hello.";
 }
 
+/** A small square team logo, shown above the invite copy when the team has one. */
+function logoBlock(url: string, alt: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;"><tr>
+<td><img src="${escapeHtml(url)}" width="64" height="64" alt="${escapeHtml(alt)}" style="display:block;width:64px;height:64px;border-radius:4px;object-fit:cover;"></td>
+</tr></table>`;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Comment request (and its reminders) from the sideline desk                 */
 /* -------------------------------------------------------------------------- */
@@ -302,6 +309,74 @@ export function renderArticlePublishedEmail(data: ArticlePublishedEmailData): Re
 }
 
 /* -------------------------------------------------------------------------- */
+/* Team invitation                                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface TeamInvitationEmailData {
+  leagueName: string;
+  teamName: string;
+  teamAbbreviation?: string;
+  teamLogo?: string;
+  /** Commissioner's display name, when known. The invite still works without it. */
+  invitedByName?: string;
+  inviteUrl: string;
+  /** ms since epoch - when the invite link stops working. */
+  expiresAt: number;
+  preferencesUrl: string;
+  siteUrl: string;
+}
+
+export function renderTeamInvitationEmail(data: TeamInvitationEmailData): RenderedEmail {
+  const siteUrl = trimTrailingSlash(data.siteUrl);
+  const subject = `You're invited to claim ${data.teamName} in ${data.leagueName} on FFSN`;
+  const expires = formatDeadline(data.expiresAt);
+  const invitedBy = data.invitedByName
+    ? `${data.invitedByName}, the commissioner of ${data.leagueName},`
+    : `The commissioner of ${data.leagueName}`;
+  const body = `${invitedBy} invited you to take over ${data.teamName}. Claim it to start managing your roster, get the weekly recaps, and step into the stories FFSN writes about your league.`;
+  const preheader = `${invitedBy} invited you to run ${data.teamName}. This link expires ${expires}.`;
+
+  const content = [
+    slate("You're invited", data.leagueName),
+    headline(`Claim ${data.teamName}`),
+    data.teamLogo ? logoBlock(data.teamLogo, data.teamName) : "",
+    paragraph(escapeHtml(body)),
+    statsRow([
+      { label: "League", value: data.leagueName },
+      { label: "Team", value: data.teamAbbreviation ? `${data.teamName} (${data.teamAbbreviation})` : data.teamName },
+      { label: "Expires", value: expires },
+    ]),
+    button("Claim your team", data.inviteUrl),
+    finePrint(escapeHtml(`This link expires ${expires}.`)),
+    finePrint(`If the button doesn't work, paste this link into your browser: ${escapeHtml(data.inviteUrl)}`, { last: true }),
+  ].join("\n");
+
+  const reason = `You're getting this because ${data.invitedByName ?? "a commissioner"} invited you to a team in ${data.leagueName} on FFSN.`;
+
+  const html = renderShell({
+    title: subject,
+    preheader,
+    siteUrl,
+    preferencesUrl: data.preferencesUrl,
+    mastheadLabel: data.leagueName,
+    reason,
+    content,
+  });
+
+  const text = textDocument([
+    `FFSN · YOU'RE INVITED · ${data.leagueName.toUpperCase()}`,
+    `Claim ${data.teamName}`,
+    body,
+    `League: ${data.leagueName}\nTeam: ${data.teamName}${data.teamAbbreviation ? ` (${data.teamAbbreviation})` : ""}\nExpires: ${expires}`,
+    `Claim your team: ${data.inviteUrl}`,
+    `This link expires ${expires}.`,
+    textFooter({ siteUrl, preferencesUrl: data.preferencesUrl, reason }),
+  ]);
+
+  return { subject, preheader, html, text, fromName: "FFSN" };
+}
+
+/* -------------------------------------------------------------------------- */
 /* System notice (test sends, announcements)                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -355,13 +430,19 @@ export function renderSystemNoticeEmail(data: SystemNoticeEmailData): RenderedEm
 /** Template ids in `emailLogs` that start with this are rendered here instead of by SendGrid. */
 export const LOCAL_TEMPLATE_PREFIX = "ffsn:";
 
-export type EmailTemplateKey = "comment_request" | "comment_reminder" | "article_published" | "system_notice";
+export type EmailTemplateKey =
+  | "comment_request"
+  | "comment_reminder"
+  | "article_published"
+  | "system_notice"
+  | "team_invitation";
 
 export interface EmailTemplateDataMap {
   comment_request: CommentRequestEmailData;
   comment_reminder: CommentRequestEmailData;
   article_published: ArticlePublishedEmailData;
   system_notice: SystemNoticeEmailData;
+  team_invitation: TeamInvitationEmailData;
 }
 
 export function localTemplateId(key: EmailTemplateKey): string {
@@ -384,6 +465,8 @@ export function renderEmail<K extends EmailTemplateKey>(key: K, data: EmailTempl
       return renderArticlePublishedEmail(data as ArticlePublishedEmailData);
     case "system_notice":
       return renderSystemNoticeEmail(data as SystemNoticeEmailData);
+    case "team_invitation":
+      return renderTeamInvitationEmail(data as TeamInvitationEmailData);
     default: {
       const never: never = key;
       throw new Error(`Unknown email template: ${String(never)}`);
@@ -399,7 +482,9 @@ export function renderEmail<K extends EmailTemplateKey>(key: K, data: EmailTempl
 export function renderLocalTemplate(templateId: string, data: unknown): RenderedEmail | null {
   if (!isLocalTemplateId(templateId)) return null;
   const key = templateId.slice(LOCAL_TEMPLATE_PREFIX.length) as EmailTemplateKey;
-  if (!["comment_request", "comment_reminder", "article_published", "system_notice"].includes(key)) {
+  if (
+    !["comment_request", "comment_reminder", "article_published", "system_notice", "team_invitation"].includes(key)
+  ) {
     throw new Error(`Unknown local email template: ${templateId}`);
   }
   return renderEmail(key, data as EmailTemplateDataMap[typeof key]);

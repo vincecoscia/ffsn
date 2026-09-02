@@ -2,8 +2,14 @@
 import { action, internalMutation, internalAction, type ActionCtx } from "./_generated/server";
 import { v, type ObjectType } from "convex/values";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { transformStats } from "./espnStatsMapping";
 import { requireLeagueMemberFromAction } from "./lib/auth";
+import {
+  fetchEspn,
+  normalizeEspnCredentials,
+  type EspnStatusClassification,
+} from "./lib/espnClient";
 
 // Helper functions for ESPN data mapping
 const getPositionName = (positionId: number): string => {
@@ -61,8 +67,12 @@ const transformRosterData = (rosterData: any) => {
       const projectedStatsEntry = player.stats?.find((stat: any) => stat.statSourceId === 1);
       
       const appliedStats = transformStats(actualStatsEntry ? actualStatsEntry.appliedStats : undefined);
-      // Convert projected points to number instead of string
-      const projectedPoints = projectedStatsEntry ? parseFloat(projectedStatsEntry.appliedTotal.toFixed(1)) : undefined;
+      // Convert projected points to number instead of string. ESPN sometimes
+      // omits appliedTotal (or sends a non-number); guard rather than throw
+      // on `.toFixed` of undefined.
+      const projectedPoints = typeof projectedStatsEntry?.appliedTotal === "number"
+        ? parseFloat(projectedStatsEntry.appliedTotal.toFixed(1))
+        : undefined;
       const projectedStats = transformStats(projectedStatsEntry ? projectedStatsEntry.appliedStats : undefined);
 
       // Ensure appliedStatTotal is a valid number for the player too
@@ -112,42 +122,20 @@ export const syncLeagueData = action({
       const currentYear = new Date().getFullYear();
       const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${league.externalId}`;
       
-      const headers: HeadersInit = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Origin': 'https://fantasy.espn.com',
-        'Referer': 'https://fantasy.espn.com/',
-        'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-site',
-        'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
-        'X-Fantasy-Source': 'kona'
-      };
-      
       // Add fantasy filter for all matchup periods to get roster data
       // Use league settings or reasonable defaults (most leagues are 14 regular + 4 playoff weeks)
       const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
       const playoffWeeks = league.settings?.playoffWeeks || 4;
-      headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
-      
-      if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-        headers['Cookie'] = `espn_s2=${league.espnData.espnS2}; SWID=${league.espnData.swid}`;
-      }
+      const creds = normalizeEspnCredentials(league.espnData);
 
       // Get comprehensive league data including players, matchups, draft info, and transactions
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard`, {
-        headers
-      });
+      const { response: leagueResponse, classification } = await fetchEspn(
+        `${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard`,
+        { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks) } }
+      );
 
       if (!leagueResponse.ok) {
-        throw new Error(`ESPN API returned ${leagueResponse.status}: ${leagueResponse.statusText}`);
+        throw new Error(`ESPN API returned ${leagueResponse.status}: ${leagueResponse.statusText} (${classification})`);
       }
 
       const leagueData = await leagueResponse.json();
@@ -358,6 +346,21 @@ export const syncLeagueData = action({
           };
         })
       });
+
+      // Carry manager <-> team claims forward from the prior season now that
+      // this season's teams exist (spec: claim rollover). A team is a
+      // per-season document, so without this every manager would see their
+      // team as "unclaimed" again at the start of each new season. Never let
+      // a rollover problem fail the sync itself - the teams are already
+      // synced above regardless of what happens here.
+      try {
+        await ctx.runMutation(internal.claimRollover.rollForwardClaims, {
+          leagueId: args.leagueId,
+          seasonId: currentYear,
+        });
+      } catch (rolloverError) {
+        console.error("Error rolling forward team claims:", rolloverError);
+      }
 
       // Sync players data if available
       if (players.length > 0) {
@@ -842,46 +845,16 @@ export const syncHistoricalData = action({
       try {
         const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${league.externalId}`;
         
-        const headers: HeadersInit = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip, deflate, br, zstd',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'Origin': 'https://fantasy.espn.com',
-          'Referer': 'https://fantasy.espn.com/',
-          'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-site',
-          'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
-          'X-Fantasy-Source': 'kona'
-        };
-        
         // Add fantasy filter for all matchup periods to get roster data
         const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
         const playoffWeeks = league.settings?.playoffWeeks || 4;
-        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
-        
-        if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-          // Decode URL-encoded espnS2 if needed
-          const espnS2 = decodeURIComponent(league.espnData.espnS2);
-          headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
-          console.log(`Using ESPN auth for year ${year}:`, {
-            hasEspnS2: !!league.espnData.espnS2,
-            espnS2Length: league.espnData.espnS2.length,
-            hasSwid: !!league.espnData.swid,
-            swidFormat: league.espnData.swid.startsWith('{') && league.espnData.swid.endsWith('}')
-          });
-        }
+        const creds = normalizeEspnCredentials(league.espnData);
 
         // Get historical league data including player information
-        const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mRoster&view=mBoxscore&view=mPositionalRatings&view=kona_playercard`, {
-          headers
-        });
+        const { response: leagueResponse } = await fetchEspn(
+          `${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mRoster&view=mBoxscore&view=mPositionalRatings&view=kona_playercard`,
+          { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks) } }
+        );
 
         if (!leagueResponse.ok) {
           console.warn(`Failed to fetch data for year ${year}: ${leagueResponse.status}`);
@@ -1403,33 +1376,36 @@ export const updateSeasonDraftData = internalMutation({
 });
 
 // Comprehensive sync function for both current and historical data
-// Helper function to validate ESPN credentials
+// Helper function to validate ESPN credentials. Returns the ESPN status
+// classification alongside `isValid` so callers can tell "definitely bad
+// credentials" (401/403) apart from "ESPN is having a bad day" (429/5xx) -
+// only the former should flip a league's stored credentialStatus to
+// "invalid" and page an operator.
 const validateEspnCredentials = async (leagueId: string, espnS2?: string, swid?: string): Promise<{
   isValid: boolean;
+  classification: EspnStatusClassification;
   error?: string;
 }> => {
-  if (!espnS2 || !swid) {
-    return { isValid: false, error: "Missing ESPN S2 or SWID credentials" };
+  const creds = normalizeEspnCredentials({ espnS2, swid });
+  if (!creds.hasCredentials) {
+    return { isValid: false, classification: "auth", error: "Missing ESPN S2 or SWID credentials" };
   }
 
   try {
     const currentYear = new Date().getFullYear();
     const testUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${leagueId}?view=mSettings`;
-    
-    const response = await fetch(testUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Cookie': `espn_s2=${decodeURIComponent(espnS2)}; SWID=${swid}`
-      }
-    });
+
+    const { response, classification } = await fetchEspn(testUrl, { creds });
 
     return {
-      isValid: response.ok,
-      error: response.ok ? undefined : `ESPN API returned ${response.status}: ${response.statusText}`
+      isValid: classification === "ok",
+      classification,
+      error: classification === "ok" ? undefined : `ESPN API returned ${response.status}: ${response.statusText}`
     };
   } catch (error) {
     return {
       isValid: false,
+      classification: "other",
       error: error instanceof Error ? error.message : "Unknown error validating credentials"
     };
   }
@@ -1445,6 +1421,11 @@ export const syncAllLeagueData = action({
     totalYearsRequested: number;
     totalSynced: number;
     totalErrors: number;
+    // Total non-fatal sub-step failures (rosters/transactions/player stats)
+    // across every year, so a caller can tell "fully clean" apart from
+    // "reported success but something was swallowed" without reading every
+    // year's stepErrors.
+    warnings: number;
     results: Array<{
       year: number;
       success: boolean;
@@ -1455,6 +1436,10 @@ export const syncAllLeagueData = action({
       rostersCount?: number;
       matchupRostersCount?: number;
       transactionsCount?: number;
+      // Sub-step failures that were swallowed so the year could still be
+      // marked `success` (rosters/matchup rosters/transactions/player
+      // stats). Empty/absent means every sub-step for this year succeeded.
+      stepErrors?: string[];
     }>;
     message: string;
     syncedAt: number;
@@ -1483,11 +1468,17 @@ export const syncAllLeagueData = action({
     // Validate ESPN credentials if league is private
     if (league.espnData.isPrivate) {
       const credentialsCheck = await validateEspnCredentials(
-        league.externalId, 
-        league.espnData.espnS2, 
+        league.externalId,
+        league.espnData.espnS2,
         league.espnData.swid
       );
-      
+
+      await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+        leagueId: args.leagueId,
+        status: credentialsCheck.isValid ? "valid" : "invalid",
+        error: credentialsCheck.error,
+      });
+
       if (!credentialsCheck.isValid) {
         throw new Error(`ESPN credentials invalid: ${credentialsCheck.error}. Please re-authenticate with ESPN.`);
       }
@@ -1518,67 +1509,38 @@ export const syncAllLeagueData = action({
         console.log(`Starting sync for year ${year}...`);
         
         const baseUrl: string = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${league.externalId}`;
-        
-        const headers: HeadersInit = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip, deflate, br, zstd',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'Origin': 'https://fantasy.espn.com',
-          'Referer': 'https://fantasy.espn.com/',
-          'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-site',
-          'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
-          'X-Fantasy-Source': 'kona'
-        };
-        
+
         // Add fantasy filter for all matchup periods to get roster data
         const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
         const playoffWeeks = league.settings?.playoffWeeks || 4;
-        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
-        
-        if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-          // Decode URL-encoded espnS2 if needed
-          const espnS2 = decodeURIComponent(league.espnData.espnS2);
-          headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
-          console.log(`Using ESPN auth for year ${year}:`, {
-            hasEspnS2: !!league.espnData.espnS2,
-            espnS2Length: league.espnData.espnS2.length,
-            hasSwid: !!league.espnData.swid,
-            swidFormat: league.espnData.swid.startsWith('{') && league.espnData.swid.endsWith('}')
-          });
-        }
+        const yearCreds = normalizeEspnCredentials(league.espnData);
 
         // For current season, get more comprehensive data
-        const viewParams = year === currentYear 
+        const viewParams = year === currentYear
           ? '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard'
           : '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard';
 
-        const leagueResponse: Response = await fetch(`${baseUrl}${viewParams}`, {
-          headers
-        });
+        const { response: leagueResponse, classification: leagueClassification } = await fetchEspn(
+          `${baseUrl}${viewParams}`,
+          { creds: yearCreds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks) } }
+        );
 
         if (!leagueResponse.ok) {
           const responseText = await leagueResponse.text();
           console.error(`ESPN API Error for year ${year}:`, {
             status: leagueResponse.status,
             statusText: leagueResponse.statusText,
+            classification: leagueClassification,
             url: baseUrl + viewParams,
             hasAuth: !!(league.espnData.espnS2 && league.espnData.swid),
             isPrivate: league.espnData.isPrivate,
             responseText: responseText.slice(0, 200)
           });
           console.warn(`Failed to fetch data for year ${year}: ${leagueResponse.status}`);
-          results.push({ 
-            year, 
-            success: false, 
-            error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueResponse.status === 401 ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}` 
+          results.push({
+            year,
+            success: false,
+            error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueClassification === 'auth' ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}`
           });
           totalErrors++;
           continue;
@@ -1912,16 +1874,19 @@ export const syncAllLeagueData = action({
           };
         };
 
-        // Sync teams for this season
+        // Sync teams for this season. Teams with no `id` can't be matched to
+        // anything downstream (roster fetches, matchups, claims all key off
+        // externalId) - skip them rather than crash the whole year's sync on
+        // `team.id.toString()`.
         await ctx.runMutation(internal.espnSync.updateTeams, {
           leagueId: args.leagueId,
           seasonId: year,
-          teamsData: teams.map((team: any) => {
+          teamsData: teams.filter((team: any) => team.id != null).map((team: any) => {
             const { ownerName, ownerInfo } = getOwnerInfo(team);
             return {
               externalId: team.id.toString(),
-              name: team.name || 
-                    (team.location && team.nickname ? `${team.location} ${team.nickname}` : 
+              name: team.name ||
+                    (team.location && team.nickname ? `${team.location} ${team.nickname}` :
                      team.location || team.nickname || `Team ${team.id}` || 'Unknown Team'),
               abbreviation: team.abbrev,
               location: team.location,
@@ -1959,6 +1924,28 @@ export const syncAllLeagueData = action({
           })
         });
 
+        // Carry manager <-> team claims forward from the prior season, same as
+        // `syncLeagueData` does - but only for the current season, since a
+        // rollover only ever makes sense against "this season's teams now
+        // exist". Never let a rollover problem fail the sync itself.
+        if (year === currentYear) {
+          try {
+            await ctx.runMutation(internal.claimRollover.rollForwardClaims, {
+              leagueId: args.leagueId,
+              seasonId: year,
+            });
+          } catch (rolloverError) {
+            console.error("Error rolling forward team claims:", rolloverError);
+          }
+        }
+
+        // Sub-step failures below (transactions/rosters/matchup rosters/player
+        // stats) are non-fatal - the year still counts as synced (its league
+        // fetch, teams and matchups all succeeded above) but each swallowed
+        // failure is recorded here as a warning instead of silently vanishing.
+        const stepErrors: string[] = [];
+        let transactionsSynced = 0;
+
         // Sync players data for all seasons (historical and current)
         if (players.length > 0) {
           await ctx.runMutation(internal.espnSync.updatePlayers, {
@@ -1989,7 +1976,6 @@ export const syncAllLeagueData = action({
 
           // Sync player transactions for this season
           console.log(`Processing player transactions for year ${year}...`);
-          let transactionsSynced = 0;
           try {
             const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
               leagueId: args.leagueId,
@@ -1997,16 +1983,18 @@ export const syncAllLeagueData = action({
               players: players,
               currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
             });
-            
+
             if (transactionResult.success) {
               transactionsSynced = transactionResult.transactionsProcessed;
               console.log(`Successfully synced ${transactionResult.transactionsProcessed} transactions for ${year}`);
             } else {
               console.warn(`Failed to sync some transactions for ${year}:`, transactionResult.message);
+              stepErrors.push(`transactions: ${transactionResult.message}`);
             }
           } catch (transactionError) {
             console.error(`Error syncing player transactions for ${year}:`, transactionError);
-            // Don't fail the entire sync if transaction syncing fails
+            // Don't fail the entire sync if transaction syncing fails - recorded as a warning instead.
+            stepErrors.push(`transactions: ${transactionError instanceof Error ? transactionError.message : 'Unknown error'}`);
           }
         }
 
@@ -2061,16 +2049,18 @@ export const syncAllLeagueData = action({
             leagueId: args.leagueId,
             seasonId: year,
           });
-          
+
           if (rosterResult.success) {
             rostersFetched = rosterResult.totalRostersFetched;
             console.log(`Successfully fetched rosters for ${rostersFetched} teams in ${year}`);
           } else {
             console.warn(`Failed to fetch some rosters for ${year}:`, rosterResult.message);
+            stepErrors.push(`rosters: ${rosterResult.message}`);
           }
         } catch (rosterError) {
           console.error(`Error fetching rosters for ${year}:`, rosterError);
-          // Don't fail the entire sync if roster fetching fails
+          // Don't fail the entire sync if roster fetching fails - recorded as a warning instead.
+          stepErrors.push(`rosters: ${rosterError instanceof Error ? rosterError.message : 'Unknown error'}`);
         }
 
         // Fetch matchup rosters for each year after teams are synced
@@ -2081,49 +2071,53 @@ export const syncAllLeagueData = action({
             leagueId: args.leagueId,
             seasonId: year,
           });
-          
+
           if (matchupRosterResult.success) {
             matchupRostersFetched = matchupRosterResult.successfulPeriods;
             console.log(`Successfully fetched matchup rosters for ${matchupRostersFetched}/${matchupRosterResult.totalPeriods} periods in ${year}`);
           } else {
             console.warn(`Failed to fetch matchup rosters for ${year}:`, matchupRosterResult.message);
+            stepErrors.push(`matchupRosters: ${matchupRosterResult.message}`);
           }
         } catch (matchupRosterError) {
           console.error(`Error fetching matchup rosters for ${year}:`, matchupRosterError);
-          // Don't fail the entire sync if matchup roster fetching fails
+          // Don't fail the entire sync if matchup roster fetching fails - recorded as a warning instead.
+          stepErrors.push(`matchupRosters: ${matchupRosterError instanceof Error ? matchupRosterError.message : 'Unknown error'}`);
         }
 
         // Fetch player stats for each year after rosters are synced
         console.log(`Fetching player stats for year ${year}...`);
         let playerStatsSynced = 0;
-        const transactionsSynced = 0;
         try {
           const statsResult = await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, {
             leagueId: args.leagueId,
             season: year,
           });
-          
+
           if (statsResult.status === "success") {
             playerStatsSynced = statsResult.totalPlayersProcessed;
             console.log(`Successfully synced player stats for ${playerStatsSynced} players in ${year}`);
           } else {
             console.warn(`Failed to sync player stats for ${year}`);
+            stepErrors.push(`playerStats: sync did not report success`);
           }
         } catch (statsError) {
           console.error(`Error syncing player stats for ${year}:`, statsError);
-          // Don't fail the entire sync if player stats syncing fails
+          // Don't fail the entire sync if player stats syncing fails - recorded as a warning instead.
+          stepErrors.push(`playerStats: ${statsError instanceof Error ? statsError.message : 'Unknown error'}`);
         }
 
-        results.push({ 
-          year, 
-          success: true, 
+        results.push({
+          year,
+          success: true,
           teamsCount: teams.length,
           matchupsCount: schedule.length,
           playersCount: year === currentYear ? players.length : 0,
           rostersCount: rostersFetched,
           matchupRostersCount: matchupRostersFetched,
           playerStatsCount: playerStatsSynced,
-          transactionsCount: transactionsSynced
+          transactionsCount: transactionsSynced,
+          stepErrors: stepErrors.length > 0 ? stepErrors : undefined,
         });
         totalSynced++;
         
@@ -2143,13 +2137,26 @@ export const syncAllLeagueData = action({
       }
     }
 
+    // Overall success requires the current season to have actually synced
+    // (when it was requested) - a sync that pulled in nine historical years
+    // but failed on the current season isn't something callers should treat
+    // as "it worked".
+    const currentSeasonResult = results.find((r: { year: number }) => r.year === currentYear);
+    const overallSuccess =
+      totalSynced > 0 && (!includeCurrentSeason || currentSeasonResult?.success === true);
+    const warnings = results.reduce(
+      (sum: number, r: { stepErrors?: string[] }) => sum + (r.stepErrors?.length ?? 0),
+      0
+    );
+
     return {
-      success: totalSynced > 0,
+      success: overallSuccess,
       totalYearsRequested: yearsToSync.length,
       totalSynced,
       totalErrors,
+      warnings,
       results,
-      message: `Sync completed: ${totalSynced}/${yearsToSync.length} years synced successfully`,
+      message: `Sync completed: ${totalSynced}/${yearsToSync.length} years synced successfully${warnings > 0 ? ` (${warnings} warning${warnings === 1 ? '' : 's'})` : ''}`,
       syncedAt: Date.now(),
     };
   },
@@ -2252,14 +2259,10 @@ async function fetchHistoricalRostersImpl(
     if (args.seasonId === currentYear) {
       // For current season, check draft status before fetching rosters
       try {
-        const leagueResponse = await fetch(`https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}?view=mDraftDetail`, {
-          headers: league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid ? {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Cookie': `espn_s2=${decodeURIComponent(league.espnData.espnS2)}; SWID=${league.espnData.swid}`
-          } : {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-          }
-        });
+        const { response: leagueResponse } = await fetchEspn(
+          `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}?view=mDraftDetail`,
+          { creds: normalizeEspnCredentials(league.espnData) }
+        );
 
         if (leagueResponse.ok) {
           const leagueData = await leagueResponse.json();
@@ -2291,22 +2294,15 @@ async function fetchHistoricalRostersImpl(
         
         const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
         const viewParams = `?rosterForTeamId=${team.externalId}&view=mDraftDetail&view=mLiveScoring&view=mMatchupScore&view=mPendingTransactions&view=mPositionalRatings&view=mRoster&view=mSettings&view=mTeam&view=modular&view=mNav`;
-        
-        const headers: HeadersInit = {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        };
-        
+
         // Add fantasy filter for all matchup periods to get roster data
         const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
         const playoffWeeks = league.settings?.playoffWeeks || 4;
-        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
-        
-        if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-          const espnS2 = decodeURIComponent(league.espnData.espnS2);
-          headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
-        }
 
-        const response = await fetch(`${baseUrl}${viewParams}`, { headers });
+        const { response } = await fetchEspn(`${baseUrl}${viewParams}`, {
+          creds: normalizeEspnCredentials(league.espnData),
+          headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks) },
+        });
 
         if (!response.ok) {
           console.error(`Failed to fetch roster for team ${team.externalId}:`, response.status, response.statusText);
@@ -2459,25 +2455,18 @@ export const fetchDraftDataForSeason = action({
       console.log(`Fetching draft data for season ${args.seasonId}...`);
       
       const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
-      
-      const headers: HeadersInit = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-      };
-      
+
       // Add fantasy filter for all matchup periods to get comprehensive data
       const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
       const playoffWeeks = league.settings?.playoffWeeks || 4;
-      headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
-      
-      if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-        const espnS2 = decodeURIComponent(league.espnData.espnS2);
-        headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
-      }
 
       // Fetch league data with draft details
-      const response = await fetch(
+      const { response } = await fetchEspn(
         `${baseUrl}?view=mDraftDetail&view=mSettings&view=mTeam&view=modular&view=mNav`,
-        { headers }
+        {
+          creds: normalizeEspnCredentials(league.espnData),
+          headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks) },
+        }
       );
 
       if (!response.ok) {
@@ -2616,6 +2605,7 @@ export const syncAllDataWithRosters = action({
     totalYearsRequested: number;
     totalSynced: number;
     totalErrors: number;
+    warnings: number;
     results: Array<{
       year: number;
       success: boolean;
@@ -2626,6 +2616,7 @@ export const syncAllDataWithRosters = action({
       rostersCount?: number;
       matchupRostersCount?: number;
       transactionsCount?: number;
+      stepErrors?: string[];
     }>;
     message: string;
     syncedAt: number;
@@ -3171,6 +3162,105 @@ export const storePlayerTransactions = internalMutation({
   },
 });
 
+/**
+ * Page an operator and every commissioner of `league` about invalid ESPN
+ * credentials, at most once per 24h per league.
+ *
+ * Only called for an "auth" classification (401/403) - a rate-limited or
+ * flaky-ESPN failure isn't a credentials problem and shouldn't wake anyone
+ * up. `league.espnData.credentialAlertedAt` is the dedupe clock; the operator
+ * notice ledger (`deskMetrics.claimOperatorNotice`) is the delivery-once
+ * guarantee for the email itself, reusing the same mechanism the daily desk
+ * digest uses rather than inventing a second one.
+ */
+async function alertInvalidEspnCredentials(
+  ctx: ActionCtx,
+  league: { _id: Id<"leagues">; name: string; espnData?: { credentialAlertedAt?: number } }
+): Promise<void> {
+  const ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+  const alertedAt = league.espnData?.credentialAlertedAt;
+  if (alertedAt && Date.now() - alertedAt < ALERT_COOLDOWN_MS) {
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const dedupeKey = `espn_credentials_invalid:${league._id}:${today}`;
+  const subject = `FFSN: ESPN connection needs attention for "${league.name}"`;
+  const text =
+    `${subject}\n\n` +
+    `League: ${league.name} (${league._id})\n` +
+    `ESPN rejected the stored espn_s2/SWID cookies (401/403) during the current-season sync.\n` +
+    `The commissioner has been notified in-app to reconnect from League settings.`;
+
+  try {
+    const claimed: boolean = await ctx.runMutation(internal.deskMetrics.claimOperatorNotice, {
+      key: dedupeKey,
+      kind: "espn_credentials_invalid",
+      subject,
+      leagueId: league._id,
+    });
+    if (claimed) {
+      const to = process.env.ADMIN_ALERT_EMAIL;
+      let sent = false;
+      if (!to) {
+        console.error(`[operator alert] ${subject}\n${text}`);
+      } else {
+        const result = await ctx.runAction(internal.emailService.sendPlainEmail, {
+          to,
+          subject,
+          text,
+          fromName: "FFSN Desk",
+          relatedEntityType: "operator_alert",
+        });
+        sent = result.success;
+      }
+      await ctx.runMutation(internal.deskMetrics.markOperatorNoticeDelivered, {
+        key: dedupeKey,
+        delivered: sent,
+      });
+    }
+  } catch (error) {
+    // The operator notice is best-effort - it must never block the
+    // commissioner notification below or the sync loop itself.
+    console.error(`Failed to send operator alert for league ${league._id}:`, error);
+  }
+
+  // Notify every commissioner of this league in-app, regardless of whether
+  // the operator email succeeded.
+  try {
+    const commissionerUserIds = await ctx.runQuery(
+      internal.leagues.getCommissionerUserIdsInternal,
+      { leagueId: league._id }
+    );
+    for (const userId of commissionerUserIds) {
+      await ctx.runMutation(internal.notifications.createNotification, {
+        userId,
+        leagueId: league._id,
+        type: "account_update" as const,
+        title: `ESPN connection needs attention for ${league.name}`,
+        message:
+          `ESPN rejected the stored connection cookies for ${league.name}. ` +
+          `Reconnect ESPN from League settings to resume syncing.`,
+        actionUrl: `/leagues/${league._id}/settings`,
+        actionText: "Open League settings",
+        relatedEntityType: "league" as const,
+        relatedEntityId: league._id,
+        priority: "high" as const,
+        deliveryChannels: ["in_app"] as const,
+        dedupeKey,
+      });
+    }
+  } catch (error) {
+    console.error(`Failed to notify commissioners for league ${league._id}:`, error);
+  }
+
+  await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+    leagueId: league._id,
+    status: "invalid",
+    alertedAt: Date.now(),
+  });
+}
+
 // Sync current season data for all leagues - optimized for frequent updates HELLO WORLD
 export const syncAllLeaguesCurrentSeason = internalAction({
   args: {},
@@ -3238,13 +3328,27 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         // Validate ESPN credentials if league is private
         if (league.espnData.isPrivate) {
           const credentialsCheck = await validateEspnCredentials(
-            league.externalId, 
-            league.espnData.espnS2, 
+            league.externalId,
+            league.espnData.espnS2,
             league.espnData.swid
           );
-          
+
           if (!credentialsCheck.isValid) {
             console.error(`ESPN credentials invalid for league ${league.name}:`, credentialsCheck.error);
+
+            // Only a genuine auth rejection (401/403) means the cookies
+            // themselves are bad - a rate limit or ESPN outage isn't a
+            // credentials problem and shouldn't page anyone or flip the
+            // league's stored status.
+            if (credentialsCheck.classification === "auth") {
+              await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+                leagueId: league._id,
+                status: "invalid",
+                error: credentialsCheck.error,
+              });
+              await alertInvalidEspnCredentials(ctx, league);
+            }
+
             results.push({
               leagueId: league._id,
               leagueName: league.name,
@@ -3254,62 +3358,59 @@ export const syncAllLeaguesCurrentSeason = internalAction({
             totalErrors++;
             continue;
           }
+
+          // Credentials still good - keep the stored status fresh so a
+          // league that recovers stops showing as "invalid" in the UI.
+          await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+            leagueId: league._id,
+            status: "valid",
+          });
         }
-        
+
         const baseUrl: string = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${league.externalId}`;
-        
-        const headers: HeadersInit = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip, deflate, br, zstd',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'Origin': 'https://fantasy.espn.com',
-          'Referer': 'https://fantasy.espn.com/',
-          'Sec-Ch-Ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-site',
-          'X-Fantasy-Platform': 'kona-PROD-871ba974fde0504c7ee3018049a715c0af70b886',
-          'X-Fantasy-Source': 'kona'
-        };
-        
+
         // Add fantasy filter for all matchup periods to get roster data
         const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
         const playoffWeeks = league.settings?.playoffWeeks || 4;
-        headers['X-Fantasy-Filter'] = generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks);
-        
-        if (league.espnData.isPrivate && league.espnData.espnS2 && league.espnData.swid) {
-          // Decode URL-encoded espnS2 if needed
-          const espnS2 = decodeURIComponent(league.espnData.espnS2);
-          headers['Cookie'] = `espn_s2=${espnS2}; SWID=${league.espnData.swid}`;
-        }
+        const creds = normalizeEspnCredentials(league.espnData);
 
         // Get comprehensive current season data
         const viewParams = '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard';
 
-        const leagueResponse: Response = await fetch(`${baseUrl}${viewParams}`, {
-          headers
-        });
+        const { response: leagueResponse, classification: leagueClassification } = await fetchEspn(
+          `${baseUrl}${viewParams}`,
+          { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(regularSeasonWeeks, playoffWeeks) } }
+        );
 
         if (!leagueResponse.ok) {
           const responseText = await leagueResponse.text();
           console.error(`ESPN API Error for league ${league.name}:`, {
             status: leagueResponse.status,
             statusText: leagueResponse.statusText,
+            classification: leagueClassification,
             url: baseUrl + viewParams,
             hasAuth: !!(league.espnData.espnS2 && league.espnData.swid),
             isPrivate: league.espnData.isPrivate,
             responseText: responseText.slice(0, 200)
           });
+
+          // The pre-fetch credential probe above already covers the private
+          // case; this also catches a public league whose cookies (if any)
+          // ESPN rejects mid-request, or one that quietly became private.
+          if (leagueClassification === "auth" && league.espnData.isPrivate) {
+            await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+              leagueId: league._id,
+              status: "invalid",
+              error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}`,
+            });
+            await alertInvalidEspnCredentials(ctx, league);
+          }
+
           results.push({
             leagueId: league._id,
             leagueName: league.name,
             success: false,
-            error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueResponse.status === 401 ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}`
+            error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueClassification === 'auth' ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}`
           });
           totalErrors++;
           continue;
@@ -3516,6 +3617,19 @@ export const syncAllLeaguesCurrentSeason = internalAction({
           })
         });
 
+        // Carry manager <-> team claims forward from the prior season, same
+        // hook `syncLeagueData` and `syncAllLeagueData` run after their own
+        // current-season `updateTeams` call. Never let a rollover problem
+        // fail the sync itself.
+        try {
+          await ctx.runMutation(internal.claimRollover.rollForwardClaims, {
+            leagueId: league._id,
+            seasonId: currentYear,
+          });
+        } catch (rolloverError) {
+          console.error(`Error rolling forward team claims for league ${league._id}:`, rolloverError);
+        }
+
         // Sync players data if available
         let transactionsSynced = 0;
         if (players.length > 0) {
@@ -3685,6 +3799,118 @@ export const syncAllLeaguesCurrentSeason = internalAction({
       results,
       message: `Current season sync completed: ${totalSynced}/${allLeagues.length} leagues synced successfully`,
       syncedAt: Date.now(),
+    };
+  },
+});
+
+/**
+ * A plain-English message for one ESPN connection probe outcome, shared by
+ * `testEspnConnection`'s return value. Kept separate from the action so it's
+ * trivially unit-testable without a Convex context.
+ */
+function describeEspnConnectionResult(
+  classification: EspnStatusClassification,
+  status: number,
+  leagueName?: string,
+  teamCount?: number
+): string {
+  switch (classification) {
+    case "ok":
+      return `Connected: ${leagueName ?? "league"}${teamCount != null ? ` (${teamCount} teams)` : ""}`;
+    case "auth":
+      return `ESPN rejected the cookies (${status}). Paste fresh espn_s2 and SWID.`;
+    case "not_found":
+      return `League not found for this season (${status}). Check the league ID and that it's the right season.`;
+    case "rate_limited":
+      return `ESPN is rate-limiting these requests (${status}). Try again in a minute.`;
+    case "server":
+      return `ESPN's API is having trouble (${status}). Try again shortly.`;
+    default:
+      return `ESPN returned an unexpected response (${status}).`;
+  }
+}
+
+/**
+ * Probe ESPN with either the caller-supplied credentials (a trial pair from
+ * the setup/settings form, not yet saved) or the league's stored ones, and
+ * report back in plain English. Commissioner-gated, like every other ESPN
+ * write/probe path for a league.
+ *
+ * Only persists `credentialStatus` when testing the STORED pair - testing an
+ * unsaved trial pair must not overwrite the status of whatever is currently
+ * saved (which might still be working).
+ */
+export const testEspnConnection = action({
+  args: {
+    leagueId: v.id("leagues"),
+    espnS2: v.optional(v.string()),
+    swid: v.optional(v.string()),
+  },
+  returns: v.object({
+    ok: v.boolean(),
+    classification: v.string(),
+    message: v.string(),
+    leagueName: v.optional(v.string()),
+    teamCount: v.optional(v.number()),
+    seasonId: v.number(),
+  }),
+  handler: async (ctx, args): Promise<{
+    ok: boolean;
+    classification: string;
+    message: string;
+    leagueName?: string;
+    teamCount?: number;
+    seasonId: number;
+  }> => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    const usingSuppliedCredentials = args.espnS2 !== undefined || args.swid !== undefined;
+    const creds = normalizeEspnCredentials(
+      usingSuppliedCredentials
+        ? { espnS2: args.espnS2, swid: args.swid }
+        : { espnS2: league.espnData?.espnS2, swid: league.espnData?.swid }
+    );
+
+    const seasonId = league.espnData?.seasonId ?? new Date().getFullYear();
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${seasonId}/segments/0/leagues/${league.externalId}?view=mSettings`;
+
+    const { response, classification } = await fetchEspn(url, { creds });
+
+    let leagueName: string | undefined;
+    let teamCount: number | undefined;
+    if (classification === "ok") {
+      try {
+        const data = await response.json();
+        leagueName = typeof data?.settings?.name === "string" ? data.settings.name : undefined;
+        teamCount = Array.isArray(data?.teams) ? data.teams.length : undefined;
+      } catch {
+        // A 200 with a body we couldn't parse as JSON is still "connected" -
+        // just without the extra detail for the message.
+      }
+    }
+
+    const message = describeEspnConnectionResult(classification, response.status, leagueName, teamCount);
+
+    if (!usingSuppliedCredentials) {
+      await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+        leagueId: args.leagueId,
+        status: classification === "ok" ? "valid" : "invalid",
+        error: classification === "ok" ? undefined : message,
+      });
+    }
+
+    return {
+      ok: classification === "ok",
+      classification,
+      message,
+      leagueName,
+      teamCount,
+      seasonId,
     };
   },
 });

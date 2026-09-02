@@ -10,6 +10,7 @@ import { PlayerManagement } from "./PlayerManagement";
 import HistoricalRosterManager from "./HistoricalRosterManager";
 import { DraftDataViewer } from "./DraftDataViewer";
 import { MatchupRefreshManager } from "./MatchupRefreshManager";
+import { EspnConnectionCard } from "./EspnConnectionCard";
 import { DataProcessingManager } from "./DataProcessingManager";
 import { TeamLogo } from "./TeamLogo";
 import { useLeagueSeason } from "@/hooks/use-league-season";
@@ -401,7 +402,7 @@ export function LeagueSettingsPage({
         </Panel>
 
         {/* Team invitations */}
-        <Panel padding="md">
+        <Panel padding="md" id="invitations" tabIndex={-1} className="outline-none">
           <SectionHeader
             title="Team invitations"
             kicker="Rostering"
@@ -532,6 +533,9 @@ export function LeagueSettingsPage({
             </div>
           </div>
         </Panel>
+
+        {/* ESPN connection status + credentials */}
+        <EspnConnectionCard leagueId={league._id} isCommissioner={league.role === "commissioner"} />
 
         {/* Sync league data */}
         <Panel padding="md">

@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { leagueCapacity, LEAGUE_AT_CAPACITY } from "./leagues";
@@ -11,6 +12,26 @@ function generateInviteToken(): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+// Simple sanity check before scheduling an email - not full RFC validation,
+// just enough to skip obviously-not-an-email input.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The inviting commissioner's display name, resolved server-side - never from the client. */
+async function commissionerDisplayName(ctx: MutationCtx, clerkId: string): Promise<string | undefined> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
+    .first();
+  return user?.name ?? user?.email ?? undefined;
+}
+
+// Mirrors `credits.hasActivePass` (convex/credits.ts) without importing it: importing a
+// value from credits.ts recurses the generated api/internal types into `any` across the
+// app (see CLAUDE.md's Convex gotcha). Keep this in sync if the pass-active statuses change.
+function leagueHasActivePass(league: { subscription?: { status?: string } } | null | undefined): boolean {
+  return league?.subscription?.status === "active" || league?.subscription?.status === "paid";
 }
 
 export const createInvitation = mutation({
@@ -77,11 +98,71 @@ export const createInvitation = mutation({
       createdAt: Date.now(),
     });
 
+    // Send the "claim your team" email so the commissioner doesn't have to copy
+    // the link by hand. Best-effort: a bad or missing address just means no
+    // email goes out, never a failed invitation.
+    if (args.email && EMAIL_REGEX.test(args.email)) {
+      const invitedByName = await commissionerDisplayName(ctx, identity.subject);
+      await ctx.scheduler.runAfter(0, internal.emailService.sendTeamInvitationEmail, {
+        invitationId,
+        invitedByName,
+      });
+    }
+
     return {
       invitationId,
       inviteToken,
       inviteUrl: `/invite/${inviteToken}`,
     };
+  },
+});
+
+// Re-send the invitation email for a pending, unexpired invitation.
+// Commissioner-only. The settings UI can wire a "resend" button to this later.
+export const resendInvitationEmail = mutation({
+  args: { invitationId: v.id("teamInvitations") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) =>
+        q.eq("leagueId", invitation.leagueId).eq("userId", identity.subject)
+      )
+      .first();
+
+    if (!membership || membership.role !== "commissioner") {
+      throw new Error("Only commissioners can resend invitations");
+    }
+
+    if (invitation.status !== "pending") {
+      throw new Error("Invitation is no longer pending");
+    }
+
+    if (invitation.expiresAt < Date.now()) {
+      throw new Error("Invitation has expired");
+    }
+
+    if (!invitation.email) {
+      throw new Error("This invitation has no email address to send to");
+    }
+
+    const invitedByName = await commissionerDisplayName(ctx, identity.subject);
+
+    await ctx.scheduler.runAfter(0, internal.emailService.sendTeamInvitationEmail, {
+      invitationId: args.invitationId,
+      invitedByName,
+    });
+
+    return { scheduled: true };
   },
 });
 
@@ -229,17 +310,7 @@ export const claimInvitation = mutation({
       .first();
 
     if (!user) {
-      console.log("❌ User not found in database with clerkId:", identity.subject);
-      
-      // Let's try to search all users to see what we have
-      const allUsers = await ctx.db.query("users").collect();
-      console.log("🔍 All users in database:", allUsers.map(u => ({ 
-        id: u._id, 
-        clerkId: u.clerkId, 
-        email: u.email, 
-        name: u.name 
-      })));
-      
+      console.error("User not found in database for clerkId:", identity.subject);
       throw new Error("User not found. Please try refreshing the page and signing in again.");
     }
 
@@ -348,11 +419,14 @@ export const claimInvitation = mutation({
     // idempotent per (league, user, season): an invitation into an unpaid
     // league mints nothing, and a returning manager is never paid twice.
     try {
-      const grant = await ctx.runMutation(internal.credits.grantJoinCredits, {
-        userId: identity.subject,
-        leagueId: invitation.leagueId,
-      });
-      console.log("League Pass credits on invitation claim:", grant);
+      const league = await ctx.db.get(invitation.leagueId);
+      if (leagueHasActivePass(league)) {
+        const grant = await ctx.runMutation(internal.credits.grantJoinCredits, {
+          userId: identity.subject,
+          leagueId: invitation.leagueId,
+        });
+        console.log("League Pass credits on invitation claim:", grant);
+      }
     } catch (e) {
       console.error("Failed to grant join credits:", e);
     }
@@ -360,4 +434,4 @@ export const claimInvitation = mutation({
     console.log("🎉 Invitation claimed successfully! Returning league ID:", invitation.leagueId);
     return invitation.leagueId;
   },
-});;;
+});
