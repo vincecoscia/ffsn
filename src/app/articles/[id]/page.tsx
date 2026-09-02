@@ -1,5 +1,6 @@
 import { ArticleClient } from "./ArticleClient";
 import { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
@@ -10,9 +11,21 @@ interface ArticlePageProps {
 
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
+// Convex document ids are 32 lowercase alphanumerics. Anything else can never
+// resolve, so skip the backend round trip (and the logged validator error).
+const isConvexId = (value: string): boolean => /^[a-z0-9]{32}$/.test(value);
+
+const NOT_FOUND_METADATA: Metadata = {
+  title: "Article Not Found - FFSN",
+  description: "The requested article could not be found.",
+};
+
 export async function generateMetadata({ params }: ArticlePageProps): Promise<Metadata> {
   const { id } = await params;
-  
+  if (!isConvexId(id)) {
+    return NOT_FOUND_METADATA;
+  }
+
   try {
     // Fetch article data server-side
     const article = await convex.query(api.aiContent.getById, {
@@ -20,10 +33,7 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
     });
 
     if (!article) {
-      return {
-        title: "Article Not Found - FFSN",
-        description: "The requested article could not be found.",
-      };
+      return NOT_FOUND_METADATA;
     }
 
     // Fetch league data for additional context
@@ -111,6 +121,9 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
 
 export default async function ArticlePage({ params }: ArticlePageProps) {
   const { id } = await params;
-  
+  if (!isConvexId(id)) {
+    notFound();
+  }
+
   return <ArticleClient articleId={id} />;
 }
