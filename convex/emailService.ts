@@ -295,6 +295,77 @@ export const queueEmailInternal = internalMutation({
 });
 
 // ===============================
+// PLAIN (NON-TEMPLATE) EMAIL
+// ===============================
+
+// Send a one-off plain-text (optionally with HTML) email via the same
+// SendGrid fetch client and env vars as the template-based sendNow, but
+// without a Dynamic Template. Used for notifications that don't warrant a
+// dedicated SendGrid template, e.g. article-published emails. Internal
+// only, for the same reason queueEmail is internal - it sends mail from the
+// app's verified sender to an arbitrary recipient.
+export const sendPlainEmail = internalAction({
+  args: {
+    to: v.string(),
+    subject: v.string(),
+    text: v.string(),
+    html: v.optional(v.string()),
+    relatedEntityType: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EmailResult> => {
+    try {
+      const apiKey = process.env.SENDGRID_API_KEY;
+      if (!apiKey) {
+        console.error("SENDGRID_API_KEY environment variable not set");
+        return { success: false, error: "SendGrid not configured" };
+      }
+
+      const payload = {
+        from: { email: "support@ffsn.ai", name: "FFSN Support" },
+        personalizations: [{ to: [{ email: args.to }] }],
+        subject: args.subject,
+        content: [
+          { type: "text/plain", value: args.text },
+          ...(args.html ? [{ type: "text/html", value: args.html }] : []),
+        ],
+        categories: [args.relatedEntityType || "notification", "notification"],
+        // Respects the same SendGrid unsubscribe/suppression group as the
+        // template-based sendNow, so members who disabled email notifications
+        // (addToSuppressionList below) are never actually delivered to.
+        asm: {
+          group_id: parseInt((process.env.SENDGRID_UNSUBSCRIBE_GROUP_ID || "1").replace(/^ID:/, "")),
+        },
+        tracking_settings: {
+          click_tracking: { enable: true, enable_text: true },
+          open_tracking: { enable: true },
+        },
+      };
+
+      const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        console.error(`SendGrid plain email error ${res.status}:`, errorText);
+        return { success: false, error: `${res.status}: ${errorText}` };
+      }
+
+      const xMessageId = res.headers.get("x-message-id") ?? "unknown";
+      return { success: true, messageId: xMessageId };
+    } catch (error: any) {
+      console.error("Error sending plain email:", error);
+      return { success: false, error: error.message || "Unknown error" };
+    }
+  },
+});
+
+// ===============================
 // USER PREFERENCE FUNCTIONS
 // ===============================
 

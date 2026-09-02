@@ -3,18 +3,22 @@
 import React, { useState, useEffect } from "react";
 import DOMPurify from "dompurify";
 import { useQuery, useMutation } from "convex/react";
+import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { ContentGenerator } from "@/components/ContentGenerator";
-import { 
-  Sparkles, 
+import {
+  Sparkles,
   Eye,
   EyeOff,
   Send,
   Trash2,
   CheckCircle,
   XCircle,
-  RotateCcw
+  RotateCcw,
+  Pencil,
+  Save,
+  X
 } from "lucide-react";
 
 import {
@@ -26,6 +30,9 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
@@ -36,6 +43,7 @@ interface AIGenerationPageProps {
 interface Article {
   _id: Id<"aiContent">;
   title: string;
+  summary?: string;
   content: string;
   type: string;
   persona: string;
@@ -47,6 +55,25 @@ interface Article {
     featured_teams: Id<"teams">[];
     credits_used: number;
   };
+  // Free-form field the generation pipeline uses for transient data; the
+  // Edit form (see editArticle in convex/aiContent.ts) also persists an
+  // edited summary here as `{ summary: string }` since aiContent has no
+  // dedicated summary column.
+  tempGenerationData?: unknown;
+}
+
+// aiContent has no persisted summary field (see the comment on
+// aiContent.editArticle). Mirrors the same derivation used server-side in
+// convex/notifications.ts's deriveArticleSummary: prefer a commissioner-
+// edited summary saved in tempGenerationData, otherwise fall back to a
+// plain-text excerpt of the content.
+function getArticleSummary(article: Article): string {
+  if (article.summary && article.summary.trim().length > 0) {
+    return article.summary.trim();
+  }
+
+  const plain = article.content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return plain.length > 200 ? `${plain.slice(0, 200).trim()}…` : plain;
 }
 
 // Status badges configuration
@@ -85,10 +112,13 @@ const getStatusBadge = (status: string) => {
 export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [activeTab, setActiveTab] = useState("generate");
+  const [editingArticleId, setEditingArticleId] = useState<Id<"aiContent"> | null>(null);
+  const [editForm, setEditForm] = useState({ title: "", summary: "", content: "" });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Get league data
   const league = useQuery(api.leagues.getById, { id: leagueId });
-  
+
   // Get all articles for this league (for management)
   const articles = useQuery(api.aiContent.getAllByLeague, { leagueId }) || [];
 
@@ -99,6 +129,41 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
   // Mutations for article management
   const publishArticle = useMutation(api.aiContent.updateContentStatus);
   const deleteArticle = useMutation(api.aiContent.deleteContent);
+  const editArticle = useMutation(api.aiContent.editArticle);
+
+  // Handle entering Edit mode for a draft article
+  const handleStartEdit = (article: Article) => {
+    setSelectedArticle(null);
+    setEditingArticleId(article._id);
+    setEditForm({
+      title: article.title,
+      summary: getArticleSummary(article),
+      content: article.content,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingArticleId(null);
+  };
+
+  const handleSaveEdit = async (articleId: Id<"aiContent">) => {
+    setIsSavingEdit(true);
+    try {
+      await editArticle({
+        articleId,
+        title: editForm.title,
+        summary: editForm.summary,
+        content: editForm.content,
+      });
+      toast.success("Article updated");
+      setEditingArticleId(null);
+    } catch (error) {
+      console.error("Error saving article edits:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to save changes");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   // Filter articles by status
   const generatingArticles = articles.filter(a => a.status === "generating");
@@ -247,7 +312,9 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
               </CardContent>
             </Card>
           ) : (
-            draftArticles.map((article) => (
+            draftArticles.map((article) => {
+              const isEditing = editingArticleId === article._id;
+              return (
               <Card key={article._id}>
                 <CardContent className="p-4 sm:p-6">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
@@ -264,41 +331,109 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                       </p>
                     </div>
                     <div className="flex gap-2 flex-wrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setSelectedArticle(selectedArticle?._id === article._id ? null : article)}
-                      >
-                        {selectedArticle?._id === article._id ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        {selectedArticle?._id === article._id ? "Hide" : "Preview"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handlePublishArticle(article._id)}
-                      >
-                        <Send className="h-4 w-4 mr-2" />
-                        Publish
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteArticle(article._id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {isEditing ? (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => handleSaveEdit(article._id)}
+                            disabled={isSavingEdit}
+                          >
+                            <Save className="h-4 w-4 mr-2" />
+                            Save
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleCancelEdit}
+                            disabled={isSavingEdit}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedArticle(selectedArticle?._id === article._id ? null : article)}
+                          >
+                            {selectedArticle?._id === article._id ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            {selectedArticle?._id === article._id ? "Hide" : "Preview"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleStartEdit(article)}
+                          >
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handlePublishArticle(article._id)}
+                          >
+                            <Send className="h-4 w-4 mr-2" />
+                            Publish
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeleteArticle(article._id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
-                  
-                  {selectedArticle?._id === article._id && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
-                      <div className="prose prose-sm max-w-none">
-                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }} />
+
+                  {isEditing ? (
+                    <div className="mt-4 space-y-4 p-4 bg-gray-50 rounded-lg">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`title-${article._id}`}>Title</Label>
+                        <Input
+                          id={`title-${article._id}`}
+                          value={editForm.title}
+                          onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                          disabled={isSavingEdit}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`summary-${article._id}`}>Summary</Label>
+                        <Textarea
+                          id={`summary-${article._id}`}
+                          value={editForm.summary}
+                          onChange={(e) => setEditForm((f) => ({ ...f, summary: e.target.value }))}
+                          rows={3}
+                          disabled={isSavingEdit}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`content-${article._id}`}>Content</Label>
+                        <Textarea
+                          id={`content-${article._id}`}
+                          value={editForm.content}
+                          onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                          rows={16}
+                          className="font-mono text-xs w-full"
+                          disabled={isSavingEdit}
+                        />
                       </div>
                     </div>
+                  ) : (
+                    selectedArticle?._id === article._id && (
+                      <div className="mt-4 p-4 bg-gray-50 rounded-lg overflow-x-auto">
+                        <div className="prose prose-sm max-w-none">
+                          <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }} />
+                        </div>
+                      </div>
+                    )
                   )}
                 </CardContent>
               </Card>
-            ))
+              );
+            })
           )}
         </TabsContent>
 

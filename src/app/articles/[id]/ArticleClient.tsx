@@ -7,6 +7,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Clock, User } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { EngagementBar } from "./EngagementBar";
+import { LockerRoom } from "./LockerRoom";
 
 interface ArticleClientProps {
   articleId: string;
@@ -56,6 +58,13 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
     month: 'long',
     day: 'numeric'
   });
+
+  // Short plain-text summary for the native share sheet (navigator.share text).
+  const articleSummary = article.content
+    .replace(/[#*_`]/g, '')
+    .replace(/\n/g, ' ')
+    .trim()
+    .substring(0, 160);
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -143,6 +152,18 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
                   className="text-gray-800 leading-relaxed"
                 />
               </div>
+
+              {/* Engagement: reactions + share */}
+              <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">
+                <EngagementBar
+                  articleId={articleId}
+                  title={article.title}
+                  summary={articleSummary}
+                />
+              </div>
+
+              {/* Locker Room: manager quotes gathered for this article, if any */}
+              <LockerRoom articleId={articleId} />
 
               {/* Article Footer */}
               <footer className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-gray-200">

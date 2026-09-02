@@ -321,6 +321,7 @@ export default defineSchema({
     type: v.string(), // "recap", "preview", "analysis", etc.
     persona: v.string(),
     title: v.string(),
+    summary: v.optional(v.string()), // AI-generated or commissioner-edited excerpt
     content: v.string(),
     metadata: v.object({
       week: v.optional(v.number()),
@@ -342,6 +343,22 @@ export default defineSchema({
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
     .index("by_league_published", ["leagueId", "publishedAt"]),
+
+  // Reader reactions on published (or league-visible) articles. One reaction
+  // per user per article — see articleEngagement.toggleReaction.
+  articleReactions: defineTable({
+    articleId: v.id("aiContent"),
+    userId: v.string(), // Auth subject (Clerk user id), same convention as leagueMemberships.userId
+    reaction: v.union(
+      v.literal("fire"),
+      v.literal("lol"),
+      v.literal("salty"),
+      v.literal("respect")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_article", ["articleId"])
+    .index("by_article_user", ["articleId", "userId"]),
 
   weeklyStats: defineTable({
     leagueId: v.id("leagues"),

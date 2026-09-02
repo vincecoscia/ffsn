@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { query, mutation, action, internalQuery, internalMutation, internalAction } from "./_generated/server";
+import { query, mutation, action, internalQuery, internalMutation, internalAction, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
@@ -1129,7 +1129,7 @@ export const updateGeneratedContent = internalMutation({
     await ctx.db.patch(args.articleId, {
       title: args.title,
       content: args.content,
-      // Note: summary field doesn't exist in schema
+      summary: args.summary,
       metadata: {
         week: args.metadata.week,
         featured_teams: featuredTeamIds, // Now using actual team IDs
@@ -1156,7 +1156,7 @@ export const storeBannerImage = internalMutation({
 });
 
 async function updateContentStatusHandler(
-  ctx: { db: { patch: (id: Id<"aiContent">, update: Record<string, unknown>) => Promise<void> } },
+  ctx: MutationCtx,
   args: { articleId: Id<"aiContent">; status: string; error?: string }
 ) {
   // Update the status and set publishedAt if publishing
@@ -1165,6 +1165,18 @@ async function updateContentStatusHandler(
     update.publishedAt = Date.now();
   }
   await ctx.db.patch(args.articleId, update);
+
+  // Notify the league whenever an article transitions to published. This
+  // covers both publish paths (the commissioner-gated updateContentStatus
+  // mutation below, and the auto-publish branch inside
+  // generateContentAction which calls updateContentStatusInternal) since
+  // both funnel through this shared handler. Scheduled rather than run
+  // inline so a notification/email failure can never block publishing.
+  if (args.status === "published") {
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyArticlePublished, {
+      articleId: args.articleId,
+    });
+  }
 }
 
 // Mutation to update content status. This is the publish button in
@@ -1200,6 +1212,49 @@ export const updateContentStatusInternal = internalMutation({
   },
   handler: async (ctx, args) => {
     await updateContentStatusHandler(ctx, args);
+  },
+});
+
+// Public mutation backing the Review tab's Edit mode in AIGenerationPage.tsx.
+// Commissioner-only, and only while the article is sitting in a reviewable
+// state (not mid-generation or mid comment-collection).
+export const editArticle = mutation({
+  args: {
+    articleId: v.id("aiContent"),
+    title: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    content: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article) {
+      throw new Error("Article not found");
+    }
+
+    await requireCommissioner(ctx, article.leagueId);
+
+    if (article.status === "generating" || article.status === "waiting_for_comments") {
+      throw new Error("Cannot edit an article while it is still generating");
+    }
+
+    const update: Record<string, unknown> = {};
+    if (args.title !== undefined) {
+      update.title = args.title;
+    }
+    if (args.content !== undefined) {
+      update.content = args.content;
+    }
+    if (args.summary !== undefined) {
+      update.summary = args.summary;
+    }
+
+    // aiContent has no updatedAt field to stamp; metadata is intentionally
+    // left untouched.
+    if (Object.keys(update).length > 0) {
+      await ctx.db.patch(args.articleId, update);
+    }
+
+    return { success: true };
   },
 });
 

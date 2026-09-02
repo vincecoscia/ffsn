@@ -12,47 +12,56 @@ interface NotificationItemProps {
   compact?: boolean;
 }
 
-export function NotificationItem({ 
-  notification, 
-  onClick, 
+export function NotificationItem({
+  notification,
+  onClick,
   showActions = true,
-  compact = false 
+  compact = false
 }: NotificationItemProps) {
-  const { markAsRead } = useNotifications();
+  const { markAsRead, getNotificationIcon } = useNotifications();
   const isUnread = notification.status === "unread";
   const timeAgo = formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true });
-  
+  const icon = getNotificationIcon(notification.type);
+
   const handleItemClick = () => {
     // Mark as read when clicked
     if (isUnread) {
       markAsRead(notification._id);
     }
-    
+
     // Navigate to the conversation if actionUrl exists
     if (notification.actionUrl) {
       window.location.href = notification.actionUrl;
     }
-    
+
     onClick?.();
   };
 
   const NotificationContent = () => (
-    <div 
+    <div
       className={`px-4 py-3 transition-colors cursor-pointer border-b border-gray-100 hover:bg-gray-50 ${
         isUnread ? "bg-blue-50/30" : ""
       }`}
       onClick={handleItemClick}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex-1 min-w-0">
-          <h4 className={`text-sm font-medium truncate ${
-            isUnread ? "text-gray-900" : "text-gray-700"
-          }`}>
-            {notification.title}
-          </h4>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          <span className="text-base leading-none mt-0.5 flex-shrink-0" aria-hidden="true">{icon}</span>
+          <div className="flex-1 min-w-0">
+            <h4 className={`text-sm font-medium truncate ${
+              isUnread ? "text-gray-900" : "text-gray-700"
+            }`}>
+              {notification.title}
+            </h4>
+            {notification.message && (
+              <p className={`text-xs text-gray-500 mt-0.5 ${compact ? "truncate" : "line-clamp-2"}`}>
+                {notification.message}
+              </p>
+            )}
+          </div>
         </div>
-        
-        <div className="flex items-center gap-2 ml-3">
+
+        <div className="flex items-center gap-2 ml-3 flex-shrink-0">
           <span className="text-xs text-gray-500 whitespace-nowrap">{timeAgo}</span>
           {isUnread && <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0" />}
         </div>

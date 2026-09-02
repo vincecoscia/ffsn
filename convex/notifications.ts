@@ -499,6 +499,168 @@ export const sendCommentThankYou = internalAction({
 });
 
 // ===============================
+// ARTICLE PUBLISHED NOTIFICATIONS
+// ===============================
+
+// Derive a short body for the article_published notification/email. aiContent
+// has no persisted summary column (see the comment on aiContent.editArticle
+// for why), so this prefers a commissioner-edited summary stashed in
+// tempGenerationData.summary and otherwise falls back to a plain-text
+// excerpt of the article content.
+function deriveArticleSummary(article: { content: string; summary?: string }): string {
+  if (article.summary && article.summary.trim().length > 0) {
+    return article.summary.trim();
+  }
+
+  const plain = article.content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return plain.length > 200 ? `${plain.slice(0, 200).trim()}…` : plain;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Notify every member of an article's league that it was published. Called
+// (scheduled via ctx.scheduler.runAfter) from both places an article can be
+// published: the commissioner-gated aiContent.updateContentStatus mutation
+// and the auto-publish branch inside aiContent.generateContentAction - both
+// funnel through aiContent's shared updateContentStatusHandler, which is
+// what actually schedules this. Internal only: this is a system side-effect
+// of publishing, not something a client should be able to trigger directly.
+export const notifyArticlePublished = internalMutation({
+  args: { articleId: v.id("aiContent") },
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article) {
+      console.warn(`notifyArticlePublished: article ${args.articleId} not found`);
+      return;
+    }
+
+    const summary = deriveArticleSummary(article);
+    const actionUrl = `/articles/${args.articleId}`;
+    const now = Date.now();
+
+    const memberships = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league", (q) => q.eq("leagueId", article.leagueId))
+      .collect();
+
+    let notifiedCount = 0;
+    let skippedCount = 0;
+    const emailRecipients: string[] = [];
+
+    for (const membership of memberships) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", membership.userId))
+        .unique();
+      if (!user) continue;
+
+      // Idempotent: skip members who already have an article_published
+      // notification for this article (e.g. publish gets triggered twice).
+      const existing = await ctx.db
+        .query("userNotifications")
+        .withIndex("by_user_type", (q) => q.eq("userId", user._id).eq("type", "article_published"))
+        .filter((q) => q.eq(q.field("relatedEntityId"), args.articleId))
+        .first();
+
+      if (existing) {
+        skippedCount++;
+        continue;
+      }
+
+      await ctx.db.insert("userNotifications", {
+        userId: user._id,
+        leagueId: article.leagueId,
+        type: "article_published",
+        title: article.title,
+        message: summary,
+        actionUrl,
+        actionText: "Read Article",
+        relatedEntityType: "ai_content",
+        relatedEntityId: args.articleId,
+        status: "unread",
+        priority: "medium",
+        deliveryChannels: ["in_app", "email"],
+        deliveryStatus: { inApp: { delivered: false } },
+        scheduledFor: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      notifiedCount++;
+
+      if (user.preferences?.emailNotifications && user.email) {
+        emailRecipients.push(user.email);
+      }
+    }
+
+    if (emailRecipients.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.notifications.sendArticlePublishedEmails, {
+        title: article.title,
+        summary,
+        actionUrl,
+        recipients: emailRecipients,
+      });
+    }
+
+    console.log(
+      `notifyArticlePublished: article ${args.articleId} - ${notifiedCount} notified, ${skippedCount} already notified, ${emailRecipients.length} emails queued (of ${memberships.length} league members)`
+    );
+  },
+});
+
+// Sends the "article published" email to a batch of recipients via the
+// plain-text send path (no SendGrid dynamic template - see
+// emailService.sendPlainEmail). Kept as one action per publish event so we
+// log one line per batch instead of one per member.
+export const sendArticlePublishedEmails = internalAction({
+  args: {
+    title: v.string(),
+    summary: v.string(),
+    actionUrl: v.string(),
+    recipients: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const baseUrl = process.env.SITE_URL || "https://ffsn.ai";
+    const fullUrl = `${baseUrl}${args.actionUrl}`;
+    const subject = `New on FFSN: ${args.title}`;
+    const text = `${args.title}\n\n${args.summary}\n\nRead it here: ${fullUrl}`;
+    const html = `<p><strong>${escapeHtml(args.title)}</strong></p><p>${escapeHtml(args.summary)}</p><p><a href="${escapeHtml(fullUrl)}">Read the full article</a></p>`;
+
+    let sent = 0;
+    let failed = 0;
+    for (const to of args.recipients) {
+      try {
+        const result = await ctx.runAction(internal.emailService.sendPlainEmail, {
+          to,
+          subject,
+          text,
+          html,
+          relatedEntityType: "article_published",
+        });
+        if (result.success) {
+          sent++;
+        } else {
+          failed++;
+        }
+      } catch (error) {
+        failed++;
+        console.error(`sendArticlePublishedEmails: failed to send to ${to}`, error);
+      }
+    }
+
+    console.log(
+      `sendArticlePublishedEmails: sent ${sent}/${args.recipients.length} article-published emails (${failed} failed)`
+    );
+  },
+});
+
+// ===============================
 // UTILITY FUNCTIONS
 // ===============================
 
