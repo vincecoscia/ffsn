@@ -58,7 +58,17 @@ in absolutes about opinions. Speak only from <FACTS> about events. If you want a
 than the facts support, escalate the rhetoric, never the data.
 
 Word targets are ceilings, not quotas. A shorter accurate section always beats a padded one. If
-a section has thin material, say so briefly and move on.`;
+a section has thin material, say so briefly and move on.
+
+Broadcast register. Readers never see <FACTS>, so never mention it. Do not name data fields,
+files, feeds, ledgers, sheets, math, or JSON ("benchImpact", "available_players", "the bench file",
+"the depth sheet", "the benching math", "the comment ledger", "what came through"), and never print
+an internal id (T3, M1, Q1, TR1, U1, D19) in a headline or a sentence. Say what a person would say
+on air: "left 24 points on the bench", "the free-agent list didn't come through this week", "his
+manager went on the record", "the only trade on the books".
+Write dates and times in plain English ("Thursday night", "Oct. 9, 6:30 p.m. ET") and never print a
+raw timestamp. Use only the quotes that belong in this story; you are not required to use them
+all, and never tack an unrelated quote onto the end.`;
 
 interface Matchup {
   teamA: string;
@@ -207,6 +217,33 @@ export interface LeagueDataContext {
     benchPointsA?: number;
     benchPointsB?: number;
     memorableMoment?: string; // e.g., "Comeback victory", "Monday night miracle"
+  }>;
+  /**
+   * Games that have NOT been played yet, for the look-ahead week (spec 4.3). Populated by
+   * `aiQueries.getLeagueDataForAI` from the ESPN season schedule, which carries every future
+   * matchup with zero scores and no winner. This is the only forward-looking matchup data in the
+   * payload; `recentMatchups` is always history.
+   */
+  upcomingMatchups?: Array<{
+    week: number;
+    /** Team names, as in the weekly-recap shape. */
+    teamA: string;
+    teamB: string;
+    /** ESPN external ids, so FACTS can resolve a side even when a name is missing. */
+    teamAId: string;
+    teamBId: string;
+    teamAOwner?: string;
+    teamBOwner?: string;
+    /** "w-l-t", the same form `facts.teams[].record` uses. */
+    teamARecord?: string;
+    teamBRecord?: string;
+    teamAPointsFor?: number;
+    teamBPointsFor?: number;
+    projectedScoreA?: number;
+    projectedScoreB?: number;
+    isPlayoff?: boolean;
+    /** Meetings already played, from the same matchups table. */
+    headToHead?: { teamAWins: number; teamBWins: number };
   }>;
   trades?: Array<{
     teamA: string;
@@ -447,6 +484,7 @@ export class PromptBuilder {
       userPromptLength: userPrompt.length,
       factsTeams: this.facts.teams.length,
       factsMatchups: this.facts.matchups.length,
+      factsUpcoming: this.facts.upcoming.length,
       factsQuotes: this.facts.quotes.length,
       factsMissing: this.facts.missing.length,
     });
@@ -523,6 +561,24 @@ ${lines.join('\n')}`);
 Write these sections, in this order. Word counts are CEILINGS, never quotas.
 ${sections.map(section => `- ${section.name} (${section.description}): up to ${section.wordCount ?? 200} words`).join('\n')}
 Whole-article ceiling: ${this.template.estimatedWords} words. Coming in well under it is a good outcome.`);
+
+    // A preview is the one article whose subject has not happened yet. Without this, the model
+    // reaches for the only games it can see - last week's - and files a recap under a preview
+    // headline.
+    if (this.options.contentType === 'weekly_preview') {
+      parts.push(`LOOK-AHEAD — THIS ARTICLE IS A PREVIEW
+- The games you are writing about are in facts.upcoming. Not one of them has been played. They have
+  no score, no winner, no margin and no box score, and you must never describe one as if they did.
+  Future tense only.
+- Last week's results (facts.matchups) are context, never the subject. Cite a result to set a team
+  up for the game ahead; do not recap the week. If your article reads like a recap, it is wrong.
+- A projection is a projection, not a score. Say so whenever you use one, and never turn one into a
+  result or a prediction of an exact final.
+- Head-to-head numbers in facts.upcoming are games already played. They are history and may be
+  cited as such.
+- You may be as certain as your voice demands about what you EXPECT to happen. You may never state
+  what DID happen in a game that has not been played.`);
+    }
 
     if (this.facts.missing.length > 0) {
       parts.push(`MISSING DATA
@@ -643,6 +699,9 @@ where the two ever disagree, <FACTS> wins.
     switch (this.options.contentType) {
       case 'weekly_recap':
         contextData = this.buildWeeklyRecapData(data);
+        break;
+      case 'weekly_preview':
+        contextData = this.buildWeeklyPreviewData(data);
         break;
       case 'power_rankings':
         contextData = this.buildPowerRankingsData(data);
@@ -908,6 +967,146 @@ where the two ever disagree, <FACTS> wins.
     return recap;
   }
 
+  /**
+   * The look-ahead slate. `weekly_preview` is the one content type whose subject has not happened
+   * yet, so it is built from `upcomingMatchups` (unplayed games) and never from `recentMatchups`.
+   * Last week's results appear only as one line of context per side.
+   *
+   * With no upcoming games there is nothing to preview, and inventing a slate is exactly the
+   * failure this refuses: the pipeline surfaces the gap and refunds instead.
+   */
+  private buildWeeklyPreviewData(data: LeagueDataContext): string {
+    const upcoming = data.upcomingMatchups ?? [];
+    if (upcoming.length === 0) {
+      throw new InsufficientDataError('weekly_preview', ['upcoming_matchups']);
+    }
+
+    const week = upcoming[0].week ?? data.currentWeek + 1;
+    let preview = `WEEK ${week} SLATE — NONE OF THESE GAMES HAS BEEN PLAYED.\n`;
+    preview += `There is no score, no winner and no box score for any of them. Everything below is\n`;
+    preview += `season-to-date form and, where ESPN published one, a projection.\n`;
+
+    upcoming.forEach((game, index) => {
+      const home = game.teamAOwner ? `${game.teamA} (${game.teamAOwner})` : game.teamA;
+      const away = game.teamBOwner ? `${game.teamB} (${game.teamBOwner})` : game.teamB;
+      const homeForm = this.formatPreviewForm(game.teamARecord, game.teamAPointsFor);
+      const awayForm = this.formatPreviewForm(game.teamBRecord, game.teamBPointsFor);
+
+      preview += `\nGAME ${index + 1}${game.isPlayoff ? ' [PLAYOFF]' : ''}: ${home}${homeForm} vs ${away}${awayForm}`;
+
+      if (game.projectedScoreA !== undefined && game.projectedScoreB !== undefined) {
+        preview += `\n  Projected: ${game.projectedScoreA.toFixed(1)} - ${game.projectedScoreB.toFixed(1)} (a projection, not a result)`;
+      } else {
+        preview += `\n  Projected: not published for this game`;
+      }
+
+      if (game.headToHead && game.headToHead.teamAWins + game.headToHead.teamBWins > 0) {
+        const { teamAWins, teamBWins } = game.headToHead;
+        const leader =
+          teamAWins === teamBWins
+            ? `even at ${teamAWins}-${teamBWins}`
+            : teamAWins > teamBWins
+              ? `${game.teamA} leads ${teamAWins}-${teamBWins}`
+              : `${game.teamB} leads ${teamBWins}-${teamAWins}`;
+        preview += `\n  Head-to-head on record: ${leader}`;
+      }
+
+      const homeLast = this.lastResultLine(data, game.teamA, game.teamAId);
+      const awayLast = this.lastResultLine(data, game.teamB, game.teamBId);
+      if (homeLast) preview += `\n  ${game.teamA} last time out: ${homeLast}`;
+      if (awayLast) preview += `\n  ${game.teamB} last time out: ${awayLast}`;
+      preview += '\n';
+    });
+
+    if (data.standings && data.standings.length > 0) {
+      preview += `\nSTANDINGS GOING IN:\n`;
+      data.standings.forEach(team => {
+        preview += `${team.rank}. ${team.team} (${team.wins}-${team.losses}`;
+        if (team.ties > 0) preview += `-${team.ties}`;
+        preview += `) — ${team.pointsFor.toFixed(1)} PF`;
+        if (team.streakType && team.streakLength) preview += ` [${team.streakType}${team.streakLength}]`;
+        preview += '\n';
+      });
+    }
+
+    if (data.injuryReport && data.injuryReport.length > 0) {
+      preview += `\nINJURY REPORT:\n`;
+      data.injuryReport.slice(0, 5).forEach(injury => {
+        preview += `- ${injury.playerName} (${injury.position}, ${injury.team}) — ${injury.status}`;
+        if (injury.fantasyImpact) preview += ` — ${injury.fantasyImpact}`;
+        preview += '\n';
+      });
+    }
+
+    preview += `\nWEEKLY PREVIEW RULES:
+- Every game above is unplayed. Write about it in the future tense only. No result, no winner, no
+  margin, no "held on", no "survived" — none of that exists yet for these games.
+- Last week is context, never the subject. One line of it per team is the ceiling, and only where it
+  sets up the game ahead. If you find yourself recapping, you have written the wrong article.
+- A projection is a projection. Say so when you use one, and never report it as a score.
+- Head-to-head numbers above are games already played and may be cited as history.
+- The only facts about these games are the records, points for, projections and head-to-head above.
+  Anything else about them has not happened.`;
+
+    return preview;
+  }
+
+  /** " [5-2-0, 733.5 PF]" — the season-to-date form printed beside a team in the preview. */
+  private formatPreviewForm(record?: string, pointsFor?: number): string {
+    const parts: string[] = [];
+    if (record) parts.push(record);
+    if (pointsFor !== undefined) parts.push(`${pointsFor.toFixed(1)} PF`);
+    return parts.length > 0 ? ` [${parts.join(', ')}]` : '';
+  }
+
+  /**
+   * One line of context for a team's most recent completed game, drawn from `recentMatchups`.
+   * Both matchup shapes are accepted (ids or names in `teamA`/`teamB`), and the line always names
+   * both scores so nothing in it is a number the writer cannot source.
+   */
+  private lastResultLine(data: LeagueDataContext, teamName: string, teamId?: string): string | null {
+    const keys = new Set(
+      [teamName, teamId].filter((value): value is string => Boolean(value)).map(value => value.toLowerCase())
+    );
+
+    let best: { week: number; line: string } | null = null;
+
+    for (const matchup of data.recentMatchups ?? []) {
+      const loose = matchup as unknown as Record<string, unknown>;
+      const sideKeys = (...candidates: unknown[]) =>
+        candidates
+          .filter((value): value is string => typeof value === 'string')
+          .map(value => value.toLowerCase());
+
+      const homeKeys = sideKeys(matchup.teamA, loose.teamAName, loose.teamAId);
+      const awayKeys = sideKeys(matchup.teamB, loose.teamBName, loose.teamBId);
+      const isHome = homeKeys.some(key => keys.has(key));
+      const isAway = awayKeys.some(key => keys.has(key));
+      if (!isHome && !isAway) continue;
+
+      const week = matchup.week ?? data.currentWeek;
+      if (best && best.week >= week) continue;
+
+      const own = isHome ? matchup.scoreA : matchup.scoreB;
+      const other = isHome ? matchup.scoreB : matchup.scoreA;
+      const opponent = isHome
+        ? (typeof loose.teamBName === 'string' ? loose.teamBName : matchup.teamB)
+        : (typeof loose.teamAName === 'string' ? loose.teamAName : matchup.teamA);
+
+      const verdict = own > other ? 'beat' : own < other ? 'lost to' : 'tied';
+      let line = `week ${week}, ${verdict} ${opponent} ${own.toFixed(1)}-${other.toFixed(1)}`;
+
+      const bench = isHome ? matchup.benchPointsA : matchup.benchPointsB;
+      if (typeof bench === 'number' && bench > 0) {
+        line += `, ${bench.toFixed(1)} points left on the bench`;
+      }
+
+      best = { week, line };
+    }
+
+    return best ? best.line : null;
+  }
+
   private buildPowerRankingsData(data: LeagueDataContext): string {
     let rankings = 'CURRENT TEAM RECORDS:\n';
     
@@ -1149,6 +1348,11 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
   }
 
   private buildWaiverWireData(data: LeagueDataContext): string {
+    // A waiver report without the free-agent pool has nothing to recommend; measured 2026-09-02,
+    // the writer produced an honest "the list didn't come through" piece, which is not a report.
+    if (!data.availablePlayers || data.availablePlayers.length === 0) {
+      throw new InsufficientDataError('waiver_wire_report', ['available_players (ESPN free-agent pool)']);
+    }
     let waiverData = `LEAGUE CONTEXT:
 - Scoring type: ${data.scoringType || 'PPR'}
 - Roster size: ${data.rosterSize || 16}
@@ -1399,7 +1603,14 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     console.log("=== buildMockDraftData START (OPTIMIZED) ===");
     console.log("Draft order available:", !!data.draftOrder);
     console.log("Available players:", data.availablePlayers?.length || 0);
-    
+
+    // A mock draft is a prediction over the available-player pool. Without the pool the model
+    // has nothing to draft from; measured 2026-09-02, it wrote a one-section stub and stopped.
+    // Refuse up front so the scheduler defers (and re-syncs) instead of publishing a stub.
+    if (!data.availablePlayers || data.availablePlayers.length === 0) {
+      throw new InsufficientDataError('mock_draft', ['available_players (ESPN free-agent pool)']);
+    }
+
     let mockDraftData = `MOCK DRAFT INFORMATION:\n\n`;
     
     // Compact League Settings

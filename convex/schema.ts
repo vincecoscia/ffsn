@@ -86,7 +86,9 @@ export default defineSchema({
     }))),
     subscription: v.object({
       tier: v.string(),
-      status: v.string(), // "pending", "paid", "cancelled"
+      // "pending" | "active" | "paid" (legacy alias for active) | "cancelled".
+      // `credits.hasActivePass` is the single reader - never compare this by hand.
+      status: v.string(),
       stripeCustomerId: v.optional(v.string()),
       stripeSubscriptionId: v.optional(v.string()),
       creditsRemaining: v.number(),
@@ -94,6 +96,16 @@ export default defineSchema({
       paymentStatus: v.union(v.literal("pending"), v.literal("completed"), v.literal("failed")),
       paidAt: v.optional(v.number()),
       seasonYear: v.number(), // e.g., 2025
+      // --- League Pass (spec §10.1) ---------------------------------------
+      // Managers covered by the base $100 pass. Absent means the default 12
+      // (see `leagues.INCLUDED_MANAGERS_DEFAULT`); never read this raw.
+      includedManagers: v.optional(v.number()),
+      // $10 seats the commissioner bought on top of `includedManagers`.
+      // Incremented by `leagues.recordExtraSeat` when a seat payment settles.
+      extraSeats: v.optional(v.number()),
+      // The NFL season this pass covers. Drives credit expiry and the
+      // per-season automated spend cap. Falls back to `seasonYear`.
+      seasonId: v.optional(v.number()),
     }),
     lastSync: v.number(),
     createdAt: v.number(),
@@ -368,8 +380,18 @@ export default defineSchema({
     reviewFlags: v.optional(v.array(reviewFlagValidator)),
     // Dotted FACTS paths the generator asked for and did not have.
     factsMissing: v.optional(v.array(v.string())),
-    // Verifier + model bookkeeping for this generation run.
-    generationStats: v.optional(generationStatsValidator),
+    // Verifier + model bookkeeping for this generation run, plus the money
+    // (spec §10.3.4): what this article actually cost us to produce, which
+    // route produced it, and who paid - the League Pass or the requester's
+    // credits. All three are optional: articles written before the cost
+    // accounting shipped are still in the table.
+    generationStats: v.optional(
+      generationStatsValidator.extend({
+        costUsd: v.optional(v.number()),
+        route: v.optional(v.object({ model: v.string(), effort: v.string() })),
+        billing: v.optional(v.union(v.literal("pass"), v.literal("credits"))),
+      })
+    ),
     // Verified ledger quotes actually used, with the writer's in-voice reply.
     quotes: v.optional(v.array(articleQuoteValidator)),
     // Structured roast/praise, consumed by relationships.recordArticleMentions.
@@ -377,12 +399,18 @@ export default defineSchema({
     // Explicit on-the-record predictions this writer made (spec §8.4). Written
     // with outcome "open"; claims.resolveOpenClaims settles them weekly.
     claims: v.optional(v.array(articleClaimValidator)),
+    // The NFL season this article belongs to, stamped at generation time from
+    // the league's synced season. Backs the per-season spend roll-up
+    // (`deskMetrics.getLeagueSeasonSpend`) without scanning the whole league.
+    seasonId: v.optional(v.number()),
   })
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
     .index("by_league_published", ["leagueId", "publishedAt"])
     // Receipts: one writer's back catalogue in one league (spec §8.4).
-    .index("by_league_persona", ["leagueId", "persona"]),
+    .index("by_league_persona", ["leagueId", "persona"])
+    // Season spend roll-up (spec §10.1 cap, §10.3.4 accounting).
+    .index("by_league_season", ["leagueId", "seasonId"]),
 
   // Reader reactions on published (or league-visible) articles. One reaction
   // per user per article — see articleEngagement.toggleReaction.
@@ -947,7 +975,13 @@ export default defineSchema({
       v.literal("championship_manifesto"),
       v.literal("season_recap"),
       v.literal("custom_roast"),
-      v.literal("season_welcome")
+      v.literal("season_welcome"),
+      // Added with the automatic-by-default calendar (spec section 9.1): these
+      // three ship as part of the default roster of schedules (playoff_picture
+      // enabled for weeks 12-14, the other two created disabled).
+      v.literal("playoff_picture"),
+      v.literal("hall_of_shame"),
+      v.literal("commissioner_corner")
     ),
     
     // Schedule configuration
@@ -980,10 +1014,16 @@ export default defineSchema({
       // For season-based scheduling (season_recap - after season ends)
       v.object({
         type: v.literal("season_based"),
-        trigger: v.string(), // "season_end", "champion_determined"
+        // "season_start", "champion_determined", "championship_week",
+        // "week_<n>", or "weeks_<from>_<to>" for a repeating in-range slot.
+        trigger: v.string(),
         delayDays: v.optional(v.number()),
         hour: v.number(),
         minute: v.number(),
+        // When set, the target is moved forward to this weekday (0=Sunday)
+        // inside the triggered NFL week, so "week 9, Wednesday 09:00" is exact
+        // regardless of where the week boundary starts.
+        dayOfWeek: v.optional(v.number()),
       })
     ),
     
@@ -1015,6 +1055,11 @@ export default defineSchema({
     status: v.union(
       v.literal("pending"),
       v.literal("generating"),
+      // Handed to the Anthropic Message Batches API ahead of print time
+      // (spec §10.3.5). `aiBatch.pollBatches` moves it on to `completed`;
+      // `processScheduledContentCron` falls back to direct generation if the
+      // batch is still processing when print time arrives.
+      v.literal("batched"),
       v.literal("completed"),
       v.literal("failed"),
       v.literal("cancelled")
@@ -1031,10 +1076,36 @@ export default defineSchema({
       week: v.optional(v.number()),
       seasonId: v.optional(v.number()),
       triggerEvent: v.optional(v.string()),
+      // The raw payload of the event that produced this row (trade sides, draft
+      // info). triggerEventBasedContent has always written it; it was missing
+      // from the validator, so an event row failed insert validation.
+      eventData: v.optional(v.any()),
       tradeId: v.optional(v.id("trades")),
       additionalContext: v.optional(v.any()),
     })),
     
+    // Target period, stamped at execution time by processScheduledContent so
+    // the idempotency index below reflects the week the article is actually
+    // about (contextData keeps the same values for the generation payload).
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
+
+    // Why a row was cancelled ("low_credits", "disabled", "budget", ...).
+    cancelReason: v.optional(v.string()),
+    // How many times execution was deferred for stale/absent league data.
+    deferrals: v.optional(v.number()),
+    // Dedupe key for event-triggered rows (trade id, draft id, ...).
+    eventKey: v.optional(v.string()),
+
+    // --- Batch API bookkeeping (spec §10.3.5) ----------------------------
+    // The Anthropic Message Batch this row's article was submitted in, and the
+    // custom id of its request inside that batch. `batchSubmittedAt` is set as
+    // soon as a submission is scheduled (so the lookahead pass never queues two
+    // for the same row) and re-stamped by `aiBatch` when the batch is accepted.
+    batchId: v.optional(v.string()),
+    batchCustomId: v.optional(v.string()),
+    batchSubmittedAt: v.optional(v.number()),
+
     // Results
     generatedContentId: v.optional(v.id("aiContent")),
     errorMessage: v.optional(v.string()),
@@ -1047,7 +1118,11 @@ export default defineSchema({
     .index("by_scheduled_time", ["scheduledFor"])
     .index("by_status", ["status"])
     .index("by_league_status", ["leagueId", "status"])
-    .index("by_schedule_config", ["contentScheduleId"]),
+    .index("by_schedule_config", ["contentScheduleId"])
+    // Idempotency (spec section 9.2.6): one row per league/type/season/week.
+    .index("by_league_type_season_week", ["leagueId", "contentType", "seasonId", "week"])
+    // Event fan-out dedupe (spec section 9.2.9).
+    .index("by_league_type_event", ["leagueId", "contentType", "eventKey"]),
 
   // League content preferences - overall settings for each league
   leagueContentPreferences: defineTable({
@@ -1078,7 +1153,12 @@ export default defineSchema({
     // Auto-publish settings
     autoPublish: v.boolean(), // Automatically publish generated content
     requireApproval: v.boolean(), // Require commissioner approval before publishing
-    
+
+    // Set the first time a commissioner edits these preferences. Absent means
+    // "never touched", which is what the automatic-defaults migration keys on
+    // (spec section 9.1) so a commissioner's own choices are never overwritten.
+    preferencesTouchedAt: v.optional(v.number()),
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1235,6 +1315,10 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     expiredAt: v.optional(v.number()),
     declinedAt: v.optional(v.number()), // Set by declineCommentRequest ("No comment")
+    // Measured API cost of this interview (opener + analysis + follow-up),
+    // accumulated by `aiContent.addInterviewCost` (spec §10.3.4). Counts
+    // against the league's per-season automated spend cap.
+    interviewCostUsd: v.optional(v.number()),
   })
     .index("by_scheduled_content", ["scheduledContentId"])
     .index("by_manual_content", ["manualContentId"])
@@ -1571,12 +1655,21 @@ export default defineSchema({
       v.literal("spent"), // AI content generation
       v.literal("purchased"), // Credit purchase
       v.literal("refunded"), // Credit refund
-      v.literal("bonus") // Special bonuses
+      v.literal("bonus"), // Special bonuses
+      v.literal("expired") // Season end swept the unspent balance (spec §10.1)
     ),
     amount: v.number(), // Credits (positive for earned, negative for spent)
     
     // Context
     description: v.string(),
+    // Machine-readable grant reason, e.g. "league_pass" / "seat" / "top_up".
+    // This - not the human `description` - is what the idempotent grants in
+    // `credits.ts` dedupe on, via by_league_user_reason below (spec §10.1).
+    reason: v.optional(v.string()),
+    // When the credits this row granted stop being spendable. Mirrors
+    // `userCredits.creditsExpireAt`; kept per-row so the ledger explains a
+    // sweep after the fact.
+    expiresAt: v.optional(v.number()),
     relatedPaymentId: v.optional(v.id("stripePayments")),
     relatedContentId: v.optional(v.id("aiContent")), // If spent on AI content
     
@@ -1590,6 +1683,8 @@ export default defineSchema({
     .index("by_type", ["type"])
     .index("by_payment", ["relatedPaymentId"])
     .index("by_user_type", ["userId", "type"])
+    // Idempotency for the League Pass grants: one row per (league, user, reason).
+    .index("by_league_user_reason", ["leagueId", "userId", "reason"])
     .index("by_created_at", ["createdAt"]),
 
   // League payment tracking - season-based payment records
@@ -1637,11 +1732,19 @@ export default defineSchema({
     
     // Last transaction reference for validation
     lastTransactionId: v.optional(v.id("creditTransactions")),
-    
+
+    // Credits do not roll over between seasons (spec §10.1). This is the
+    // instant the current balance stops being spendable - February 15 UTC
+    // after the pass season ends. `credits.expireSeasonCredits` sweeps rows
+    // whose expiry has passed; absent means "no expiry set yet".
+    creditsExpireAt: v.optional(v.number()),
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_user", ["userId"]),
+    .index("by_user", ["userId"])
+    // The weekly expiry sweep scans by expiry, not by user.
+    .index("by_expiry", ["creditsExpireAt"]),
 
   // Email queue and logs for tracking sent emails and debugging
   emailLogs: defineTable({

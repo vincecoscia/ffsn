@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { Id } from "../../convex/_generated/dataModel";
+import { Doc, Id } from "../../convex/_generated/dataModel";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Label } from "./ui/label";
@@ -18,12 +18,30 @@ import {
   LoadingScreen,
   writerRoster,
   defaultPersonaFor,
+  personasForContentType,
   personaName,
 } from "@/components/broadcast";
+import { TimezoneSelect } from "./content-schedule/TimezoneSelect";
+import { DEFAULT_TIME_ZONE, timeZoneCity } from "./content-schedule/timezones";
+import {
+  formatWallClock,
+  formatWeeklyWallTime,
+  timeZoneAbbreviation,
+  weeklyUtcClock,
+} from "./content-schedule/scheduleTime";
 import { cn } from "@/lib/utils";
 
 interface ContentScheduleManagerProps {
   leagueId: Id<"leagues">;
+}
+
+/**
+ * What `contentScheduling.getContentSchedules` hands back. Named here (rather than
+ * inferred) so this screen keeps its types while the generated `api` surface is in flux.
+ */
+interface ContentScheduleData {
+  schedules: Doc<"contentSchedules">[];
+  preferences: Doc<"leagueContentPreferences"> | null;
 }
 
 const CONTENT_TYPE_CONFIG = {
@@ -107,19 +125,21 @@ const CONTENT_TYPE_CONFIG = {
   }
 };
 
-// Only the writers currently on air (spec §3); retired personas are never offered.
-const PERSONAS = writerRoster.map((writer) => ({
-  value: writer.slug,
-  name: writer.name,
-  label: `${writer.name} — ${writer.role}`,
-}));
-
-const TIMEZONES = [
-  { value: "America/New_York", label: "Eastern Time" },
-  { value: "America/Chicago", label: "Central Time" },
-  { value: "America/Denver", label: "Mountain Time" },
-  { value: "America/Los_Angeles", label: "Pacific Time" },
-];
+/**
+ * Writers offered for a content type: the roster this type is mapped to first (default
+ * first, spec §3), then everyone else still on air. Retired personas never appear.
+ */
+function personaOptions(contentType: string) {
+  const preferred = personasForContentType(contentType);
+  const rest = writerRoster.filter(
+    (writer) => !preferred.some((candidate) => candidate.slug === writer.slug),
+  );
+  return [...preferred, ...rest].map((writer) => ({
+    value: writer.slug,
+    name: writer.name,
+    label: `${writer.name} — ${writer.role}`,
+  }));
+}
 
 const DAYS_OF_WEEK = [
   { value: 0, label: "Sunday" },
@@ -135,7 +155,10 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
   const [isLoading, setIsLoading] = useState(false);
 
   // Queries
-  const scheduleData = useQuery(api.contentScheduling.getContentSchedules, { leagueId });
+  const scheduleData: ContentScheduleData | undefined = useQuery(
+    api.contentScheduling.getContentSchedules,
+    { leagueId },
+  );
 
   // Mutations
   const updateSchedule = useMutation(api.contentScheduling.updateContentSchedule);
@@ -143,11 +166,27 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
 
   const schedules = scheduleData?.schedules || [];
   const preferences = scheduleData?.preferences;
+  // One clock for the league; rows keep their own copy but the league preference wins.
+  const leagueTimeZone = preferences?.timezone || DEFAULT_TIME_ZONE;
+  const leagueZoneAbbreviation = timeZoneAbbreviation(leagueTimeZone);
 
-  const handleToggleContent = async (scheduleId: Id<"contentSchedules">, enabled: boolean) => {
+  const handleToggleContent = async (
+    scheduleId: Id<"contentSchedules">,
+    contentType: string,
+    enabled: boolean,
+    currentPersona?: string,
+  ) => {
     setIsLoading(true);
     try {
-      await updateSchedule({ scheduleId, enabled });
+      // Turning a segment on with no writer of its own assigns this type's default from
+      // the roster (spec §9.1) rather than leaving the backend to fall back.
+      await updateSchedule({
+        scheduleId,
+        enabled,
+        ...(enabled && !currentPersona
+          ? { preferredPersona: defaultPersonaFor(contentType) }
+          : {}),
+      });
     } catch (error) {
       console.error("Failed to update schedule:", error);
     } finally {
@@ -201,8 +240,7 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     switch (schedule.type) {
       case "weekly": {
         const day = DAYS_OF_WEEK.find(d => d.value === schedule.dayOfWeek)?.label || "Unknown";
-        const time = `${(schedule.hour ?? 0).toString().padStart(2, '0')}:${(schedule.minute ?? 0).toString().padStart(2, '0')}`;
-        return `${day} at ${time}`;
+        return `${day} at ${formatWallClock(schedule.hour ?? 0, schedule.minute ?? 0)}`;
       }
       case "relative": {
         const direction = (schedule.offsetDays ?? 0) < 0 ? "before" : "after";
@@ -265,22 +303,16 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="timezone">Timezone</Label>
-              <Select
-                value={preferences?.timezone || "America/New_York"}
-                onValueChange={(timezone) => handleUpdateGlobalSettings({ timezone })}
-              >
-                <SelectTrigger id="timezone">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => (
-                    <SelectItem key={tz.value} value={tz.value}>
-                      {tz.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="timezone">League timezone</Label>
+              <TimezoneSelect
+                id="timezone"
+                value={leagueTimeZone}
+                onChange={(timezone) => handleUpdateGlobalSettings({ timezone })}
+                disabled={isLoading}
+              />
+              <p className="text-[13px] text-bc-text-3">
+                Stories print on this clock.
+              </p>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -348,6 +380,13 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
             const enabled = schedule?.enabled ?? false;
             // A schedule with no writer yet falls back to this type's default (spec §3).
             const personaSlug = schedule?.preferredPersona || defaultPersonaFor(contentType);
+            const usesDefaultWriter = !schedule?.preferredPersona;
+            const weekly =
+              schedule && schedule.schedule.type === "weekly" ? schedule.schedule : null;
+            // What the cron will actually fire, resolved through the league clock.
+            const utcClock = weekly
+              ? weeklyUtcClock(leagueTimeZone, weekly.dayOfWeek, weekly.hour, weekly.minute)
+              : null;
 
             return (
               <div
@@ -372,7 +411,13 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                     <Switch
                       checked={enabled}
                       onCheckedChange={(value) =>
-                        schedule && handleToggleContent(schedule._id, value)
+                        schedule &&
+                        handleToggleContent(
+                          schedule._id,
+                          contentType,
+                          value,
+                          schedule.preferredPersona,
+                        )
                       }
                       disabled={isLoading || !schedule}
                     />
@@ -385,6 +430,21 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                     <span className="text-sm font-medium text-bc-ink">
                       {schedule ? formatSchedule(schedule.schedule) : config.defaultSchedule}
                     </span>
+                    {weekly && (
+                      <span className="text-[13px] text-bc-text-3">
+                        <span className="bc-num">
+                          {formatWeeklyWallTime(weekly.dayOfWeek, weekly.hour, weekly.minute)}
+                        </span>{" "}
+                        {timeZoneCity(leagueTimeZone)}
+                        {leagueZoneAbbreviation ? ` (${leagueZoneAbbreviation})` : ""}
+                        {utcClock && (
+                          <>
+                            {" · "}
+                            <span className="bc-num">{utcClock}</span>
+                          </>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <span className="bc-label-sm text-bc-text-3">Writer</span>
@@ -405,7 +465,7 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {PERSONAS.map((persona) => (
+                          {personaOptions(contentType).map((persona) => (
                             <SelectItem key={persona.value} value={persona.value}>
                               {persona.label}
                             </SelectItem>
@@ -413,6 +473,11 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                         </SelectContent>
                       </Select>
                     </div>
+                    <span className="text-[13px] text-bc-text-3">
+                      {usesDefaultWriter
+                        ? `Default writer: ${personaName(personaSlug)}`
+                        : `Assigned to ${personaName(personaSlug)}`}
+                    </span>
                   </div>
                 </div>
               </div>

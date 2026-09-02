@@ -26,7 +26,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "weekly_recap",
     name: "Weekly Recap",
     description: "Comprehensive review of all matchups with commentary",
-    creditCost: 10,
+    creditCost: 25,
     estimatedWords: 1600,
     requiredData: ["matchup_results", "player_scores", "standings", "playoff_tier"],
     optionalData: ["injuries", "weather", "upsets", "playoff_implications"],
@@ -144,7 +144,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "trade_analysis",
     name: "Trade Analysis / Trade Grades",
     description: "Deep dive analysis of a completed trade",
-    creditCost: 5,
+    creditCost: 15,
     estimatedWords: 600,
     requiredData: ["trade_details", "team_rosters", "team_records"],
     optionalData: ["player_stats", "injury_status", "playoff_standings"],
@@ -180,7 +180,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "power_rankings",
     name: "Power Rankings",
     description: "Weekly rankings with movement and analysis",
-    creditCost: 8,
+    creditCost: 15,
     estimatedWords: 1000,
     requiredData: ["standings", "recent_results", "point_totals"],
     optionalData: ["strength_of_schedule", "injury_report"],
@@ -216,7 +216,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "waiver_wire_report",
     name: "Waiver Wire Report",
     description: "Top pickup recommendations with statistical backing",
-    creditCost: 12,
+    creditCost: 10,
     estimatedWords: 1000,
     requiredData: ["available_players", "recent_performances", "roster_percentages"],
     optionalData: ["upcoming_schedules", "injury_news", "weather_forecasts"],
@@ -252,7 +252,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "mock_draft",
     name: "Mock Draft",
     description: "Mock draft predictions forecasting what each team will select",
-    creditCost: 15,
+    creditCost: 30,
     estimatedWords: 2000,
     requiredData: ["draft_order", "league_settings", "scoring_type", "available_players", "draft_type", "league_type"],
     optionalData: ["keeper_info", "team_preferences", "historical_draft_data"],
@@ -298,7 +298,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "rivalry_week_special",
     name: "Rivalry Week Special",
     description: "Hype piece for rivalry matchups",
-    creditCost: 10,
+    creditCost: 15,
     estimatedWords: 800,
     requiredData: ["rivalry_history", "current_records", "matchup_details"],
     optionalData: ["trash_talk_history", "previous_upsets"],
@@ -334,7 +334,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "emergency_hot_takes",
     name: "Emergency Hot Takes",
     description: "Rapid-fire reactions to breaking news, injuries, or shocking performances",
-    creditCost: 5,
+    creditCost: 15,
     estimatedWords: 600,
     requiredData: ["breaking_news", "recent_events"],
     optionalData: ["injury_updates", "trade_rumors", "lineup_changes"],
@@ -366,7 +366,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "trade_rumor_mill",
     name: "The Asking Price",
     description: "What is actually on the block: real listings, completed transactions and on-record interest",
-    creditCost: 8,
+    creditCost: 25,
     estimatedWords: 700,
     requiredData: ["trade_details"],
     optionalData: ["team_needs", "player_performance"],
@@ -396,7 +396,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "mid_season_awards",
     name: "Mid-Season Awards",
     description: "Awards ceremony with categories like MVP, Bust, etc.",
-    creditCost: 12,
+    creditCost: 20,
     estimatedWords: 1500,
     requiredData: ["season_stats", "draft_results", "trades"],
     optionalData: ["manager_activity", "waiver_claims"],
@@ -444,7 +444,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "championship_manifesto",
     name: "Championship Week Manifesto",
     description: "Epic hype piece for championship matchup",
-    creditCost: 10,
+    creditCost: 20,
     estimatedWords: 1000,
     requiredData: ["finalist_teams", "season_journey", "key_players"],
     optionalData: ["previous_championships", "rivalry_history"],
@@ -486,7 +486,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "season_recap",
     name: "Season Recap",
     description: "Comprehensive review of the entire fantasy season with highlights and lowlights",
-    creditCost: 20,
+    creditCost: 25,
     estimatedWords: 1800,
     requiredData: ["season_standings", "all_matchup_results", "draft_results", "season_stats"],
     optionalData: ["trades_made", "waiver_pickups", "injury_timeline", "memorable_moments"],
@@ -538,7 +538,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "custom_roast",
     name: "Custom Roast Article",
     description: "Targeted roasting of specific team/manager",
-    creditCost: 25,
+    creditCost: 30,
     estimatedWords: 1000,
     requiredData: ["target_team", "season_mistakes", "bad_decisions"],
     optionalData: ["historical_failures", "personality_traits"],
@@ -580,7 +580,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "season_welcome",
     name: "Season Welcome Package",
     description: "Welcome article for newly imported league with history",
-    creditCost: 30,
+    creditCost: 25,
     estimatedWords: 2000,
     requiredData: ["historical_data", "all_time_records", "championship_history"],
     optionalData: ["memorable_trades", "biggest_upsets", "rivalry_data"],
@@ -628,7 +628,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "draft_rankings",
     name: "Post-Draft Rankings & Grades",
     description: "Comprehensive draft analysis with letter grades for all teams based on draft position, player selections, and projected stats",
-    creditCost: 15,
+    creditCost: 30,
     estimatedWords: 2300,
     requiredData: ["draft_results", "team_rosters", "player_projections", "draft_order", "league_settings"],
     optionalData: ["keeper_info", "draft_strategy", "adp_data", "bench_depth"],
@@ -684,7 +684,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "draft_strategy_guide",
     name: "Draft Strategy Guide",
     description: "How to attack this league's draft from this draft slot, using this league's settings",
-    creditCost: 12,
+    creditCost: 20,
     estimatedWords: 1200,
     requiredData: ["league_settings", "draft_order"],
     optionalData: ["available_players", "player_projections", "team_rosters", "draft_results"],
@@ -726,7 +726,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "team_name_power_rankings",
     name: "Team Name Power Rankings",
     description: "Ranking the team names themselves, from the actual names in the league",
-    creditCost: 6,
+    creditCost: 10,
     estimatedWords: 900,
     requiredData: ["team_rosters"],
     optionalData: ["standings", "matchup_results"],
@@ -762,7 +762,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "trade_block_tuesday",
     name: "Trade Block Tuesday",
     description: "The standing trade block: who is listed, who is buying, who is selling — on the record only",
-    creditCost: 8,
+    creditCost: 10,
     estimatedWords: 900,
     requiredData: ["team_rosters", "standings"],
     optionalData: ["trade_details", "player_scores", "injuries"],
@@ -804,7 +804,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "commissioner_corner",
     name: "Commissioner's Corner",
     description: "One league-governance item argued out in full: the setting, the argument, the consequence",
-    creditCost: 8,
+    creditCost: 25,
     estimatedWords: 900,
     requiredData: ["league_settings", "standings"],
     optionalData: ["trade_details", "all_time_records", "matchup_results", "championship_history"],
@@ -846,7 +846,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "playoff_picture",
     name: "Playoff Picture",
     description: "Who is in, who is alive, and the math that decides it",
-    creditCost: 10,
+    creditCost: 20,
     estimatedWords: 1100,
     requiredData: ["standings", "matchup_results"],
     optionalData: ["player_scores", "injuries", "team_rosters"],
@@ -888,7 +888,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "hall_of_shame",
     name: "Hall of Shame",
     description: "The season's worst decisions, each one pinned to the line in the record that proves it",
-    creditCost: 12,
+    creditCost: 15,
     estimatedWords: 1000,
     requiredData: ["standings", "matchup_results"],
     optionalData: ["draft_results", "trade_details", "player_scores", "all_time_records"],
@@ -930,7 +930,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     id: "player_glazing",
     name: "The Case For",
     description: "An honest argument for one player: the problem first, then the case, the path, and one named risk",
-    creditCost: 8,
+    creditCost: 20,
     estimatedWords: 1000,
     requiredData: ["player_scores", "team_rosters"],
     optionalData: ["matchup_results", "standings", "player_projections", "injuries"],
@@ -969,6 +969,27 @@ export const contentTemplates: Record<string, ContentTemplate> = {
   }
 };
 
+/* -------------------------------------------------------------------------- */
+/* Credits (spec §10.2)                                                        */
+/*                                                                             */
+/* `creditCost` above is the single source of truth for what a manual          */
+/* generation costs: 1 credit ≈ 1¢ of measured API cost, rounded up to the     */
+/* nearest 5 with a floor of 10. Automated content never spends credits.       */
+/* -------------------------------------------------------------------------- */
+
+/** Every manager the requester asks for comment adds this much on top of the type's price. */
+export const INTERVIEW_CREDITS_PER_MANAGER = 5;
+
+/**
+ * What one manual generation costs: the content type's price plus 5 credits per manager the
+ * requester turned comment requests on for. An unknown content type costs nothing on its own.
+ */
+export function creditCostFor(contentType: string, managersAsked = 0): number {
+  const base = contentTemplates[contentType]?.creditCost ?? 0;
+  const managers = Number.isFinite(managersAsked) ? Math.max(0, Math.floor(managersAsked)) : 0;
+  return base + managers * INTERVIEW_CREDITS_PER_MANAGER;
+}
+
 // Helper function to calculate estimated generation time
 export function estimateGenerationTime(template: ContentTemplate): number {
   // Rough estimate: 100 words per second for Claude
@@ -984,7 +1005,9 @@ export function estimateGenerationTime(template: ContentTemplate): number {
  */
 const REQUIRED_DATA_SOURCES: Record<string, string[]> = {
   matchup_results: ["recentMatchups", "playoffBreakdown"],
-  upcoming_matchups: ["upcomingSchedule", "recentMatchups"],
+  // Games that have not been played. `recentMatchups` is NOT a source here: satisfying a
+  // preview with last week's results is exactly how a preview turns into a recap.
+  upcoming_matchups: ["upcomingMatchups"],
   player_scores: ["teams", "recentMatchups"],
   player_status: ["injuryReport", "teams"],
   player_projections: ["draftPicks", "availablePlayers"],

@@ -1,7 +1,53 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { mutation, query, action, internalQuery } from "./_generated/server";
+import {
+  mutation,
+  query,
+  action,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { requireLeagueMember } from "./lib/auth";
+import { leagueSeatAllowance } from "./credits";
+
+/**
+ * The error a full league throws (spec §10.1). A machine-readable code rather
+ * than a sentence, because the join flow catches it and renders the
+ * commissioner's "buy a seat" prompt - see PRICE-D's at-capacity message.
+ */
+export const LEAGUE_AT_CAPACITY = "LEAGUE_AT_CAPACITY";
+
+/** How many membership rows one capacity check reads. Leagues are small. */
+const MAX_MEMBERSHIPS_SCANNED = 200;
+
+/**
+ * Seats used and seats left in a league.
+ *
+ * The League Pass covers `includedManagers` (12 by default); each $10 seat the
+ * commissioner buys adds one. `managers` counts membership rows, which is what
+ * every other seat-consuming path in this codebase writes.
+ */
+export async function leagueCapacity(
+  ctx: QueryCtx | MutationCtx,
+  leagueId: Id<"leagues">
+): Promise<{ managers: number; included: number; extraSeats: number; remaining: number }> {
+  const league = await ctx.db.get(leagueId);
+  if (!league) throw new Error("League not found");
+
+  const memberships = await ctx.db
+    .query("leagueMemberships")
+    .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+    .take(MAX_MEMBERSHIPS_SCANNED);
+
+  const { included, extraSeats, total } = leagueSeatAllowance(league);
+  const managers = memberships.length;
+
+  return { managers, included, extraSeats, remaining: Math.max(0, total - managers) };
+}
 
 // ESPN session credentials (espnS2/swid) are live auth cookies for the
 // commissioner's ESPN account. They are needed server-side for syncing but must
@@ -72,6 +118,10 @@ export const create = mutation({
         owner: v.string(),
       })),
     }))),
+    // Captured by the setup wizard from the commissioner's browser
+    // (`Intl.DateTimeFormat().resolvedOptions().timeZone`). Every default
+    // content schedule is expressed in this zone (spec section 9.1).
+    timezone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -107,11 +157,14 @@ export const create = mutation({
       joinedAt: Date.now(),
     });
 
-    // Set up default content schedules (opt-in by default)
+    // Set up the automatic-by-default content calendar (spec section 9.1) in
+    // the timezone the commissioner imported from.
     try {
       await ctx.scheduler.runAfter(0, internal.contentScheduling.createDefaultContentSchedules, {
         leagueId,
-        timezone: "America/New_York", // Default timezone
+        timezone: args.timezone && args.timezone.trim().length > 0
+          ? args.timezone
+          : "America/New_York",
       });
     } catch (error) {
       console.error("Failed to create default content schedules:", error);
@@ -415,6 +468,15 @@ export const joinLeague = mutation({
       throw new Error("Already a member of this league");
     }
 
+    // Seats (spec §10.1). The pass covers 12 managers; the 13th needs a $10
+    // seat the commissioner buys, which `recordExtraSeat` records. Checked
+    // before the insert so the league can never hold more managers than it
+    // has paid for.
+    const capacity = await leagueCapacity(ctx, args.leagueId);
+    if (capacity.remaining <= 0) {
+      throw new Error(LEAGUE_AT_CAPACITY);
+    }
+
     // Add as member
     await ctx.db.insert("leagueMemberships", {
       leagueId: args.leagueId,
@@ -558,5 +620,67 @@ export const getMembershipRoleInternal = internalQuery({
       )
       .first();
     return membership?.role ?? null;
+  },
+});
+
+/* ========================================================================== *
+ * League Pass seats (spec §10.1)
+ * ========================================================================== */
+
+/**
+ * How many managers this league has paid for, and how many seats are left.
+ *
+ * League members only: seat counts are the commissioner's billing position,
+ * and the join flow only ever needs them for a league the caller is already
+ * in. The at-capacity message a would-be joiner sees comes from the
+ * {@link LEAGUE_AT_CAPACITY} error on `joinLeague`, not from this query.
+ */
+export const getLeagueCapacity = query({
+  args: { leagueId: v.id("leagues") },
+  returns: v.object({
+    managers: v.number(),
+    included: v.number(),
+    extraSeats: v.number(),
+    remaining: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    await requireLeagueMember(ctx, args.leagueId);
+    return await leagueCapacity(ctx, args.leagueId);
+  },
+});
+
+/**
+ * Record one bought $10 seat. Called by PRICE-D's Stripe webhook once the seat
+ * payment settles; `credits.grantSeatCredits` mints that seat's 100 credits.
+ *
+ * Internal on purpose: this widens what the league is allowed to hold, so it
+ * may only ever be reached from a settled payment, never from a client.
+ */
+export const recordExtraSeat = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    /** Seats bought in one go. Defaults to one. */
+    count: v.optional(v.number()),
+  },
+  returns: v.object({ extraSeats: v.number(), included: v.number(), total: v.number() }),
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) throw new Error("League not found");
+
+    const count = Math.max(1, Math.floor(args.count ?? 1));
+    const { included, extraSeats } = leagueSeatAllowance(league);
+    const nextExtraSeats = extraSeats + count;
+
+    await ctx.db.patch(args.leagueId, {
+      subscription: {
+        ...league.subscription,
+        // Written explicitly rather than left to default, so the league's own
+        // allowance survives a later change to INCLUDED_MANAGERS_DEFAULT.
+        includedManagers: included,
+        extraSeats: nextExtraSeats,
+      },
+    });
+
+    return { extraSeats: nextExtraSeats, included, total: included + nextExtraSeats };
   },
 });

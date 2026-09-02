@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as aiBatch from "../aiBatch.js";
 import type * as aiContent from "../aiContent.js";
 import type * as aiContentHelpers from "../aiContentHelpers.js";
 import type * as aiContentWithComments from "../aiContentWithComments.js";
@@ -32,6 +33,7 @@ import type * as espnStatsMapping from "../espnStatsMapping.js";
 import type * as espnSync from "../espnSync.js";
 import type * as leagues from "../leagues.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_generationFailure from "../lib/generationFailure.js";
 import type * as lib_season from "../lib/season.js";
 import type * as matchupRosters from "../matchupRosters.js";
 import type * as matchups from "../matchups.js";
@@ -62,6 +64,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiBatch: typeof aiBatch;
   aiContent: typeof aiContent;
   aiContentHelpers: typeof aiContentHelpers;
   aiContentWithComments: typeof aiContentWithComments;
@@ -86,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   espnSync: typeof espnSync;
   leagues: typeof leagues;
   "lib/auth": typeof lib_auth;
+  "lib/generationFailure": typeof lib_generationFailure;
   "lib/season": typeof lib_season;
   matchupRosters: typeof matchupRosters;
   matchups: typeof matchups;

@@ -59,11 +59,34 @@ export interface FactsMatchup {
   players: FactsPlayer[];
 }
 
+/** One side of an unplayed game. There is no score here because there is no game yet. */
+export interface FactsUpcomingSide {
+  teamId: string;
+  /** "w-l-t" going into the game. */
+  record?: string;
+  pointsFor?: number;
+  /** ESPN's published projection for this game, when it has one. Never a result. */
+  projected?: number;
+}
+
+/** A game on the look-ahead slate (spec 4.3). Its id space is `U1`, `U2`, ... */
+export interface FactsUpcoming {
+  id: string;
+  week: number;
+  home: FactsUpcomingSide;
+  away: FactsUpcomingSide;
+  /** Meetings already played between these two, so the writer can cite real history. */
+  headToHead?: { homeWins: number; awayWins: number };
+  isPlayoff?: boolean;
+}
+
 export interface FactsBlock {
   schema: "ffsn.facts.v1";
   league: { name: string; week?: number; season: number; teamCount: number; scoring?: string };
   teams: FactsTeam[];
   matchups: FactsMatchup[];
+  /** Games that have NOT been played, for `weekly_preview`. Empty for every other type. */
+  upcoming: FactsUpcoming[];
   standings: Array<{ rank: number; teamId: string; record: string; pointsFor: number; streak?: string }>;
   transactions: Array<{
     id: string;
@@ -74,11 +97,15 @@ export interface FactsBlock {
     faab?: number;
     week?: number;
     timestamp?: number;
+    /** The same instant in plain English (ET), for prose; the writer must never print `timestamp`. */
+    when?: string;
   }>;
   trades: Array<{
     id: string;
     week?: number;
     timestamp?: number;
+    /** The same instant in plain English (ET), for prose; the writer must never print `timestamp`. */
+    when?: string;
     sides: Array<{ teamId: string; gave: string[]; received: string[] }>;
   }>;
   draftPicks?: Array<{
@@ -153,6 +180,19 @@ function formatRecord(record?: { wins?: number; losses?: number; ties?: number }
   return `${record.wins ?? 0}-${record.losses ?? 0}-${record.ties ?? 0}`;
 }
 
+/** "Thu, Oct 9, 6:30 PM ET" — the only form of a date or time the writer should ever print. */
+function toWhen(timestamp: number | undefined): string | undefined {
+  if (timestamp === undefined) return undefined;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      timeZone: "America/New_York", timeZoneName: "short",
+    }).format(new Date(timestamp));
+  } catch {
+    return undefined;
+  }
+}
+
 function toTimestamp(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -187,6 +227,11 @@ export function computeMissingRequiredData(contentType: string, data: LeagueData
       case "championship_history":
         if (!data.leagueHistory?.seasons || data.leagueHistory.seasons.length === 0) {
           missing.push("championship_history — not available");
+        }
+        break;
+      case "upcoming_matchups":
+        if (!data.upcomingMatchups || data.upcomingMatchups.length === 0) {
+          missing.push("upcoming matchups — not available");
         }
         break;
       case "matchup_results":
@@ -409,12 +454,56 @@ function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[
   });
 }
 
+/**
+ * The look-ahead slate. These rows come from the ESPN season schedule, where a future game is a
+ * matchup row with zero scores and no winner, so nothing here carries a score: a `weekly_preview`
+ * that prints one is describing a game that has not happened.
+ */
+function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming[] {
+  const rows = data.upcomingMatchups ?? [];
+
+  return rows.map((raw, index) => {
+    const game = asLoose(raw);
+    const homeId = teams.resolve(game.teamAId, game.teamAName, game.teamA);
+    const awayId = teams.resolve(game.teamBId, game.teamBName, game.teamB);
+    const homeTeam = teams.teams.find(team => team.id === homeId);
+    const awayTeam = teams.teams.find(team => team.id === awayId);
+
+    const headToHead = asLoose(game.headToHead);
+    const homeWins = num(headToHead.teamAWins);
+    const awayWins = num(headToHead.teamBWins);
+
+    return {
+      id: `U${index + 1}`,
+      week: num(game.week) ?? data.currentWeek + 1,
+      home: {
+        teamId: homeId,
+        record: str(game.teamARecord) ?? homeTeam?.record,
+        pointsFor: num(game.teamAPointsFor) ?? homeTeam?.pointsFor,
+        projected: num(game.projectedScoreA),
+      },
+      away: {
+        teamId: awayId,
+        record: str(game.teamBRecord) ?? awayTeam?.record,
+        pointsFor: num(game.teamBPointsFor) ?? awayTeam?.pointsFor,
+        projected: num(game.projectedScoreB),
+      },
+      headToHead:
+        homeWins !== undefined && awayWins !== undefined && homeWins + awayWins > 0
+          ? { homeWins, awayWins }
+          : undefined,
+      isPlayoff: game.isPlayoff === true ? true : undefined,
+    };
+  });
+}
+
 export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const data = req.leagueData;
   const teams = new TeamIndex(data);
   const looseData = data as Loose;
 
   const matchups = buildMatchups(data, teams);
+  const upcoming = buildUpcoming(data, teams);
 
   const standings = (data.standings ?? []).map(row => ({
     rank: row.rank,
@@ -433,12 +522,14 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     faab: num(transaction.faabBid),
     week: num(asLoose(transaction).week),
     timestamp: toTimestamp(transaction.date),
+    when: toWhen(toTimestamp(transaction.date)),
   }));
 
   const trades = (data.trades ?? []).map((trade, index) => ({
     id: `TR${index + 1}`,
     week: num(asLoose(trade).week),
     timestamp: toTimestamp(trade.date),
+    when: toWhen(toTimestamp(trade.date)),
     sides: [
       {
         teamId: teams.resolve(trade.teamA),
@@ -533,6 +624,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     },
     teams: teams.teams,
     matchups,
+    upcoming,
     standings,
     transactions,
     trades,

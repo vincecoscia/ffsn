@@ -528,6 +528,82 @@ export const getLeagueDataForAI = internalQuery({
       };
     });
     
+    /* ---------------------------------------------------------------------- *
+     * The upcoming slate (spec 4.3, `facts.upcoming`).
+     *
+     * ESPN ships the entire season schedule on the first sync, so a game that
+     * has not kicked off is already a `matchups` row: `homeScore`/`awayScore`
+     * are 0, `winner` is undefined (ESPN's "UNDECIDED" maps to nothing) and
+     * the projected scores are usually absent until the week is live. Those
+     * rows are the only look-ahead data in this payload - without them a
+     * "week 8 preview" gets written as a recap of week 7.
+     * ---------------------------------------------------------------------- */
+    const hasBeenPlayed = (matchup: Doc<"matchups">) =>
+      matchup.winner !== undefined || matchup.homeScore > 0 || matchup.awayScore > 0;
+
+    // Preview the current week while none of its games have been played; once
+    // the week is under way (or over), the look-ahead is the following week.
+    const currentWeekGames = matchups.filter(m => m.matchupPeriod === currentWeek);
+    const previewWeek =
+      currentWeekGames.length > 0 && currentWeekGames.every(game => !hasBeenPlayed(game))
+        ? currentWeek
+        : currentWeek + 1;
+
+    const teamByExternalId = new Map(teams.map(team => [team.externalId, team]));
+
+    const formatTeamRecord = (team: Doc<"teams"> | undefined) =>
+      team
+        ? `${team.record.wins ?? 0}-${team.record.losses ?? 0}-${team.record.ties ?? 0}`
+        : undefined;
+
+    /** Meetings already played this season, home/away agnostic. Ties count for neither side. */
+    const headToHeadFor = (teamAId: string, teamBId: string) => {
+      let teamAWins = 0;
+      let teamBWins = 0;
+      for (const game of matchups) {
+        if (game.matchupPeriod >= previewWeek || !hasBeenPlayed(game)) continue;
+        const isMeeting =
+          (game.homeTeamId === teamAId && game.awayTeamId === teamBId) ||
+          (game.homeTeamId === teamBId && game.awayTeamId === teamAId);
+        if (!isMeeting) continue;
+        if (game.winner === "tie" || game.homeScore === game.awayScore) continue;
+        const homeWon = game.winner ? game.winner === "home" : game.homeScore > game.awayScore;
+        const winnerId = homeWon ? game.homeTeamId : game.awayTeamId;
+        if (winnerId === teamAId) teamAWins++;
+        else teamBWins++;
+      }
+      return teamAWins + teamBWins > 0 ? { teamAWins, teamBWins } : undefined;
+    };
+
+    const upcomingMatchups = matchups
+      .filter(game => game.matchupPeriod === previewWeek)
+      .sort((a, b) => (Number(a.homeTeamId) || 0) - (Number(b.homeTeamId) || 0))
+      .map(game => {
+        const homeTeam = teamByExternalId.get(game.homeTeamId);
+        const awayTeam = teamByExternalId.get(game.awayTeamId);
+
+        return {
+          week: game.matchupPeriod,
+          // Names in teamA/teamB and ESPN ids in teamAId/teamBId - the same shape
+          // `recentMatchups` uses above, so FACTS resolves both the same way.
+          teamA: homeTeam?.name || game.homeTeamId,
+          teamB: awayTeam?.name || game.awayTeamId,
+          teamAId: game.homeTeamId,
+          teamBId: game.awayTeamId,
+          teamAOwner: homeTeam ? managerNames.get(homeTeam._id) ?? UNKNOWN_MANAGER : UNKNOWN_MANAGER,
+          teamBOwner: awayTeam ? managerNames.get(awayTeam._id) ?? UNKNOWN_MANAGER : UNKNOWN_MANAGER,
+          teamARecord: formatTeamRecord(homeTeam),
+          teamBRecord: formatTeamRecord(awayTeam),
+          teamAPointsFor: homeTeam?.record.pointsFor,
+          teamBPointsFor: awayTeam?.record.pointsFor,
+          // Only present once ESPN publishes a projection for the week; never invented here.
+          projectedScoreA: game.homeProjectedScore,
+          projectedScoreB: game.awayProjectedScore,
+          isPlayoff: game.playoffTier && game.playoffTier !== "NONE" ? true : undefined,
+          headToHead: headToHeadFor(game.homeTeamId, game.awayTeamId),
+        };
+      });
+
     // Analyze transaction trends
     const transactionTrends = analyzeTransactionTrends(
       transactions as any // Type mismatch - helper expects different format
@@ -582,6 +658,9 @@ export const getLeagueDataForAI = internalQuery({
       teams: enhancedTeams,
       standings,
       recentMatchups: enrichedMatchups,
+      // Unplayed games for the look-ahead week (spec 4.3). Empty once the
+      // schedule runs out, which is what makes weekly_preview refuse.
+      upcomingMatchups,
       trades: enrichedTrades,
       transactions: transactions.slice(0, 20), // Most recent 20
       rivalries: enrichedRivalries,

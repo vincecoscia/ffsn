@@ -90,7 +90,13 @@ export default function InvitePage({ params }: InvitePageProps) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 
       // Provide more specific error messages based on the error
-      if (errorMessage.includes("database consistency issue")) {
+      if (errorMessage.includes("LEAGUE_AT_CAPACITY")) {
+        // The League Pass covers 12 managers; anyone past that needs a $10
+        // seat the commissioner buys from league settings (spec §10.1).
+        setError(
+          "This league is at its 12 included managers. Ask your commissioner to add a seat ($10)."
+        );
+      } else if (errorMessage.includes("database consistency issue")) {
         setError("There was a temporary database issue. Please try again in a moment.");
       } else if (errorMessage.includes("User not found")) {
         setError("Authentication issue. Please sign out and try again.");

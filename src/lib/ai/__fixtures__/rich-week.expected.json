@@ -1,6 +1,6 @@
 {
   "fixture": "rich-week",
-  "note": "Everything a writer needs is present, so the only gap is the two managers who never answered. draft_rankings still names the three draft gaps because this payload has no draft in it.",
+  "note": "Everything a writer needs is present, so the only gap is the two managers who never answered. This is the only fixture carrying a week-8 slate, so it is the only one where weekly_preview builds. draft_rankings still names the three draft gaps because this payload has no draft in it.",
   "facts": {
     "teams": 10,
     "matchups": 5,
@@ -17,6 +17,12 @@
   "unresolvedTeamRefs": 0,
   "byType": {
     "weekly_recap": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+      ],
+      "throws": null
+    },
+    "weekly_preview": {
       "missing": [
         "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
       ],

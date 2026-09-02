@@ -12,23 +12,189 @@ import {
   type Violation,
 } from './fact-verifier';
 import type { RelationshipTier } from './persona-prompts';
-import { Id } from '../../../convex/_generated/dataModel';
+import type { Id } from '../../../convex/_generated/dataModel';
 
-interface AnthropicResponse {
-  content: Array<{ text: string }>;
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-  };
-}
-
-// Claude 5-family models reject sampling params (temperature/top_p); persona "heat" lives in the
-// system prompt instead. Effort controls thinking depth and cost per article.
-const ARTICLE_EFFORT = 'medium' as const;
 // Upper bound for the retry after a max_tokens truncation. Thinking tokens share this budget.
 // Kept under ~21k: the Anthropic SDK refuses non-streaming requests it expects to run past ten
 // minutes (about 21,333 tokens at its rate heuristic), and Convex actions time out at ten minutes.
 const MAX_STRUCTURED_TOKENS = 21000;
+
+/* ------------------------------------------------------------------------------------------- *
+ * Model + effort routing (spec §10.3.1)
+ *
+ * Claude 5-family models reject sampling params (temperature/top_p); persona "heat" lives in the
+ * system prompt instead. Model and effort are the only cost dials, and they are set per content
+ * type so the eval matrix can move one type at a time without touching code.
+ * ------------------------------------------------------------------------------------------- */
+
+export type RouteModel = 'claude-opus-5' | 'claude-sonnet-5';
+export type RouteEffort = 'low' | 'medium';
+export interface GenerationRoute {
+  model: RouteModel;
+  effort: RouteEffort;
+}
+
+/** Everything that carries a quote or a grade stays here. */
+export const DEFAULT_ROUTE: GenerationRoute = { model: 'claude-opus-5', effort: 'medium' };
+
+/**
+ * The shipped routes. A type absent from this table runs on {@link DEFAULT_ROUTE}; a routed type
+ * reverts to Opus medium the moment the rubric matrix drops below `respectsTheFacts ≥ 4`.
+ */
+export const GENERATION_ROUTES: Record<string, GenerationRoute> = {
+  // Sonnet 5, medium: short, low-stakes, no quotes and no grades.
+  weekly_preview: { model: 'claude-sonnet-5', effort: 'medium' },
+  waiver_wire_report: { model: 'claude-sonnet-5', effort: 'medium' },
+  // Measured 2026-09-02: Sonnet scored 2/5 on voice and 3/5 on facts for Sam's team-name rankings
+  // and 3/5 on facts for the trade block, below the §10.3 gate, so both stay on Opus.
+  team_name_power_rankings: { model: 'claude-opus-5', effort: 'medium' },
+  trade_block_tuesday: { model: 'claude-opus-5', effort: 'medium' },
+
+  // Measured 2026-09-02: low effort did not reduce output tokens on these (playoff picture cost
+  // more at low than at medium), so they run at medium like everything else on Opus.
+  power_rankings: { model: 'claude-opus-5', effort: 'medium' },
+  playoff_picture: { model: 'claude-opus-5', effort: 'medium' },
+  emergency_hot_takes: { model: 'claude-opus-5', effort: 'medium' },
+
+  // Opus 5, medium: quotes, grades, long form.
+  weekly_recap: { model: 'claude-opus-5', effort: 'medium' },
+  trade_analysis: { model: 'claude-opus-5', effort: 'medium' },
+  trade_rumor_mill: { model: 'claude-opus-5', effort: 'medium' },
+  rivalry_week_special: { model: 'claude-opus-5', effort: 'medium' },
+  mid_season_awards: { model: 'claude-opus-5', effort: 'medium' },
+  championship_manifesto: { model: 'claude-opus-5', effort: 'medium' },
+  season_recap: { model: 'claude-opus-5', effort: 'medium' },
+  season_welcome: { model: 'claude-opus-5', effort: 'medium' },
+  custom_roast: { model: 'claude-opus-5', effort: 'medium' },
+  commissioner_corner: { model: 'claude-opus-5', effort: 'medium' },
+  hall_of_shame: { model: 'claude-opus-5', effort: 'medium' },
+  player_glazing: { model: 'claude-opus-5', effort: 'medium' },
+  mock_draft: { model: 'claude-opus-5', effort: 'medium' },
+  draft_rankings: { model: 'claude-opus-5', effort: 'medium' },
+  draft_strategy_guide: { model: 'claude-opus-5', effort: 'medium' },
+};
+
+function isRouteModel(value: unknown): value is RouteModel {
+  return value === 'claude-opus-5' || value === 'claude-sonnet-5';
+}
+function isRouteEffort(value: unknown): value is RouteEffort {
+  return value === 'low' || value === 'medium';
+}
+
+let overrideCache: { raw: string; routes: Record<string, GenerationRoute> } | null = null;
+
+/**
+ * `GENERATION_ROUTE_OVERRIDES` is a Convex env var holding the same JSON shape as
+ * {@link GENERATION_ROUTES}. Malformed JSON, or an entry naming an unknown model or effort, is
+ * logged and ignored — a bad env var must never take the desk offline.
+ */
+function routeOverrides(): Record<string, GenerationRoute> {
+  const raw = process.env.GENERATION_ROUTE_OVERRIDES;
+  if (!raw || raw.trim().length === 0) return {};
+  if (overrideCache?.raw === raw) return overrideCache.routes;
+
+  const routes: Record<string, GenerationRoute> = {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.warn('GENERATION_ROUTE_OVERRIDES is not a JSON object; ignoring it');
+    } else {
+      for (const [contentType, value] of Object.entries(parsed as Record<string, unknown>)) {
+        const model = (value as { model?: unknown } | null)?.model;
+        const effort = (value as { effort?: unknown } | null)?.effort;
+        if (isRouteModel(model) && isRouteEffort(effort)) {
+          routes[contentType] = { model, effort };
+        } else {
+          console.warn(
+            `Ignoring GENERATION_ROUTE_OVERRIDES entry for ${contentType}: ` +
+              `expected { model: "claude-opus-5" | "claude-sonnet-5", effort: "low" | "medium" }`
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('GENERATION_ROUTE_OVERRIDES is not valid JSON; ignoring it', error);
+  }
+
+  overrideCache = { raw, routes };
+  return routes;
+}
+
+/** The model and effort this content type generates on, env override first. */
+export function resolveRoute(contentType: string): GenerationRoute {
+  return routeOverrides()[contentType] ?? GENERATION_ROUTES[contentType] ?? DEFAULT_ROUTE;
+}
+
+/** Sonnet-routed types fall back to Opus; Opus-routed types fall back to Sonnet. */
+function fallbackModelFor(route: GenerationRoute): RouteModel {
+  return route.model === 'claude-sonnet-5' ? 'claude-opus-5' : 'claude-sonnet-5';
+}
+
+/* ------------------------------------------------------------------------------------------- *
+ * Cost accounting (spec §10.3.4)
+ * ------------------------------------------------------------------------------------------- */
+
+/** First-party list prices, USD per million tokens. */
+const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 2, output: 10 },
+};
+
+/** The subset of `Anthropic.Usage` that costs money. */
+export interface CostUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+/**
+ * Measured API cost of one call. Cache reads bill at 0.1x the input rate and cache writes at
+ * 1.25x; `input_tokens` already excludes both. Message Batches bill at 50% of list.
+ */
+export function computeCostUsd(
+  model: string,
+  usage: CostUsage,
+  opts?: { batch?: boolean }
+): number {
+  const price = MODEL_PRICES[model] ?? MODEL_PRICES['claude-opus-5'];
+  const input = usage.input_tokens || 0;
+  const cacheRead = usage.cache_read_input_tokens || 0;
+  const cacheWrite = usage.cache_creation_input_tokens || 0;
+  const output = usage.output_tokens || 0;
+  const usd =
+    (input * price.input +
+      cacheRead * price.input * 0.1 +
+      cacheWrite * price.input * 1.25 +
+      output * price.output) /
+    1_000_000;
+  return opts?.batch ? usd * 0.5 : usd;
+}
+
+/** Running total across every call one article costs. */
+interface CostLedger {
+  usd: number;
+  cacheReadTokens: number;
+}
+
+function accrue(ledger: CostLedger, message: Anthropic.Message, opts?: { batch?: boolean }): void {
+  if (!message.usage) return;
+  ledger.usd += computeCostUsd(message.model, message.usage, opts);
+  ledger.cacheReadTokens += message.usage.cache_read_input_tokens || 0;
+}
+
+/** Same request with `strict` removed from every tool definition. */
+function withoutStrictTools(
+  params: Anthropic.MessageCreateParamsNonStreaming
+): Anthropic.MessageCreateParamsNonStreaming {
+  if (!params.tools) return params;
+  return {
+    ...params,
+    tools: params.tools.map(tool =>
+      'strict' in tool ? ({ ...tool, strict: undefined } as typeof tool) : tool
+    ),
+  };
+}
 
 // Errors worth retrying on the fallback model: model not found, server errors, overloaded.
 function shouldFallback(error: unknown): boolean {
@@ -117,8 +283,30 @@ export type ReviewFlag = Violation;
 const ArticleSection = z.object({
   name: z.string().describe("The section heading as readers will see it, in the writer's voice"),
   content: z.string().describe("The section content"),
-  wordCount: z.number().describe("Number of words in the content"),
+  // Self-reported and unreliable; the service recomputes it from `content` after parsing. Kept
+  // optional so a model that omits it does not fail the whole article.
+  wordCount: z.number().default(0).describe("Number of words in the content (may be omitted)"),
 });
+
+/**
+ * Opus 5 sometimes wraps a forced tool call's arguments in a single container key
+ * (`{"parameters": {...}}`). Unwrap that before validating.
+ */
+const WRAPPER_KEYS = new Set(['parameters', 'input', 'article', 'arguments', 'generate_article', 'rewrite_sections']);
+function unwrapToolInput(input: unknown): unknown {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    const keys = Object.keys(input as Record<string, unknown>);
+    if (keys.length === 1 && WRAPPER_KEYS.has(keys[0])) {
+      const inner = (input as Record<string, unknown>)[keys[0]];
+      if (inner && typeof inner === 'object') return inner;
+    }
+  }
+  return input;
+}
+
+function countWordsIn(text: string): number {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
 
 const KeyStat = z.object({
   stat: z.string(),
@@ -233,6 +421,12 @@ export interface GeneratedContent {
     modelUsed: string;
     promptTokens: number;
     completionTokens: number;
+    /** Measured API cost of every call this article took, cache and batch pricing applied. */
+    costUsd: number;
+    /** The route the article actually generated on (spec §10.3.1). */
+    route: GenerationRoute;
+    /** Input tokens served from the prompt cache, summed across the calls. */
+    cacheReadTokens: number;
     quotes: GeneratedArticleT["quotes"];
     managerMentions: GeneratedArticleT["managerMentions"];
     /** Explicit predictions, stored on `aiContent.claims` with `outcome: "open"` (spec §8.4). */
@@ -447,217 +641,20 @@ function shouldRunLlmFactCheck(contentType: string, facts: FactsBlock): boolean 
 }
 
 /* ------------------------------------------------------------------------------------------- *
- * Service
+ * Request preparation — the one place the article request is built (spec §10.3.5)
+ *
+ * `prepareArticleRequest` returns exactly what the direct path sends, so `convex/aiBatch.ts` can
+ * put the same `params` into a Message Batch and finish the article with
+ * `completeArticleFromMessage` on the other side. Nothing in this module imports Convex.
  * ------------------------------------------------------------------------------------------- */
 
-export class ContentGenerationService {
-  private modelConfig = {
-    primary: "claude-opus-5",
-    fallback: "claude-sonnet-5",
-    maxRetries: 3,
-  };
-
-  async generateContent(request: GenerationRequest, apiKey: string): Promise<GeneratedContent> {
-    console.log("=== ContentGenerationService.generateContent START ===");
-    console.log("Request:", {
-      contentType: request.contentType,
-      persona: request.persona,
-      hasCustomContext: !!request.customContext,
-      commentResponses: request.commentResponses?.length ?? 0,
-      nonRespondents: request.nonRespondents?.length ?? 0,
-      relationships: request.relationships?.length ?? 0,
-    });
-
-    const anthropic = new Anthropic({ apiKey });
-    const startTime = Date.now();
-
-    try {
-      const promptOptions: PromptBuilderOptions = {
-        leagueId: request.leagueId,
-        contentType: request.contentType,
-        persona: request.persona,
-        leagueData: {
-          ...request.leagueData,
-          memorableMoments: request.leagueData.memorableMoments || [],
-        },
-        customContext: request.customContext,
-        includeExamples: true,
-        commentResponses: request.commentResponses,
-        nonRespondents: request.nonRespondents,
-        relationships: request.relationships,
-        priorClaims: request.priorClaims,
-        priorRecord: request.priorRecord,
-      };
-
-      const built = await generatePrompt(promptOptions);
-      const { systemPrompt, facts, maxTokens } = built;
-      let userPrompt = built.userPrompt;
-
-      // The FACTS ledger is normative; this is only a readable rendering of the same quotes.
-      if (request.commentResponses && request.commentResponses.length > 0) {
-        userPrompt = enhancePromptWithComments(userPrompt, {
-          commentResponses: request.commentResponses,
-          nonRespondents: request.nonRespondents ?? [],
-          contentType: request.contentType,
-          week: request.leagueData.currentWeek,
-        });
-      }
-
-      const { structuredData, response } = await this.callClaudeStructured(
-        anthropic,
-        systemPrompt,
-        userPrompt,
-        maxTokens
-      );
-
-      // --- Verification + failure policy -----------------------------------------------------
-      let article = structuredData;
-      let violations = verifyArticle(article, facts);
-      let sectionsRegenerated = 0;
-
-      const sectionNames = new Set(article.sections.map(section => section.name));
-      const blockedSections = [
-        ...new Set(
-          violations
-            .filter(v => v.severity === 'block' && v.section && sectionNames.has(v.section))
-            .map(v => v.section as string)
-        ),
-      ];
-
-      if (blockedSections.length > 0) {
-        console.warn(`Verifier blocked ${blockedSections.length} section(s); regenerating once`);
-        try {
-          const rewritten = await this.regenerateSections(
-            anthropic,
-            systemPrompt,
-            facts,
-            article,
-            blockedSections,
-            violations.filter(v => v.severity === 'block'),
-            maxTokens
-          );
-          if (rewritten.length > 0) {
-            const droppedQuoteIds = quoteIdsIn(violations.filter(v => v.severity === 'block'));
-            article = {
-              ...article,
-              sections: article.sections.map(section => {
-                const replacement = rewritten.find(candidate => candidate.name === section.name);
-                if (!replacement) return section;
-                // A rewrite must not silently lose a pull quote that was never the problem.
-                return {
-                  ...replacement,
-                  content: preserveQuoteDirectives(section.content, replacement.content, droppedQuoteIds),
-                };
-              }),
-            };
-            sectionsRegenerated = rewritten.length;
-            violations = verifyArticle(article, facts);
-          }
-        } catch (regenerationError) {
-          console.warn("Section regeneration failed; falling through to strip", regenerationError);
-        }
-      }
-
-      const deterministicBlocks = violations.filter(v => v.severity === 'block').length;
-      const deterministicStrips = violations.filter(v => v.severity === 'strip').length;
-
-      if (deterministicBlocks > 0 || deterministicStrips > 0) {
-        article = applyStrips(article, violations);
-      }
-
-      // --- Optional LLM fact-check pass (spec §8.6) -------------------------------------------
-      // Only after a clean deterministic verify, and only where a second opinion is worth 800
-      // tokens: the two long-form draft/season pieces, and anything carrying quotes. A failure of
-      // the pass itself is logged and ignored — it must never cost the caller an article.
-      if (
-        deterministicBlocks === 0 &&
-        deterministicStrips === 0 &&
-        shouldRunLlmFactCheck(request.contentType, facts)
-      ) {
-        const findings = await this.factCheckWithLlm(anthropic, facts, article);
-        if (findings.length > 0) {
-          violations = [...violations, ...findings];
-          if (findings.some(finding => finding.severity === 'strip')) {
-            article = applyStrips(article, findings);
-          }
-        }
-      }
-
-      // --- Assemble -------------------------------------------------------------------------
-      const title = article.title;
-      const summary = article.summary;
-      let content = `# ${title}\n\n`;
-      article.sections.forEach(section => {
-        content += `## ${section.name}\n\n${section.content}\n\n`;
-      });
-
-      const stats: VerifierStats = {
-        blocks: violations.filter(v => v.severity === 'block').length,
-        strips: violations.filter(v => v.severity === 'strip').length,
-        warns: violations.filter(v => v.severity === 'warn').length,
-        sectionsRegenerated,
-        factsCount: countFacts(facts),
-        wordCount: countWords(content),
-        quotesOffered: facts.quotes.length,
-        quotesUsed: article.quotes?.length ?? 0,
-      };
-
-      const factsTeamById = new Map(facts.teams.map(team => [team.id, team]));
-      const featuredTeams = [...article.featuredTeams]
-        .sort((a, b) => b.mentions - a.mentions)
-        .slice(0, 5)
-        .map(team => factsTeamById.get(team.teamId)?.teamId || team.teamName);
-
-      const featuredPlayers = [...article.featuredPlayers]
-        .sort((a, b) => b.mentions - a.mentions)
-        .slice(0, 10)
-        .map(player => player.playerName);
-
-      const metadata: GeneratedContent["metadata"] = {
-        week: request.leagueData.currentWeek,
-        featuredTeams,
-        featuredPlayers,
-        tags: this.generateTags(request.contentType, request.persona),
-        creditsUsed: contentTemplates[request.contentType]?.creditCost ?? 0,
-        generationTime: Date.now() - startTime,
-        modelUsed: this.modelConfig.primary,
-        promptTokens: response.usage?.input_tokens || 0,
-        completionTokens: response.usage?.output_tokens || 0,
-        quotes: article.quotes ?? [],
-        managerMentions: article.managerMentions ?? [],
-        claims: article.claims ?? [],
-        reviewFlags: violations,
-        factsMissing: facts.missing,
-        verifierStats: stats,
-      };
-
-      console.log("=== ContentGenerationService.generateContent SUCCESS ===", stats);
-
-      return { title, content, summary, metadata };
-    } catch (error) {
-      if (error instanceof InsufficientDataError) {
-        console.error("Generation refused for lack of data:", error.message);
-        throw error;
-      }
-      console.error("=== ContentGenerationService.generateContent ERROR ===");
-      console.error('Content generation failed:', error);
-      throw new Error('Failed to generate content. Please try again.');
-    }
-  }
-
-  private async callClaudeStructured(
-    anthropic: Anthropic,
-    systemPrompt: string,
-    userPrompt: string,
-    maxTokens: number
-  ): Promise<{ structuredData: GeneratedArticleT; response: AnthropicResponse }> {
-    const structuredUserPrompt = `${userPrompt}
-
-OUTPUT CONTRACT
+const OUTPUT_CONTRACT = `OUTPUT CONTRACT
 Return one call to the generate_article tool. Requirements:
 - sections[].name is the heading a reader sees, written in your voice — never a template field name.
 - featuredTeams[].teamId and featuredPlayers[].playerId/fantasyTeamId are ids copied from <FACTS>.
 - keyStats[].source is the dotted <FACTS> path the number came from, e.g. "teams.T3.pointsFor".
+- Use only the ledger quotes that belong in this story. You are not required to use every quote,
+  and you must never tack an unrelated quote onto the end of a piece to use it up.
 - quotes[] lists every ledger quote you used, text copied character-for-character from facts.quotes,
   with your in-voice reply to it in writerResponse. Each of those quotes is placed in the body with
   its own ":::quote{id=…}" directive line and is never repeated inside quotation marks.
@@ -667,135 +664,326 @@ Return one call to the generate_article tool. Requirements:
   opinions, grades or descriptions of the present in claims — only statements about what will happen.
 - Word counts are ceilings. A shorter accurate section beats a padded one.`;
 
-    const build = (model: string, tokens: number): Anthropic.MessageCreateParamsNonStreaming => ({
-      model,
-      max_tokens: tokens,
-      output_config: { effort: ARTICLE_EFFORT },
-      system: systemPrompt,
-      messages: [{ role: 'user' as const, content: structuredUserPrompt }],
-      tools: [
-        {
-          name: "generate_article",
-          description: "Generate a structured fantasy football article",
-          input_schema: { ...zodToJsonSchema(GeneratedArticle), type: 'object' } as const,
-        },
-      ],
-      tool_choice: { type: "tool" as const, name: "generate_article" },
-    });
+/**
+ * The system prompt is byte-stable per persona (contract + voice + quote rules, no timestamps),
+ * so it is worth a cache breakpoint: repeat generations for the same writer read it at 0.1x.
+ */
+// Article system prompts are NOT cached on purpose: the template and missing-data blocks make the
+// prompt differ per content type, so the matrix run saw zero cache reads and paid the 25% write
+// premium on every call. The interviewer keeps caching (its system prompt is stable and its calls
+// cluster in time) - see conversation-service.ts.
 
-    // Thinking tokens (output_config.effort) count against max_tokens, so a long article can be
-    // cut off mid tool call. The API then returns a partial or missing tool_use input, which
-    // surfaces as a Zod error on required fields. Retry once with a larger budget before giving up.
-    let message = await this.createWithFallback(anthropic, model => build(model, maxTokens));
-    if (message.stop_reason === 'max_tokens') {
-      const bigger = Math.min(maxTokens * 2, MAX_STRUCTURED_TOKENS);
-      console.warn(`Structured output hit max_tokens (${maxTokens}); retrying with ${bigger}`);
-      message = await this.createWithFallback(anthropic, model => build(model, bigger));
-      if (message.stop_reason === 'max_tokens') {
-        throw new Error(
-          `Article output exceeded the ${bigger}-token budget twice; shorten the template ceilings`
-        );
-      }
-    }
-
-    let parsed = this.parseArticleToolCall(message);
-    if (!parsed.success) {
-      console.warn(
-        `Structured output unusable on ${message.model} (${parsed.error}); retrying on fallback model`
-      );
-      message = await anthropic.messages.create(
-        build(this.modelConfig.fallback, Math.min(maxTokens * 2, MAX_STRUCTURED_TOKENS))
-      );
-      parsed = this.parseArticleToolCall(message);
-      if (!parsed.success) {
-        throw new Error(`No usable structured output received: ${parsed.error}`);
-      }
-    }
-
-    const structuredData = parsed.data;
-    return {
-      structuredData,
-      response: {
-        content: [{ text: JSON.stringify(structuredData) }],
-        usage: message.usage
-          ? { input_tokens: message.usage.input_tokens, output_tokens: message.usage.output_tokens }
-          : undefined,
+function articleParams(
+  model: string,
+  maxTokens: number,
+  effort: RouteEffort,
+  systemPrompt: string,
+  userPrompt: string
+): Anthropic.MessageCreateParamsNonStreaming {
+  return {
+    model,
+    max_tokens: maxTokens,
+    output_config: { effort },
+    system: systemPrompt,
+    messages: [{ role: 'user' as const, content: userPrompt }],
+    tools: [
+      {
+        name: 'generate_article',
+        strict: true,
+        description: 'Generate a structured fantasy football article',
+        input_schema: { ...zodToJsonSchema(GeneratedArticle), type: 'object' } as const,
       },
-    };
+    ],
+    tool_choice: { type: 'tool' as const, name: 'generate_article' },
+  };
+}
+
+export interface PreparedArticleRequest {
+  /** Exactly what the direct path sends, and exactly what a batch request should carry. */
+  params: Anthropic.MessageCreateParamsNonStreaming;
+  facts: FactsBlock;
+  systemPrompt: string;
+  /** The user turn as sent: the prose prompt plus the output contract. */
+  userPrompt: string;
+  route: GenerationRoute;
+  maxTokens: number;
+  /** Kept so `completeArticleFromMessage` can finish the article without the caller's help. */
+  request: GenerationRequest;
+  /** `Date.now()` at prepare time; the direct path reports it as `metadata.generationTime`. */
+  startedAt: number;
+}
+
+/** Build the FACTS block, both prompts and the request params for one article. */
+export async function prepareArticleRequest(
+  request: GenerationRequest
+): Promise<PreparedArticleRequest> {
+  const startedAt = Date.now();
+
+  const promptOptions: PromptBuilderOptions = {
+    leagueId: request.leagueId,
+    contentType: request.contentType,
+    persona: request.persona,
+    leagueData: {
+      ...request.leagueData,
+      memorableMoments: request.leagueData.memorableMoments || [],
+    },
+    customContext: request.customContext,
+    includeExamples: true,
+    commentResponses: request.commentResponses,
+    nonRespondents: request.nonRespondents,
+    relationships: request.relationships,
+    priorClaims: request.priorClaims,
+    priorRecord: request.priorRecord,
+  };
+
+  const built = await generatePrompt(promptOptions);
+  const { systemPrompt, facts, maxTokens } = built;
+  let prose = built.userPrompt;
+
+  // The FACTS ledger is normative; this is only a readable rendering of the same quotes.
+  if (request.commentResponses && request.commentResponses.length > 0) {
+    prose = enhancePromptWithComments(prose, {
+      commentResponses: request.commentResponses,
+      nonRespondents: request.nonRespondents ?? [],
+      contentType: request.contentType,
+      week: request.leagueData.currentWeek,
+    });
   }
 
-  /**
-   * Second opinion from Sonnet 5 after a clean deterministic verify (spec §8.6). `contradicted`
-   * strips the sentence and flags it; `unsupported` only warns. Any failure of the pass itself —
-   * transport, refusal, malformed output — is logged and swallowed.
-   */
-  private async factCheckWithLlm(
-    anthropic: Anthropic,
-    facts: FactsBlock,
-    article: GeneratedArticleT
-  ): Promise<Violation[]> {
-    try {
-      const body = article.sections
-        .map(section => `## ${section.name}\n${section.content}`)
-        .join('\n\n');
+  const userPrompt = `${prose}\n\n${OUTPUT_CONTRACT}`;
+  const route = resolveRoute(request.contentType);
 
-      const message = await anthropic.messages.create({
-        model: this.modelConfig.fallback,
-        max_tokens: 800,
-        output_config: { effort: 'low' },
-        system: FACT_CHECK_SYSTEM,
-        messages: [
-          { role: 'user' as const, content: `${serializeFacts(facts)}\n\nARTICLE BODY\n\n${body}` },
-        ],
-        tools: [
-          {
-            name: "report_findings",
-            description: "Report every factual claim in the body that FACTS does not support",
-            input_schema: { ...zodToJsonSchema(FactCheckFindings), type: 'object' } as const,
-          },
-        ],
-        tool_choice: { type: "tool" as const, name: "report_findings" },
-      });
+  return {
+    params: articleParams(route.model, maxTokens, route.effort, systemPrompt, userPrompt),
+    facts,
+    systemPrompt,
+    userPrompt,
+    route,
+    maxTokens,
+    request,
+    startedAt,
+  };
+}
 
-      const toolUse = message.content.find(
-        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
-      );
-      if (!toolUse) return [];
+/* ------------------------------------------------------------------------------------------- *
+ * Model calls
+ * ------------------------------------------------------------------------------------------- */
 
-      const sectionNames = new Set(article.sections.map(section => section.name));
-      const findings = FactCheckFindings.parse(toolUse.input).findings;
+/**
+ * Runs a request on the routed model, retrying on the route's fallback for transport failures and
+ * for safety refusals. Never sends temperature — Claude 5-family models reject sampling params.
+ * Every discarded attempt is billed, so its usage lands in `ledger`.
+ */
+async function createWithFallback(
+  anthropic: Anthropic,
+  route: GenerationRoute,
+  build: (model: string) => Anthropic.MessageCreateParamsNonStreaming,
+  ledger: CostLedger
+): Promise<Anthropic.Message> {
+  const fallback = fallbackModelFor(route);
+  let message: Anthropic.Message;
 
-      return findings
-        .filter(finding => finding.verdict !== 'supported')
-        .map(finding => ({
-          kind: finding.verdict === 'contradicted' ? ('llm_contradicted' as const) : ('llm_unsupported' as const),
-          detail: `"${finding.claim}"${finding.factPath ? ` (${finding.factPath})` : ''}`,
-          section: sectionNames.has(finding.sectionName) ? finding.sectionName : undefined,
-          severity: finding.verdict === 'contradicted' ? ('strip' as const) : ('warn' as const),
-        }));
-    } catch (error) {
-      console.warn("LLM fact-check pass failed; keeping the deterministic result", error);
-      return [];
+  try {
+    message = await anthropic.messages.create(build(route.model));
+  } catch (error: unknown) {
+    // Strict tool schemas guarantee the tool input validates, which removes a whole class of
+    // parse failures. If the API rejects a schema feature under strict mode, retry without it.
+    if (error instanceof Anthropic.BadRequestError && /strict/i.test(error.message)) {
+      console.warn('Strict tool schema rejected by the API; retrying without strict:', error.message);
+      message = await anthropic.messages.create(withoutStrictTools(build(route.model)));
+    } else if (!shouldFallback(error)) {
+      console.error('Claude API call failed:', error);
+      throw error;
+    } else {
+      console.warn(`${route.model} failed, trying ${fallback}...`);
+      message = await anthropic.messages.create(build(fallback));
     }
   }
 
-  /** Rewrites only the sections a `block` violation landed in, once. */
-  private async regenerateSections(
-    anthropic: Anthropic,
-    systemPrompt: string,
-    facts: FactsBlock,
-    article: GeneratedArticleT,
-    sectionNames: string[],
-    blockViolations: Violation[],
-    maxTokens: number
-  ): Promise<GeneratedArticleT["sections"]> {
-    const droppedQuoteIds = quoteIdsIn(blockViolations);
-    const surrounding = article.sections
-      .filter(section => !sectionNames.includes(section.name))
+  if (message.stop_reason === 'refusal') {
+    console.warn(
+      `${message.model} refused (category: ${message.stop_details?.category ?? 'unknown'}), trying ${fallback}...`
+    );
+    accrue(ledger, message);
+    message = await anthropic.messages.create(build(fallback));
+    if (message.stop_reason === 'refusal') {
+      throw new Error(
+        `Content generation was refused by the model (category: ${message.stop_details?.category ?? 'unknown'})`
+      );
+    }
+  }
+
+  return message;
+}
+
+/** Locate and validate the generate_article tool call, reporting why it is unusable. */
+function parseArticleToolCall(
+  message: Anthropic.Message
+): { success: true; data: GeneratedArticleT } | { success: false; error: string } {
+  const toolUse = message.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+  );
+  if (!toolUse) {
+    return { success: false, error: `no tool_use block (stop_reason ${message.stop_reason})` };
+  }
+  const result = GeneratedArticle.safeParse(unwrapToolInput(toolUse.input));
+  if (result.success) {
+    // Never trust the self-reported count.
+    result.data.sections = result.data.sections.map(section => ({
+      ...section,
+      wordCount: countWordsIn(section.content),
+    }));
+    return { success: true, data: result.data };
+  }
+
+  const issues = result.error.issues
+    .slice(0, 3)
+    .map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('; ');
+  // Diagnostics: what did the model actually send? A text block alongside an empty tool
+  // input usually means it explained a refusal or a data gap in prose instead of writing.
+  const inputKeys =
+    toolUse.input && typeof toolUse.input === 'object'
+      ? Object.keys(toolUse.input as Record<string, unknown>)
+      : [typeof toolUse.input];
+  const textBlocks = message.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map(block => block.text.slice(0, 400));
+  console.warn('Unusable generate_article tool call', {
+    stopReason: message.stop_reason,
+    inputKeys,
+    inputPreview: JSON.stringify(toolUse.input).slice(0, 600),
+    textBlocks,
+    outputTokens: message.usage?.output_tokens,
+  });
+  return { success: false, error: `${issues} (stop_reason ${message.stop_reason})` };
+}
+
+/**
+ * The direct path's create step: the routed call plus the truncation and unusable-output retries.
+ * Only discarded attempts are billed into `ledger`; the returned message is charged by
+ * `completeArticleFromMessage`, which is the single place batch pricing is applied.
+ */
+async function createArticleMessage(
+  anthropic: Anthropic,
+  prepared: PreparedArticleRequest,
+  ledger: CostLedger
+): Promise<Anthropic.Message> {
+  const { route, maxTokens, systemPrompt, userPrompt } = prepared;
+  const build = (model: string, tokens: number) =>
+    articleParams(model, tokens, route.effort, systemPrompt, userPrompt);
+
+  // Thinking tokens (output_config.effort) count against max_tokens, so a long article can be
+  // cut off mid tool call. The API then returns a partial or missing tool_use input, which
+  // surfaces as a Zod error on required fields. Retry once with a larger budget before giving up.
+  let message = await createWithFallback(anthropic, route, model => build(model, maxTokens), ledger);
+  if (message.stop_reason === 'max_tokens') {
+    accrue(ledger, message);
+    const bigger = Math.min(maxTokens * 2, MAX_STRUCTURED_TOKENS);
+    console.warn(`Structured output hit max_tokens (${maxTokens}); retrying with ${bigger}`);
+    message = await createWithFallback(anthropic, route, model => build(model, bigger), ledger);
+    if (message.stop_reason === 'max_tokens') {
+      accrue(ledger, message);
+      throw new Error(
+        `Article output exceeded the ${bigger}-token budget twice; shorten the template ceilings`
+      );
+    }
+  }
+
+  const parsed = parseArticleToolCall(message);
+  if (!parsed.success) {
+    accrue(ledger, message);
+    const fallback = fallbackModelFor(route);
+    console.warn(
+      `Structured output unusable on ${message.model} (${parsed.error}); retrying on ${fallback}`
+    );
+    message = await anthropic.messages.create(
+      build(fallback, Math.min(maxTokens * 2, MAX_STRUCTURED_TOKENS))
+    );
+    const retry = parseArticleToolCall(message);
+    if (!retry.success) {
+      accrue(ledger, message);
+      throw new Error(`No usable structured output received: ${retry.error}`);
+    }
+  }
+
+  return message;
+}
+
+/**
+ * Second opinion from Sonnet 5 after a clean deterministic verify (spec §8.6). `contradicted`
+ * strips the sentence and flags it; `unsupported` only warns. Any failure of the pass itself —
+ * transport, refusal, malformed output — is logged and swallowed.
+ */
+async function factCheckWithLlm(
+  anthropic: Anthropic,
+  facts: FactsBlock,
+  article: GeneratedArticleT,
+  ledger: CostLedger
+): Promise<Violation[]> {
+  try {
+    const body = article.sections
       .map(section => `## ${section.name}\n${section.content}`)
       .join('\n\n');
 
-    const prompt = `${serializeFacts(facts)}
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 800,
+      output_config: { effort: 'low' },
+      system: FACT_CHECK_SYSTEM,
+      messages: [
+        { role: 'user' as const, content: `${serializeFacts(facts)}\n\nARTICLE BODY\n\n${body}` },
+      ],
+      tools: [
+        {
+          name: 'report_findings',
+          description: 'Report every factual claim in the body that FACTS does not support',
+          input_schema: { ...zodToJsonSchema(FactCheckFindings), type: 'object' } as const,
+        },
+      ],
+      tool_choice: { type: 'tool' as const, name: 'report_findings' },
+    });
+    accrue(ledger, message);
+
+    const toolUse = message.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+    );
+    if (!toolUse) return [];
+
+    const sectionNames = new Set(article.sections.map(section => section.name));
+    const findings = FactCheckFindings.parse(toolUse.input).findings;
+
+    return findings
+      .filter(finding => finding.verdict !== 'supported')
+      .map(finding => ({
+        kind: finding.verdict === 'contradicted' ? ('llm_contradicted' as const) : ('llm_unsupported' as const),
+        detail: `"${finding.claim}"${finding.factPath ? ` (${finding.factPath})` : ''}`,
+        section: sectionNames.has(finding.sectionName) ? finding.sectionName : undefined,
+        severity: finding.verdict === 'contradicted' ? ('strip' as const) : ('warn' as const),
+      }));
+  } catch (error) {
+    console.warn('LLM fact-check pass failed; keeping the deterministic result', error);
+    return [];
+  }
+}
+
+/** Rewrites only the sections a `block` violation landed in, once, on the article's own route. */
+async function regenerateSections(
+  anthropic: Anthropic,
+  prepared: PreparedArticleRequest,
+  article: GeneratedArticleT,
+  sectionNames: string[],
+  blockViolations: Violation[],
+  ledger: CostLedger
+): Promise<GeneratedArticleT['sections']> {
+  const { facts, systemPrompt, route, maxTokens } = prepared;
+  const droppedQuoteIds = quoteIdsIn(blockViolations);
+  const surrounding = article.sections
+    .filter(section => !sectionNames.includes(section.name))
+    .map(section => `## ${section.name}\n${section.content}`)
+    .join('\n\n');
+
+  const prompt = `${serializeFacts(facts)}
 
 PRIOR ATTEMPT VIOLATIONS — a fact-checker rejected part of your article. Every item below is a
 statement that is not supported by <FACTS>. Rewrite only the listed sections so that none of these
@@ -825,133 +1013,302 @@ each on its own line, and do not add a directive for any other id.
 READ-ONLY CONTEXT — the rest of the article. Do not rewrite or repeat these:
 ${surrounding || '(no other sections)'}`;
 
-    const build = (model: string, tokens: number): Anthropic.MessageCreateParamsNonStreaming => ({
-      model,
-      max_tokens: tokens,
-      output_config: { effort: ARTICLE_EFFORT },
-      system: systemPrompt,
-      messages: [{ role: 'user' as const, content: prompt }],
-      tools: [
-        {
-          name: "rewrite_sections",
-          description: "Rewrite the listed article sections so they are fully grounded in <FACTS>",
-          input_schema: { ...zodToJsonSchema(RegeneratedSections), type: 'object' } as const,
-        },
-      ],
-      tool_choice: { type: "tool" as const, name: "rewrite_sections" },
+  const build = (model: string, tokens: number): Anthropic.MessageCreateParamsNonStreaming => ({
+    model,
+    max_tokens: tokens,
+    output_config: { effort: route.effort },
+    system: systemPrompt,
+    messages: [{ role: 'user' as const, content: prompt }],
+    tools: [
+      {
+        name: 'rewrite_sections',
+        strict: true,
+        description: 'Rewrite the listed article sections so they are fully grounded in <FACTS>',
+        input_schema: { ...zodToJsonSchema(RegeneratedSections), type: 'object' } as const,
+      },
+    ],
+    tool_choice: { type: 'tool' as const, name: 'rewrite_sections' },
+  });
+
+  let message = await createWithFallback(anthropic, route, model => build(model, maxTokens), ledger);
+  accrue(ledger, message);
+  if (message.stop_reason === 'max_tokens') {
+    const bigger = Math.min(maxTokens * 2, MAX_STRUCTURED_TOKENS);
+    console.warn(`Section rewrite hit max_tokens (${maxTokens}); retrying with ${bigger}`);
+    message = await createWithFallback(anthropic, route, model => build(model, bigger), ledger);
+    accrue(ledger, message);
+    // Still truncated: give up on the rewrite and let the strip policy handle the sections.
+    if (message.stop_reason === 'max_tokens') return [];
+  }
+
+  const toolUse = message.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+  );
+  if (!toolUse) return [];
+  const parsed = RegeneratedSections.safeParse(unwrapToolInput(toolUse.input));
+  if (!parsed.success) {
+    console.warn('Section rewrite returned an unusable tool call; falling back to strip policy');
+    return [];
+  }
+  return parsed.data.sections
+    .filter(section => sectionNames.includes(section.name))
+    .map(section => ({ ...section, wordCount: countWordsIn(section.content) }));
+}
+
+function generateTags(contentType: string, persona: string): string[] {
+  const tags = [contentType, persona];
+
+  const contentTypeTags: Record<string, string[]> = {
+    weekly_recap: ['recap', 'weekly', 'matchups'],
+    power_rankings: ['rankings', 'power', 'standings'],
+    trade_analysis: ['trade', 'analysis', 'transaction'],
+    waiver_wire_report: ['waiver', 'pickups', 'free-agents'],
+    mock_draft: ['draft', 'mock', 'preseason'],
+    rivalry_week_special: ['rivalry', 'matchup', 'hype'],
+    championship_manifesto: ['championship', 'finals', 'playoffs'],
+  };
+
+  if (contentTypeTags[contentType]) {
+    tags.push(...contentTypeTags[contentType]);
+  }
+
+  return tags;
+}
+
+/* ------------------------------------------------------------------------------------------- *
+ * Completion — parse → verify → (rare) section regeneration → optional fact-check → assemble
+ *
+ * Shared by the direct path and by `convex/aiBatch.ts`. `opts.batch` says the message came back
+ * from a Message Batch and is billed at 50%; the direct sub-calls it may make (a section rewrite,
+ * the fact-check pass) are always billed at list.
+ * ------------------------------------------------------------------------------------------- */
+
+export async function completeArticleFromMessage(
+  message: Anthropic.Message,
+  prepared: PreparedArticleRequest,
+  apiKey: string,
+  opts?: { batch?: boolean; startedAt?: number }
+): Promise<GeneratedContent> {
+  const { facts, request, route } = prepared;
+  const ledger: CostLedger = { usd: 0, cacheReadTokens: 0 };
+  accrue(ledger, message, { batch: opts?.batch });
+
+  const parsed = parseArticleToolCall(message);
+  if (!parsed.success) {
+    throw new Error(`No usable structured output received: ${parsed.error}`);
+  }
+
+  const anthropic = new Anthropic({ apiKey });
+  let article = parsed.data;
+  let violations = verifyArticle(article, facts);
+  let sectionsRegenerated = 0;
+
+  const sectionNames = new Set(article.sections.map(section => section.name));
+  const blockedSections = [
+    ...new Set(
+      violations
+        .filter(v => v.severity === 'block' && v.section && sectionNames.has(v.section))
+        .map(v => v.section as string)
+    ),
+  ];
+
+  if (blockedSections.length > 0) {
+    console.warn(`Verifier blocked ${blockedSections.length} section(s); regenerating once`);
+    try {
+      const rewritten = await regenerateSections(
+        anthropic,
+        prepared,
+        article,
+        blockedSections,
+        violations.filter(v => v.severity === 'block'),
+        ledger
+      );
+      if (rewritten.length > 0) {
+        const droppedQuoteIds = quoteIdsIn(violations.filter(v => v.severity === 'block'));
+        article = {
+          ...article,
+          sections: article.sections.map(section => {
+            const replacement = rewritten.find(candidate => candidate.name === section.name);
+            if (!replacement) return section;
+            // A rewrite must not silently lose a pull quote that was never the problem.
+            return {
+              ...replacement,
+              content: preserveQuoteDirectives(section.content, replacement.content, droppedQuoteIds),
+            };
+          }),
+        };
+        sectionsRegenerated = rewritten.length;
+        violations = verifyArticle(article, facts);
+      }
+    } catch (regenerationError) {
+      console.warn('Section regeneration failed; falling through to strip', regenerationError);
+    }
+  }
+
+  // Thin-article guard: a piece with fewer than half its template's sections, or under 30% of the
+  // template's word ceiling, is held for review instead of published. This is what a writer does
+  // when the data is missing and the contract forbids inventing - correct, but not publishable.
+  {
+    const template = contentTemplates[prepared.request.contentType];
+    const expectedSections = template?.sections?.length ?? 0;
+    const ceiling = template?.estimatedWords ?? 0;
+    const words = article.sections.reduce((sum, section) => sum + countWordsIn(section.content), 0);
+    const tooFewSections = expectedSections > 0 && article.sections.length < Math.ceil(expectedSections / 2);
+    const tooShort = ceiling > 0 && words < Math.round(ceiling * 0.3);
+    if (tooFewSections || tooShort) {
+      violations.push({
+        kind: 'thin_article',
+        severity: 'strip',
+        detail: `Article has ${article.sections.length} of ${expectedSections} sections and ${words} words (ceiling ${ceiling}); held for review`,
+      });
+    }
+  }
+
+  const deterministicBlocks = violations.filter(v => v.severity === 'block').length;
+  const deterministicStrips = violations.filter(v => v.severity === 'strip').length;
+
+  if (deterministicBlocks > 0 || deterministicStrips > 0) {
+    article = applyStrips(article, violations);
+  }
+
+  // --- Optional LLM fact-check pass (spec §8.6) --------------------------------------------
+  // Only after a clean deterministic verify, and only where a second opinion is worth 800
+  // tokens: the two long-form draft/season pieces, and anything carrying quotes. A failure of
+  // the pass itself is logged and ignored — it must never cost the caller an article.
+  if (
+    deterministicBlocks === 0 &&
+    deterministicStrips === 0 &&
+    shouldRunLlmFactCheck(request.contentType, facts)
+  ) {
+    const findings = await factCheckWithLlm(anthropic, facts, article, ledger);
+    if (findings.length > 0) {
+      violations = [...violations, ...findings];
+      if (findings.some(finding => finding.severity === 'strip')) {
+        article = applyStrips(article, findings);
+      }
+    }
+  }
+
+  // --- Assemble ----------------------------------------------------------------------------
+  const title = article.title;
+  const summary = article.summary;
+  let content = `# ${title}\n\n`;
+  article.sections.forEach(section => {
+    content += `## ${section.name}\n\n${section.content}\n\n`;
+  });
+
+  const stats: VerifierStats = {
+    blocks: violations.filter(v => v.severity === 'block').length,
+    strips: violations.filter(v => v.severity === 'strip').length,
+    warns: violations.filter(v => v.severity === 'warn').length,
+    sectionsRegenerated,
+    factsCount: countFacts(facts),
+    wordCount: countWords(content),
+    quotesOffered: facts.quotes.length,
+    quotesUsed: article.quotes?.length ?? 0,
+  };
+
+  const factsTeamById = new Map(facts.teams.map(team => [team.id, team]));
+  const featuredTeams = [...article.featuredTeams]
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, 5)
+    .map(team => factsTeamById.get(team.teamId)?.teamId || team.teamName);
+
+  const featuredPlayers = [...article.featuredPlayers]
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, 10)
+    .map(player => player.playerName);
+
+  const metadata: GeneratedContent['metadata'] = {
+    week: request.leagueData.currentWeek,
+    featuredTeams,
+    featuredPlayers,
+    tags: generateTags(request.contentType, request.persona),
+    creditsUsed: contentTemplates[request.contentType]?.creditCost ?? 0,
+    generationTime: Date.now() - (opts?.startedAt ?? prepared.startedAt),
+    modelUsed: message.model || route.model,
+    promptTokens: message.usage?.input_tokens ?? 0,
+    completionTokens: message.usage?.output_tokens ?? 0,
+    costUsd: ledger.usd,
+    route,
+    cacheReadTokens: ledger.cacheReadTokens,
+    quotes: article.quotes ?? [],
+    managerMentions: article.managerMentions ?? [],
+    claims: article.claims ?? [],
+    reviewFlags: violations,
+    factsMissing: facts.missing,
+    verifierStats: stats,
+  };
+
+  console.log('=== completeArticleFromMessage SUCCESS ===', {
+    ...stats,
+    model: metadata.modelUsed,
+    effort: route.effort,
+    costUsd: Number(metadata.costUsd.toFixed(4)),
+    cacheReadTokens: metadata.cacheReadTokens,
+  });
+
+  return { title, content, summary, metadata };
+}
+
+/* ------------------------------------------------------------------------------------------- *
+ * Service
+ * ------------------------------------------------------------------------------------------- */
+
+export class ContentGenerationService {
+  /** prepare → create (with the truncation / unusable retries) → complete. */
+  async generateContent(request: GenerationRequest, apiKey: string): Promise<GeneratedContent> {
+    console.log('=== ContentGenerationService.generateContent START ===');
+    const route = resolveRoute(request.contentType);
+    console.log('Request:', {
+      contentType: request.contentType,
+      persona: request.persona,
+      model: route.model,
+      effort: route.effort,
+      hasCustomContext: !!request.customContext,
+      commentResponses: request.commentResponses?.length ?? 0,
+      nonRespondents: request.nonRespondents?.length ?? 0,
+      relationships: request.relationships?.length ?? 0,
     });
 
-    let message = await this.createWithFallback(anthropic, model => build(model, maxTokens));
-    if (message.stop_reason === 'max_tokens') {
-      const bigger = Math.min(maxTokens * 2, MAX_STRUCTURED_TOKENS);
-      console.warn(`Section rewrite hit max_tokens (${maxTokens}); retrying with ${bigger}`);
-      message = await this.createWithFallback(anthropic, model => build(model, bigger));
-      // Still truncated: give up on the rewrite and let the strip policy handle the sections.
-      if (message.stop_reason === 'max_tokens') return [];
-    }
-
-    const toolUse = message.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
-    );
-    if (!toolUse) return [];
-    const parsed = RegeneratedSections.safeParse(toolUse.input);
-    if (!parsed.success) {
-      console.warn('Section rewrite returned an unusable tool call; falling back to strip policy');
-      return [];
-    }
-    return parsed.data.sections.filter(section => sectionNames.includes(section.name));
-  }
-
-  /** Locate and validate the generate_article tool call, reporting why it is unusable. */
-  private parseArticleToolCall(
-    message: Anthropic.Message
-  ): { success: true; data: GeneratedArticleT } | { success: false; error: string } {
-    const toolUse = message.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
-    );
-    if (!toolUse) {
-      return { success: false, error: `no tool_use block (stop_reason ${message.stop_reason})` };
-    }
-    const result = GeneratedArticle.safeParse(toolUse.input);
-    if (!result.success) {
-      const issues = result.error.issues
-        .slice(0, 3)
-        .map(issue => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-        .join('; ');
-      // Diagnostics: what did the model actually send? A text block alongside an empty tool
-      // input usually means it explained a refusal or a data gap in prose instead of writing.
-      const inputKeys =
-        toolUse.input && typeof toolUse.input === 'object'
-          ? Object.keys(toolUse.input as Record<string, unknown>)
-          : [typeof toolUse.input];
-      const textBlocks = message.content
-        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-        .map(block => block.text.slice(0, 400));
-      console.warn('Unusable generate_article tool call', {
-        stopReason: message.stop_reason,
-        inputKeys,
-        inputPreview: JSON.stringify(toolUse.input).slice(0, 600),
-        textBlocks,
-        outputTokens: message.usage?.output_tokens,
-      });
-      return { success: false, error: `${issues} (stop_reason ${message.stop_reason})` };
-    }
-    return { success: true, data: result.data };
-  }
-
-  /**
-   * Runs a request on the primary model, retrying on the fallback for transport failures and for
-   * safety refusals. Never sends temperature — Claude 5-family models reject sampling params.
-   */
-  private async createWithFallback(
-    anthropic: Anthropic,
-    build: (model: string) => Anthropic.MessageCreateParamsNonStreaming
-  ): Promise<Anthropic.Message> {
-    let message: Anthropic.Message;
     try {
-      message = await anthropic.messages.create(build(this.modelConfig.primary));
-    } catch (error: unknown) {
-      if (!shouldFallback(error)) {
-        console.error("Claude API call failed:", error);
+      const prepared = await prepareArticleRequest(request);
+      const anthropic = new Anthropic({ apiKey });
+
+      // Attempts that were thrown away still cost money; they are added to the article's total.
+      const discarded: CostLedger = { usd: 0, cacheReadTokens: 0 };
+      let generated: GeneratedContent | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const message = await createArticleMessage(anthropic, prepared, discarded);
+        generated = await completeArticleFromMessage(message, prepared, apiKey);
+        const thin = (generated.metadata.reviewFlags ?? []).some(flag => flag.kind === 'thin_article');
+        // Measured 2026-09-02: Opus occasionally returns one section and stops ("Let's go to the
+        // tape." and nothing after). One fresh attempt fixes it far more often than a review does.
+        if (thin && attempt === 0) {
+          console.warn('Thin article on first attempt; regenerating once', {
+            contentType: request.contentType,
+            persona: request.persona,
+            words: generated.metadata.verifierStats?.wordCount,
+          });
+          discarded.usd += generated.metadata.costUsd;
+          discarded.cacheReadTokens += generated.metadata.cacheReadTokens;
+          continue;
+        }
+        break;
+      }
+      if (!generated) throw new Error('No article produced');
+      generated.metadata.costUsd += discarded.usd;
+      generated.metadata.cacheReadTokens += discarded.cacheReadTokens;
+      return generated;
+    } catch (error) {
+      if (error instanceof InsufficientDataError) {
+        console.error('Generation refused for lack of data:', error.message);
         throw error;
       }
-      console.warn('Primary model failed, trying fallback...');
-      message = await anthropic.messages.create(build(this.modelConfig.fallback));
+      console.error('=== ContentGenerationService.generateContent ERROR ===');
+      console.error('Content generation failed:', error);
+      throw new Error('Failed to generate content. Please try again.');
     }
-
-    if (message.stop_reason === 'refusal') {
-      console.warn(
-        `Primary model refused (category: ${message.stop_details?.category ?? 'unknown'}), trying fallback...`
-      );
-      message = await anthropic.messages.create(build(this.modelConfig.fallback));
-      if (message.stop_reason === 'refusal') {
-        throw new Error(
-          `Content generation was refused by the model (category: ${message.stop_details?.category ?? 'unknown'})`
-        );
-      }
-    }
-
-    return message;
-  }
-
-  private generateTags(contentType: string, persona: string): string[] {
-    const tags = [contentType, persona];
-
-    const contentTypeTags: Record<string, string[]> = {
-      weekly_recap: ['recap', 'weekly', 'matchups'],
-      power_rankings: ['rankings', 'power', 'standings'],
-      trade_analysis: ['trade', 'analysis', 'transaction'],
-      waiver_wire_report: ['waiver', 'pickups', 'free-agents'],
-      mock_draft: ['draft', 'mock', 'preseason'],
-      rivalry_week_special: ['rivalry', 'matchup', 'hype'],
-      championship_manifesto: ['championship', 'finals', 'playoffs'],
-    };
-
-    if (contentTypeTags[contentType]) {
-      tags.push(...contentTypeTags[contentType]);
-    }
-
-    return tags;
   }
 
   /** Quality gate. Over-generation and verifier blocks both count as issues. */

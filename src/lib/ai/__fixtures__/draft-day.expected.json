@@ -1,6 +1,6 @@
 {
   "fixture": "draft-day",
-  "note": "The draft payload is complete, so draft_rankings has nothing to name but the silent manager and the empty receipts. Everything that needs games played refuses.",
+  "note": "The draft payload is complete, so draft_rankings has nothing to name but the silent manager and the empty receipts. Everything that needs games played - or games about to be played - refuses.",
   "facts": {
     "teams": 10,
     "matchups": 0,
@@ -21,6 +21,14 @@
         "matchup_results — no matchups in the payload",
         "player_scores (rosters) — not available",
         "standings — not available",
+        "quotes — Ruth Tanaka (T10) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": "InsufficientDataError"
+    },
+    "weekly_preview": {
+      "missing": [
+        "upcoming matchups — not available",
         "quotes — Ruth Tanaka (T10) did not respond to the comment request",
         "priorClaims — none. You have no prediction history in this league; do not claim one."
       ],

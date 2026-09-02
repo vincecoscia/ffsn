@@ -5,6 +5,8 @@
  * One dedicated sideline reporter conducts every comment request regardless of who
  * writes the article. She asks at most two questions - a grounded opener and one
  * optional follow-up - and always closes with "Anything else you want on the record?".
+ * That close is a template, not a model call (spec §10.3.2): see `buildClosingMessage`
+ * and `shouldUseTemplatedClose`.
  *
  * Every question must contain at least one verified fact from CONTEXT, and she may
  * never state a fact that is not in CONTEXT. The CONTEXT block is built verbatim from
@@ -16,7 +18,12 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { computeCostUsd } from './content-generation-service';
 import type { RelationshipTier } from './persona-prompts';
+
+/** Sam asks; Opus writes the questions. Reply analysis is a classification job (spec §10.3.2). */
+const QUESTION_MODELS = ['claude-opus-5', 'claude-sonnet-5'] as const;
+const ANALYSIS_MODELS = ['claude-sonnet-5', 'claude-opus-5'] as const;
 
 /** The six selectable writers plus the interviewer, for `writerSentiment` gating. */
 const WRITER_ROSTER: Record<string, string[]> = {
@@ -204,6 +211,51 @@ export interface WriterSentiment {
   evidence: string;
 }
 
+/** What one interviewer call spent (spec §10.3.4). */
+export interface InterviewUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}
+
+/**
+ * One line per interviewer call so token spend is visible in Convex logs and in the cost model
+ * (scripts/measure-interview.ts). Thinking tokens are included in output_tokens.
+ */
+function recordInterviewUsage(
+  response: Anthropic.Message,
+  label: string
+): { usage?: InterviewUsage; costUsd: number } {
+  const usage = response.usage;
+  if (!usage) return { costUsd: 0 };
+  const costUsd = computeCostUsd(response.model, usage);
+  console.log(
+    `[interview usage] model=${response.model} input=${usage.input_tokens} output=${usage.output_tokens}` +
+      (usage.cache_read_input_tokens ? ` cache_read=${usage.cache_read_input_tokens}` : '') +
+      ` cost=$${costUsd.toFixed(4)} call=${label}`
+  );
+  return {
+    usage: {
+      model: response.model,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      cacheReadTokens: usage.cache_read_input_tokens || 0,
+      cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+    },
+    costUsd,
+  };
+}
+
+/**
+ * Sam's system prompt is byte-stable, so it carries a cache breakpoint: a manager's second and
+ * third turn read it at 0.1x input. Nothing volatile (no timestamps, no ids) may move into it.
+ */
+function cachedSystem(text: string): Anthropic.TextBlockParam[] {
+  return [{ type: 'text', text, cache_control: { type: 'ephemeral' } }];
+}
+
 export interface ResponseAnalysisResult {
   responseQuality: number; // 0-100
   completeness: number; // 0-100
@@ -216,6 +268,10 @@ export interface ResponseAnalysisResult {
   offTopicScore: number; // 0-100, higher means more off-topic
   /** Only personas actually named in context or in the reply. */
   writerSentiment: WriterSentiment[];
+  /** Undefined when the local heuristic fallback answered instead of a model. */
+  usage?: InterviewUsage;
+  /** Measured API cost of this analysis. 0 when no model call was made. */
+  costUsd: number;
 }
 
 // AI response structure
@@ -234,19 +290,92 @@ export interface AIConversationResult {
     severity: "low" | "medium" | "high";
     reason: string;
   };
+  /** Undefined for the templated close, which makes no model call. */
+  usage?: InterviewUsage;
+  /** Measured API cost of this turn. 0 for the templated close. */
+  costUsd: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The templated close (spec §10.3.2)                                          */
+/*                                                                             */
+/* The last thing Sam says is the same three sentences every time, so it is    */
+/* not worth a model call. All three variants end on the sanctioned closing    */
+/* question, so `postQuoteApprovalMessage` still fires off `intent: "closing"`.*/
+/* -------------------------------------------------------------------------- */
+
+export const CLOSING_QUESTION = 'Anything else you want on the record?';
+
+const CLOSING_VARIANTS: Array<(name: string) => string> = [
+  (name) => `Thanks${name}. That's everything I needed. ${CLOSING_QUESTION}`,
+  (name) => `Appreciate the time${name}. I've got what I need for the story. ${CLOSING_QUESTION}`,
+  (name) => `Got it${name}. I'll let you get back to your lineup. ${CLOSING_QUESTION}`,
+];
+
+/** First token of a manager's name, or `undefined` when there isn't one to use. */
+export function managerFirstName(managerName?: string): string | undefined {
+  const first = managerName?.trim().split(/\s+/)[0];
+  return first && first.length > 0 ? first : undefined;
+}
+
+/** One of three closing lines, all ending with "Anything else you want on the record?". */
+export function buildClosingMessage(managerFirstName?: string): string {
+  const suffix = managerFirstName ? `, ${managerFirstName}` : '';
+  const variant = CLOSING_VARIANTS[Math.floor(Math.random() * CLOSING_VARIANTS.length)];
+  return variant(suffix);
+}
+
+/**
+ * True once the follow-up has been asked and answered: the opener and the follow-up are both on
+ * the transcript with a reply after each. The only thing left to say is the close, and the close
+ * is a template. `convex/commentConversations.ts` may call this to skip the action entirely.
+ */
+export function shouldUseTemplatedClose(context: ConversationContext): boolean {
+  const history = context.conversationHistory ?? [];
+  const asked = history.filter((m) => m.role === 'ai').length;
+  const answered = history.filter((m) => m.role === 'user').length;
+  return asked >= 2 && answered >= 2;
 }
 
 // Zod schema for structured conversation output
+// Tolerant on purpose: Opus 5 occasionally returns `confidence` as a string or omits a boolean,
+// and a hard parse failure here used to throw the (already paid for) Opus answer away and fall back
+// to Sonnet - every question billed twice. Defaults keep the contract; the tool description asks
+// for the strict shape.
 const ConversationResponse = z.object({
   question: z.string().describe("The single question to ask, containing at least one verified fact from CONTEXT"),
-  confidence: z.number().min(0).max(100).describe("Confidence in the question's relevance (0-100)"),
+  confidence: z.coerce.number().min(0).max(100).catch(70).describe("Confidence in the question's relevance (0-100)"),
   intent: z.enum(["initial", "follow_up", "clarification", "closing"]).describe("The purpose of this message"),
-  expectedResponseType: z.enum(["opinion", "analysis", "story", "explanation", "mixed"]).describe("What kind of response we're hoping for"),
-  contextualReasons: z.array(z.string()).describe("Which CONTEXT facts this question is built on"),
-  shouldEndAfterResponse: z.boolean().describe("Whether to end the conversation after getting a response"),
-  shouldRecordDecline: z.boolean().describe("True only if the manager declined to comment, said no comment, or refused to engage on substance"),
+  expectedResponseType: z.enum(["opinion", "analysis", "story", "explanation", "mixed"]).catch("mixed").describe("What kind of response we're hoping for"),
+  contextualReasons: z.array(z.string()).default([]).describe("Which CONTEXT facts this question is built on"),
+  shouldEndAfterResponse: z.coerce.boolean().default(false).describe("Whether to end the conversation after getting a response"),
+  shouldRecordDecline: z.coerce.boolean().default(false).describe("True only if the manager declined to comment, said no comment, or refused to engage on substance"),
   suggestedFollowUpTopics: z.array(z.string()).optional().describe("Potential follow-up topics if conversation continues"),
 });
+
+/**
+ * Validate a forced tool call's input. Unwraps the single-key container Opus 5 sometimes adds
+ * (`{"parameters": {...}}`) and logs the exact Zod issues on failure so a fallback is never silent.
+ */
+function parseInterviewToolInput<T extends z.ZodTypeAny>(schema: T, input: unknown, label: string): z.infer<T> {
+  let candidate = input;
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    const keys = Object.keys(candidate as Record<string, unknown>);
+    if (keys.length === 1 && ['parameters', 'input', 'arguments'].includes(keys[0])) {
+      const inner = (candidate as Record<string, unknown>)[keys[0]];
+      if (inner && typeof inner === 'object') candidate = inner;
+    }
+  }
+  const result = schema.safeParse(candidate);
+  if (!result.success) {
+    console.warn(`[interview] ${label}: tool input failed validation`, {
+      issues: result.error.issues.slice(0, 4).map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+      keys: candidate && typeof candidate === 'object' ? Object.keys(candidate as Record<string, unknown>) : typeof candidate,
+    });
+    throw new Error(`${label}: unusable structured output`);
+  }
+  return result.data;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Verbatim helpers                                                            */
@@ -340,15 +469,29 @@ function fmt(n: number | undefined, digits = 1): string {
 }
 
 export class ConversationService {
-  private modelConfig = {
-    primary: "claude-opus-5",
-    fallback: "claude-sonnet-5",
-  };
+  /** The templated close, shaped as a normal interviewer turn. No model call, no cost. */
+  private templatedClose(context: ConversationContext): AIConversationResult {
+    return {
+      question: buildClosingMessage(managerFirstName(context.managerName)),
+      confidence: 100,
+      intent: 'closing',
+      expectedResponseType: 'opinion',
+      contextualReasons: ['Templated close: the follow-up was asked and answered (spec §10.3.2)'],
+      shouldEndAfterResponse: true,
+      shouldRecordDecline: false,
+      detectedAbuse: this.detectAbusePatterns(context),
+      costUsd: 0,
+    };
+  }
 
   async generateConversationQuestion(
     context: ConversationContext,
     apiKey: string
   ): Promise<AIConversationResult> {
+    // Sam's last line is the same three sentences every time; callers that have not learned to
+    // check `shouldUseTemplatedClose` still get the saving here.
+    if (shouldUseTemplatedClose(context)) return this.templatedClose(context);
+
     const anthropic = new Anthropic({ apiKey });
     const { systemPrompt, userPrompt } = this.buildConversationPrompts(context);
 
@@ -367,7 +510,7 @@ export class ConversationService {
         model,
         max_tokens: 2000,
         output_config: { effort: 'low' },
-        system: systemPrompt,
+        system: cachedSystem(systemPrompt),
         messages: [{ role: 'user', content: userPrompt }],
         tools: [{
           name: "generate_conversation_question",
@@ -381,18 +524,28 @@ export class ConversationService {
         tool_choice: { type: "tool", name: "generate_conversation_question" },
       });
 
+      const spend = recordInterviewUsage(response, 'question');
       const toolUse = response.content.find((c) => c.type === 'tool_use');
       if (!toolUse || toolUse.type !== 'tool_use') {
         throw new Error('No structured output received');
       }
-      return ConversationResponse.parse((toolUse as unknown as { input: unknown }).input);
+      return {
+        data: parseInterviewToolInput(ConversationResponse, (toolUse as unknown as { input: unknown }).input, 'question'),
+        ...spend,
+      };
     };
 
-    const structuredData = await this.withRetriesAndFallback(call, 'interview question');
+    const { data, usage, costUsd } = await this.withRetriesAndFallback(
+      call,
+      'interview question',
+      QUESTION_MODELS
+    );
 
     return {
-      ...structuredData,
+      ...data,
       detectedAbuse: this.detectAbusePatterns(context),
+      usage,
+      costUsd,
     };
   }
 
@@ -406,10 +559,10 @@ export class ConversationService {
     const personaOptions = Array.from(allowedPersonas(context, userResponse));
 
     const ResponseAnalysisSchema = z.object({
-      responseQuality: z.number().min(0).max(100).describe("Quality and quotability score (0-100)"),
-      completeness: z.number().min(0).max(100).describe("Completeness of thought score (0-100)"),
-      relevantTopics: z.array(z.string()).describe("Topic labels for the reply. These are NEVER quotes and are never printed."),
-      needsFollowUp: z.boolean().describe("Whether one follow-up question would yield better material"),
+      responseQuality: z.coerce.number().min(0).max(100).catch(50).describe("Quality and quotability score (0-100)"),
+      completeness: z.coerce.number().min(0).max(100).catch(50).describe("Completeness of thought score (0-100)"),
+      relevantTopics: z.array(z.string()).default([]).describe("Topic labels for the reply. These are NEVER quotes and are never printed."),
+      needsFollowUp: z.coerce.boolean().default(false).describe("Whether one follow-up question would yield better material"),
       suggestedFollowUps: z.array(z.string()).optional().describe("Suggested follow-up topics if needed"),
       sentiment: z.enum(["positive", "negative", "neutral", "mixed"]).describe("Overall sentiment of the response"),
       quotableSegments: z.array(z.string()).describe(
@@ -452,7 +605,9 @@ Rules:
         model,
         max_tokens: 1500,
         output_config: { effort: 'low' },
-        system: "You are a newsroom transcript analyst. You never paraphrase inside a quote and never invent an attribution. Return structured data only.",
+        system: cachedSystem(
+          "You are a newsroom transcript analyst. You never paraphrase inside a quote and never invent an attribution. Return structured data only."
+        ),
         messages: [{ role: 'user', content: analysisPrompt }],
         tools: [{
           name: "analyze_response",
@@ -466,16 +621,26 @@ Rules:
         tool_choice: { type: "tool", name: "analyze_response" },
       });
 
+      const spend = recordInterviewUsage(response, 'analysis');
       const toolUse = response.content.find((c) => c.type === 'tool_use');
       if (!toolUse || toolUse.type !== 'tool_use') {
         throw new Error('No structured analysis received from AI');
       }
-      return ResponseAnalysisSchema.parse((toolUse as unknown as { input: unknown }).input);
+      return {
+        data: parseInterviewToolInput(ResponseAnalysisSchema, (toolUse as unknown as { input: unknown }).input, 'analysis'),
+        ...spend,
+      };
     };
 
     let analysis: z.infer<typeof ResponseAnalysisSchema>;
+    let usage: InterviewUsage | undefined;
+    let costUsd = 0;
     try {
-      analysis = await this.withRetriesAndFallback(call, 'response analysis');
+      // Reading a reply is a classification job: Sonnet 5 at low effort, Opus only as a fallback.
+      const result = await this.withRetriesAndFallback(call, 'response analysis', ANALYSIS_MODELS);
+      analysis = result.data;
+      usage = result.usage;
+      costUsd = result.costUsd;
     } catch (error) {
       console.warn('AI analysis failed, using local fallback analysis:', (error as Error)?.message);
       return {
@@ -488,6 +653,7 @@ Rules:
         quotableSegments: keepVerbatimSegments(userResponse, this.extractQuotes(userResponse)),
         offTopicScore: this.calculateOffTopicScore(userResponse, context),
         writerSentiment: [],
+        costUsd: 0,
       };
     }
 
@@ -503,15 +669,21 @@ Rules:
           sentiment: entry.sentiment,
           evidence: (matchVerbatimSegment(userResponse, entry.evidence) ?? entry.evidence).slice(0, 280),
         })),
+      usage,
+      costUsd,
     };
   }
 
-  /** Opus 5 primary, Sonnet 5 fallback; retries 529/overloaded with jittered backoff. */
+  /**
+   * Walks `models` in order, retrying 529/overloaded on each with jittered backoff before moving
+   * to the next. The chain is per call site: questions lead with Opus, analysis with Sonnet.
+   */
   private async withRetriesAndFallback<T>(
     call: (model: string) => Promise<T>,
-    label: string
+    label: string,
+    models: readonly string[]
   ): Promise<T> {
-    const models = [this.modelConfig.primary, this.modelConfig.fallback];
+    const last = models[models.length - 1];
     const maxRetries = 3;
     const baseDelay = 1000;
     let lastError: Error | null = null;
@@ -534,8 +706,8 @@ Rules:
           break;
         }
       }
-      if (model !== this.modelConfig.fallback) {
-        console.warn(`Falling back to ${this.modelConfig.fallback} for ${label}: ${lastError?.message}`);
+      if (model !== last) {
+        console.warn(`Falling back to ${last} for ${label}: ${lastError?.message}`);
       }
     }
 

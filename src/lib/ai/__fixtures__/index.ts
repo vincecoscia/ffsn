@@ -32,9 +32,14 @@ import fabricatedQuote from "./samples/fabricated-quote.json";
 import ghostSpeaker from "./samples/ghost-speaker.json";
 import wrongFantasyTeam from "./samples/wrong-fantasy-team.json";
 
-/** The four highest-volume content types the offline harness sweeps. */
+/**
+ * The highest-volume content types the offline harness sweeps. `weekly_preview` is here because it
+ * is the one look-ahead type: it must build from `upcomingMatchups` and refuse without them, and
+ * only a sweep catches the regression where it quietly recaps last week instead.
+ */
 export const EVAL_CONTENT_TYPES = [
   "weekly_recap",
+  "weekly_preview",
   "draft_rankings",
   "power_rankings",
   "trade_analysis",

@@ -16,6 +16,8 @@ import { useLeagueSeason } from "@/hooks/use-league-season";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader, Panel, SectionHeader, Chip, EmptyState, Spinner } from "@/components/broadcast";
+import { WeeklyContentCard } from "./content-schedule/WeeklyContentCard";
+import { LeaguePassCard } from "./LeaguePassCard";
 import { cn } from "@/lib/utils";
 
 interface League {
@@ -240,6 +242,14 @@ export function LeagueSettingsPage({
           title="League settings"
           description="Manage league info, team logos, invitations, and syncing with ESPN."
         />
+
+        {/* Automatic weekly programming — the opt-out surface (spec §9.3). Commissioner
+            only, matching the rest of this page's controls. */}
+        <WeeklyContentCard leagueId={league._id} canManage={league.role === "commissioner"} />
+
+        {/* League Pass, manager capacity and $10 seats (spec §10.1). Seats are a
+            commissioner purchase; members see the status without the buy control. */}
+        <LeaguePassCard leagueId={league._id} canManage={league.role === "commissioner"} />
 
         {/* League info */}
         <Panel padding="md">

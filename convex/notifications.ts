@@ -314,10 +314,37 @@ export const createNotification = internalMutation({
     )),
     scheduledFor: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
+    // Idempotency for notifications the automation may reach more than once
+    // (spec §9.2.10): a finalize that runs twice, a low-credit cancellation
+    // that hits the same league in the same week. When set, an existing
+    // notification with the same (userId, type, relatedEntityId) and this key
+    // is returned instead of a second row being inserted. The key is also
+    // stored as `groupKey`, so two different reasons about the same article
+    // still both get through.
+    dedupeKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    
+
+    if (args.dedupeKey) {
+      const sameKey = await ctx.db
+        .query("userNotifications")
+        .withIndex("by_user_type", (q) => q.eq("userId", args.userId).eq("type", args.type))
+        .filter((q) => q.eq(q.field("groupKey"), args.dedupeKey))
+        .take(50);
+      // `relatedEntityId` is optional, so it is compared in JS rather than in a
+      // filter (an `undefined` operand is not a Convex value).
+      const existing = sameKey.find(
+        (n) => (n.relatedEntityId ?? null) === (args.relatedEntityId ?? null)
+      );
+      if (existing) {
+        console.log(
+          `createNotification: skipping duplicate ${args.type} for user ${args.userId} (dedupeKey ${args.dedupeKey})`
+        );
+        return existing._id;
+      }
+    }
+
     const notificationId = await ctx.db.insert("userNotifications", {
       userId: args.userId,
       leagueId: args.leagueId,
@@ -336,9 +363,114 @@ export const createNotification = internalMutation({
       },
       scheduledFor: args.scheduledFor ?? now,
       expiresAt: args.expiresAt,
+      groupKey: args.dedupeKey,
       createdAt: now,
       updatedAt: now,
     });
+
+    return notificationId;
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * Commissioner notifications for automatic content (spec §9.2.10)
+ *
+ * `leagueContentPreferences.notifyCommissioner` / `notifyFailures` were dead
+ * settings before this: nothing read them. These are the transitions they now
+ * drive. Every one of them is deduped, because the generation pipeline retries
+ * and the finalize step is idempotent by design.
+ * -------------------------------------------------------------------------- */
+
+const COMMISSIONER_NOTICE_KIND = v.union(
+  v.literal("ready_for_review"),
+  v.literal("generation_failed"),
+  v.literal("low_credits")
+);
+
+export const notifyCommissionerOfContent = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    kind: COMMISSIONER_NOTICE_KIND,
+    contentType: v.string(),
+    articleId: v.optional(v.id("aiContent")),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
+    // Extra sentence for the body (the failure message, the credit shortfall).
+    detail: v.optional(v.string()),
+    // Defaults to the kind plus the related entity, which is the "once per
+    // article" behaviour the spec asks for. Callers that need a coarser window
+    // (low credits: once per league per week) pass their own.
+    dedupeKey: v.optional(v.string()),
+  },
+  returns: v.union(v.id("userNotifications"), v.null()),
+  handler: async (ctx, args): Promise<Id<"userNotifications"> | null> => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league?.commissionerUserId) {
+      console.warn(`notifyCommissionerOfContent: league ${args.leagueId} has no commissioner`);
+      return null;
+    }
+
+    // `leagues.commissionerUserId` is a Clerk id; notifications are keyed by
+    // the Convex users row (spec §2).
+    const commissioner = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", league.commissionerUserId))
+      .unique();
+    if (!commissioner) {
+      console.warn(
+        `notifyCommissionerOfContent: no users row for commissioner ${league.commissionerUserId}`
+      );
+      return null;
+    }
+
+    const label = contentTypeLabel(args.contentType);
+    const reviewUrl = `/leagues/${args.leagueId}/ai-generation`;
+    const relatedEntityId = args.articleId ?? args.scheduledContentId;
+
+    const copy = {
+      ready_for_review: {
+        type: "article_generated" as const,
+        title: `New ${label} is ready for your review`,
+        message:
+          args.detail ??
+          "It is saved as a draft. Read it over and publish it when you are happy with it.",
+        actionText: "Review draft",
+        priority: "medium" as const,
+      },
+      generation_failed: {
+        type: "system_announcement" as const,
+        title: `We could not write this week's ${label}`,
+        message: args.detail ?? "The generation failed after every retry.",
+        actionText: "Open the desk",
+        priority: "high" as const,
+      },
+      low_credits: {
+        type: "system_announcement" as const,
+        title: `Not enough credits for this week's ${label}`,
+        message:
+          args.detail ??
+          "Top up your credits and the next scheduled story will go out as normal.",
+        actionText: "Open the desk",
+        priority: "high" as const,
+      },
+    }[args.kind];
+
+    const notificationId: Id<"userNotifications"> = await ctx.runMutation(
+      internal.notifications.createNotification,
+      {
+      userId: commissioner._id,
+      leagueId: args.leagueId,
+      type: copy.type,
+      title: copy.title,
+      message: copy.message,
+      actionUrl: reviewUrl,
+      actionText: copy.actionText,
+      relatedEntityType: args.articleId ? ("ai_content" as const) : ("scheduled_content" as const),
+      relatedEntityId,
+      priority: copy.priority,
+      deliveryChannels: ["in_app"],
+      dedupeKey: args.dedupeKey ?? `${args.kind}:${relatedEntityId ?? args.leagueId}`,
+      }
+    );
 
     return notificationId;
   },

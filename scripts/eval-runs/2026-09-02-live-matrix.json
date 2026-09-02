@@ -1,0 +1,1980 @@
+{
+  "generatedAt": "2026-09-02T18:57:42.975Z",
+  "prices": {
+    "claude-opus-5": {
+      "input": 5,
+      "output": 25
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "output": 10
+    }
+  },
+  "rows": [
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "trade_analysis",
+      "status": "ok",
+      "title": "Quarry Road Takes Two For One; Neither Manager Went On The Record",
+      "rubric": "",
+      "words": 485,
+      "promptTokens": 12697,
+      "completionTokens": 2613,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.12881,
+      "durationMs": 34100,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 4,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 2,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "REPORTED: the terms"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "REPORTED: the terms"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "REPORTED: the terms"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Foxes",
+          "section": "Foundry District: consolidation at 3-4"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "weekly_preview",
+      "status": "ok",
+      "title": "Seven And Zero, And The Five-Point Game That Nearly Ended It",
+      "rubric": "voiceDistinctness 4/5 · signatureMoves 4/5 · tonalConsistency 5/5 · respectsTheFacts 4/5 — Solid broadcast-anchor cadence with rundown-by-margin, superlative+number pairing, and desk handoffs, though the cold open isn't a single sentence before anything else and the trade recap direction (Quarry Road to Foundry) is reversed from the facts.",
+      "rubricScores": {
+        "voiceDistinctness": 4,
+        "signatureMoves": 4,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 4
+      },
+      "words": 919,
+      "promptTokens": 12437,
+      "completionTokens": 5214,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.192535,
+      "durationMs": 55689,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 13,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Quarry Road's",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "The Rest Of The Board, By Margin"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Watch List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Watch List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Watch List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "On The Record"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "On The Record"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "On The Record"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Week 7: Gravel Pit Stays Unbeaten by 5.3",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 5/5 · tonalConsistency 5/5 · respectsTheFacts 5/5 — A clean, wire-voiced anchor read that hits every signature move (cold open, margin-order rundown, superlative-plus-number, named handoffs) while staying strictly inside the facts.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 5,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 5
+      },
+      "words": 1046,
+      "promptTokens": 13855,
+      "completionTokens": 5523,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.20735,
+      "durationMs": 61368,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 9,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "On Sunday",
+          "section": "Cold Open"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sable Ridge's",
+          "section": "Game of the Week: Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders'",
+          "section": "Game of the Week: Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Rest of the Rundown"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "The Rest of the Rundown"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Pilots",
+          "section": "The Rest of the Rundown"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Rest of the Rundown"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Rest of the Rundown"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Nightjars'",
+          "section": "The Rest of the Rundown"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "waiver_wire_report",
+      "status": "ok",
+      "title": "The Waiver Wire Report With No Waiver Wire",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 5/5 · tonalConsistency 5/5 · respectsTheFacts 4/5 — The telestrator diction, capped-stat paragraphs, sample-size caveats, and clean claim-grading nail Nina's voice, though a stray unsupported line ('five teams on the needs sheet... RB, WR and TE') isn't in the FACTS block.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 5,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 4
+      },
+      "words": 779,
+      "promptTokens": 12425,
+      "completionTokens": 4076,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.164025,
+      "durationMs": 48745,
+      "blocks": 0,
+      "strips": 1,
+      "warns": 13,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 3,
+      "flags": [
+        {
+          "kind": "unverified_number",
+          "severity": "strip",
+          "detail": "Bo Tremaine points vs projection=4.8 on 16.2 projected but matchups.M2.players.M2Pp181.points=4.8"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Priority Pickups: What I Can Actually Source"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Priority Pickups: What I Can Actually Source"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Priority Pickups: What I Can Actually Source"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Cormorants'",
+          "section": "Priority Pickups: What I Can Actually Source"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "Priority Pickups: What I Can Actually Source"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Pilots",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "Deep-League Targets: Two Names, One Trade, No List"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Drop Candidates: The Cuts Already Made"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "power_rankings",
+      "status": "ok",
+      "title": "Circle the Bench Column: Week 7 Power Rankings",
+      "rubric": "",
+      "words": 828,
+      "promptTokens": 12751,
+      "completionTokens": 4849,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.18498,
+      "durationMs": 54973,
+      "blocks": 0,
+      "strips": 2,
+      "warns": 4,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unverified_number",
+          "severity": "strip",
+          "detail": "Record and points for=7-0-0, 812.4 but teams.T1.pointsFor=812.4"
+        },
+        {
+          "kind": "unverified_number",
+          "severity": "strip",
+          "detail": "Projection miss=126.2 projected, 103.8 actual but matchups.M4.home.projected=126.2"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "One Through Ten, With The Numbers Attached"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "One Through Ten, With The Numbers Attached"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "One Through Ten, With The Numbers Attached"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "One Through Ten, With The Numbers Attached"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "rivalry_week_special",
+      "status": "ok",
+      "title": "No Bad Blood On File: Gravel Pit and Cedar Falls Just Happen To Be First and Second",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 5/5 · tonalConsistency 5/5 · respectsTheFacts 4/5 — Nearly flawless quote-led sideline voice, but the closing seeding 'forecast' edges toward the banned strategy opinion and 'the follow-up she would enjoy' ascribes unsupported tone.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 5,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 4
+      },
+      "words": 545,
+      "promptTokens": 12481,
+      "completionTokens": 3404,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.147505,
+      "durationMs": 37557,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 4,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The Backstory I Do Not Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "What Is Actually On The Line"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Neither Whitlock",
+          "section": "What Is Actually On The Line"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "For Cedar Falls",
+          "section": "Players To Watch"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "emergency_hot_takes",
+      "status": "ok",
+      "title": "Grinders Go 7-0 by 5.3; Sentinels Bench 24.1 and Say They Know What That Means",
+      "rubric": "",
+      "words": 515,
+      "promptTokens": 12345,
+      "completionTokens": 3897,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.15915,
+      "durationMs": 42409,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 11,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Wire: Week 7, Five Games, One Bench Decision"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Wire: Week 7, Five Games, One Bench Decision"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Wire: Week 7, Five Games, One Bench Decision"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Wire: Week 7, Five Games, One Bench Decision"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Wire: Week 7, Five Games, One Bench Decision"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "The Wire: Week 7, Five Games, One Bench Decision"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "On the Record, Then My One Guess"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Sentinels",
+          "section": "On the Record, Then My One Guess"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "What the Log Says to Do With Your Lineup"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "What the Log Says to Do With Your Lineup"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "What the Log Says to Do With Your Lineup"
+        }
+      ]
+    },
+    {
+      "fixture": "draft-day",
+      "persona": "mel-diaper",
+      "contentType": "mock_draft",
+      "status": "ok",
+      "title": "Mel Diaper's Ironclad Mock: Ten Teams, Thirty Picks, One Admitted Miss",
+      "rubric": "",
+      "words": 1638,
+      "promptTokens": 12340,
+      "completionTokens": 8492,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.274,
+      "durationMs": 94618,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 0,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 2,
+      "flags": []
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "championship_manifesto",
+      "status": "ok",
+      "title": "The Five-Point Column: Gravel Pit Is Undefeated and Sable Ridge Beat Itself",
+      "rubric": "voiceDistinctness 4/5 · signatureMoves 3/5 · tonalConsistency 5/5 · respectsTheFacts 3/5 — Strong cranky first-person voice and one clear argument, but it carries two arguments in practice, adds an unsupported 'nine and a half points' claim and mild invented framing, and doesn't quote a rules dispute verbatim per the signature-move rule.",
+      "rubricScores": {
+        "voiceDistinctness": 4,
+        "signatureMoves": 3,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 3
+      },
+      "words": 924,
+      "promptTokens": 12304,
+      "completionTokens": 3885,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.158645,
+      "durationMs": 49002,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 4,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "My One Argument, Up Front"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "Gravel Pit Grinders: Seven Weeks Without a Bad Sunday"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "But I've",
+          "section": "Gravel Pit Grinders: Seven Weeks Without a Bad Sunday"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "Sable Ridge Sentinels: A Team Arguing With Its Own Bench"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "mid_season_awards",
+      "status": "ok",
+      "title": "Mid-Season Awards: The Trophies Nobody Asked For, Handed Out With Quotes",
+      "rubric": "",
+      "words": 833,
+      "promptTokens": 12370,
+      "completionTokens": 4651,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.178125,
+      "durationMs": 52062,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 12,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Sentinels",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Mudlarks",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Manager Awards: The Five-Point Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "Manager Awards: The Five-Point Bench"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "trade_rumor_mill",
+      "status": "ok",
+      "title": "x",
+      "rubric": "",
+      "words": 556,
+      "promptTokens": 13351,
+      "completionTokens": 6926,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.239905,
+      "durationMs": 68743,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 12,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The Market, Such As It Is"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "The Only Deal On The Books, And The Week 7 Wire"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "What It Moves"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "My Week",
+          "section": "What It Moves"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "season_recap",
+      "status": "ok",
+      "title": "Seven and Zero at the Turn: The Ironclad Conference Through Week 7",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 5/5 · tonalConsistency 5/5 · respectsTheFacts 4/5 — Nails the anchor voice and every signature move, though a few computed deltas (like the 22.4-under and 23.5-point gap figures) go slightly beyond simple arithmetic restatement and risk overreach.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 5,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 4
+      },
+      "words": 1172,
+      "promptTokens": 12509,
+      "completionTokens": 6140,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.216045,
+      "durationMs": 65548,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 15,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "The Grinders Are Undefeated, and That Is All We Can Say Yet"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Kansas City",
+          "section": "The Grinders Are Undefeated, and That Is All We Can Say Yet"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Storylines: One Trade, One Bench, One Upset"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "Superlatives, With the Numbers Attached"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "What Comes Next"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "What Comes Next"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "custom_roast",
+      "status": "ok",
+      "title": "The Five Points Ruth Tanaka Left on the Bench",
+      "rubric": "voiceDistinctness 4/5 · signatureMoves 4/5 · tonalConsistency 4/5 · respectsTheFacts 3/5 — Strong Brennan voice and structure, but it stacks multiple side-arguments (the trade, Ashby, Whitlock) around the main thesis, blurring the one-argument rule, and includes an unsourced dramatized quote-question that isn't in the FACTS block.",
+      "rubricScores": {
+        "voiceDistinctness": 4,
+        "signatureMoves": 4,
+        "tonalConsistency": 4,
+        "respectsTheFacts": 3
+      },
+      "words": 790,
+      "promptTokens": 12302,
+      "completionTokens": 8070,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.26326,
+      "durationMs": 80862,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 5,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "The one trade on the books"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The one trade on the books"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The one trade on the books"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The one trade on the books"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Foxes",
+          "section": "The one trade on the books"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "season_welcome",
+      "status": "ok",
+      "title": "Seven And Zero, And One Team Still Waiting For Its First Win",
+      "rubric": "",
+      "words": 1175,
+      "promptTokens": 12885,
+      "completionTokens": 5802,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.209475,
+      "durationMs": 62168,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 10,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "Good evening from the desk"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Then Quarry Road",
+          "section": "Good evening from the desk"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Then Foundry District",
+          "section": "Good evening from the desk"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Then Halyard Bay",
+          "section": "Good evening from the desk"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "Who owns this league right now"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "Who owns this league right now"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Who owns this league right now"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The performances that earned the top of the card"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The performances that earned the top of the card"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "What the rest of the way looks like"
+        }
+      ]
+    },
+    {
+      "fixture": "draft-day",
+      "persona": "mel-diaper",
+      "contentType": "draft_strategy_guide",
+      "status": "ok",
+      "title": "Mel Diaper's Ironclad Draft Board: Ten Slots, One Mistake",
+      "rubric": "",
+      "words": 951,
+      "promptTokens": 11931,
+      "completionTokens": 4162,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.163705,
+      "durationMs": 52356,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 3,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 2,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Sentinels",
+          "section": "Your Slot, Your Plan"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Foxes",
+          "section": "Your Slot, Your Plan"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "Your Slot, Your Plan"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "team_name_power_rankings",
+      "status": "ok",
+      "title": "The Names, Ranked: Ten Signs Hanging Over the Ironclad",
+      "rubric": "voiceDistinctness 2/5 · signatureMoves 2/5 · tonalConsistency 3/5 · respectsTheFacts 4/5 — The piece buries Sam's quote-driven sideline voice inside a mascot-ranking gimmick that reads more like a copywriter's column than the reporter who only prints what managers said.",
+      "rubricScores": {
+        "voiceDistinctness": 2,
+        "signatureMoves": 2,
+        "tonalConsistency": 3,
+        "respectsTheFacts": 4
+      },
+      "words": 591,
+      "promptTokens": 12780,
+      "completionTokens": 6357,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.222825,
+      "durationMs": 63546,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 0,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": []
+    },
+    {
+      "fixture": "draft-day",
+      "persona": "mel-diaper",
+      "contentType": "draft_rankings",
+      "status": "ok",
+      "title": "Mel Diaper's Ironclad Draft Grades: Thirty Picks, Thirty Receipts",
+      "rubric": "voiceDistinctness 4/5 · signatureMoves 3/5 · tonalConsistency 5/5 · respectsTheFacts 4/5 — Solid Diaper cadence and receipt-focused voice, but this is only an intro fragment—no admitted miss, no closer, and several signature moves are merely set up rather than executed.",
+      "rubricScores": {
+        "voiceDistinctness": 4,
+        "signatureMoves": 3,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 4
+      },
+      "words": 192,
+      "promptTokens": 15421,
+      "completionTokens": 7256,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.258505,
+      "durationMs": 86915,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 0,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 0,
+      "flags": []
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "trade_block_tuesday",
+      "status": "ok",
+      "title": "Trade Block Tuesday: One Trade Since Week 6, Four Wire Moves, Zero Listings",
+      "rubric": "",
+      "words": 723,
+      "promptTokens": 13551,
+      "completionTokens": 4229,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.17348,
+      "durationMs": 58424,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 15,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "The Board: Empty"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Team by Team, What the Log Actually Says"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Team by Team, What the Log Actually Says"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Team by Team, What the Log Actually Says"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Team by Team, What the Log Actually Says"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Team by Team, What the Log Actually Says"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "commissioner_corner",
+      "status": "ok",
+      "title": "The Lineup Lock Is The Only Rule That Matters This Week",
+      "rubric": "",
+      "words": 764,
+      "promptTokens": 12389,
+      "completionTokens": 7465,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.24857,
+      "durationMs": 76268,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 4,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Sentinels",
+          "section": "My Case: Lock Late Or Stop Pretending It's Management"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Gravel Pit's",
+          "section": "What The Record Would Look Like Instead"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "What The Record Would Look Like Instead"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "What The Record Would Look Like Instead"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "playoff_picture",
+      "status": "ok",
+      "title": "Seven Weeks, Six Spots: Circle the Fourth Row",
+      "rubric": "",
+      "words": 851,
+      "promptTokens": 13075,
+      "completionTokens": 8953,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.2892,
+      "durationMs": 86541,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 11,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "The Field As The Standings Have It"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "The Arithmetic, Both Inputs Shown"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The Schedule Column I Don't Have"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Schedule Column I Don't Have"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "hall_of_shame",
+      "status": "ok",
+      "title": "The Hall of Shame: Seventeen Point Nine, and the Five That Followed",
+      "rubric": "",
+      "words": 791,
+      "promptTokens": 12408,
+      "completionTokens": 3471,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.148815,
+      "durationMs": 44975,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 10,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 3,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The Case File"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Nothing In The Transaction Log Deserves This Section"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "player_glazing",
+      "status": "ok",
+      "title": "The Case For Duke Ellery, Who Scored 24.1 From a Seat",
+      "rubric": "",
+      "words": 845,
+      "promptTokens": 12389,
+      "completionTokens": 3567,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.15112,
+      "durationMs": 48066,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 5,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 3,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The Problem, Stated First"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "If Vandermeer",
+          "section": "What Has To Happen"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Against Cedar Falls'",
+          "section": "What Has To Happen"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Gravel Pit's",
+          "section": "What Has To Happen"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Sentinels",
+          "section": "What Has To Happen"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Five Points at Sable Ridge, and the Number Ruth Tanaka Already Knew",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 4/5 · tonalConsistency 5/5 · respectsTheFacts 5/5 — Strong adherence to Sam's structure and quote-first ethic, with only a couple of scene-setting paragraphs lacking an explicit quote-or-none note.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 4,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 5
+      },
+      "words": 861,
+      "promptTokens": 13800,
+      "completionTokens": 4906,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.19165,
+      "durationMs": 51064,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 8,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Mudlarks",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ninth Street's",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The other four games"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The other four games"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Circle the Bench Column: Week 7 in the Ironclad Fantasy Conference",
+      "rubric": "",
+      "words": 966,
+      "promptTokens": 13757,
+      "completionTokens": 5110,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.196535,
+      "durationMs": 61667,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 12,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Gravel Pit's",
+          "section": "Game of the Week: Gravel Pit 134.2, Sable Ridge 128.9"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ninth Street's",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Foundry District's",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Other Four Rows"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sable Ridge's",
+          "section": "Studs and Duds, Sorted"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "mel-diaper",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Seven and Oh, Five and Change: Week 7 Comes With Receipts",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 5/5 · tonalConsistency 5/5 · respectsTheFacts 5/5 — Mel's voice, receipts, capped bursts, one admitted miss, and non-respondent flags all land squarely inside the facts and the brief.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 5,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 5
+      },
+      "words": 1011,
+      "promptTokens": 13905,
+      "completionTokens": 5327,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.2027,
+      "durationMs": 64488,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 11,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Sentinels",
+          "section": "Game Of The Week: Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Grinders",
+          "section": "Game Of The Week: Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "The Mudlarks",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The Other Four, Graded"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Cedar Falls'",
+          "section": "Studs, Duds, And One I Got Wrong"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Week 7 Wire: Grinders Hold at 7-0, Sable Ridge Loses by Five With 78.6 on the Bench",
+      "rubric": "voiceDistinctness 5/5 · signatureMoves 4/5 · tonalConsistency 5/5 · respectsTheFacts 5/5 — Strongly on-brand wire cadence with tiers and timestamps intact, but several paragraphs run well past two sentences, undercutting that specific signature move.",
+      "rubricScores": {
+        "voiceDistinctness": 5,
+        "signatureMoves": 4,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 5
+      },
+      "words": 1064,
+      "promptTokens": 13870,
+      "completionTokens": 12153,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.373175,
+      "durationMs": 111711,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 15,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The Wire, Week 7"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sable Ridge's",
+          "section": "Game of the Week: 5.3 Points, 78.6 on the Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Game of the Week: 5.3 Points, 78.6 on the Bench"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Quarry Road's",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Quarry Road's Week",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ninth Street's",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Rest of the Board"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Ruth Tanaka Benched 24.1 Points And Lost By 5.3. That's The Whole Season.",
+      "rubric": "voiceDistinctness 4/5 · signatureMoves 3/5 · tonalConsistency 5/5 · respectsTheFacts 5/5 — Walt's cranky, first-person, one-idea-per-paragraph voice comes through strongly and the facts are handled cleanly, but the column drifts into a full slate roundup that undercuts the 'one argument per column' rule and never quotes any rules-dispute setting verbatim.",
+      "rubricScores": {
+        "voiceDistinctness": 4,
+        "signatureMoves": 3,
+        "tonalConsistency": 5,
+        "respectsTheFacts": 5
+      },
+      "words": 978,
+      "promptTokens": 13760,
+      "completionTokens": 6028,
+      "modelUsed": "claude-opus-5",
+      "costUsd": 0.2195,
+      "durationMs": 67531,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 8,
+      "sectionsRegenerated": 0,
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "The Argument, Up Front"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Rudy Halvorsen",
+          "section": "Everything Else On The Slate"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Halyard Bay's",
+          "section": "Everything Else On The Slate"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Everything Else On The Slate"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Everything Else On The Slate"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Hank Osterberg",
+          "section": "Everything Else On The Slate"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Juno Castellanos",
+          "section": "Everything Else On The Slate"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Everything Else On The Slate"
+        }
+      ]
+    }
+  ]
+}

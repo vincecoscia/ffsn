@@ -6,38 +6,44 @@ import { api } from "../../../../convex/_generated/api";
 import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { PageHeader, Panel, SectionHeader, StatBlock, Chip, Spinner } from "@/components/broadcast";
+import { CreditTopUpButton } from "@/components/CreditTopUpButton";
 import { cn } from "@/lib/utils";
 
 import { CreditCard, History, Plus, AlertCircle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+// Top-ups are always 100 credits for $5 (spec §10.1); a pack is just a
+// quantity of that same unit, so the price per credit never moves.
 const CREDIT_PACKAGES = [
   {
-    id: "basic",
-    name: "Basic Pack",
+    id: "single",
+    name: "One top-up",
+    quantity: 1,
     credits: 100,
-    price: 9.99,
+    price: 5,
     popular: false,
-    description: "Perfect for occasional content generation",
-    features: ["100 AI credits", "~6-8 articles", "Valid for 12 months"],
+    description: "The standard top-up",
+    features: ["100 credits", "$5 per 100, always", "Runs through the end of the season"],
   },
   {
-    id: "value",
-    name: "Value Pack",
-    credits: 250,
-    price: 19.99,
+    id: "triple",
+    name: "Three top-ups",
+    quantity: 3,
+    credits: 300,
+    price: 15,
     popular: true,
-    description: "Best value for regular users",
-    features: ["250 AI credits", "~16-20 articles", "Valid for 12 months", "20% bonus credits"],
+    description: "A season of manual stories",
+    features: ["300 credits", "$5 per 100, always", "Runs through the end of the season"],
   },
   {
-    id: "pro",
-    name: "Pro Pack",
+    id: "five",
+    name: "Five top-ups",
+    quantity: 5,
     credits: 500,
-    price: 34.99,
+    price: 25,
     popular: false,
-    description: "For power users and multiple leagues",
-    features: ["500 AI credits", "~33-40 articles", "Valid for 12 months", "25% bonus credits"],
+    description: "For managers who file constantly",
+    features: ["500 credits", "$5 per 100, always", "Runs through the end of the season"],
   },
 ];
 
@@ -64,10 +70,10 @@ export default function CreditsPage() {
   // server — no user id is passed from the client.
   const userCredits = useQuery(api.credits.getUserCredits, {});
   const creditHistory = useQuery(api.credits.getCreditHistory, { limit: 10 });
-  const createCreditsCheckout = useAction(api.stripe.createCreditsCheckoutSession);
+  const createTopUpCheckout = useAction(api.stripe.createCreditTopUpSession);
 
   const handlePurchase = async (packageId: string) => {
-    if (!user?.id || !user?.primaryEmailAddress?.emailAddress) {
+    if (!user?.id) {
       setError("Please sign in to purchase credits");
       return;
     }
@@ -80,9 +86,10 @@ export default function CreditsPage() {
     setSelectedPackage(packageId);
 
     try {
-      const result = await createCreditsCheckout({
-        userEmail: user.primaryEmailAddress.emailAddress,
-        creditsAmount: creditPackage.credits,
+      // Credits land on the authenticated identity; the action takes no user id.
+      const result = await createTopUpCheckout({
+        quantity: creditPackage.quantity,
+        returnPath: "/dashboard/credits",
       });
 
       if (result.success && result.url) {
@@ -122,12 +129,14 @@ export default function CreditsPage() {
         <PageHeader
           kicker="Wallet"
           title="Credits"
-          description="Purchase credits to generate AI-powered fantasy football content."
+          description="Credits cover the stories you generate yourself. Automated stories are covered by the League Pass. Top up 100 credits for $5."
         />
 
         <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Panel padding="md" className="flex flex-col justify-center">
+          <Panel padding="md" className="flex flex-col justify-center gap-4">
             <StatBlock label="Current balance" value={userCredits?.balance ?? 0} size="lg" />
+            {/* 100 credits for $5, straight from where the balance is read. */}
+            <CreditTopUpButton />
           </Panel>
 
           <Panel padding="md" className="flex flex-col gap-4">

@@ -18,6 +18,10 @@ import {
   nonRespondentValidator,
 } from "./validators";
 import { quotesForResponse } from "./aiContentWithComments";
+import {
+  handleGenerationFailure,
+  MAX_GENERATION_RETRIES,
+} from "./lib/generationFailure";
 
 /* -------------------------------------------------------------------------- *
  * Manager -> team, via teamClaims (spec section 2)
@@ -115,6 +119,9 @@ export const prepareAIContentData = internalAction({
     // article prints are exactly the ones the comment flow approved.
     commentResponses: v.optional(v.array(commentResponseDataValidator)),
     nonRespondents: v.optional(v.array(nonRespondentValidator)),
+    // Retries already spent on this article (spec section 9.2.5). Forwarded so
+    // the cap survives the prepare -> generate hand-off.
+    retryCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== prepareAIContentData START ===");
@@ -278,6 +285,9 @@ export const prepareAIContentData = internalAction({
         creditsDeductedUpFront: args.creditsDeductedUpFront,
         commentResponses: args.commentResponses,
         nonRespondents: args.nonRespondents,
+        retryCount: args.retryCount,
+        seasonId: args.seasonId,
+        week: args.week,
       });
       
       console.log("=== prepareAIContentData SUCCESS ===");
@@ -287,55 +297,27 @@ export const prepareAIContentData = internalAction({
       console.error("=== prepareAIContentData ERROR ===");
       console.error("Error:", error);
 
-      // If a caller deducted credits up front (generateContentAction,
-      // forwarding what its own caller charged), refund them now - the user
-      // paid for content that never got generated. Captured rather than
-      // swallowed: if the refund itself fails, that's surfaced via a thrown
-      // error below instead of being logged and ignored.
-      let refundError: unknown = null;
-      if (args.creditsDeductedUpFront) {
-        try {
-          let creditUserId = args.userId;
-          if (creditUserId === "system") {
-            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
-              leagueId: args.leagueId,
-            });
-            if (league?.commissionerUserId) {
-              creditUserId = league.commissionerUserId;
-            }
-          }
-
-          if (creditUserId !== "system") {
-            await ctx.runMutation(internal.credits.refundCredits, {
-              userId: creditUserId,
-              amount: args.creditsDeductedUpFront,
-              description: `Refund: failed AI content generation (${args.contentType})`,
-              leagueId: args.leagueId,
-              relatedContentId: args.articleId,
-            });
-          }
-        } catch (e) {
-          console.error("Failed to refund credits after data preparation failure:", e);
-          refundError = e;
-        }
-      }
-
-      // Update article status to failed
-      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
-        articleId: args.articleId,
-        status: "failed",
-        error: error instanceof Error ? error.message : "Data preparation failed",
-      });
-
-      if (refundError) {
-        // Surface loudly instead of swallowing: the refund did not happen
-        // and the user's balance needs manual reconciliation.
-        throw new Error(
-          `Data preparation failed for article ${args.articleId} and the credit refund also failed: ${
-            refundError instanceof Error ? refundError.message : String(refundError)
-          }`
-        );
-      }
+      // Credits, article status, the scheduled row (back to pending with a
+      // retry time, or failed plus a commissioner notice) and the capped
+      // retry, all through the one shared path (spec section 9.2.5).
+      await handleGenerationFailure(
+        ctx,
+        {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
+          scheduledContentId: args.scheduledContentId,
+          creditsDeductedUpFront: args.creditsDeductedUpFront,
+          retryCount: args.retryCount,
+          stage: "Data preparation",
+        },
+        error
+      );
 
       return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
     }
@@ -358,6 +340,11 @@ export const generateAIContentWithData = internalAction({
     // Preferred over this module's own comment queries when supplied.
     commentResponses: v.optional(v.array(commentResponseDataValidator)),
     nonRespondents: v.optional(v.array(nonRespondentValidator)),
+    // Forwarded from prepareAIContentData so a failure here can hand the same
+    // context to the retry it schedules (spec section 9.2.5).
+    retryCount: v.optional(v.number()),
+    seasonId: v.optional(v.number()),
+    week: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== generateAIContentWithData START ===");
@@ -379,7 +366,7 @@ export const generateAIContentWithData = internalAction({
       // flow already resolved managers, teams and approved quotes); otherwise
       // fall back to this module's own queries.
       let commentResponses: CommentResponseData[] = args.commentResponses ?? [];
-      const nonRespondents: NonRespondent[] = args.nonRespondents ?? [];
+      let nonRespondents: NonRespondent[] = args.nonRespondents ?? [];
       if (args.commentResponses) {
         console.log(`Using ${commentResponses.length} comment responses supplied by the caller`);
       } else if (args.scheduledContentId) {
@@ -390,7 +377,17 @@ export const generateAIContentWithData = internalAction({
           contentType: args.contentType,
           week: preparedData.leagueData.currentWeek,
         });
-        console.log(`Found ${commentResponses.length} comment responses for scheduled content`);
+        // Managers who were asked and said nothing get their sanctioned "did
+        // not respond" line instead of silently disappearing (spec section 5).
+        if (nonRespondents.length === 0) {
+          nonRespondents = await ctx.runQuery(
+            internal.aiContentHelpers.getNonRespondentsForScheduledContent,
+            { scheduledContentId: args.scheduledContentId }
+          );
+        }
+        console.log(
+          `Found ${commentResponses.length} comment responses and ${nonRespondents.length} non-respondents for scheduled content`
+        );
       } else {
         // For manual content, get comment responses by articleId
         commentResponses = await ctx.runQuery(internal.aiContentHelpers.getCommentResponsesForManualContent, {
@@ -444,30 +441,41 @@ export const generateAIContentWithData = internalAction({
       
       // Update article with generated content (quotes, managerMentions,
       // reviewFlags, factsMissing and generationStats ride along on metadata).
+      //
+      // `billing` is derived here rather than threaded through
+      // prepareAIContentData: the two inputs it needs are already arguments of
+      // this action, and they are the same test generateContentAction applies -
+      // automated content is covered by the League Pass and cost nobody
+      // credits, everything else was charged to a real person up front
+      // (spec §10.1).
+      const billing: "pass" | "credits" =
+        args.userId === "system" || args.scheduledContentId !== undefined ? "pass" : "credits";
+
       await ctx.runMutation(internal.aiContent.updateGeneratedContent, {
         articleId: args.articleId,
         title: generatedContent.title,
         content: generatedContent.content,
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
+        billing,
       });
 
-      // Relationship events from the stored managerMentions, and the write-back
-      // of which approved quotes actually made print. Neither is allowed to fail
-      // the generation that already succeeded.
+      // One finalize path (spec section 9.2.2). Before this, the prepared path
+      // recorded relationship events and quote usage but never applied the
+      // league's autoPublish preference and never closed its scheduled row, so
+      // every cron-generated mock draft, weekly recap, draft ranking and season
+      // welcome sat in draft with its schedule row stuck on "generating".
       try {
-        await ctx.runMutation(internal.relationships.recordArticleMentions, {
+        const finalized = await ctx.runMutation(internal.aiContent.finalizeGeneratedArticle, {
           articleId: args.articleId,
+          leagueId: args.leagueId,
+          scheduledContentId: args.scheduledContentId,
+          reviewFlags: generatedContent.metadata.reviewFlags,
+          generatedByUserId: args.userId,
         });
+        console.log("Article finalized:", finalized);
       } catch (e) {
-        console.error("Failed to record relationship events for article", args.articleId, e);
-      }
-      try {
-        await ctx.runMutation(internal.aiContentHelpers.markQuotesUsed, {
-          articleId: args.articleId,
-        });
-      } catch (e) {
-        console.error("Failed to mark comment responses as integrated", args.articleId, e);
+        console.error("Failed to finalize generated article", args.articleId, e);
       }
 
       // Clean up prepared data
@@ -482,50 +490,27 @@ export const generateAIContentWithData = internalAction({
       console.error("=== generateAIContentWithData ERROR ===");
       console.error("Error:", error);
 
-      // Same refund-on-failure handling as prepareAIContentData's catch
-      // above - see the comment there for why this isn't swallowed.
-      let refundError: unknown = null;
-      if (args.creditsDeductedUpFront) {
-        try {
-          let creditUserId = args.userId;
-          if (creditUserId === "system") {
-            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
-              leagueId: args.leagueId,
-            });
-            if (league?.commissionerUserId) {
-              creditUserId = league.commissionerUserId;
-            }
-          }
-
-          if (creditUserId !== "system") {
-            await ctx.runMutation(internal.credits.refundCredits, {
-              userId: creditUserId,
-              amount: args.creditsDeductedUpFront,
-              description: `Refund: failed AI content generation (${args.contentType})`,
-              leagueId: args.leagueId,
-              relatedContentId: args.articleId,
-            });
-          }
-        } catch (e) {
-          console.error("Failed to refund credits after AI generation failure:", e);
-          refundError = e;
-        }
-      }
-
-      // Update article status to failed
-      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
-        articleId: args.articleId,
-        status: "failed",
-        error: error instanceof Error ? error.message : "AI generation failed",
-      });
-
-      if (refundError) {
-        throw new Error(
-          `AI generation failed for article ${args.articleId} and the credit refund also failed: ${
-            refundError instanceof Error ? refundError.message : String(refundError)
-          }`
-        );
-      }
+      // Same shared failure path as prepareAIContentData's catch above: refund
+      // only when no retry is coming, mark the article failed, and hand the
+      // scheduled row back to the cron (spec section 9.2.5).
+      await handleGenerationFailure(
+        ctx,
+        {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
+          scheduledContentId: args.scheduledContentId,
+          creditsDeductedUpFront: args.creditsDeductedUpFront,
+          retryCount: args.retryCount,
+          stage: "AI generation",
+        },
+        error
+      );
 
       return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
     }
@@ -615,6 +600,59 @@ export const getCommentResponsesForManualContent = internalQuery({
     // A manager who withdrew every quote is not a speaker; sending them with an
     // empty quote list would ask the writer to attribute silence (spec section 8.1).
     return built.filter((entry) => entry.quotes.length > 0);
+  },
+});
+
+/**
+ * Managers who were asked for comment on a scheduled article and never went on
+ * the record, in the spec section 4.2 `NonRespondent` shape.
+ *
+ * The writer needs these by name: every persona has a sanctioned "did not
+ * respond" line, and without the list the article silently pretends nobody was
+ * asked. Mirrors aiContentWithComments.getNonRespondents, keyed by the
+ * scheduled row instead of by an explicit list of request ids.
+ */
+export const getNonRespondentsForScheduledContent = internalQuery({
+  args: { scheduledContentId: v.id("scheduledContent") },
+  returns: v.array(nonRespondentValidator),
+  handler: async (ctx, args): Promise<NonRespondent[]> => {
+    const requests = await ctx.db
+      .query("commentRequests")
+      .withIndex("by_scheduled_content", (q) =>
+        q.eq("scheduledContentId", args.scheduledContentId)
+      )
+      .collect();
+
+    const results: NonRespondent[] = [];
+    for (const request of requests) {
+      if (
+        request.status !== "declined" &&
+        request.status !== "expired" &&
+        request.status !== "pending" &&
+        request.status !== "active"
+      ) {
+        continue;
+      }
+
+      // A response row means they spoke, whatever the request status ended up as.
+      const response = await ctx.db
+        .query("commentResponses")
+        .withIndex("by_comment_request", (q) => q.eq("commentRequestId", request._id))
+        .first();
+      if (response) continue;
+
+      const user = await ctx.db.get(request.targetUserId);
+      const team = await teamForUser(ctx, request.leagueId, user);
+
+      results.push({
+        userId: request.targetUserId as string,
+        userName: user?.name?.trim() || user?.email || "A league manager",
+        teamName: team?.name ?? "Unclaimed team",
+        status: request.status === "declined" ? "declined" : "no_response",
+      });
+    }
+
+    return results;
   },
 });
 
@@ -753,7 +791,20 @@ export const cleanupPreparedData = internalMutation({
   },
 });
 
-// Retry handler for failed steps
+/**
+ * Retry handler for failed steps (spec section 9.2.5).
+ *
+ * `retryCount` is how many retries have already been spent on this article. It
+ * used to arrive hard-coded as 1 from every caller, so the "max 3" check could
+ * never fire and a genuinely broken generation looped forever. It is now
+ * threaded through generateContentAction, incremented exactly once per retry
+ * here, and capped.
+ *
+ * A generation that belongs to a scheduled row never gets here: the cron owns
+ * those retries (the row goes back to `pending` with a `nextRetryAt` instead).
+ * `scheduledContentId` is still accepted and forwarded so a row that somehow
+ * reaches this path stays attached to its article.
+ */
 export const retryFailedGeneration = internalAction({
   args: {
     articleId: v.id("aiContent"),
@@ -765,11 +816,17 @@ export const retryFailedGeneration = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     retryCount: v.number(),
+    // Kept with the run so the retry is not billed a second time and so a
+    // terminal failure still refunds exactly once.
+    creditsDeductedUpFront: v.optional(v.number()),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
   },
   handler: async (ctx, args) => {
-    console.log(`=== Retry attempt ${args.retryCount} for article ${args.articleId} ===`);
-    
-    if (args.retryCount > 3) {
+    console.log(
+      `=== Retry attempt ${args.retryCount + 1} of ${MAX_GENERATION_RETRIES} for article ${args.articleId} ===`
+    );
+
+    if (args.retryCount >= MAX_GENERATION_RETRIES) {
       console.error("Max retry attempts exceeded");
       await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
@@ -778,9 +835,18 @@ export const retryFailedGeneration = internalAction({
       });
       return;
     }
-    
+
+    if (args.scheduledContentId) {
+      // Belt and braces: the cron owns scheduled retries, so refuse rather
+      // than run a second generation against a row it is already reclaiming.
+      console.log(
+        `Skipping retry for article ${args.articleId}: scheduled content ${args.scheduledContentId} is retried by the cron`
+      );
+      return;
+    }
+
     // Wait before retry (exponential backoff)
-    const waitTime = Math.pow(2, args.retryCount) * 1000;
+    const waitTime = Math.pow(2, args.retryCount + 1) * 1000;
     await new Promise(resolve => setTimeout(resolve, waitTime));
     
     // Retry the generation process
@@ -793,6 +859,9 @@ export const retryFailedGeneration = internalAction({
       userId: args.userId,
       seasonId: args.seasonId,
       week: args.week,
+      retryCount: args.retryCount + 1,
+      creditsDeductedUpFront: args.creditsDeductedUpFront,
+      scheduledContentId: args.scheduledContentId,
     });
   },
 });

@@ -93,6 +93,55 @@ describe("eval fixtures", () => {
     }
   });
 
+  it("carries the week-8 slate into facts.upcoming with resolved ids and no scores", () => {
+    const facts = buildFactsBlock(factsRequestFor(fixturesByName["rich-week"], "weekly_preview"));
+
+    expect(facts.upcoming).toHaveLength(5);
+    expect(facts.upcoming.map((game) => game.id)).toEqual(["U1", "U2", "U3", "U4", "U5"]);
+    expect(facts.upcoming.every((game) => game.week === 8)).toBe(true);
+    expect(facts.upcoming[0]).toMatchObject({
+      home: { teamId: "T1", record: "7-0-0", pointsFor: 812.4, projected: 124.8 },
+      away: { teamId: "T2", record: "5-2-0", pointsFor: 788.9, projected: 122.1 },
+      headToHead: { homeWins: 1, awayWins: 0 },
+    });
+
+    // Nothing on an unplayed game may carry a score, and every side resolves to a real team.
+    for (const game of facts.upcoming) {
+      expect(Object.keys(game.home)).not.toContain("score");
+      expect(Object.keys(game.away)).not.toContain("score");
+      expect([game.home.teamId, game.away.teamId]).not.toContain("T?");
+    }
+
+    // Every other content type sees the same payload with an empty slate in FACTS.
+    const recap = buildFactsBlock(factsRequestFor(fixturesByName["sparse-week"], "weekly_recap"));
+    expect(recap.upcoming).toEqual([]);
+  });
+
+  it("previews the slate rather than recapping last week", () => {
+    const built = new PromptBuilder({
+      ...factsRequestFor(fixturesByName["rich-week"], "weekly_preview"),
+      leagueId: "eval_rich-week",
+      persona: "curtis-vaughn",
+    }).build();
+
+    expect(built.systemPrompt).toContain("LOOK-AHEAD — THIS ARTICLE IS A PREVIEW");
+    expect(built.systemPrompt).toContain("Last week's results (facts.matchups) are context, never the subject.");
+    expect(built.userPrompt).toContain("WEEK 8 SLATE — NONE OF THESE GAMES HAS BEEN PLAYED.");
+    // Last week is present, but only as the one context line per side.
+    expect(built.userPrompt).toContain("Gravel Pit Grinders last time out: week 7, beat Sable Ridge Sentinels 134.2-128.9");
+    expect(built.userPrompt).toContain("Head-to-head on record: Gravel Pit Grinders leads 1-0");
+  });
+
+  it("refuses a preview when the payload has no unplayed games", () => {
+    expect(() =>
+      new PromptBuilder({
+        ...factsRequestFor(fixturesByName["sparse-week"], "weekly_preview"),
+        leagueId: "eval_sparse-week",
+        persona: "curtis-vaughn",
+      }).build()
+    ).toThrow(InsufficientDataError);
+  });
+
   it("carries the separated player keys through to FACTS", () => {
     const facts = buildFactsBlock(factsRequestFor(fixturesByName["rich-week"], "weekly_recap"));
     const ellery = facts.matchups[0].players.find((player) => player.name === "Duke Ellery");

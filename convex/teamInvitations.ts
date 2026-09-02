@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { leagueCapacity, LEAGUE_AT_CAPACITY } from "./leagues";
 
 // Generate a secure random token for invitations
 function generateInviteToken(): string {
@@ -259,6 +260,13 @@ export const claimInvitation = mutation({
 
     let membershipId;
     if (!membership) {
+      // Seats (spec §10.1): an invitation is a second way into the league and must respect the
+      // same 12-included + purchased-seats limit as `leagues.joinLeague`. The invite page catches
+      // this code and shows the commissioner's "buy a seat" prompt.
+      const capacity = await leagueCapacity(ctx, invitation.leagueId);
+      if (capacity.remaining <= 0) {
+        throw new Error(LEAGUE_AT_CAPACITY);
+      }
       console.log("🔄 Adding user to league membership");
       membershipId = await ctx.db.insert("leagueMemberships", {
         leagueId: invitation.leagueId,

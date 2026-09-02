@@ -540,3 +540,191 @@ runtime instead of a hard-coded list.
   new components.
 - **P2-D (eval + metrics):** `src/lib/ai/__fixtures__/**`, `scripts/eval-articles.ts`, `package.json`
   scripts only, `convex/deskMetrics.ts` (new), `src/app/leagues/[id]/desk/**` (new), `tests/**`.
+
+---
+
+## 9. Automatic by default (approved 2026-09-02)
+
+Goal: a commissioner imports a league and pays once; from then on the league gets fresh, published
+content every week with no configuration. Everything is opt-out, never opt-in. Findings that drive
+this section came from an audit of `convex/contentScheduling.ts`, `contentSchedulingIntegration.ts`,
+`aiContent.ts`, `aiContentHelpers.ts`, `credits.ts`, `payments.ts`, `leagues.ts`, `crons.ts`.
+
+### 9.1 Defaults
+
+- `leagueContentPreferences`: `autoPublish: true`, `requireApproval: false`, `contentEnabled: true`,
+  `notifyCommissioner: true`, `notifyFailures: true`. Existing rows are migrated to these defaults
+  only where the commissioner never changed them (add `preferencesTouchedAt`; if absent, apply).
+- Timezone is captured at import (setup wizard step 1, default `Intl.DateTimeFormat().resolvedOptions().timeZone`)
+  and stored on `leagueContentPreferences.timezone`; the two hard-coded `"America/New_York"` sites
+  go away. Existing leagues keep `America/New_York` until edited.
+- Default calendar created at import (all local time in the league timezone), each with
+  `preferredPersona = contentTypePersonaMap[type][0]` (never the literal `"analyst"`):
+
+| content type | when | enabled | comment window |
+|---|---|---|---|
+| `season_welcome` | at payment (exists) | on | none |
+| `weekly_recap` | Tuesday 09:00 | on | requests sent Monday 21:00 (12h before print) |
+| `power_rankings` | Wednesday 09:00 | on | none |
+| `waiver_wire_report` | Wednesday 12:00 | on | none |
+| `weekly_preview` | Thursday 09:00 | on | none |
+| `trade_analysis` | event: trade completed + 30 min | on | requests to both managers, print 6h later |
+| `draft_rankings` | event: draft completed + 60 min | on | requests to all managers, print 6h later |
+| `mid_season_awards` | season week 9 (Wednesday 09:00) | on | none |
+| `playoff_picture` | season weeks 12–14 (Thursday 12:00) | on | none |
+| `season_recap` | event: champion determined + 1 day | on | none |
+| `championship_manifesto`, `rivalry_week_special`, `emergency_hot_takes`, `custom_roast`, `mock_draft`, `hall_of_shame`, `commissioner_corner` | created **disabled** | off | — |
+
+### 9.2 Correctness fixes (must ship together)
+
+1. **Timezone conversion.** Rewrite `convertTimeZoneToUTC` as an offset solve (compute the zone's
+   offset for a candidate instant with `Intl.DateTimeFormat` parts, adjust, iterate once for DST).
+   Unit test: Tue 09:00 `America/New_York` → 13:00Z in July, 14:00Z in January; `America/Los_Angeles`
+   → 16:00Z / 17:00Z; `UTC` → 09:00Z.
+2. **One finalize path.** Extract `finalizeGeneratedArticle(ctx, { articleId, leagueId, scheduledContentId?, reviewFlags })`
+   in `convex/aiContent.ts` and call it from BOTH the standard branch and
+   `aiContentHelpers.generateAIContentWithData`: apply `autoPublish` (suppressed on any `block`/`strip`
+   review flag → stays `draft` and the commissioner is notified "needs your review"), mark
+   `scheduledContent` `completed` with `generatedContentId`, record relationship mentions, mark quotes
+   used, notify commissioner when `notifyCommissioner`.
+3. **Persona.** Every scheduled/event/post-payment generation passes
+   `contentTypePersonaMap[type][0]` (`payments.ts`, `contentScheduling.ts` ×2). `getPersona` fallback
+   stays `curtis-vaughn` but nothing should hit it.
+4. **Credits before generation.** In `processScheduledContent`, before scheduling generation, check the
+   commissioner's balance against `contentTemplates[type].creditCost`; if short, set the row
+   `cancelled` with `cancelReason: "low_credits"` and notify the commissioner once per week (dedupe on
+   `(leagueId, week, "low_credits")`). For `userId === "system"` deduct BEFORE the model call (same as
+   the manual path) and refund on failure; delete the post-hoc swallowed deduction.
+5. **Retry loop.** `retryFailedGeneration` must receive and increment `retryCount`, cap at 3, and be
+   skipped entirely when `scheduledContentId` is set (the cron owns retries). Failures inside the
+   prepared path set `scheduledContent` back to `pending` with `nextRetryAt = now + 30m` while
+   `attempts < maxAttempts`; otherwise `failed` + commissioner notification. A sweeper in the 15-minute
+   cron reclaims rows stuck in `generating` for more than 2 hours.
+6. **Idempotency.** New index `scheduledContent.by_league_type_season_week` on
+   `["leagueId", "contentType", "seasonId", "week"]`; `scheduleWeeklyContentCron` checks it before
+   insert; `week` and `seasonId` are stamped at **execution** time in `processScheduledContent`
+   (re-read `getCurrentNFLWeek`), with the scheduled row updated accordingly.
+7. **Fresh data.** `processScheduledContent` checks `league.espnData.lastSyncedAt`; if older than 6h it
+   runs `internal.espnSync.syncLeagueCurrentSeason` for that league first, and if the sync fails or
+   there are still no matchups for the target week it defers (`pending`, `nextRetryAt +30m`, max 6
+   deferrals) instead of generating.
+8. **Comment window.** `onContentScheduled` schedules request creation at `scheduledTime − window`
+   (12h for weekly_recap, 6h for event types) instead of immediately, only for the types in the
+   §9.1 table, and passes `writerPersona`. The standard branch of `generateContentAction` loads
+   `commentResponses`/`nonRespondents` for `scheduledContentId` (mirroring the prepared path) so
+   interviewed managers are actually quoted.
+9. **Event fan-out limits.** Event-triggered generation dedupes on `(leagueId, contentType, eventKey)`
+   and is rate-limited to one article per type per league per 6 hours.
+10. **Dead settings.** `notifyCommissioner` / `notifyFailures` drive real notifications
+    (`completed` when not auto-published, `failed`, `cancelled/low_credits`).
+
+### 9.3 Opt-out surface
+
+- League settings page: a "Weekly content is on" card (schedule summary in the league timezone,
+  next print time) with one "Turn off" toggle (sets `contentEnabled: false`) and a link to the
+  schedule manager for per-type toggles. Both themes, no beta language.
+- Setup wizard captures timezone in step 1 with a sensible default.
+- `ContentScheduleManager` shows the default persona per row from the roster and the resolved
+  local/UTC time so the fix in 9.2.1 is visible.
+
+### 9.4 Ownership
+
+- **AUTO-A (scheduling):** `convex/contentScheduling.ts`, `convex/contentSchedulingIntegration.ts`,
+  `convex/schema.ts`, `convex/leagues.ts`, `convex/payments.ts`, `convex/crons.ts`,
+  `convex/nflSeasonBoundaries.ts` (read), `tests/contentScheduling.test.ts` (new).
+- **AUTO-B (generation + billing):** `convex/aiContent.ts`, `convex/aiContentHelpers.ts`,
+  `convex/credits.ts`, `convex/notifications.ts`, `tests/generationFinalize.test.ts` (new).
+- **AUTO-C (UI):** `src/app/setup/page.tsx`, `src/components/LeagueSettingsPage.tsx` (or wherever
+  league settings live), `src/components/ContentScheduleManager.tsx`, new components.
+
+---
+
+## 10. Pricing and cost levers (approved 2026-09-02)
+
+Measured baseline (scripts/eval-runs/2026-09-02-live-matrix.json): mean $0.206 per article on Opus 5
+at medium effort; a full Sam Ortega interview $0.109, an unanswered opener $0.023. Default season,
+12 managers: about $34 of API spend today. Target: ≥70% gross margin on the League Pass in the
+worst case (every manager spends every credit).
+
+### 10.1 The offer
+
+- **League Pass: $100 per league per season.** Includes every automated story in the §9.1 calendar
+  for the whole season, and **100 credits for every manager** (commissioner included) for up to
+  **12 managers**. Each manager beyond 12 is a **$10 seat** bought by the commissioner; a seat
+  includes that manager's 100 credits. Credits expire when the season ends (no rollover).
+  **Top-up: 100 credits for $5**, purchasable by any manager for themselves.
+- **Automated content never consumes credits.** It is covered by the pass while
+  `league.subscription.status === "active"`. A per-league automated spend cap (default **$60 per
+  season of measured API cost**, Convex env `AUTOMATION_SPEND_CAP_USD`) pauses automation and notifies
+  the commissioner and the operator (`ADMIN_ALERT_EMAIL`); it is a safety valve, not a product limit.
+- New purchases grant the commissioner 100 credits (was 1,000). Existing balances are untouched.
+- Manual generation charges the type's `creditCost` plus **5 credits per manager asked** when the
+  requester turns on comment requests.
+
+### 10.2 Credit prices (1 credit ≈ 1¢ of measured API cost, rounded up to 5, floor 10)
+
+| type | credits | | type | credits |
+|---|---|---|---|---|
+| weekly_preview (Sonnet) | 10 | | weekly_recap | 25 |
+| waiver_wire_report (Sonnet) | 10 | | season_welcome | 25 |
+| team_name_power_rankings (Sonnet) | 10 | | season_recap | 25 |
+| trade_block_tuesday (Sonnet) | 10 | | trade_rumor_mill | 25 |
+| trade_analysis | 15 | | commissioner_corner | 25 |
+| rivalry_week_special | 15 | | draft_rankings | 30 |
+| hall_of_shame | 15 | | custom_roast | 30 |
+| power_rankings (Opus low) | 15 | | mock_draft | 30 |
+| emergency_hot_takes (Opus low) | 15 | | playoff_picture (Opus low) | 20 |
+| player_glazing | 20 | | mid_season_awards | 20 |
+| championship_manifesto | 20 | | draft_strategy_guide | 20 |
+
+`creditCost` in `src/lib/ai/content-templates.ts` is the single source of truth; UI and Convex read
+it. `INTERVIEW_CREDITS_PER_MANAGER = 5` lives beside it.
+
+### 10.3 Cost levers (all built now; the eval decides which routes ship)
+
+1. **Model and effort routing per content type** (`GENERATION_ROUTES` in
+   `content-generation-service.ts`, overridable by Convex env `GENERATION_ROUTE_OVERRIDES` JSON):
+   Sonnet 5 at medium effort for `weekly_preview`, `waiver_wire_report`, `team_name_power_rankings`,
+   `trade_block_tuesday`; Opus 5 at low effort for `power_rankings`, `playoff_picture`,
+   `emergency_hot_takes`; Opus 5 at medium effort for everything that carries quotes or a grade.
+   Fallback chain unchanged (Sonnet-routed types fall back to Opus). **Gate:** a routed type ships
+   only if the rubric-scored matrix shows `respectsTheFacts ≥ 4` and zero blocks; otherwise it
+   reverts to Opus medium.
+2. **Interview:** reply analysis runs on Sonnet 5 (low effort); the close is a template (three
+   variants, uses the manager's first name, always ends "Anything else you want on the record?")
+   with no model call; `cache_control` on Sam's system prompt. Expected cost $0.058 per full
+   interview (was $0.109).
+3. **Prompt caching** on the article system prompt (contract + voice + quote rules are byte-stable
+   per persona): `system: [{ type: "text", text, cache_control: { type: "ephemeral" } }]`.
+4. **Cost accounting:** `computeCostUsd(model, usage, { batch })` with cache reads at 0.1× and writes
+   at 1.25× of input; `metadata.costUsd` on every generation and interview call; persisted as
+   `aiContent.generationStats.costUsd` and `commentRequests.interviewCostUsd`; `leagueSpend` query
+   (season totals split automated / manual / interviews) on the desk metrics page.
+5. **Batch API for scheduled generation** (`convex/aiBatch.ts`, "use node"; Convex env
+   `BATCH_SCHEDULED_GENERATION`, default on when print time is ≥ 2h away): at print − 3h the
+   scheduler submits a Message Batch with the exact params `prepareArticleRequest()` would send,
+   stores `batchId`/`customId` on the `scheduledContent` row (status `batched`), polls every 10
+   minutes; on success `completeArticleFromMessage()` runs the same parse → verify → (rare) direct
+   regeneration → finalize path; on `errored`/`expired`, or if still processing at print time, it
+   falls back to the direct path. Batch is billed at 50%; accounting passes `batch: true`.
+6. Measured but not shipped: `FACTS_ONLY_PROMPT=1` drops the duplicated prose formatting from the
+   user prompt (input is ~25% of cost). Evaluate later.
+
+Projected 12-manager season after 1–5: ≈ $16.5 automated + $6 expected credit use = $22.5
+(78% margin); worst case with every credit spent $28.5 (72%). 20 managers at $180: expected 82%,
+worst 76%.
+
+### 10.4 Ownership (no agent may run git stash / checkout / reset / commit)
+
+- **PRICE-A (prompt layer):** `src/lib/ai/content-generation-service.ts` (routes, caching, cost,
+  exports `prepareArticleRequest(request) → { params, facts, systemPrompt, userPrompt, route }` and
+  `completeArticleFromMessage(message, prepared, apiKey) → GeneratedContent`), `conversation-service.ts`,
+  `content-templates.ts`, `scripts/eval-articles.ts` (print route + model per row), `scripts/measure-interview.ts`.
+- **PRICE-B (Convex pass, credits, spend):** `convex/credits.ts`, `convex/aiContent.ts`,
+  `convex/aiContentHelpers.ts`, `convex/contentScheduling.ts`, `convex/schema.ts`,
+  `convex/deskMetrics.ts`, `convex/leagues.ts`, `convex/crons.ts`, `convex/lib/generationFailure.ts`,
+  tests for these.
+- **PRICE-C (batch):** `convex/aiBatch.ts` (new), `tests/aiBatch.test.ts` (new).
+- **PRICE-D (Stripe + UI):** `convex/stripe.ts`, `convex/payments.ts`, `src/app/page.tsx` pricing
+  copy, `src/components/LeagueSettingsPage.tsx` ("League Pass & seats" card), the join flow's
+  at-capacity message, a top-up button where a manager's credits are shown, new components.

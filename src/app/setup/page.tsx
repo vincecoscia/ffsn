@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { UserButton, useUser } from "@clerk/nextjs";
@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertCircle, Check, CreditCard, KeyRound } from "lucide-react";
 
 import { TopBar, ThemeToggle, Panel, SectionHeader, TeamTile } from "@/components/broadcast";
+import { TimezoneSelect } from "@/components/content-schedule/TimezoneSelect";
+import { resolveBrowserTimeZone } from "@/components/content-schedule/timezones";
 
 interface EspnTeam {
   id: string;
@@ -79,6 +81,12 @@ const STEPS = [
   { code: "Seg 04", label: "License" },
 ];
 
+/** The viewer's timezone never changes mid-session, so there is nothing to subscribe to. */
+const subscribeToNothing = () => () => {};
+
+/** The server has no clock of its own; the picker shows its placeholder until hydration. */
+const getServerTimeZone = () => "";
+
 function StepIndicator({ step }: { step: number }) {
   return (
     <div className="flex flex-col gap-3">
@@ -132,6 +140,8 @@ export default function SetupPage() {
     scoringType: "standard",
     rosterSize: 16,
     playoffWeeks: 3,
+    // Empty until the commissioner picks one; the browser's own zone is the default.
+    timezone: "",
   });
   const [authData, setAuthData] = useState({
     espnS2: "",
@@ -145,6 +155,17 @@ export default function SetupPage() {
 
   const { user } = useUser();
   const createLeague = useMutation(api.leagues.create);
+
+  // The league prints on one clock (spec §9.1). The browser's zone is the default, read
+  // through useSyncExternalStore so the server renders a placeholder and the client fills
+  // it in on hydration — no mismatch, and no wrong zone flashing on screen first.
+  const detectedTimeZone = useSyncExternalStore(
+    subscribeToNothing,
+    resolveBrowserTimeZone,
+    getServerTimeZone,
+  );
+  const timezone = formData.timezone || detectedTimeZone;
+
   const fetchEspnData = useAction(api.espn.fetchLeagueData);
   const createLeagueCheckout = useAction(api.stripe.createLeagueCheckoutSession);
 
@@ -209,6 +230,8 @@ export default function SetupPage() {
         name: formData.leagueName,
         platform: formData.platform,
         externalId: formData.externalId,
+        // The clock every scheduled story prints on.
+        timezone: timezone || resolveBrowserTimeZone(),
         settings: {
           scoringType: formData.scoringType,
           rosterSize: formData.rosterSize,
@@ -304,6 +327,21 @@ export default function SetupPage() {
                   </Select>
                   <p className="mt-1.5 text-[13px] text-bc-text-3">
                     Currently only ESPN leagues are supported.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="league-timezone" className="text-bc-ink">
+                    League timezone
+                  </Label>
+                  <TimezoneSelect
+                    id="league-timezone"
+                    value={timezone}
+                    onChange={(zone) => setFormData({ ...formData, timezone: zone })}
+                    placeholder="Detecting your timezone..."
+                    className="mt-2"
+                  />
+                  <p className="mt-1.5 text-[13px] text-bc-text-3">
+                    Stories print on this clock.
                   </p>
                 </div>
               </div>
@@ -725,26 +763,26 @@ export default function SetupPage() {
                           {formData.leagueName || "Your league"}
                         </h3>
                         <p className="mt-1 text-[14px] text-bc-text-2">
-                          Full season access for {new Date().getFullYear()} + AI-generated
-                          content.
+                          League Pass &middot; every automated story for the{" "}
+                          {new Date().getFullYear()} season.
                         </p>
                       </div>
                       <div className="text-right">
                         <div className="bc-num text-[36px] font-extrabold text-bc-ink">
-                          $99.99
+                          $100
                         </div>
-                        <div className="text-[13px] text-bc-text-3">one-time payment</div>
+                        <div className="text-[13px] text-bc-text-3">per season, one payment</div>
                       </div>
                     </div>
 
                     <div className="mt-5 grid grid-cols-1 gap-2.5 border-t border-bc-hairline pt-5 sm:grid-cols-2">
                       {[
-                        "Full season league access",
-                        "1,000 credits for AI content",
-                        "Weekly recaps & previews",
-                        "Trade analysis & power rankings",
-                        "Custom team roasts & content",
-                        "League members get 100 bonus credits",
+                        "Every automated story, all season long",
+                        "100 credits for every manager",
+                        "Up to 12 managers included",
+                        "$10 per extra manager seat",
+                        "Credits top up at $5 per 100",
+                        "Weekly recaps, previews, power rankings",
                       ].map((item) => (
                         <div key={item} className="flex items-center gap-2.5">
                           <span className="flex size-5 flex-none items-center justify-center bg-bc-red text-white">
@@ -756,8 +794,8 @@ export default function SetupPage() {
                     </div>
 
                     <p className="mt-5 border-t border-bc-hairline pt-4 text-[12px] text-bc-text-3">
-                      Secure payment processed by Stripe · Cancel anytime · 30-day money-back
-                      guarantee
+                      Secure payment processed by Stripe &middot; Credits run through the end of
+                      the season
                     </p>
                   </Panel>
                 </div>
@@ -774,9 +812,10 @@ export default function SetupPage() {
 
                 <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
                   <p className="text-[14px] leading-relaxed text-bc-signal">
-                    <strong>What happens next?</strong> After payment, we&apos;ll create your
-                    league, sync all ESPN data, and grant you 1,000 credits. Your league members
-                    will receive join invitations with 100 bonus credits each.
+                    <strong>What happens next?</strong> After payment we&apos;ll create your
+                    league, sync all ESPN data, and give every manager &mdash; you included &mdash;
+                    100 credits. Managers past the included 12 are a $10 seat you can buy any time
+                    from league settings.
                   </p>
                 </div>
               </div>
@@ -812,7 +851,7 @@ export default function SetupPage() {
                 size="lg"
               >
                 <CreditCard className="size-5" strokeWidth={1.8} />
-                {isProcessingPayment ? "Processing payment..." : "Pay $99.99 & create league"}
+                {isProcessingPayment ? "Processing payment..." : "Pay $100 & create league"}
               </Button>
             )}
           </div>

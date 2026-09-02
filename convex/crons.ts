@@ -83,4 +83,26 @@ crons.cron(
   {},
 );
 
+// Message Batches come back on their own schedule (spec §10.3.5), so the desk
+// checks every ten minutes for scheduled articles whose batch has finished.
+// A batch that is still processing when print time arrives loses its turn:
+// `processScheduledContentCron` puts the row back and generates it directly.
+crons.interval(
+  "poll scheduled article batches",
+  { minutes: 10 },
+  internal.aiBatch.pollBatches,
+  {},
+);
+
+// Season credits do not roll over (spec §10.1). Every Monday 11:00 UTC, any
+// balance whose expiry has passed is zeroed and written off in the ledger.
+// Weekly rather than daily because the expiry is a date, not a deadline: a few
+// days of grace after February 15 costs nothing and a stuck sweep is obvious.
+crons.cron(
+  "expire season credits",
+  "0 11 * * 1",
+  internal.credits.expireSeasonCredits,
+  {},
+);
+
 export default crons;

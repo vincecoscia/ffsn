@@ -24,7 +24,9 @@ export type ViolationKind =
   /** Optional Sonnet 5 pass: the body contradicts FACTS (spec §8.6). */
   | "llm_contradicted"
   /** Optional Sonnet 5 pass: the body states something FACTS neither supports nor denies. */
-  | "llm_unsupported";
+  | "llm_unsupported"
+  /** Far fewer sections or words than the template calls for; held for review, never published as-is. */
+  | "thin_article";
 
 export interface Violation {
   kind: ViolationKind;
@@ -169,13 +171,32 @@ export function verifyArticle(article: GeneratedArticleT, facts: FactsBlock): Vi
   const playerById = new Map<string, FactsPlayer>(
     facts.matchups.flatMap(matchup => matchup.players).map(player => [player.id, player])
   );
+  // Draft articles feature players by their pick id ("D19"); they have no matchup line, so index
+  // them as players of the drafting team or every draft grade is blocked as an unknown player.
+  for (const pick of facts.draftPicks ?? []) {
+    if (playerById.has(pick.id)) continue;
+    playerById.set(pick.id, {
+      id: pick.id,
+      name: pick.player,
+      pos: pick.pos,
+      fantasyTeamId: pick.teamId,
+      points: 0,
+      projected: pick.projected,
+      lineup: "bench",
+    });
+  }
   const playerNames = new Set([...playerById.values()].map(player => player.name.toLowerCase()));
-  facts.draftPicks?.forEach(pick => playerNames.add(pick.player.toLowerCase()));
   const quoteById = new Map(facts.quotes.map(quote => [quote.id, quote]));
   const ledgerTexts = facts.quotes.map(quote => normalizeQuote(quote.text));
   const silentSpeakers = new Set(facts.nonRespondents.map(entry => entry.speaker.toLowerCase()));
   const numberStrings = collectNumbers(facts, new Set<string>());
   const numberValues = [...numberStrings].map(Number).filter(Number.isFinite);
+
+  // `facts.upcoming` needs no block kind of its own: its sides carry the same `T…` team ids as
+  // everything else, so a featuredTeams entry for an upcoming opponent resolves through `teamById`
+  // above; its projections and head-to-head counts are reached by `collectNumbers`, so they read as
+  // known numbers in the prose sweep; and `keyStats[].source` paths like "upcoming.U1.home.projected"
+  // resolve because `resolvePath` matches array entries by their `id`.
 
   // 1. Structured references must resolve.
   for (const team of article.featuredTeams ?? []) {

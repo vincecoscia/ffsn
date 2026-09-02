@@ -82,7 +82,15 @@ const STEPS = [
   },
 ];
 
-const INCLUDES = ["ESPN sync", "All six writers", "Scheduled stories", "Unlimited readers"];
+// The League Pass, spelled out (spec §10.1).
+const INCLUDES = [
+  "Every automated story, all season",
+  "100 credits for every manager",
+  "Up to 12 managers included",
+  "$10 per extra manager",
+  "Top up 100 credits for $5",
+  "ESPN sync, all six writers",
+];
 
 export default function Home() {
   return (
@@ -346,8 +354,7 @@ export default function Home() {
                   <div className="flex items-start gap-1.5">
                     <span className="bc-num pt-2 text-[30px] font-bold text-bc-red-text">$</span>
                     <span className="bc-num text-[68px] leading-[0.86] font-extrabold tracking-tight text-bc-ink sm:text-[88px] lg:text-[104px]">
-                      99
-                      <span className="align-top text-[40px] sm:text-[50px]">.99</span>
+                      100
                     </span>
                   </div>
                   <p className="text-[15px] leading-relaxed text-bc-text-2 sm:text-[16px]">
@@ -382,13 +389,13 @@ export default function Home() {
                     </SignedOut>
                     <SignedIn>
                       <Button asChild variant="glow" size="lg">
-                        <Link href="/dashboard/credits">Purchase credits</Link>
+                        <Link href="/setup">Start a league</Link>
                       </Button>
                     </SignedIn>
                     <span className="text-[14px] leading-relaxed text-bc-text-3">
-                      $99.99 per league, per season.
+                      $100 per league, per season. Every manager gets 100 credits.
                       <br />
-                      Every manager gets a seat in the press box.
+                      Extra managers are $10 a seat; credits top up at $5 per 100.
                     </span>
                   </div>
                 </div>

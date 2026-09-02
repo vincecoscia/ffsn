@@ -493,3 +493,101 @@ describe("writer roster", () => {
     }
   });
 });
+
+
+/* -------------------------------------------------------------------------- */
+/* Look-ahead slate (weekly_preview)                                            */
+/* -------------------------------------------------------------------------- */
+
+/** The generic payload plus the one thing a preview is actually about: an unplayed game. */
+const previewLeagueData = {
+  ...genericLeagueData,
+  upcomingMatchups: [
+    {
+      week: 5,
+      teamA: "Alpha",
+      teamB: "Beta",
+      teamAId: "3",
+      teamBId: "7",
+      teamAOwner: "Ann",
+      teamBOwner: "Bob",
+      teamARecord: "3-1-0",
+      teamBRecord: "1-3-0",
+      teamAPointsFor: 421.7,
+      teamBPointsFor: 358.2,
+      projectedScoreA: 118.2,
+      projectedScoreB: 109.4,
+      headToHead: { teamAWins: 1, teamBWins: 0 },
+    },
+  ],
+} as unknown as LeagueDataContext;
+
+const previewRequest = {
+  ...request,
+  contentType: "weekly_preview",
+  leagueData: previewLeagueData,
+};
+
+const previewFacts = buildFactsBlock(previewRequest);
+
+describe("look-ahead slate", () => {
+  it("resolves both sides to the same ids as the rest of FACTS and carries no score", () => {
+    expect(previewFacts.upcoming).toHaveLength(1);
+    expect(previewFacts.upcoming[0]).toMatchObject({
+      id: "U1",
+      week: 5,
+      home: { teamId: "T3", record: "3-1-0", pointsFor: 421.7, projected: 118.2 },
+      away: { teamId: "T7", record: "1-3-0", pointsFor: 358.2, projected: 109.4 },
+      headToHead: { homeWins: 1, awayWins: 0 },
+    });
+    expect(Object.keys(previewFacts.upcoming[0].home)).not.toContain("score");
+    expect(previewFacts.missing).not.toContain("upcoming matchups — not available");
+  });
+
+  it("names the gap and refuses when there is no unplayed game, rather than recapping", () => {
+    const noSlate = { ...request, contentType: "weekly_preview" };
+    expect(buildFactsBlock(noSlate).upcoming).toEqual([]);
+    expect(buildFactsBlock(noSlate).missing).toContain("upcoming matchups — not available");
+    expect(() => new PromptBuilder(noSlate).build()).toThrow(InsufficientDataError);
+  });
+
+  it("tells the writer plainly that the game has not been played", () => {
+    const built = new PromptBuilder(previewRequest).build();
+    expect(built.systemPrompt).toContain("LOOK-AHEAD — THIS ARTICLE IS A PREVIEW");
+    expect(built.systemPrompt).toContain("Future tense only.");
+    expect(built.userPrompt).toContain("WEEK 5 SLATE — NONE OF THESE GAMES HAS BEEN PLAYED.");
+    expect(built.userPrompt).toContain("Projected: 118.2 - 109.4 (a projection, not a result)");
+    expect(built.userPrompt).toContain("Alpha last time out: week 4, beat Beta 128.4-121.9");
+  });
+
+  it("verifies a preview article with no new violation kinds", () => {
+    const previewArticle: GeneratedArticleT = {
+      ...cleanArticle,
+      title: "Alpha hosts Beta",
+      summary: "Alpha is projected ahead of Beta.",
+      sections: [
+        {
+          name: "introduction",
+          content: "Alpha is projected for 118.2 and Beta for 109.4.",
+          wordCount: 9,
+        },
+      ],
+      featuredTeams: [
+        { teamId: "T3", teamName: "Alpha", mentions: 2 },
+        { teamId: "T7", teamName: "Beta", mentions: 2 },
+      ],
+      featuredPlayers: [],
+      keyStats: [
+        {
+          stat: "projection",
+          value: "118.2",
+          context: "week 5",
+          source: "upcoming.U1.home.projected",
+        },
+      ],
+      quotes: [],
+    };
+
+    expect(verifyArticle(previewArticle, previewFacts)).toEqual([]);
+  });
+});

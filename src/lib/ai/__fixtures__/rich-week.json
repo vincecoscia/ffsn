@@ -1,6 +1,6 @@
 {
   "name": "rich-week",
-  "description": "Week 7 of a fully synced 10-team league: five matchups with per-player detail, complete standings, waivers, one trade, a four-quote comment ledger, two non-respondents, three standing relationships and two prior claims. The happy path for every content type except the draft.",
+  "description": "Week 7 of a fully synced 10-team league: five played matchups with per-player detail, the unplayed week-8 slate, complete standings, waivers, one trade, a four-quote comment ledger, two non-respondents, three standing relationships and two prior claims. The happy path for every content type except the draft.",
   "leagueData": {
     "leagueName": "Ironclad Fantasy Conference",
     "currentWeek": 7,
@@ -149,6 +149,40 @@
           { "playerId": "p161", "playerName": "Dane Kowalczyk", "position": "RB", "points": 27.2, "projectedPoints": 16.8, "nflTeam": "GB", "fantasyTeamId": "team_06", "fantasyTeamName": "Foundry District Foxes", "isStarter": true },
           { "playerId": "p191", "playerName": "Ellis Marchetti", "position": "WR", "points": 12.5, "projectedPoints": 15.4, "nflTeam": "ARI", "fantasyTeamId": "team_09", "fantasyTeamName": "Pike County Pilots", "isStarter": true }
         ]
+      }
+    ],
+    "upcomingMatchups": [
+      {
+        "week": 8, "teamA": "Gravel Pit Grinders", "teamB": "Cedar Falls Cormorants", "teamAId": "1", "teamBId": "2",
+        "teamAOwner": "Dana Whitlock", "teamBOwner": "Marcus Bly",
+        "teamARecord": "7-0-0", "teamBRecord": "5-2-0", "teamAPointsFor": 812.4, "teamBPointsFor": 788.9,
+        "projectedScoreA": 124.8, "projectedScoreB": 122.1,
+        "headToHead": { "teamAWins": 1, "teamBWins": 0 }
+      },
+      {
+        "week": 8, "teamA": "Quarry Road Quakers", "teamB": "Ninth Street Nightjars", "teamAId": "3", "teamBId": "4",
+        "teamAOwner": "Priya Nandi", "teamBOwner": "Trevor Ashby",
+        "teamARecord": "5-2-0", "teamBRecord": "4-3-0", "teamAPointsFor": 761.3, "teamBPointsFor": 744.8,
+        "projectedScoreA": 116.9, "projectedScoreB": 119.4
+      },
+      {
+        "week": 8, "teamA": "Halyard Bay Harriers", "teamB": "Foundry District Foxes", "teamAId": "5", "teamBId": "6",
+        "teamAOwner": "Lena Okafor", "teamBOwner": "Sam Kestrel",
+        "teamARecord": "4-3-0", "teamBRecord": "3-4-0", "teamAPointsFor": 733.5, "teamBPointsFor": 720.7,
+        "projectedScoreA": 113.2, "projectedScoreB": 117.6
+      },
+      {
+        "week": 8, "teamA": "Milltown Mudlarks", "teamB": "Ashgrove Anvils", "teamAId": "7", "teamBId": "8",
+        "teamAOwner": "Owen Radcliffe", "teamBOwner": "Bea Coleridge",
+        "teamARecord": "3-4-0", "teamBRecord": "2-5-0", "teamAPointsFor": 705.2, "teamBPointsFor": 688.6,
+        "projectedScoreA": 110.5, "projectedScoreB": 104.3,
+        "headToHead": { "teamAWins": 0, "teamBWins": 1 }
+      },
+      {
+        "week": 8, "teamA": "Pike County Pilots", "teamB": "Sable Ridge Sentinels", "teamAId": "9", "teamBId": "10",
+        "teamAOwner": "Hollis Vance", "teamBOwner": "Ruth Tanaka",
+        "teamARecord": "2-5-0", "teamBRecord": "0-7-0", "teamAPointsFor": 664.1, "teamBPointsFor": 651.9,
+        "projectedScoreA": 108.7, "projectedScoreB": 112.9
       }
     ],
     "standings": [

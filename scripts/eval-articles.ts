@@ -2,6 +2,7 @@
  * Article eval harness (spec §8.7).
  *
  *   npm run eval:articles                     # offline, no API key, no network
+ *   npm run eval:articles -- --route          # print the model/effort/credit table and exit
  *   npm run eval:articles -- --live --persona mel-diaper --type draft_rankings --fixture draft-day
  *
  * The runner is `vite-node` (already a dependency, via vitest) because this repo has no `tsx` and
@@ -36,8 +37,14 @@ import {
 import { buildFactsBlock, type FactsBlock } from "../src/lib/ai/facts";
 import { verifyArticle, type Violation } from "../src/lib/ai/fact-verifier";
 import { InsufficientDataError, PromptBuilder } from "../src/lib/ai/prompt-builder";
-import { getPersona, personaPrompts } from "../src/lib/ai/persona-prompts";
-import type { GeneratedArticleT } from "../src/lib/ai/content-generation-service";
+import { contentTypePersonaMap, getPersona, personaPrompts } from "../src/lib/ai/persona-prompts";
+import {
+  contentTemplates,
+  creditCostFor,
+  INTERVIEW_CREDITS_PER_MANAGER,
+} from "../src/lib/ai/content-templates";
+import { resolveRoute } from "../src/lib/ai/content-generation-service";
+import type { GeneratedArticleT, GenerationRoute } from "../src/lib/ai/content-generation-service";
 
 /* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
@@ -49,10 +56,21 @@ interface Options {
   type?: string;
   fixture?: string;
   quiet: boolean;
+  /** Live matrix: every content type with its preferred writer, plus every writer on weekly_recap. */
+  matrix: boolean;
+  /** Write live results (tokens, cost, violations) as JSON to this path. */
+  out?: string;
+  /** Write every live article body (markdown, with its flags) into this directory. */
+  dump?: string;
+  concurrency: number;
+  /** Matrix: also grade each article with the Sonnet 5 persona-adherence rubric. */
+  rubric: boolean;
+  /** Print the model/effort/credit table and exit. No API key, no network. */
+  route: boolean;
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { live: false, quiet: false };
+  const options: Options = { live: false, quiet: false, matrix: false, concurrency: 3, rubric: false, route: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -77,6 +95,25 @@ function parseArgs(argv: string[]): Options {
       case "--quiet":
         options.quiet = true;
         break;
+      case "--matrix":
+        options.matrix = true;
+        options.live = true;
+        break;
+      case "--out":
+        options.out = value();
+        break;
+      case "--concurrency":
+        options.concurrency = Math.max(1, Number(value()) || 1);
+        break;
+      case "--rubric":
+        options.rubric = true;
+        break;
+      case "--dump":
+        options.dump = value();
+        break;
+      case "--route":
+        options.route = true;
+        break;
       case "--help":
       case "-h":
         printUsage();
@@ -99,7 +136,50 @@ function printUsage(): void {
   --fixture <name>     Fixture to use (default: rich-week + sparse-week, for the restraint ratio).
                        One of: ${fixtures.map(f => f.name).join(", ")}
   --quiet              Only print the summary lines.
+  --matrix             Live: every content type with its preferred writer (draft types on draft-day,
+                       the rest on rich-week) plus every writer on weekly_recap. Costs real money.
+  --out <path>         Write live results (tokens, cost, violations, words) as JSON.
+  --concurrency <n>    Parallel generations in matrix mode (default 3).
+  --rubric             Matrix: grade each article with the Sonnet 5 persona rubric (adds ~2¢ each).
+  --route              Print the model/effort/credit table (spec §10.2-§10.3) and exit.
   -h, --help           This message.`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Route table (--route)                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** What every content type generates on, after `GENERATION_ROUTE_OVERRIDES` is applied. */
+function printRouteTable(): void {
+  const rows = Object.keys(contentTemplates)
+    .sort()
+    .map(contentType => {
+      const route = resolveRoute(contentType);
+      return [
+        contentType,
+        route.model.replace("claude-", ""),
+        route.effort,
+        String(contentTemplates[contentType].creditCost),
+        String(creditCostFor(contentType, 4)),
+        contentTypePersonaMap[contentType]?.[0] ?? "curtis-vaughn",
+      ];
+    });
+
+  console.log("\nGeneration routes (env GENERATION_ROUTE_OVERRIDES applied)\n");
+  printTable(["type", "model", "effort", "credits", "+4 asked", "writer"], rows);
+
+  const byRoute = new Map<string, number>();
+  for (const contentType of Object.keys(contentTemplates)) {
+    const route = resolveRoute(contentType);
+    const key = `${route.model} / ${route.effort}`;
+    byRoute.set(key, (byRoute.get(key) ?? 0) + 1);
+  }
+  console.log(
+    `\n${[...byRoute.entries()].map(([key, count]) => `${key}: ${count}`).join("  ·  ")}` +
+      `\nInterview add-on: ${INTERVIEW_CREDITS_PER_MANAGER} credits per manager asked.`
+  );
+  const overrides = process.env.GENERATION_ROUTE_OVERRIDES;
+  console.log(overrides ? `Overrides in effect: ${overrides}` : "No GENERATION_ROUTE_OVERRIDES set.");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -121,6 +201,16 @@ function printTable(headers: string[], rows: string[][]): void {
 }
 
 const failures: string[] = [];
+
+async function dumpBody(
+  dir: string,
+  result: { fixture: string; contentType: string; persona: string; body: string; violations: unknown[] }
+): Promise<void> {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(dir, { recursive: true });
+  const name = `${result.contentType}--${result.persona}--${result.fixture}.md`;
+  writeFileSync(`${dir}/${name}`, `${result.body}\n\n<!-- flags: ${JSON.stringify(result.violations)} -->\n`);
+}
 
 function check(condition: boolean, message: string): boolean {
   if (!condition) failures.push(message);
@@ -355,6 +445,16 @@ interface LiveResult {
   featuredPlayers: string[];
   facts: FactsBlock;
   body: string;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  modelUsed: string;
+  /** The route the service picked for this content type (spec §10.3.1). */
+  route: GenerationRoute;
+  durationMs: number;
+  /** Measured, from `metadata.costUsd`: every call the article took, cache pricing included. */
+  costUsd: number;
+  sectionsRegenerated: number;
 }
 
 function wordCount(text: string): number {
@@ -412,6 +512,7 @@ async function generateOne(
   const { contentGenerationService } = await import("../src/lib/ai/content-generation-service");
   const request = factsRequestFor(fixture, contentType);
   const facts = buildFactsBlock(request);
+  const startedAt = Date.now();
 
   const generated = await contentGenerationService.generateContent(
     {
@@ -440,7 +541,241 @@ async function generateOne(
     featuredPlayers: generated.metadata.featuredPlayers ?? [],
     facts,
     body: generated.content,
+    promptTokens: generated.metadata.promptTokens ?? 0,
+    completionTokens: generated.metadata.completionTokens ?? 0,
+    cacheReadTokens: generated.metadata.cacheReadTokens ?? 0,
+    modelUsed: generated.metadata.modelUsed ?? "claude-opus-5",
+    route: generated.metadata.route ?? resolveRoute(contentType),
+    durationMs: Date.now() - startedAt,
+    // The service measures this across the primary call, any fallback, section regeneration and
+    // the optional fact-check pass, with cache pricing applied. Never recompute it here.
+    costUsd: generated.metadata.costUsd ?? 0,
+    sectionsRegenerated: generated.metadata.verifierStats?.sectionsRegenerated ?? 0,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Live matrix: every content type × its preferred writer, plus every writer   */
+/* on weekly_recap. Records tokens and cost so the run doubles as a cost model. */
+/* -------------------------------------------------------------------------- */
+
+interface MatrixRow {
+  fixture: string;
+  persona: string;
+  contentType: string;
+  status: "ok" | "insufficient_data" | "failed";
+  message?: string;
+  words?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  cacheReadTokens?: number;
+  modelUsed?: string;
+  /** The route the row ran on, so a re-route shows up in the matrix without a code diff. */
+  model?: string;
+  effort?: string;
+  costUsd?: number;
+  durationMs?: number;
+  blocks?: number;
+  strips?: number;
+  warns?: number;
+  sectionsRegenerated?: number;
+  quotesUsed?: number;
+  title?: string;
+  /** Sonnet 5 persona-adherence rubric, when --rubric was passed. */
+  rubric?: string;
+  rubricScores?: Record<string, number>;
+  /** Every verifier flag on the article (kind, severity, detail, section). */
+  flags?: Array<{ kind: string; severity: string; detail: string; section?: string }>;
+}
+
+function parseRubricScores(rubric: string): Record<string, number> {
+  const scores: Record<string, number> = {};
+  for (const match of rubric.matchAll(/(\w+) (\d)\/5/g)) scores[match[1]] = Number(match[2]);
+  return scores;
+}
+
+const DRAFT_TYPES = new Set(["mock_draft", "draft_rankings", "draft_strategy_guide"]);
+
+function matrixPlan(): Array<{ fixture: string; persona: string; contentType: string }> {
+  const plan: Array<{ fixture: string; persona: string; contentType: string }> = [];
+  for (const contentType of Object.keys(contentTemplates)) {
+    const persona = contentTypePersonaMap[contentType]?.[0] ?? "curtis-vaughn";
+    plan.push({ fixture: DRAFT_TYPES.has(contentType) ? "draft-day" : "rich-week", persona, contentType });
+  }
+  for (const persona of Object.keys(personaPrompts)) {
+    if (!personaPrompts[persona].isWriter) continue;
+    if (contentTypePersonaMap.weekly_recap?.[0] === persona) continue; // already covered above
+    plan.push({ fixture: "rich-week", persona, contentType: "weekly_recap" });
+  }
+  return plan;
+}
+
+async function runMatrix(options: Options): Promise<void> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    failures.push("--matrix needs ANTHROPIC_API_KEY in the environment");
+    return;
+  }
+  const plan = matrixPlan();
+  console.log(`\nLive matrix: ${plan.length} generations, concurrency ${options.concurrency}\n`);
+  const rows: MatrixRow[] = [];
+  let next = 0;
+
+  const worker = async (): Promise<void> => {
+    while (next < plan.length) {
+      const job = plan[next++];
+      const fixture = fixturesByName[job.fixture];
+      const label = `${job.contentType} / ${job.persona} / ${job.fixture}`;
+      if (!fixture) {
+        rows.push({ ...job, status: "failed", message: "fixture missing" });
+        continue;
+      }
+      try {
+        const result = await generateOne(fixture, job.persona, job.contentType, apiKey);
+        if (options.dump) await dumpBody(options.dump, result);
+        const rubric = options.rubric ? await runRubric(result, apiKey) : undefined;
+        rows.push({
+          ...job,
+          status: "ok",
+          title: result.body.split("\n").find(line => line.trim().length > 0)?.replace(/^#+\s*/, "").slice(0, 120),
+          rubric,
+          rubricScores: rubric ? parseRubricScores(rubric) : undefined,
+          words: result.words,
+          promptTokens: result.promptTokens,
+          completionTokens: result.completionTokens,
+          cacheReadTokens: result.cacheReadTokens,
+          modelUsed: result.modelUsed,
+          model: result.route.model,
+          effort: result.route.effort,
+          costUsd: result.costUsd,
+          durationMs: result.durationMs,
+          blocks: result.violations.filter(v => v.severity === "block").length,
+          strips: result.violations.filter(v => v.severity === "strip").length,
+          warns: result.violations.filter(v => v.severity === "warn").length,
+          sectionsRegenerated: result.sectionsRegenerated,
+          quotesUsed: result.quotes.length,
+          flags: result.violations.map(v => ({
+            kind: v.kind,
+            severity: v.severity,
+            detail: v.detail.slice(0, 160),
+            section: v.section,
+          })),
+        });
+        console.log(
+          `  ok    ${label} [${result.route.model.replace("claude-", "")}/${result.route.effort}]: ` +
+            `${result.words} words, ${result.promptTokens} in / ${result.completionTokens} out` +
+            `${result.cacheReadTokens ? ` (+${result.cacheReadTokens} cached)` : ""}, ` +
+            `$${result.costUsd.toFixed(3)}, ${Math.round(result.durationMs / 1000)}s`
+        );
+      } catch (error) {
+        const message = (error as Error).message;
+        if (error instanceof InsufficientDataError) {
+          rows.push({ ...job, status: "insufficient_data", message });
+          console.log(`  data  ${label}: ${message}`);
+        } else {
+          rows.push({ ...job, status: "failed", message });
+          console.log(`  FAIL  ${label}: ${message}`);
+          failures.push(`matrix ${label}: ${message}`);
+        }
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: options.concurrency }, () => worker()));
+
+  const ok = rows.filter(row => row.status === "ok");
+  const totalCost = ok.reduce((sum, row) => sum + (row.costUsd ?? 0), 0);
+  console.log("\nMatrix summary\n");
+  printTable(
+    ["type", "writer", "model", "effort", "words", "in", "cached", "out", "cost", "blocks", "strips", "warns", "regen"],
+    rows
+      .slice()
+      .sort((a, b) => a.contentType.localeCompare(b.contentType))
+      .map(row => {
+        const route = { model: row.model, effort: row.effort };
+        const planned = resolveRoute(row.contentType);
+        return [
+          row.contentType,
+          row.persona,
+          (route.model ?? planned.model).replace("claude-", ""),
+          route.effort ?? planned.effort,
+          row.status === "ok" ? String(row.words) : row.status,
+          String(row.promptTokens ?? ""),
+          String(row.cacheReadTokens ?? ""),
+          String(row.completionTokens ?? ""),
+          row.costUsd !== undefined ? `$${row.costUsd.toFixed(3)}` : "",
+          String(row.blocks ?? ""),
+          String(row.strips ?? ""),
+          String(row.warns ?? ""),
+          String(row.sectionsRegenerated ?? ""),
+        ];
+      })
+  );
+  console.log(
+    `\n${ok.length}/${rows.length} generated, total $${totalCost.toFixed(2)}, mean $${(totalCost / Math.max(ok.length, 1)).toFixed(3)} per article`
+  );
+
+  // Cost by route: this is the number the §10.3.1 gate is argued from.
+  const byRoute = new Map<string, { n: number; usd: number }>();
+  for (const row of ok) {
+    const key = `${(row.model ?? "?").replace("claude-", "")} / ${row.effort ?? "?"}`;
+    const entry = byRoute.get(key) ?? { n: 0, usd: 0 };
+    entry.n += 1;
+    entry.usd += row.costUsd ?? 0;
+    byRoute.set(key, entry);
+  }
+  console.log("\nCost by route\n");
+  printTable(
+    ["route", "articles", "total", "mean"],
+    [...byRoute.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, entry]) => [
+        key,
+        String(entry.n),
+        `$${entry.usd.toFixed(2)}`,
+        `$${(entry.usd / Math.max(entry.n, 1)).toFixed(3)}`,
+      ])
+  );
+
+  if (options.rubric) {
+    console.log("\nPersona adherence (Sonnet 5, 1-5), mean per writer\n");
+    const byWriter = new Map<string, Record<string, number>[]>();
+    for (const row of ok) {
+      if (!row.rubricScores) continue;
+      byWriter.set(row.persona, [...(byWriter.get(row.persona) ?? []), row.rubricScores]);
+    }
+    const axes = ["voiceDistinctness", "signatureMoves", "tonalConsistency", "respectsTheFacts"];
+    printTable(
+      ["writer", "n", ...axes],
+      [...byWriter.entries()].map(([persona, scores]) => [
+        persona,
+        String(scores.length),
+        ...axes.map(axis => {
+          const values = scores.map(score => score[axis]).filter(value => Number.isFinite(value));
+          return values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) : "?";
+        }),
+      ])
+    );
+  }
+
+  if (options.out) {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(
+      options.out,
+      JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          routes: Object.fromEntries(
+            Object.keys(contentTemplates).map(type => [type, resolveRoute(type)])
+          ),
+          rows,
+        },
+        null,
+        2
+      )
+    );
+    console.log(`Wrote ${options.out}`);
+  }
 }
 
 const RUBRIC_PROMPT = `You are grading one article against the writer's own brief. Score 1-5 on each
@@ -514,7 +849,9 @@ async function runLive(options: Options): Promise<void> {
     }
     console.log(`Generating ${contentType} as ${persona} on ${name}…`);
     try {
-      results.push(await generateOne(fixture, persona, contentType, apiKey));
+      const liveResult = await generateOne(fixture, persona, contentType, apiKey);
+      results.push(liveResult);
+      if (options.dump) await dumpBody(options.dump, liveResult);
     } catch (error) {
       if (error instanceof InsufficientDataError) {
         console.log(`  refused (as designed): ${error.message}`);
@@ -527,10 +864,13 @@ async function runLive(options: Options): Promise<void> {
 
   console.log("\nLive quality panel\n");
   printTable(
-    ["fixture", "words", "attribution", "quote fidelity", "ghosts", "numbers", "sources"],
+    ["fixture", "model", "effort", "words", "cost", "attribution", "quote fidelity", "ghosts", "numbers", "sources"],
     results.map(result => [
       result.fixture,
+      result.route.model.replace("claude-", ""),
+      result.route.effort,
       String(result.words),
+      `$${result.costUsd.toFixed(3)}`,
       attributionAccuracy(result),
       quoteFidelity(result),
       String(countKinds(result, ["ghost_speaker"])),
@@ -538,6 +878,15 @@ async function runLive(options: Options): Promise<void> {
       String(countKinds(result, ["bad_source_path"])),
     ])
   );
+
+  for (const result of results) {
+    const flagged = result.violations.filter(v => v.severity !== "warn");
+    if (flagged.length === 0 && options.quiet) continue;
+    console.log(`\nFlags on ${result.fixture}/${result.contentType}/${result.persona} (${result.violations.length}):`);
+    for (const v of result.violations.slice(0, 25)) {
+      console.log(`  ${v.severity.padEnd(5)} ${v.kind.padEnd(22)} ${v.section ? `[${v.section}] ` : ""}${v.detail.slice(0, 140)}`);
+    }
+  }
 
   const rich = results.find(result => result.fixture === "rich-week");
   const sparse = results.find(result => result.fixture === "sparse-week");
@@ -563,8 +912,14 @@ async function runLive(options: Options): Promise<void> {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
 
+  if (options.route) {
+    printRouteTable();
+    return;
+  }
+
   runOffline(options);
-  if (options.live) await runLive(options);
+  if (options.matrix) await runMatrix(options);
+  else if (options.live) await runLive(options);
 
   if (failures.length > 0) {
     console.error(`\n${failures.length} failure(s):`);

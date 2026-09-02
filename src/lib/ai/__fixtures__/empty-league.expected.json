@@ -1,6 +1,6 @@
 {
   "fixture": "empty-league",
-  "note": "Nothing has ever synced. weekly_recap and trade_analysis must throw InsufficientDataError rather than invent a game or a trade.",
+  "note": "Nothing has ever synced. weekly_recap, weekly_preview and trade_analysis must throw InsufficientDataError rather than invent a game, a slate or a trade.",
   "facts": {
     "teams": 0,
     "matchups": 0,
@@ -21,6 +21,13 @@
         "matchup_results — no matchups in the payload",
         "player_scores (rosters) — not available",
         "standings — not available",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": "InsufficientDataError"
+    },
+    "weekly_preview": {
+      "missing": [
+        "upcoming matchups — not available",
         "priorClaims — none. You have no prediction history in this league; do not claim one."
       ],
       "throws": "InsufficientDataError"

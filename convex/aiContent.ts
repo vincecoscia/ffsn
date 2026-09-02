@@ -2,8 +2,10 @@
 import { query, mutation, action, internalQuery, internalMutation, internalAction, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
+import schema from "./schema";
 import { contentTemplates } from "../src/lib/ai/content-templates";
+import { creditCostFor } from "./credits";
 // Type-only: never a value import from src/lib/ai in a non-Node Convex file.
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
@@ -17,20 +19,10 @@ import {
   verifierStatsValidator,
 } from "./validators";
 import { leagueCurrentSeason } from "./lib/season";
-
-/**
- * `InsufficientDataError` (src/lib/ai/prompt-builder) is thrown when a content
- * type's core data is absent. It reaches this action through the Node runtime,
- * where only the name and message survive, so match on both. Its message is
- * written for a human and is stored verbatim as the article's failure reason.
- */
-function isInsufficientDataError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (
-    error.name === "InsufficientDataError" ||
-    /^Not enough data to write a/i.test(error.message)
-  );
-}
+import {
+  handleGenerationFailure,
+  isInsufficientDataError,
+} from "./lib/generationFailure";
 
 export const getByLeague = query({
   args: { 
@@ -249,22 +241,26 @@ export const createGenerationRequest = mutation({
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
     }
 
+    // What this generation costs its requester (spec §10.1). No managers are
+    // asked for comment on this path, so it is the template price alone.
+    const creditCost = creditCostFor(args.type);
+
     // Check if user has sufficient credits before scheduling any generation
     // work (mirrors regenerateContentWithCredits below).
     const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
       userId: identity.subject,
-      requiredAmount: template.creditCost,
+      requiredAmount: creditCost,
     });
 
     if (!userCredits.hasSufficientCredits) {
-      throw new Error(`Insufficient credits. Required: ${template.creditCost}, Available: ${userCredits.currentBalance}`);
+      throw new Error(`Insufficient credits. Required: ${creditCost}, Available: ${userCredits.currentBalance}`);
     }
 
     // Deduct credits up front, before scheduling generation, so concurrent
     // requests can't spend more than the user's balance allows.
     await ctx.runMutation(internal.credits.deductCredits, {
       userId: identity.subject,
-      amount: template.creditCost,
+      amount: creditCost,
       description: `AI content generation: ${args.type}`,
       leagueId: args.leagueId,
     });
@@ -279,7 +275,7 @@ export const createGenerationRequest = mutation({
       metadata: {
         week: 1, // Will be updated
         featured_teams: [],
-        credits_used: template.creditCost,
+        credits_used: creditCost,
       },
       status: "generating",
       createdAt: Date.now(),
@@ -298,7 +294,7 @@ export const createGenerationRequest = mutation({
       seasonId: args.seasonId,
       week: args.week,
       tradeRumorData: args.tradeRumorData,
-      creditsDeductedUpFront: template.creditCost,
+      creditsDeductedUpFront: creditCost,
     });
 
     return articleId;
@@ -343,15 +339,20 @@ export const createGenerationWithComments = mutation({
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
     }
 
+    // The template price plus 5 credits per manager asked for comment
+    // (spec §10.1): every interview is a real, billed round trip through Sam,
+    // and this path is the only one that buys them.
+    const creditCost = creditCostFor(args.type, args.requestComments ? args.targetUserIds.length : 0);
+
     // Check if user has sufficient credits before scheduling any generation
     // work (mirrors createGenerationRequest above).
     const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
       userId: identity.subject,
-      requiredAmount: template.creditCost,
+      requiredAmount: creditCost,
     });
 
     if (!userCredits.hasSufficientCredits) {
-      throw new Error(`Insufficient credits. Required: ${template.creditCost}, Available: ${userCredits.currentBalance}`);
+      throw new Error(`Insufficient credits. Required: ${creditCost}, Available: ${userCredits.currentBalance}`);
     }
 
     // Deduct credits up front, before scheduling comment collection /
@@ -359,8 +360,8 @@ export const createGenerationWithComments = mutation({
     // balance allows.
     await ctx.runMutation(internal.credits.deductCredits, {
       userId: identity.subject,
-      amount: template.creditCost,
-      description: `AI content generation with comments: ${args.type}`,
+      amount: creditCost,
+      description: `AI content generation with comments: ${args.type} (${args.targetUserIds.length} asked)`,
       leagueId: args.leagueId,
     });
 
@@ -374,7 +375,7 @@ export const createGenerationWithComments = mutation({
       metadata: {
         week: args.week || 1,
         featured_teams: [],
-        credits_used: template.creditCost,
+        credits_used: creditCost,
       },
       status: "waiting_for_comments",
       createdAt: Date.now(),
@@ -391,7 +392,7 @@ export const createGenerationWithComments = mutation({
         customContext: args.customContext,
         seasonId: args.seasonId,
         week: args.week,
-        creditsDeductedUpFront: template.creditCost,
+        creditsDeductedUpFront: creditCost,
       },
     });
 
@@ -411,7 +412,7 @@ export const createGenerationWithComments = mutation({
       week: args.week,
       targetUserIds: args.targetUserIds,
       articleGenerationTime: args.articleGenerationTime,
-      creditsDeductedUpFront: template.creditCost,
+      creditsDeductedUpFront: creditCost,
     });
 
     return articleId;
@@ -453,20 +454,22 @@ export const regenerateContentWithCredits = mutation({
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
     }
 
+    const creditCost = creditCostFor(args.type);
+
     // Check if user has sufficient credits
     const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
       userId: identity.subject,
-      requiredAmount: template.creditCost,
+      requiredAmount: creditCost,
     });
 
     if (!userCredits.hasSufficientCredits) {
-      throw new Error(`Insufficient credits. Required: ${template.creditCost}, Available: ${userCredits.currentBalance}`);
+      throw new Error(`Insufficient credits. Required: ${creditCost}, Available: ${userCredits.currentBalance}`);
     }
 
     // Deduct credits first
     await ctx.runMutation(internal.credits.deductCredits, {
       userId: identity.subject,
-      amount: template.creditCost,
+      amount: creditCost,
       description: `Manual ${args.type} content generation`,
       leagueId: args.leagueId,
     });
@@ -481,7 +484,7 @@ export const regenerateContentWithCredits = mutation({
       metadata: {
         week: 1, // Will be updated
         featured_teams: [],
-        credits_used: template.creditCost,
+        credits_used: creditCost,
       },
       status: "generating",
       createdAt: Date.now(),
@@ -500,7 +503,7 @@ export const regenerateContentWithCredits = mutation({
       userId: identity.subject,
       seasonId: args.seasonId,
       week: args.week,
-      creditsDeductedUpFront: template.creditCost,
+      creditsDeductedUpFront: creditCost,
     });
 
     return articleId;
@@ -529,21 +532,38 @@ export const generateContentAction = internalAction({
     // action (createGenerationRequest, regenerateContentWithCredits,
     // processLeaguePayment's auto season_welcome generation) to the amount
     // deducted. When set, this action refunds that amount on failure instead
-    // of deducting again on success. Callers that omit it (scheduled/cron
-    // content, comment-triggered content, retries) keep the legacy
-    // post-generation deduction below unchanged.
+    // of charging again. Automated content never sets it: the League Pass
+    // covers those outright (spec §10.1), so nothing is deducted and there is
+    // nothing to refund.
     creditsDeductedUpFront: v.optional(v.number()),
     // Interview material from the comment flow (spec section 5). Built by
     // aiContentWithComments.generateWithComments and passed straight through to
     // the writer instead of being pasted into customContext.
     commentResponses: v.optional(v.array(commentResponseDataValidator)),
     nonRespondents: v.optional(v.array(nonRespondentValidator)),
+    // Which attempt this is (spec section 9.2.5). Absent/0 on the first run;
+    // retryFailedGeneration passes the incremented count so the retry loop is
+    // actually capped instead of restarting from one every time.
+    retryCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== generateContentAction START (OPTIMIZED) ===");
     console.log("Content type:", args.contentType);
     console.log("Persona:", args.persona);
-    
+
+    // Who is paying (spec §10.1). Automated content - a cron row, an event
+    // trigger, anything arriving as userId "system" - is covered by the
+    // League Pass and deducts nothing. This used to charge the commissioner
+    // per story before the model call; the pass is what replaced that bill,
+    // and `contentScheduling.processScheduledContent` has already checked the
+    // pass is live and that the league is under its season spend cap.
+    //
+    // Everything else is a real person spending their own credits, which the
+    // calling mutation already took up front.
+    const isAutomated = args.userId === "system" || args.scheduledContentId !== undefined;
+    const billing: "pass" | "credits" = isAutomated ? "pass" : "credits";
+    const creditsDeductedUpFront = isAutomated ? undefined : args.creditsDeductedUpFront;
+
     try {
       // For mock drafts, weekly recaps, draft rankings, and season welcome, use the scheduled data-prep approach
       if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap' || args.contentType === 'season_welcome' || args.contentType === 'draft_rankings') {
@@ -564,9 +584,10 @@ export const generateContentAction = internalAction({
           seasonId: args.seasonId,
           week: args.week,
           scheduledContentId: args.scheduledContentId,
-          creditsDeductedUpFront: args.creditsDeductedUpFront,
+          creditsDeductedUpFront,
           commentResponses: args.commentResponses,
           nonRespondents: args.nonRespondents,
+          retryCount: args.retryCount,
         });
         
         console.log(`${args.contentType} generation scheduled successfully`);
@@ -732,6 +753,34 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         console.log("Final enriched context preview:", enrichedCustomContext.substring(0, 500));
       }
       
+      // Interview material for scheduled articles (spec section 9.2.8). The
+      // comment window now opens hours before print, so by the time this runs
+      // there are approved quotes sitting against the scheduled row - and this
+      // branch used to ignore them, which is why interviewed managers were
+      // never quoted in cron-generated stories. Mirrors the prepared path in
+      // aiContentHelpers.generateAIContentWithData; a caller that already
+      // resolved the ledger (generateWithComments) still wins.
+      let commentResponses = args.commentResponses;
+      let nonRespondents = args.nonRespondents;
+      if (!commentResponses && args.scheduledContentId) {
+        commentResponses = await ctx.runQuery(
+          internal.aiContentHelpers.getCommentResponsesForContent,
+          {
+            scheduledContentId: args.scheduledContentId,
+            leagueId: args.leagueId,
+            contentType: args.contentType,
+            week: args.week,
+          }
+        );
+        nonRespondents = await ctx.runQuery(
+          internal.aiContentHelpers.getNonRespondentsForScheduledContent,
+          { scheduledContentId: args.scheduledContentId }
+        );
+        console.log(
+          `Loaded ${commentResponses?.length ?? 0} quoted managers and ${nonRespondents?.length ?? 0} non-respondents for scheduled content`
+        );
+      }
+
       // The writer's standing with each manager in this league (spec section 6).
       // Drives relationshipPosture and lets the writer answer a manager's jab.
       const relationships = await ctx.runQuery(
@@ -756,8 +805,8 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
           customContext: enrichedCustomContext,
           userId: args.userId,
-          commentResponses: args.commentResponses,
-          nonRespondents: args.nonRespondents,
+          commentResponses: commentResponses?.length ? commentResponses : undefined,
+          nonRespondents: nonRespondents?.length ? nonRespondents : undefined,
           relationships: relationships.length > 0 ? relationships : undefined,
           // The writer's own back catalogue of predictions and their record
           // (spec §8.4). A writer may only claim a past call that is in here.
@@ -779,81 +828,28 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         content: generatedContent.content,
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
+        billing,
       });
 
-      // Relationship events from the stored managerMentions, and the write-back
-      // of which approved quotes actually made print. Neither may fail a
-      // generation that already succeeded.
+      // One finalize path (spec section 9.2.2): relationship events, quote
+      // write-back, the auto-publish decision (suppressed by any block/strip
+      // review flag), the commissioner's "ready for your review" notice and the
+      // scheduled row's completion, all in one idempotent mutation shared with
+      // the prepared path. It must not fail a generation that already produced
+      // an article, so it is logged rather than thrown.
       try {
-        await ctx.runMutation(internal.relationships.recordArticleMentions, {
+        const finalized = await ctx.runMutation(internal.aiContent.finalizeGeneratedArticle, {
           articleId: args.articleId,
-        });
-      } catch (e) {
-        console.error("Failed to record relationship events for article", args.articleId, e);
-      }
-      try {
-        await ctx.runMutation(internal.aiContentHelpers.markQuotesUsed, {
-          articleId: args.articleId,
-        });
-      } catch (e) {
-        console.error("Failed to mark comment responses as integrated", args.articleId, e);
-      }
-
-      // Deduct credits from user for system-generated content (if userId is "system", find the league owner).
-      // Skipped when the caller already deducted up front (see creditsDeductedUpFront above) -
-      // that credit accounting is settled in the catch block below instead (refund on failure).
-      if (!args.creditsDeductedUpFront) {
-        try {
-          let creditUserId = args.userId;
-          if (args.userId === "system") {
-            // Find the league commissioner to deduct credits from
-            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
-              leagueId: args.leagueId,
-            });
-            if (league?.commissionerUserId) {
-              creditUserId = league.commissionerUserId; // Use league commissioner
-            }
-          }
-
-          if (creditUserId !== "system") {
-            await ctx.runMutation(internal.credits.deductCreditsInternal, {
-              userId: creditUserId,
-              amount: generatedContent.metadata.creditsUsed,
-              description: `AI content generation: ${args.contentType}`,
-              leagueId: args.leagueId,
-              relatedContentId: args.articleId,
-            });
-          }
-        } catch (creditError) {
-          console.warn("Failed to deduct credits for content generation:", creditError);
-          // Don't fail the entire generation process if credit deduction fails
-        }
-      }
-
-      // Optionally auto-publish based on league preferences. The verifier wins:
-      // an article carrying a block or strip finding always stops in draft so a
-      // human sees the flagged sentences first (spec decision 6).
-      try {
-        const blockingFlags = (generatedContent.metadata.reviewFlags ?? []).filter(
-          (flag) => flag.severity === "block" || flag.severity === "strip"
-        );
-        const preferences = await ctx.runQuery(internal.contentScheduling.getLeaguePreferences, {
           leagueId: args.leagueId,
+          scheduledContentId: args.scheduledContentId,
+          reviewFlags: generatedContent.metadata.reviewFlags,
+          generatedByUserId: args.userId,
         });
-        if (preferences?.autoPublish && blockingFlags.length > 0) {
-          console.log(
-            `Auto-publish suppressed: ${blockingFlags.length} blocking review flag(s) on article ${args.articleId}`
-          );
-        } else if (preferences?.autoPublish) {
-          await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
-            articleId: args.articleId,
-            status: "published",
-          });
-        }
+        console.log("Article finalized:", finalized);
       } catch (e) {
-        console.warn("Failed to apply auto-publish preference", e);
+        console.error("Failed to finalize generated article", args.articleId, e);
       }
-      
+
       // Generate banner image if applicable. The OpenAI call runs in the Node runtime
       // (convex/aiNode.ts) and returns a storage id, or null when not eligible/configured.
       try {
@@ -877,20 +873,6 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       } catch (imageError) {
         console.error("Failed to generate/store banner image:", imageError);
         // Continue without image - don't fail the entire generation
-      }
-
-      // Update scheduledContent final status on success
-      try {
-        if (args.scheduledContentId) {
-          await ctx.runMutation(internal.contentScheduling.updateScheduledContentStatus, {
-            scheduledContentId: args.scheduledContentId,
-            status: "completed",
-            generatedContentId: args.articleId,
-            generatedAt: Date.now(),
-          });
-        }
-      } catch (e) {
-        console.warn("Failed to update scheduled content status to completed", e);
       }
 
       // Update monthly budget spend if applicable
@@ -919,69 +901,13 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       console.error("Content generation failed:", error);
       console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
 
-      // If a caller deducted credits up front (createGenerationRequest,
-      // regenerateContentWithCredits, processLeaguePayment's auto
-      // season_welcome), refund them now — the user paid for content they
-      // never received. Captured rather than swallowed: if the refund
-      // itself fails, that's rethrown below (after the rest of the
-      // failure-handling cleanup runs) instead of being logged and ignored.
-      let refundError: unknown = null;
-      if (args.creditsDeductedUpFront) {
-        try {
-          let creditUserId = args.userId;
-          if (creditUserId === "system") {
-            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
-              leagueId: args.leagueId,
-            });
-            if (league?.commissionerUserId) {
-              creditUserId = league.commissionerUserId;
-            }
-          }
-
-          if (creditUserId !== "system") {
-            await ctx.runMutation(internal.credits.refundCredits, {
-              userId: creditUserId,
-              amount: args.creditsDeductedUpFront,
-              description: `Refund: failed AI content generation (${args.contentType})`,
-              leagueId: args.leagueId,
-              relatedContentId: args.articleId,
-            });
-          }
-        } catch (e) {
-          console.error("Failed to refund credits after generation failure:", e);
-          refundError = e;
-        }
-      }
-
-      // Update article to failed status
-      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
-        articleId: args.articleId,
-        status: "failed",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-
-      // Update scheduled content status to failed
-      try {
-        if (args.scheduledContentId) {
-          await ctx.runMutation(internal.contentScheduling.updateScheduledContentStatus, {
-            scheduledContentId: args.scheduledContentId,
-            status: "failed",
-            errorMessage: error instanceof Error ? error.message : "Unknown error",
-          });
-        }
-      } catch (e) {
-        console.warn("Failed to update scheduled content status to failed", e);
-      }
-
-      // Schedule retry for mock drafts and weekly recaps. Never for an
-      // InsufficientDataError: the data is missing, not flaky, and retrying
-      // would burn the refund path three more times.
-      if (
-        !isInsufficientDataError(error) &&
-        (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap')
-      ) {
-        console.log(`Scheduling retry for failed ${args.contentType} generation`);
-        await ctx.scheduler.runAfter(2000, internal.aiContentHelpers.retryFailedGeneration, {
+      // Credits, article status, the scheduled row and the capped retry, all
+      // in one place (spec section 9.2.5). `creditsDeductedUpFront` is the
+      // local, so a "system" generation that this action charged up front is
+      // refunded here too.
+      await handleGenerationFailure(
+        ctx,
+        {
           articleId: args.articleId,
           leagueId: args.leagueId,
           contentType: args.contentType,
@@ -990,19 +916,13 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           userId: args.userId,
           seasonId: args.seasonId,
           week: args.week,
-          retryCount: 1,
-        });
-      }
-
-      if (refundError) {
-        // Surface loudly instead of swallowing: the refund did not happen
-        // and the user's balance needs manual reconciliation.
-        throw new Error(
-          `Generation failed for article ${args.articleId} and the credit refund also failed: ${
-            refundError instanceof Error ? refundError.message : String(refundError)
-          }`
-        );
-      }
+          scheduledContentId: args.scheduledContentId,
+          creditsDeductedUpFront,
+          retryCount: args.retryCount,
+          stage: "Generation",
+        },
+        error
+      );
     }
   },
 });
@@ -1023,7 +943,9 @@ export const createScheduledArticle = internalMutation({
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
     }
 
-    // Create a generation request in "generating" status
+    // Create a generation request in "generating" status. A "system" article
+    // is covered by the League Pass and costs its league nothing (spec §10.1);
+    // anything else was charged to the requester before this ran.
     const articleId = await ctx.db.insert("aiContent", {
       leagueId: args.leagueId,
       type: args.type,
@@ -1033,7 +955,7 @@ export const createScheduledArticle = internalMutation({
       metadata: {
         week: 1, // Will be updated
         featured_teams: [],
-        credits_used: template.creditCost,
+        credits_used: args.userId === "system" ? 0 : template.creditCost,
       },
       status: "generating",
       createdAt: Date.now(),
@@ -1096,6 +1018,10 @@ async function getLeagueDataForGenerationHandler(
       
       // Matchup data
       recentMatchups: enrichedData.recentMatchups,
+      // The look-ahead slate (spec 4.3). This reshape is a whitelist, so a field left out here
+      // never reaches the prompt layer - weekly_preview had no upcoming games for exactly that
+      // reason.
+      upcomingMatchups: enrichedData.upcomingMatchups,
       
       // Transaction data
       trades: enrichedData.trades,
@@ -1177,6 +1103,13 @@ export const updateGeneratedContent = internalMutation({
       modelUsed: v.string(),
       promptTokens: v.number(),
       completionTokens: v.number(),
+      // Money (spec §10.3.4). The measured API cost of every call this article
+      // took, cache and batch pricing already applied, and the route it ran
+      // on. Optional because a generation from a prompt layer that does not
+      // report them must still save.
+      costUsd: v.optional(v.number()),
+      route: v.optional(v.object({ model: v.string(), effort: v.string() })),
+      cacheReadTokens: v.optional(v.number()),
       // Broadcast Desk (spec section 4.2). Optional so a generation produced
       // before the verifier shipped still saves.
       quotes: v.optional(v.array(articleQuoteValidator)),
@@ -1191,6 +1124,10 @@ export const updateGeneratedContent = internalMutation({
       // outcome "open" plus the byline, week and season below.
       claims: v.optional(v.array(generatedClaimValidator)),
     }),
+    // Who paid for this article (spec §10.1): the League Pass, or the
+    // requester's credits. Drives the automated/manual split in the season
+    // spend roll-up. Absent on legacy callers, which read as automated.
+    billing: v.optional(v.union(v.literal("pass"), v.literal("credits"))),
   },
   handler: async (ctx, args) => {
     // Get the article to find the league
@@ -1281,12 +1218,19 @@ export const updateGeneratedContent = internalMutation({
       claims,
       reviewFlags: args.metadata.reviewFlags,
       factsMissing: args.metadata.factsMissing,
+      // The season this article belongs to, so `deskMetrics.getLeagueSeasonSpend`
+      // can roll a league's spend up off an index instead of scanning.
+      seasonId: season,
       generationStats: verifierStats
         ? {
             ...verifierStats,
             promptTokens: args.metadata.promptTokens,
             completionTokens: args.metadata.completionTokens,
             modelUsed: args.metadata.modelUsed,
+            // Cost accounting (spec §10.3.4).
+            costUsd: args.metadata.costUsd,
+            route: args.metadata.route,
+            billing: args.billing,
           }
         : undefined,
       status: "draft", // Set to draft for review instead of auto-publishing
@@ -1366,6 +1310,383 @@ export const updateContentStatusInternal = internalMutation({
   },
   handler: async (ctx, args) => {
     await updateContentStatusHandler(ctx, args);
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * One finalize path (spec §9.2.2)
+ *
+ * Everything that has to happen after an article is written and saved, in one
+ * mutation, called from both generation paths: the standard branch of
+ * generateContentAction and aiContentHelpers.generateAIContentWithData (which
+ * previously did none of it - scheduled mock drafts, weekly recaps, draft
+ * rankings and season welcomes never auto-published and never closed their
+ * scheduled row).
+ *
+ * A mutation rather than an action so the whole finalize is one transaction and
+ * a second call is a cheap no-op. The three sub-mutations it invokes run as
+ * subtransactions: if one throws, its writes roll back on their own and the
+ * finalize still completes.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * §9.1: content is automatic by default. A league whose preferences row has not
+ * been created yet is treated as opted in, never opted out.
+ */
+function contentPreferenceDefaults(preferences: Doc<"leagueContentPreferences"> | null) {
+  return {
+    autoPublish: preferences?.autoPublish ?? true,
+    requireApproval: preferences?.requireApproval ?? false,
+    notifyCommissioner: preferences?.notifyCommissioner ?? true,
+    notifyFailures: preferences?.notifyFailures ?? true,
+  };
+}
+
+async function leaguePreferencesFor(
+  ctx: MutationCtx,
+  leagueId: Id<"leagues">
+): Promise<Doc<"leagueContentPreferences"> | null> {
+  return await ctx.db
+    .query("leagueContentPreferences")
+    .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+    .first();
+}
+
+export const finalizeGeneratedArticle = internalMutation({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
+    // The verifier's findings for this run. Falls back to what
+    // updateGeneratedContent already stored on the row, so a caller that does
+    // not have them in hand still gets the right auto-publish decision.
+    reviewFlags: v.optional(v.array(reviewFlagValidator)),
+    generatedByUserId: v.optional(v.string()),
+  },
+  returns: v.object({
+    published: v.boolean(),
+    blockingFlags: v.number(),
+    notifiedCommissioner: v.boolean(),
+    scheduledRowCompleted: v.boolean(),
+    alreadyFinalized: v.boolean(),
+  }),
+  // The handler's return type is spelled out because this mutation and
+  // aiContentHelpers call each other through `internal.*`; without it
+  // TypeScript cannot break the inference cycle.
+  handler: async (ctx, args): Promise<{
+    published: boolean;
+    blockingFlags: number;
+    notifiedCommissioner: boolean;
+    scheduledRowCompleted: boolean;
+    alreadyFinalized: boolean;
+  }> => {
+    const noop = {
+      published: false,
+      blockingFlags: 0,
+      notifiedCommissioner: false,
+      scheduledRowCompleted: false,
+      alreadyFinalized: true,
+    };
+
+    const article = await ctx.db.get(args.articleId);
+    if (!article) {
+      console.warn(`finalizeGeneratedArticle: article ${args.articleId} not found`);
+      return noop;
+    }
+
+    // Idempotency: a published article has already been through here (and its
+    // readers have already been notified). Re-running would re-notify nobody
+    // but would re-stamp publishedAt, so stop.
+    if (article.status === "published") {
+      return noop;
+    }
+
+    // Relationship events from the stored managerMentions, and the write-back
+    // of which approved quotes made print. Both are idempotent on their own
+    // (recordEvent dedupes on article+type+evidence; markQuotesUsed rewrites
+    // the same fields), and neither may fail an article that already exists.
+    try {
+      await ctx.runMutation(internal.relationships.recordArticleMentions, {
+        articleId: args.articleId,
+      });
+    } catch (e) {
+      console.error("Failed to record relationship events for article", args.articleId, e);
+    }
+    try {
+      await ctx.runMutation(internal.aiContentHelpers.markQuotesUsed, {
+        articleId: args.articleId,
+      });
+    } catch (e) {
+      console.error("Failed to mark comment responses as integrated", args.articleId, e);
+    }
+
+    // The verifier wins over the preference: an article carrying a block or
+    // strip finding always stops in draft so a human sees the flagged
+    // sentences first (spec decision 6).
+    const reviewFlags = args.reviewFlags ?? article.reviewFlags ?? [];
+    const blockingFlags = reviewFlags.filter(
+      (flag) => flag.severity === "block" || flag.severity === "strip"
+    ).length;
+
+    const preferences = await leaguePreferencesFor(ctx, args.leagueId);
+    const prefs = contentPreferenceDefaults(preferences);
+    const shouldPublish = prefs.autoPublish && !prefs.requireApproval && blockingFlags === 0;
+
+    let notifiedCommissioner = false;
+    if (shouldPublish) {
+      // Fans out reader notifications + emails through notifyArticlePublished.
+      await updateContentStatusHandler(ctx, {
+        articleId: args.articleId,
+        status: "published",
+      });
+    } else {
+      if (blockingFlags > 0 && prefs.autoPublish) {
+        console.log(
+          `Auto-publish suppressed: ${blockingFlags} blocking review flag(s) on article ${args.articleId}`
+        );
+      }
+      if (prefs.notifyCommissioner) {
+        const detail =
+          blockingFlags > 0
+            ? `${blockingFlags} sentence${blockingFlags === 1 ? "" : "s"} need${
+                blockingFlags === 1 ? "s" : ""
+              } a look before this one goes out.`
+            : undefined;
+        const notificationId: Id<"userNotifications"> | null = await ctx.runMutation(
+          internal.notifications.notifyCommissionerOfContent,
+          {
+            leagueId: args.leagueId,
+            kind: "ready_for_review" as const,
+            contentType: article.type,
+            articleId: args.articleId,
+            detail,
+            // One notification per article, however many times finalize runs.
+            dedupeKey: `ready_for_review:${args.articleId}`,
+          }
+        );
+        notifiedCommissioner = notificationId !== null;
+      }
+    }
+
+    // Close the scheduled row. Only ever moves a row forward: a cancelled or
+    // failed row is left alone so a later finalize cannot resurrect it.
+    let scheduledRowCompleted = false;
+    if (args.scheduledContentId) {
+      const row = await ctx.db.get(args.scheduledContentId);
+      if (row && (row.status === "generating" || row.status === "pending")) {
+        await ctx.db.patch(args.scheduledContentId, {
+          status: "completed",
+          generatedContentId: args.articleId,
+          generatedAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        scheduledRowCompleted = true;
+      }
+    }
+
+    console.log(
+      `finalizeGeneratedArticle: article ${args.articleId} ${
+        shouldPublish ? "published" : "left in draft"
+      } (${blockingFlags} blocking flag(s), requested by ${args.generatedByUserId ?? "unknown"})`
+    );
+
+    return {
+      published: shouldPublish,
+      blockingFlags,
+      notifiedCommissioner,
+      scheduledRowCompleted,
+      alreadyFinalized: false,
+    };
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * Billing and retry bookkeeping for the automatic paths (spec §9.2.4, §9.2.5)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * `scheduledContent.cancelReason` / `deferrals` are AUTO-A's schema additions.
+ * Until they land, patching them would be rejected as an unknown field, so the
+ * write is gated on what the deployed schema actually declares.
+ */
+function scheduledContentHasField(field: string): boolean {
+  const validator = schema.tables.scheduledContent.validator as unknown as {
+    fields?: Record<string, unknown>;
+  };
+  return Boolean(validator.fields && field in validator.fields);
+}
+
+/**
+ * The requester cannot pay for this article. Mark it failed, cancel the
+ * scheduled row with a machine-readable reason, and tell them once.
+ *
+ * The automatic paths no longer reach this: since the League Pass shipped
+ * (spec §10.1) scheduled content is covered outright and is gated on the pass
+ * and the season spend cap instead, in
+ * `contentScheduling.processScheduledContent`. This stays as the shared
+ * "generation stopped because it could not be paid for" bookkeeping for any
+ * credit-funded path that discovers a shortfall after the article row exists.
+ */
+export const markGenerationLowCredits = internalMutation({
+  args: {
+    articleId: v.id("aiContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    scheduledContentId: v.optional(v.id("scheduledContent")),
+    required: v.number(),
+    available: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await updateContentStatusHandler(ctx, {
+      articleId: args.articleId,
+      status: "failed",
+      error: "low_credits",
+    });
+
+    if (args.scheduledContentId) {
+      const row = await ctx.db.get(args.scheduledContentId);
+      if (row && row.status !== "completed") {
+        const patch: Record<string, unknown> = {
+          status: "cancelled",
+          errorMessage: `low_credits: needed ${args.required}, balance ${args.available}`,
+          updatedAt: Date.now(),
+        };
+        if (scheduledContentHasField("cancelReason")) {
+          patch.cancelReason = "low_credits";
+        }
+        await ctx.db.patch(
+          args.scheduledContentId,
+          patch as Partial<Doc<"scheduledContent">>
+        );
+      }
+    }
+
+    const preferences = await leaguePreferencesFor(ctx, args.leagueId);
+    if (contentPreferenceDefaults(preferences).notifyFailures) {
+      const week = (await ctx.db.get(args.articleId))?.metadata.week;
+      await ctx.runMutation(internal.notifications.notifyCommissionerOfContent, {
+        leagueId: args.leagueId,
+        kind: "low_credits" as const,
+        contentType: args.contentType,
+        articleId: args.articleId,
+        scheduledContentId: args.scheduledContentId,
+        detail: `This story costs ${args.required} credits and the balance is ${args.available}. Top up and the next scheduled story goes out as normal.`,
+        // Once per league per week per reason (spec §9.2.4).
+        dedupeKey: `low_credits:${args.leagueId}:${week ?? "na"}`,
+      });
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Record what one interview cost us (spec §10.3.4).
+ *
+ * Sam's interviews are billed API calls - an opener, a reply analysis, maybe a
+ * follow-up - and they count against the league's automated spend cap even
+ * though no article has been written yet. The conversation layer
+ * (`commentConversations.ts`, W1-C) owns those calls, so it reports the cost
+ * here rather than this module reaching into its tables.
+ *
+ * Additive on purpose: an interview accrues cost over several messages, and
+ * each call adds its own. Idempotency is the caller's: report each API call
+ * once. A non-finite or negative amount is ignored rather than corrupting the
+ * running total.
+ */
+export const addInterviewCost = internalMutation({
+  args: {
+    commentRequestId: v.id("commentRequests"),
+    costUsd: v.number(),
+  },
+  returns: v.object({ totalUsd: v.number() }),
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) {
+      console.warn(`addInterviewCost: comment request ${args.commentRequestId} not found`);
+      return { totalUsd: 0 };
+    }
+
+    if (!Number.isFinite(args.costUsd) || args.costUsd <= 0) {
+      return { totalUsd: request.interviewCostUsd ?? 0 };
+    }
+
+    const totalUsd = (request.interviewCostUsd ?? 0) + args.costUsd;
+    await ctx.db.patch(args.commentRequestId, {
+      interviewCostUsd: totalUsd,
+      updatedAt: Date.now(),
+    });
+
+    return { totalUsd };
+  },
+});
+
+/**
+ * A scheduled generation failed. The cron owns retries for scheduled rows, so
+ * put the row back to `pending` with a retry time while attempts remain, and
+ * only fail it (and tell the commissioner) once they are used up.
+ */
+export const recordScheduledGenerationFailure = internalMutation({
+  args: {
+    scheduledContentId: v.id("scheduledContent"),
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    articleId: v.optional(v.id("aiContent")),
+    errorMessage: v.string(),
+    // An InsufficientDataError is not flaky - retrying it burns the same
+    // refund path again for the same missing week of data.
+    retryable: v.boolean(),
+  },
+  returns: v.object({ status: v.string(), attempts: v.number(), notified: v.boolean() }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ status: string; attempts: number; notified: boolean }> => {
+    const row = await ctx.db.get(args.scheduledContentId);
+    if (!row) {
+      return { status: "missing", attempts: 0, notified: false };
+    }
+
+    const now = Date.now();
+    // `processScheduledContent` spends the attempt when it dispatches the
+    // generation (it moves the row to "generating" with attempts + 1), so
+    // counting it again here would halve every league's retry budget. A row
+    // that failed without having been dispatched is counted here instead.
+    const attempts = row.status === "generating" ? row.attempts ?? 0 : (row.attempts ?? 0) + 1;
+    const maxAttempts = row.maxAttempts ?? 3;
+    const willRetry = args.retryable && attempts < maxAttempts;
+
+    await ctx.db.patch(args.scheduledContentId, {
+      status: willRetry ? "pending" : "failed",
+      attempts,
+      lastAttemptAt: now,
+      nextRetryAt: willRetry ? now + 30 * 60 * 1000 : undefined,
+      errorMessage: args.errorMessage,
+      updatedAt: now,
+    });
+
+    let notified = false;
+    if (!willRetry) {
+      const preferences = await leaguePreferencesFor(ctx, args.leagueId);
+      if (contentPreferenceDefaults(preferences).notifyFailures) {
+        const notificationId: Id<"userNotifications"> | null = await ctx.runMutation(
+          internal.notifications.notifyCommissionerOfContent,
+          {
+            leagueId: args.leagueId,
+            kind: "generation_failed" as const,
+            contentType: args.contentType,
+            articleId: args.articleId,
+            scheduledContentId: args.scheduledContentId,
+            detail: args.errorMessage,
+            dedupeKey: `generation_failed:${args.scheduledContentId}`,
+          }
+        );
+        notified = notificationId !== null;
+      }
+    }
+
+    return { status: willRetry ? "pending" : "failed", attempts, notified };
   },
 });
 

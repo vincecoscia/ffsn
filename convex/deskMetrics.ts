@@ -18,15 +18,255 @@
  */
 
 import { v } from "convex/values";
-import { query } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import { internalQuery, query, type QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireCommissioner } from "./lib/auth";
+import { passSeasonId } from "./credits";
 
 /** How many recent articles one call may scan. Keeps the query bounded as the table grows. */
 const MAX_ARTICLES = 500;
 
 /** How many verifier findings the flag feed returns. */
 const MAX_FLAGS = 20;
+
+/* -------------------------------------------------------------------------- *
+ * Spend (spec §10.1 cap, §10.3.4 accounting)
+ * -------------------------------------------------------------------------- */
+
+/** How many articles / comment requests one season spend roll-up may scan. */
+const MAX_SPEND_ROWS = 1000;
+
+/** Regular season + playoffs. Used only to project a season from a run rate. */
+const SEASON_WEEKS = 18;
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Default per-league, per-season ceiling on measured API cost for automated
+ * content, in USD (spec §10.1). A safety valve, not a product limit: the
+ * projected worst case for a 12-manager season is about $16.50.
+ *
+ * Overridable with the Convex env var `AUTOMATION_SPEND_CAP_USD`. A malformed
+ * or non-positive value falls back to the default rather than taking the whole
+ * desk offline (or, worse, uncapping it).
+ */
+export const DEFAULT_AUTOMATION_SPEND_CAP_USD = 60;
+
+export function automationSpendCapUsd(): number {
+  const raw = process.env.AUTOMATION_SPEND_CAP_USD;
+  if (!raw) return DEFAULT_AUTOMATION_SPEND_CAP_USD;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `AUTOMATION_SPEND_CAP_USD is not a positive number ("${raw}"); using $${DEFAULT_AUTOMATION_SPEND_CAP_USD}`
+    );
+    return DEFAULT_AUTOMATION_SPEND_CAP_USD;
+  }
+  return parsed;
+}
+
+const seasonSpendValidator = v.object({
+  seasonId: v.number(),
+  /** Stories the League Pass paid for: the §9.1 calendar and event triggers. */
+  automatedUsd: v.number(),
+  /** Stories a manager spent their own credits on. */
+  manualUsd: v.number(),
+  /** Sam Ortega's interviews, whoever the article was for. */
+  interviewUsd: v.number(),
+  totalUsd: v.number(),
+  articles: v.number(),
+  interviews: v.number(),
+  /** True when the scan hit its row cap and older rows went uncounted. */
+  truncated: v.boolean(),
+});
+
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+/**
+ * What one league has cost us in measured API spend this season.
+ *
+ * Bounded on both sides: articles come off `by_league_season` and comment
+ * requests off `by_league`, each capped at {@link MAX_SPEND_ROWS}. An article
+ * with no `generationStats.costUsd` (everything written before the cost
+ * accounting shipped) contributes nothing rather than being guessed at.
+ *
+ * Billing attribution: `billing: "credits"` is a manager's own spend. Anything
+ * else - including the legacy rows with no billing field at all - counts as
+ * automated, so the cap errs towards pausing automation rather than towards
+ * running up a bill nobody agreed to.
+ */
+async function seasonSpend(
+  ctx: QueryCtx,
+  leagueId: Id<"leagues">,
+  seasonId: number
+): Promise<{
+  seasonId: number;
+  automatedUsd: number;
+  manualUsd: number;
+  interviewUsd: number;
+  totalUsd: number;
+  articles: number;
+  interviews: number;
+  truncated: boolean;
+  firstArticleAt: number | null;
+}> {
+  const articles = await ctx.db
+    .query("aiContent")
+    .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
+    .order("desc")
+    .take(MAX_SPEND_ROWS);
+
+  let automatedUsd = 0;
+  let manualUsd = 0;
+  let counted = 0;
+  let firstArticleAt: number | null = null;
+
+  for (const article of articles) {
+    const cost = article.generationStats?.costUsd;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) continue;
+    if (article.generationStats?.billing === "credits") {
+      manualUsd += cost;
+    } else {
+      automatedUsd += cost;
+    }
+    counted++;
+    const createdAt = article.createdAt ?? article._creationTime;
+    if (firstArticleAt === null || createdAt < firstArticleAt) firstArticleAt = createdAt;
+  }
+
+  // Interviews are keyed to the article they feed, not to a season column, so
+  // this reads the league's requests and matches on the context season. A
+  // request with no season recorded is counted: it can only belong to a live
+  // article, and undercounting the cap is the dangerous direction.
+  const requests = await ctx.db
+    .query("commentRequests")
+    .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+    .order("desc")
+    .take(MAX_SPEND_ROWS);
+
+  let interviewUsd = 0;
+  let interviews = 0;
+  for (const request of requests) {
+    const cost = request.interviewCostUsd;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) continue;
+    const requestSeason = request.articleContext?.seasonId;
+    if (requestSeason !== undefined && requestSeason !== seasonId) continue;
+    interviewUsd += cost;
+    interviews++;
+  }
+
+  const totalUsd = automatedUsd + manualUsd + interviewUsd;
+
+  return {
+    seasonId,
+    automatedUsd: round4(automatedUsd),
+    manualUsd: round4(manualUsd),
+    interviewUsd: round4(interviewUsd),
+    totalUsd: round4(totalUsd),
+    articles: counted,
+    interviews,
+    truncated: articles.length === MAX_SPEND_ROWS || requests.length === MAX_SPEND_ROWS,
+    firstArticleAt,
+  };
+}
+
+/**
+ * Season spend for one league, for the automation gate in
+ * `contentScheduling.processScheduledContent`. Internal: the cap decision is
+ * ours, not a client's.
+ */
+export const getLeagueSeasonSpend = internalQuery({
+  args: { leagueId: v.id("leagues"), seasonId: v.number() },
+  returns: seasonSpendValidator,
+  handler: async (ctx, args) => {
+    // `firstArticleAt` only exists to date the run-rate projection, which the
+    // spend gate does not use; it is dropped rather than returned.
+    const { firstArticleAt, ...spend } = await seasonSpend(ctx, args.leagueId, args.seasonId);
+    void firstArticleAt;
+    return spend;
+  },
+});
+
+/**
+ * The same numbers for the commissioner, plus the cap they are measured
+ * against and what the season projects to at the current weekly run rate.
+ * Commissioner-only: it is the league's bill.
+ */
+export const getLeagueSpend = query({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.optional(v.number()),
+    /** Passed in rather than read from the clock, so the query stays cacheable. */
+    now: v.optional(v.number()),
+  },
+  returns: v.object({
+    seasonId: v.number(),
+    automatedUsd: v.number(),
+    manualUsd: v.number(),
+    interviewUsd: v.number(),
+    totalUsd: v.number(),
+    articles: v.number(),
+    interviews: v.number(),
+    truncated: v.boolean(),
+    capUsd: v.number(),
+    remainingUsd: v.number(),
+    overCap: v.boolean(),
+    weeklyRunRateUsd: v.number(),
+    projectedSeasonUsd: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    await requireCommissioner(ctx, args.leagueId);
+    const league = await ctx.db.get(args.leagueId);
+    const seasonId = args.seasonId ?? passSeasonId(league);
+    const spend = await seasonSpend(ctx, args.leagueId, seasonId);
+    return { ...projectSpend(spend, args.now ?? Date.now()), seasonId };
+  },
+});
+
+/**
+ * Turn a season-to-date total into a run rate and a projection.
+ *
+ * The rate is measured from the first article that cost anything, not from an
+ * arbitrary season start, so a league that imported in week 9 is not projected
+ * as if it had been quiet for eight weeks. A season with less than a week of
+ * history projects flat rather than extrapolating a single day.
+ */
+function projectSpend(
+  spend: Awaited<ReturnType<typeof seasonSpend>>,
+  now: number
+): {
+  seasonId: number;
+  automatedUsd: number;
+  manualUsd: number;
+  interviewUsd: number;
+  totalUsd: number;
+  articles: number;
+  interviews: number;
+  truncated: boolean;
+  capUsd: number;
+  remainingUsd: number;
+  overCap: boolean;
+  weeklyRunRateUsd: number;
+  projectedSeasonUsd: number;
+} {
+  const { firstArticleAt, ...rest } = spend;
+  const capUsd = automationSpendCapUsd();
+  const observedWeeks =
+    firstArticleAt === null ? 0 : Math.max(1, Math.ceil((now - firstArticleAt) / WEEK_MS));
+  const weeklyRunRateUsd = observedWeeks === 0 ? 0 : rest.totalUsd / observedWeeks;
+  const projectedSeasonUsd = Math.max(rest.totalUsd, weeklyRunRateUsd * SEASON_WEEKS);
+
+  return {
+    ...rest,
+    capUsd,
+    remainingUsd: round4(Math.max(0, capUsd - rest.automatedUsd - rest.interviewUsd)),
+    overCap: rest.automatedUsd + rest.interviewUsd >= capUsd,
+    weeklyRunRateUsd: round4(weeklyRunRateUsd),
+    projectedSeasonUsd: round4(projectedSeasonUsd),
+  };
+}
 
 const metricSummaryValidator = v.object({
   articles: v.number(),
@@ -36,6 +276,23 @@ const metricSummaryValidator = v.object({
   quoteFidelity: v.union(v.number(), v.null()),
   /** words per available fact. `null` when no article recorded a facts count. */
   paddingIndex: v.union(v.number(), v.null()),
+});
+
+/** The money half of the desk scorecard (spec §10.3.4). */
+const deskSpendValidator = v.object({
+  seasonId: v.number(),
+  automatedUsd: v.number(),
+  manualUsd: v.number(),
+  interviewUsd: v.number(),
+  totalUsd: v.number(),
+  articles: v.number(),
+  interviews: v.number(),
+  truncated: v.boolean(),
+  capUsd: v.number(),
+  remainingUsd: v.number(),
+  overCap: v.boolean(),
+  weeklyRunRateUsd: v.number(),
+  projectedSeasonUsd: v.number(),
 });
 
 const deskMetricsValidator = v.object({
@@ -66,6 +323,12 @@ const deskMetricsValidator = v.object({
       createdAt: v.number(),
     })
   ),
+  /**
+   * Season-to-date API spend, split by who paid, with the automation cap and
+   * the projection at the current weekly run rate. Always the whole season,
+   * not the `sinceDays` window: a cap is only meaningful against the season.
+   */
+  spend: deskSpendValidator,
 });
 
 /** Running totals for one writer (or the whole league). */
@@ -222,12 +485,22 @@ export const getDeskMetrics = query({
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_FLAGS);
 
+    // Spend is deliberately season-wide rather than windowed: `sinceDays`
+    // scopes the quality metrics, but the cap is a season number.
+    const leagueDoc = await ctx.db.get(args.leagueId);
+    const seasonId = passSeasonId(leagueDoc);
+    const spend = projectSpend(
+      await seasonSpend(ctx, args.leagueId, seasonId),
+      args.now ?? Date.now()
+    );
+
     return {
       sinceDays,
       truncated: articles.length === MAX_ARTICLES,
       league: summarize(league),
       perWriter,
       recentFlags,
+      spend: { ...spend, seasonId },
     };
   },
 });

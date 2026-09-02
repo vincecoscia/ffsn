@@ -1,15 +1,124 @@
 import { v } from "convex/values";
 import { action, internalMutation } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import Stripe from "stripe";
-import { requireIdentity } from "./lib/auth";
+import { requireIdentity, requireLeagueMemberFromAction } from "./lib/auth";
 
 // Initialize Stripe with the secret key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   typescript: true,
 });
 
-// League creation checkout session - $99.99
+/**
+ * The offer (spec §10.1). Three one-time USD purchases, no subscriptions:
+ *
+ *   league_pass   $100.00  every automated story for the season + 100 credits
+ *                          for every manager, up to 12 managers
+ *   extra_seat     $10.00  one manager beyond the included 12, including that
+ *                          manager's 100 credits. Bought by the commissioner,
+ *                          quantity >= 1.
+ *   credit_topup    $5.00  100 credits for the manager who buys it. Any
+ *                          signed-in manager, for themselves only.
+ *
+ * Prices are inline `price_data` by default - the pattern this integration has
+ * always used, so nothing has to be provisioned in Stripe before a deploy.
+ * Setting the matching Convex env var to a Stripe Price id switches that line
+ * item to a real catalog Product instead; the charged amount is then read back
+ * off the completed session (`amount_total`) rather than assumed here, so a
+ * catalog price change never desyncs from the stored payment record.
+ */
+export const PURCHASE_CATALOG = {
+  league_pass: {
+    envPriceId: "STRIPE_PRICE_LEAGUE_PASS",
+    unitAmount: 10000,
+    maxQuantity: 1,
+    name: "FFSN League Pass",
+  },
+  extra_seat: {
+    envPriceId: "STRIPE_PRICE_EXTRA_SEAT",
+    unitAmount: 1000,
+    maxQuantity: 8,
+    name: "Extra manager seat",
+  },
+  credit_topup: {
+    envPriceId: "STRIPE_PRICE_CREDIT_TOPUP",
+    unitAmount: 500,
+    maxQuantity: 20,
+    name: "100 FFSN credits",
+  },
+} as const;
+
+export type PurchaseKind = keyof typeof PURCHASE_CATALOG;
+
+/** Managers covered by the pass before a seat has to be bought (spec §10.1). */
+export const INCLUDED_MANAGERS = 12;
+/** Credits granted to a manager by the pass, by a seat, and by one top-up. */
+export const CREDITS_PER_MANAGER = 100;
+
+const CHECKOUT_TTL_SECONDS = 1800; // 30 minutes
+
+function siteUrl(): string {
+  return process.env.SITE_URL ?? "";
+}
+
+/**
+ * Clamp a client-supplied quantity into the catalog's range. Quantity reaches
+ * Stripe and (via metadata) the fulfillment path, so it is never trusted raw.
+ */
+function clampQuantity(kind: PurchaseKind, quantity: number | undefined): number {
+  const max = PURCHASE_CATALOG[kind].maxQuantity;
+  const parsed = Math.floor(Number(quantity ?? 1));
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
+/**
+ * Only same-origin relative paths are allowed back from Checkout - a raw
+ * client string here would otherwise be an open redirect off `SITE_URL`.
+ */
+function safeReturnPath(path: string | undefined, fallback: string): string {
+  if (!path) return fallback;
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return fallback;
+  return path;
+}
+
+function withQuery(path: string, params: Record<string, string>): string {
+  const [base, existing] = path.split("?", 2);
+  const search = new URLSearchParams(existing ?? "");
+  for (const [key, value] of Object.entries(params)) search.set(key, value);
+  // Stripe substitutes {CHECKOUT_SESSION_ID} literally, so it must survive
+  // un-encoded in the final URL.
+  return `${siteUrl()}${base}?${search.toString().replace("%7BCHECKOUT_SESSION_ID%7D", "{CHECKOUT_SESSION_ID}")}`;
+}
+
+function buildLineItem(
+  kind: PurchaseKind,
+  quantity: number,
+  productName: string,
+  description: string
+): Stripe.Checkout.SessionCreateParams.LineItem {
+  const entry = PURCHASE_CATALOG[kind];
+  const configuredPriceId = process.env[entry.envPriceId];
+  if (configuredPriceId) {
+    return { price: configuredPriceId, quantity };
+  }
+  return {
+    price_data: {
+      currency: "usd",
+      product_data: { name: productName, description },
+      unit_amount: entry.unitAmount,
+    },
+    quantity,
+  };
+}
+
+/** Cents we expect to collect when the line item is inline `price_data`. */
+function expectedAmount(kind: PurchaseKind, quantity: number): number {
+  return PURCHASE_CATALOG[kind].unitAmount * quantity;
+}
+
+// League Pass checkout session - $100.00 for the season (spec §10.1).
 export const createLeagueCheckoutSession = action({
   args: {
     leagueId: v.string(),
@@ -19,38 +128,37 @@ export const createLeagueCheckoutSession = action({
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const userId = identity.subject;
+    const seasonYear = new Date().getFullYear();
 
     try {
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         mode: "payment",
         line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: `Fantasy League: ${args.leagueName}`,
-                description: `Full season access for ${new Date().getFullYear()} + 1000 credits`,
-                images: [],
-              },
-              unit_amount: 9999, // $99.99 in cents
-            },
-            quantity: 1,
-          },
+          buildLineItem(
+            "league_pass",
+            1,
+            `FFSN League Pass: ${args.leagueName}`,
+            `Every automated story for the ${seasonYear} season, plus ${CREDITS_PER_MANAGER} credits for every manager (up to ${INCLUDED_MANAGERS}).`
+          ),
         ],
-        customer_email: args.userEmail,
+        customer_email: identity.email ?? args.userEmail,
         metadata: {
+          kind: "league_pass",
           userId,
           leagueId: args.leagueId,
           leagueName: args.leagueName,
+          quantity: "1",
+          // Legacy key kept so sessions created by either version of this file
+          // fulfill the same way while a deploy rolls out.
           paymentType: "league_creation",
-          amount: "9999", // Amount in cents for webhook processing
-          seasonYear: new Date().getFullYear().toString(),
+          amount: expectedAmount("league_pass", 1).toString(),
+          seasonYear: seasonYear.toString(),
         },
         allow_promotion_codes: true,
-        success_url: `${process.env.SITE_URL}/setup/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_URL}/setup/payment-cancelled`,
-        expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+        success_url: `${siteUrl()}/setup/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${siteUrl()}/setup/payment-cancelled`,
+        expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS,
       });
 
       // Payment record will be created when webhook fires with actual payment intent ID
@@ -70,60 +178,130 @@ export const createLeagueCheckoutSession = action({
   },
 });
 
-// Credits purchase checkout session - $9.99 for 100 credits
-export const createCreditsCheckoutSession = action({
+// Extra manager seat checkout - $10.00 each, commissioner only (spec §10.1).
+// `seatUserId` is the manager the seat is being bought for, when the
+// commissioner already knows who is joining; the webhook grants that manager
+// their 100 credits. Buying seats ahead of time (no `seatUserId`) just raises
+// the league's capacity.
+export const createExtraSeatCheckoutSession = action({
   args: {
-    userEmail: v.string(),
-    creditsAmount: v.number(), // Number of credits to purchase (e.g., 100)
-    leagueId: v.optional(v.id("leagues")),
+    leagueId: v.id("leagues"),
+    quantity: v.optional(v.number()),
+    seatUserId: v.optional(v.string()),
+    returnPath: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
-    const userId = identity.subject;
+    // Seats change what a league is allowed to do, so only its commissioner
+    // may buy them.
+    const { identity } = await requireLeagueMemberFromAction(ctx, args.leagueId, {
+      commissioner: true,
+    });
+    const quantity = clampQuantity("extra_seat", args.quantity);
+    const returnPath = safeReturnPath(args.returnPath, `/leagues/${args.leagueId}/settings`);
 
     try {
-      const pricePerCredit = 0.0999; // $9.99 for 100 credits = $0.0999 per credit
-      const totalAmount = Math.round(args.creditsAmount * pricePerCredit * 100); // Convert to cents
-
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         mode: "payment",
         line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: `${args.creditsAmount} FFSN Credits`,
-                description: `Credits for AI-generated fantasy football content`,
-              },
-              unit_amount: totalAmount,
-            },
-            quantity: 1,
-          },
+          buildLineItem(
+            "extra_seat",
+            quantity,
+            "FFSN extra manager seat",
+            `One manager beyond the ${INCLUDED_MANAGERS} included by the League Pass, with ${CREDITS_PER_MANAGER} credits for that manager.`
+          ),
         ],
-        customer_email: args.userEmail,
+        customer_email: identity.email,
         metadata: {
-          userId,
-          paymentType: "credits_purchase",
-          amount: totalAmount.toString(), // Amount in cents for webhook processing
-          creditsPurchased: args.creditsAmount.toString(),
-          leagueId: args.leagueId || "",
+          kind: "extra_seat",
+          userId: identity.subject,
+          leagueId: args.leagueId,
+          quantity: quantity.toString(),
+          seatUserId: args.seatUserId ?? "",
+          amount: expectedAmount("extra_seat", quantity).toString(),
+          seasonYear: new Date().getFullYear().toString(),
         },
         allow_promotion_codes: true,
-        success_url: `${process.env.SITE_URL}/dashboard/credits/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_URL}/dashboard/credits`,
-        expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+        success_url: withQuery(returnPath, {
+          seat: "success",
+          session_id: "{CHECKOUT_SESSION_ID}",
+        }),
+        cancel_url: withQuery(returnPath, { seat: "cancelled" }),
+        expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS,
       });
-
-      // Payment record will be created when webhook fires with actual payment intent ID
 
       return {
         success: true,
         sessionId: session.id,
         url: session.url,
+        quantity,
       };
     } catch (error) {
-      console.error("Error creating credits checkout session:", error);
+      console.error("Error creating extra seat checkout session:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create checkout session",
+      };
+    }
+  },
+});
+
+// Credit top-up checkout - $5.00 for 100 credits (spec §10.1). Any signed-in
+// manager, always for themselves: the credited user is the authenticated
+// identity, never a client-supplied id.
+export const createCreditTopUpSession = action({
+  args: {
+    quantity: v.optional(v.number()),
+    returnPath: v.optional(v.string()),
+    leagueId: v.optional(v.id("leagues")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const quantity = clampQuantity("credit_topup", args.quantity);
+    const credits = CREDITS_PER_MANAGER * quantity;
+    const returnPath = safeReturnPath(args.returnPath, "/dashboard/credits");
+
+    try {
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        mode: "payment",
+        line_items: [
+          buildLineItem(
+            "credit_topup",
+            quantity,
+            `${CREDITS_PER_MANAGER} FFSN credits`,
+            "Credits for stories you generate yourself. Automated stories are covered by the League Pass."
+          ),
+        ],
+        customer_email: identity.email,
+        metadata: {
+          kind: "credit_topup",
+          userId: identity.subject,
+          quantity: quantity.toString(),
+          credits: credits.toString(),
+          leagueId: args.leagueId ?? "",
+          // Legacy key, see createLeagueCheckoutSession.
+          paymentType: "credits_purchase",
+          creditsPurchased: credits.toString(),
+          amount: expectedAmount("credit_topup", quantity).toString(),
+        },
+        allow_promotion_codes: true,
+        success_url: withQuery(returnPath, {
+          topup: "success",
+          session_id: "{CHECKOUT_SESSION_ID}",
+        }),
+        cancel_url: withQuery(returnPath, { topup: "cancelled" }),
+        expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS,
+      });
+
+      return {
+        success: true,
+        sessionId: session.id,
+        url: session.url,
+        credits,
+      };
+    } catch (error) {
+      console.error("Error creating credit top-up checkout session:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to create checkout session",
@@ -145,8 +323,8 @@ export const verifyPaymentCompleted = action({
   ): Promise<{
     status: string;
     fulfilled: boolean;
-    // Only the metadata WE set at checkout-session creation (userId/leagueId/
-    // creditsPurchased/paymentType) is exposed, none of Stripe's own fields.
+    // Only the metadata WE set at checkout-session creation (kind/userId/
+    // leagueId/quantity) is exposed, none of Stripe's own fields.
     metadata: Record<string, string>;
   }> => {
     const identity = await ctx.auth.getUserIdentity();
@@ -158,9 +336,8 @@ export const verifyPaymentCompleted = action({
       expand: ["payment_intent"],
     });
 
-    // Both checkout-session creators (createLeagueCheckoutSession and
-    // createCreditsCheckoutSession) set metadata.userId to the Clerk user id
-    // of the purchaser - use that as the ownership check.
+    // Every checkout-session creator above sets metadata.userId to the Clerk
+    // user id of the purchaser - use that as the ownership check.
     if (session.metadata?.userId !== identity.subject) {
       throw new Error("This checkout session does not belong to the current user");
     }
@@ -175,6 +352,7 @@ export const verifyPaymentCompleted = action({
         sessionId: session.id,
         paymentIntentId: paymentIntent.id,
         paymentStatus: session.payment_status,
+        amountTotal: session.amount_total ?? undefined,
         metadata: session.metadata || {},
       });
     }
@@ -238,6 +416,9 @@ export const handleStripeWebhook = action({
             sessionId: session.id,
             paymentIntentId: session.payment_intent as string,
             paymentStatus: session.payment_status,
+            // What Stripe actually collected, after any promotion code. Trusted
+            // over the amount we predicted in metadata.
+            amountTotal: session.amount_total ?? undefined,
             metadata: session.metadata || {},
           });
           break;
@@ -397,17 +578,53 @@ export const createPaymentRecord = internalMutation({
   },
 });
 
+/**
+ * What this session was buying. New sessions carry `kind`; sessions created
+ * before the Broadcast Desk pricing shipped only carry `paymentType`, and are
+ * mapped onto the equivalent kind so an in-flight checkout still fulfills.
+ */
+function resolvePurchaseKind(metadata: Record<string, string>): PurchaseKind | null {
+  const kind = metadata.kind;
+  if (kind === "league_pass" || kind === "extra_seat" || kind === "credit_topup") {
+    return kind;
+  }
+  if (metadata.paymentType === "league_creation") return "league_pass";
+  if (metadata.paymentType === "credits_purchase") return "credit_topup";
+  return null;
+}
+
+/**
+ * `stripePayments.paymentType` is a two-value union owned by PRICE-B's schema,
+ * so seats are stored alongside the pass as a league-level purchase. The
+ * authoritative discriminator for fulfillment is the session's `kind`, which is
+ * passed through to the processing mutations below.
+ */
+function storedPaymentType(kind: PurchaseKind): "league_creation" | "credits_purchase" {
+  return kind === "credit_topup" ? "credits_purchase" : "league_creation";
+}
+
 // Internal mutation to process successful checkout session
 export const processCheckoutSessionCompleted = internalMutation({
   args: {
     sessionId: v.string(),
     paymentIntentId: v.string(),
     paymentStatus: v.string(),
+    amountTotal: v.optional(v.number()),
     metadata: v.record(v.string(), v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const isPaid = args.paymentStatus === "paid";
+
+    const kind = resolvePurchaseKind(args.metadata);
+    if (!kind) {
+      console.error(
+        `Checkout session ${args.sessionId} has no recognizable purchase kind; skipping`
+      );
+      return;
+    }
+
+    const quantity = clampQuantity(kind, Number(args.metadata.quantity || "1"));
 
     // Check if payment record exists
     let payment = await ctx.db
@@ -419,27 +636,40 @@ export const processCheckoutSessionCompleted = internalMutation({
       // Create the payment record now that we have the payment intent ID
       console.log(`Creating payment record for payment intent: ${args.paymentIntentId}`);
 
-      // Extract necessary data from metadata
-      const amount = parseInt(args.metadata.amount || "0");
+      // Prefer what Stripe says it collected (promotion codes, catalog price
+      // changes) over the amount predicted when the session was created.
+      const amount =
+        args.amountTotal ??
+        (parseInt(args.metadata.amount || "0") || expectedAmount(kind, quantity));
       const userId = args.metadata.userId;
-      const paymentType = args.metadata.paymentType as "league_creation" | "credits_purchase";
+      const seasonYear =
+        parseInt(args.metadata.seasonYear || "") || new Date().getFullYear();
 
-      // Build description based on payment type
+      // Build description and metadata based on what was bought.
       let description = "";
-      if (paymentType === "league_creation") {
-        description = `League creation payment for ${args.metadata.leagueName}`;
-      } else if (paymentType === "credits_purchase") {
-        description = `Purchase of ${args.metadata.creditsPurchased} credits`;
+      const paymentMetadata: {
+        seasonYear?: number;
+        creditsPurchased?: number;
+        isCommissionerPayment?: boolean;
+        appliedCouponId?: string;
+        appliedPromotionCodeId?: string;
+        discountAmount?: number;
+      } = {};
+
+      if (kind === "league_pass") {
+        description = `League Pass for ${args.metadata.leagueName || "league"} (${seasonYear} season)`;
+        paymentMetadata.seasonYear = seasonYear;
+        paymentMetadata.isCommissionerPayment = true;
+      } else if (kind === "extra_seat") {
+        description = `${quantity} extra manager seat${quantity === 1 ? "" : "s"}`;
+        paymentMetadata.seasonYear = seasonYear;
+        paymentMetadata.isCommissionerPayment = true;
+      } else {
+        const credits = CREDITS_PER_MANAGER * quantity;
+        description = `Credit top-up - ${credits} credits`;
+        paymentMetadata.creditsPurchased = credits;
       }
 
-      // Build metadata object
-      const paymentMetadata: any = {};
-      if (paymentType === "league_creation") {
-        paymentMetadata.seasonYear = parseInt(args.metadata.seasonYear);
-        paymentMetadata.isCommissionerPayment = true;
-      } else if (paymentType === "credits_purchase") {
-        paymentMetadata.creditsPurchased = parseInt(args.metadata.creditsPurchased);
-      }
       // Capture discounts metadata if present
       if (args.metadata.appliedCouponId) {
         paymentMetadata.appliedCouponId = args.metadata.appliedCouponId;
@@ -453,10 +683,10 @@ export const processCheckoutSessionCompleted = internalMutation({
       }
 
       // Create the payment record. Status starts "pending" even when Stripe
-      // already reports the session as paid: processLeaguePayment /
-      // processCreditsPurchase are the ones that flip it to "succeeded",
-      // atomically with granting credits, so their idempotency guard can
-      // tell "recorded" apart from "actually fulfilled".
+      // already reports the session as paid: the processors below are the ones
+      // that flip it to "succeeded", atomically with recording the seat /
+      // granting the credits, so their idempotency guards can tell "recorded"
+      // apart from "actually fulfilled".
       const paymentId = await ctx.db.insert("stripePayments", {
         paymentIntentId: args.paymentIntentId,
         checkoutSessionId: args.sessionId,
@@ -464,8 +694,10 @@ export const processCheckoutSessionCompleted = internalMutation({
         currency: "usd",
         status: "pending",
         userId: userId,
-        leagueId: args.metadata.leagueId ? (args.metadata.leagueId as any) : undefined,
-        paymentType: paymentType,
+        leagueId: args.metadata.leagueId
+          ? (args.metadata.leagueId as Id<"leagues">)
+          : undefined,
+        paymentType: storedPaymentType(kind),
         description: description,
         metadata: paymentMetadata,
         webhookProcessed: true,
@@ -480,7 +712,7 @@ export const processCheckoutSessionCompleted = internalMutation({
       // Update existing payment record. Only downgrade to "pending" here if
       // Stripe now reports the session as not paid; never overwrite an
       // already-"succeeded" status, and never set "succeeded" here - that
-      // happens atomically with the credit/league grant below.
+      // happens atomically with the credit/seat/league grant below.
       await ctx.db.patch(payment._id, {
         status: isPaid ? payment.status : "pending",
         webhookProcessed: true,
@@ -491,7 +723,7 @@ export const processCheckoutSessionCompleted = internalMutation({
       payment = await ctx.db.get(payment._id);
     }
 
-    // Only fulfill (grant credits / league access) once Stripe actually
+    // Only fulfill (grant credits / league access / seats) once Stripe actually
     // reports this session as paid. Anything else (unpaid, expired, etc.)
     // just records status above and stops here - no grant, no dispatch.
     if (!isPaid) {
@@ -504,13 +736,21 @@ export const processCheckoutSessionCompleted = internalMutation({
       return;
     }
 
-    // Process based on payment type
-    if (args.metadata.paymentType === "league_creation") {
+    // Fulfillment is dispatched on the session's `kind` (spec §10.1):
+    //   league_pass  -> activate the pass, 12 included managers, pass credits
+    //   extra_seat   -> +N seats on the league, and that manager's credits
+    //   credit_topup -> 100 credits per unit to the buyer
+    if (kind === "league_pass") {
       await ctx.runMutation(internal.payments.processLeaguePayment, {
         paymentId: payment._id,
         sessionMetadata: args.metadata,
       });
-    } else if (args.metadata.paymentType === "credits_purchase") {
+    } else if (kind === "extra_seat") {
+      await ctx.runMutation(internal.payments.processExtraSeatPurchase, {
+        paymentId: payment._id,
+        sessionMetadata: args.metadata,
+      });
+    } else {
       await ctx.runMutation(internal.payments.processCreditsPurchase, {
         paymentId: payment._id,
         sessionMetadata: args.metadata,
@@ -519,7 +759,14 @@ export const processCheckoutSessionCompleted = internalMutation({
   },
 });
 
-// Internal mutation to process successful payment intent
+// Internal mutation to process successful payment intent.
+//
+// Deliberately does NOT flip status to "succeeded": that transition belongs to
+// the fulfillment mutations, which set it in the same transaction as the grant
+// they perform, and which use it as their idempotency guard. Marking a payment
+// succeeded from here would let an unfulfilled record look fulfilled if this
+// event were delivered before (or instead of) checkout.session.completed. Use
+// `reconcilePayment` for manual repair.
 export const processPaymentIntentSucceeded = internalMutation({
   args: {
     paymentIntentId: v.string(),
@@ -539,11 +786,10 @@ export const processPaymentIntentSucceeded = internalMutation({
 
     const now = Date.now();
     await ctx.db.patch(payment._id, {
-      status: "succeeded",
       webhookProcessed: true,
       webhookProcessedAt: now,
       updatedAt: now,
-      paidAt: now,
+      paidAt: payment.paidAt ?? now,
     });
   },
 });
