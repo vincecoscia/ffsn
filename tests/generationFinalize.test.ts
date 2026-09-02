@@ -136,6 +136,13 @@ async function insertArticle(
   args: {
     status?: string;
     type?: string;
+    /** Overrides the default full-length body; use a short one to trip the word floor. */
+    wordCount?: number;
+    editor?: {
+      factsScore?: number;
+      voiceScore?: number;
+      incompleteSections?: string[];
+    };
     reviewFlags?: Array<{
       kind: string;
       detail: string;
@@ -144,6 +151,10 @@ async function insertArticle(
     }>;
   } = {}
 ) {
+  // The publish gate (spec §11.2.9) will not release an article under 30% of
+  // its template's word ceiling, so the default fixture is a real-length
+  // weekly recap rather than two words. `wordCount` is what the gate reads.
+  const wordCount = args.wordCount ?? 900;
   return await t.run(async (ctx) =>
     ctx.db.insert("aiContent", {
       leagueId,
@@ -151,11 +162,19 @@ async function insertArticle(
       persona: "curtis-vaughn",
       title: "Week 6: the tightest margin of the year",
       summary: "Two points decided it.",
-      content: "Body copy.",
+      content: Array.from({ length: wordCount }, (_, i) => `word${i}`).join(" "),
       metadata: { week: 6, featured_teams: [], credits_used: 10 },
       status: args.status ?? "draft",
       createdAt: Date.now(),
       reviewFlags: args.reviewFlags,
+      generationStats: {
+        blocks: (args.reviewFlags ?? []).filter((f) => f.severity === "block").length,
+        strips: (args.reviewFlags ?? []).filter((f) => f.severity === "strip").length,
+        warns: (args.reviewFlags ?? []).filter((f) => f.severity === "warn").length,
+        sectionsRegenerated: 0,
+        wordCount,
+        editor: args.editor,
+      },
     })
   );
 }

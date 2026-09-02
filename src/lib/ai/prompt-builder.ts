@@ -1,6 +1,6 @@
 import { getPersona, type PersonaPrompt } from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
-import { buildFactsBlock, serializeFacts, type FactsBlock } from './facts';
+import { adpLooksLikePlaceholder, buildFactsBlock, serializeFacts, type FactsBlock } from './facts';
 import type {
   CommentResponseData,
   NonRespondent,
@@ -456,7 +456,18 @@ export class PromptBuilder {
   private facts: FactsBlock;
 
   constructor(options: PromptBuilderOptions) {
-    this.options = options;
+    // A placeholder ADP column (see `adpLooksLikePlaceholder`) is erased here so the prose and the
+    // FACTS block agree that no ADP exists; perceivedValue is ADP-derived and goes with it.
+    const picks = options.leagueData?.draftPicks;
+    this.options = adpLooksLikePlaceholder(picks)
+      ? {
+          ...options,
+          leagueData: {
+            ...options.leagueData,
+            draftPicks: (picks ?? []).map(pick => ({ ...pick, playerADP: null, perceivedValue: 0 })),
+          },
+        }
+      : options;
     this.template = contentTemplates[options.contentType];
     // Unknown slugs fall back to the default anchor rather than throwing — archived and
     // mis-typed personas must still be able to produce an article.
@@ -1021,9 +1032,10 @@ where the two ever disagree, <FACTS> wins.
     if (data.standings && data.standings.length > 0) {
       preview += `\nSTANDINGS GOING IN:\n`;
       data.standings.forEach(team => {
-        preview += `${team.rank}. ${team.team} (${team.wins}-${team.losses}`;
+        const row = team as typeof team & { teamName?: string; pointsFor?: number };
+        preview += `${team.rank}. ${team.team ?? row.teamName ?? "Unknown team"} (${team.wins}-${team.losses}`;
         if (team.ties > 0) preview += `-${team.ties}`;
-        preview += `) — ${team.pointsFor.toFixed(1)} PF`;
+        preview += typeof row.pointsFor === "number" ? `) — ${row.pointsFor.toFixed(1)} PF` : `)`;
         if (team.streakType && team.streakLength) preview += ` [${team.streakType}${team.streakLength}]`;
         preview += '\n';
       });
@@ -1737,7 +1749,11 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
       pick.playerProjectedPoints === null || pick.playerProjectedPoints === undefined
         ? ''
         : `, proj ${pick.playerProjectedPoints.toFixed(0)} pts`;
-    const value = `, perceivedValue ${pick.perceivedValue >= 0 ? '+' : ''}${pick.perceivedValue.toFixed(1)}`;
+    // perceivedValue is derived from ADP; without an ADP it is noise, so it is not printed.
+    const value =
+      adp === null || adp === undefined
+        ? ''
+        : `, perceivedValue ${pick.perceivedValue >= 0 ? '+' : ''}${pick.perceivedValue.toFixed(1)}`;
     const rookie = pick.isRookie ? ' [rookie]' : '';
     return `${pick.pickNumber}. ${pick.playerName} (${pick.playerPosition}, ${pick.playerTeam}) → ${pick.teamName} — ${adpLabel}${projected}${value}${rookie}`;
   }

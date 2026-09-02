@@ -6,6 +6,7 @@ import {
   internalMutation,
   internalQuery,
   type ActionCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
@@ -14,6 +15,10 @@ import { requireLeagueMember, requireCommissioner } from "./lib/auth";
 // Both of these are plain data modules (no runtime deps), so they are safe to
 // import into the Convex V8 isolate - payments.ts already imports the templates.
 import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
+import { contentTemplates } from "../src/lib/ai/content-templates";
+// `facts.ts` is a plain module too: its only value imports are the templates
+// and the persona roster, and everything else it pulls in is `import type`.
+import { adpLooksLikePlaceholder } from "../src/lib/ai/facts";
 import { hasActivePass, passSeasonId } from "./credits";
 import { automationSpendCapUsd } from "./deskMetrics";
 
@@ -162,6 +167,48 @@ const FRESHNESS_EXEMPT_CONTENT = new Set([
   "custom_roast",
   "commissioner_corner",
 ]);
+
+/* -------------------------------------------------------------------------- *
+ * Pre-generation gate vocabulary (spec §11.1)
+ * -------------------------------------------------------------------------- */
+
+/** How many matchups a single week's finality check reads. A 20-team league plays 10. */
+const MAX_MATCHUPS_PER_WEEK = 40;
+/** Draft transactions sampled when checking for picks and a real ADP column. */
+const MAX_DRAFT_TRANSACTIONS = 60;
+/** Player lookups the ADP sample may cost. `adpLooksLikePlaceholder` needs 8. */
+const MAX_DRAFT_PICKS_SAMPLED = 60;
+
+/** Every type written off a draft board. */
+const DRAFT_CONTENT = new Set(["draft_rankings", "draft_strategy_guide", "mock_draft"]);
+/** Draft types that GRADE picks, so a placeholder ADP column poisons the article (spec §11.1.3). */
+const DRAFT_GRADED_CONTENT = new Set(["draft_rankings", "draft_strategy_guide"]);
+
+// `requiredData` keys from `src/lib/ai/content-templates.ts`, grouped by the
+// database question that answers them. Keeping the template's own vocabulary
+// means a new type inherits the right gates from its `requiredData` list.
+const REQUIRES_WEEK_MATCHUPS = new Set([
+  "matchup_results",
+  "recent_results",
+  "all_matchup_results",
+  "matchup_details",
+]);
+const REQUIRES_UPCOMING_MATCHUPS = new Set(["upcoming_matchups"]);
+const REQUIRES_TEAMS = new Set([
+  "team_rosters",
+  "standings",
+  "season_standings",
+  "team_records",
+  "current_records",
+  "point_totals",
+  "player_scores",
+  "season_stats",
+  "key_players",
+  "finalist_teams",
+  "target_team",
+]);
+const REQUIRES_PLAYER_POOL = new Set(["available_players"]);
+const REQUIRES_DRAFT_PICKS = new Set(["draft_results"]);
 
 /**
  * Create the automatic-by-default calendar for a freshly imported league
@@ -518,6 +565,15 @@ export const getPendingScheduledContent = internalQuery({
 export const processScheduledContent = internalAction({
   args: {
     scheduledContentId: v.id("scheduledContent"),
+    // --- Dev end-to-end tool hooks (spec §11.3.12) ----------------------
+    // `devTools.runScheduledPipelineNow` needs the EXACT path below, not a
+    // copy of it, so the three things it has to change are parameters rather
+    // than a second implementation: write about a named period instead of
+    // re-reading the clock, never hand the article to the batch API, and run
+    // generation inline so the caller can wait for the article.
+    forcePeriod: v.optional(v.object({ seasonId: v.number(), week: v.number() })),
+    disableBatching: v.optional(v.boolean()),
+    awaitGeneration: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ success: boolean; message?: string; contentId?: string; willRetry?: boolean; deferred?: boolean }> => {
     const scheduledContent = await ctx.runQuery(internal.contentScheduling.getScheduledContentById, {
@@ -578,13 +634,17 @@ export const processScheduledContent = internalAction({
         return { success: false, message: "Monthly content budget exceeded" };
       }
 
-      // Validate content generation is allowed based on NFL season boundaries
+      // Validate content generation is allowed based on NFL season boundaries. The check reads the
+      // calendar, so a forced historical period (dev end-to-end runs only; production never sets
+      // `forcePeriod`) skips it — the week being generated is not the week on the wall clock.
       try {
-        const validationResult = await ctx.runQuery(internal.nflSeasonBoundaries.isContentGenerationAllowed, {
-          contentType,
-          leagueId,
-          date: Date.now(),
-        });
+        const validationResult = args.forcePeriod
+          ? { allowed: true as const, reason: `forced period ${args.forcePeriod.seasonId} week ${args.forcePeriod.week}` }
+          : await ctx.runQuery(internal.nflSeasonBoundaries.isContentGenerationAllowed, {
+              contentType,
+              leagueId,
+              date: Date.now(),
+            });
 
         if (!validationResult.allowed) {
           await cancel("season_boundary", `Content generation not allowed: ${validationResult.reason}`);
@@ -605,9 +665,14 @@ export const processScheduledContent = internalAction({
       //     period that is actually current, not the one the cron guessed a day
       //     earlier, and so the idempotency index reflects reality.
       const currentWeek = await getCurrentNFLWeek(ctx);
-      const targetWeek = resolveTargetWeek(contentType, currentWeek);
+      const targetWeek = args.forcePeriod
+        ? args.forcePeriod.week
+        : resolveTargetWeek(contentType, currentWeek);
       const seasonId =
-        league.espnData?.seasonId ?? scheduledContent.contextData?.seasonId ?? nflSeasonYearFor();
+        args.forcePeriod?.seasonId ??
+        league.espnData?.seasonId ??
+        scheduledContent.contextData?.seasonId ??
+        nflSeasonYearFor();
 
       await ctx.runMutation(internal.contentScheduling.stampExecutionPeriod, {
         scheduledContentId: args.scheduledContentId,
@@ -618,6 +683,7 @@ export const processScheduledContent = internalAction({
       // (b) Fresh data. Stale league data produces a confidently wrong article,
       //     which is worse than a late one - so sync first, and defer if the
       //     week we are writing about still has no matchups.
+      let syncedThisPass = false;
       if (!FRESHNESS_EXEMPT_CONTENT.has(contentType)) {
         const lastSyncedAt = league.espnData?.lastSyncedAt ?? 0;
 
@@ -628,6 +694,7 @@ export const processScheduledContent = internalAction({
             // action; syncAllLeaguesCurrentSeason is the only internal entry
             // point, and it refreshes this league along with the rest.
             await ctx.runAction(internal.espnSync.syncAllLeaguesCurrentSeason, {});
+            syncedThisPass = true;
           } catch (error) {
             console.warn("ESPN sync failed before scheduled generation:", error);
             return await deferForData(ctx, args.scheduledContentId, scheduledContent, "espn_sync_failed");
@@ -644,6 +711,74 @@ export const processScheduledContent = internalAction({
             return await deferForData(ctx, args.scheduledContentId, scheduledContent, `no_matchups_week_${targetWeek}`);
           }
         }
+      }
+
+      // (b2) Week finality (spec §11.1.1). A recap, ranking, award or hall of
+      //      shame is a claim about a finished week. Monday night settles late;
+      //      the Tuesday 09:00 slot does not get to guess. Deferring costs 30
+      //      minutes and the deferral budget is separate from `attempts`, so a
+      //      long Monday night never burns a retry.
+      if (LOOKBACK_CONTENT.has(contentType) && !FRESHNESS_EXEMPT_CONTENT.has(contentType)) {
+        const finality = await ctx.runQuery(internal.contentScheduling.isWeekFinal, {
+          leagueId,
+          seasonId,
+          week: targetWeek,
+        });
+        if (!finality.final) {
+          console.log(
+            `Week ${targetWeek} is not final for league ${leagueId}: ` +
+              `${finality.unfinished}/${finality.matchups} matchup(s) unsettled (${finality.reason})`,
+          );
+          return await deferForData(
+            ctx,
+            args.scheduledContentId,
+            scheduledContent,
+            "week_not_final",
+          );
+        }
+      }
+
+      // (b3) Data completeness (spec §11.1.2, §11.1.3). The type's core inputs
+      //      must actually be in the database. A missing one earns exactly one
+      //      sync before the row is deferred: if this pass has not already
+      //      synced, sync now and re-ask, because a gap that a sync closes
+      //      should not cost the league half an hour.
+      let completeness = await ctx.runQuery(internal.contentScheduling.checkDataCompleteness, {
+        leagueId,
+        contentType,
+        seasonId,
+        week: targetWeek,
+      });
+
+      // "Re-syncs once" is per row, not per pass: a row that has already been
+      // deferred for data has already had its sync, and re-running a full
+      // all-leagues sync on every 30-minute retry would cost far more than the
+      // article is worth.
+      if (!completeness.complete && !syncedThisPass && (scheduledContent.deferrals ?? 0) === 0) {
+        console.log(
+          `Missing core data for ${contentType} (${completeness.missing.join(", ")}); syncing once before deferring`,
+        );
+        try {
+          await ctx.runAction(internal.espnSync.syncAllLeaguesCurrentSeason, {});
+          syncedThisPass = true;
+          completeness = await ctx.runQuery(internal.contentScheduling.checkDataCompleteness, {
+            leagueId,
+            contentType,
+            seasonId,
+            week: targetWeek,
+          });
+        } catch (error) {
+          console.warn("ESPN sync failed while chasing missing core data:", error);
+        }
+      }
+
+      if (!completeness.complete) {
+        return await deferForData(
+          ctx,
+          args.scheduledContentId,
+          scheduledContent,
+          `data_incomplete:${completeness.missing.join(",")}`,
+        );
       }
 
       // (c) League Pass (spec §10.1). Automated content is covered by the pass
@@ -709,7 +844,7 @@ export const processScheduledContent = internalAction({
       //     directly at print time. That is the fallback, and it is the reason
       //     nothing here is destructive.
       const msUntilPrint = scheduledContent.scheduledFor - Date.now();
-      if (batchScheduledGenerationEnabled() && msUntilPrint >= TWO_HOURS_MS) {
+      if (!args.disableBatching && batchScheduledGenerationEnabled() && msUntilPrint >= TWO_HOURS_MS) {
         const submitAt = Math.max(Date.now(), scheduledContent.scheduledFor - THREE_HOURS_MS);
         const submitted = await scheduleBatchSubmission(ctx, args.scheduledContentId, submitAt);
         if (submitted) {
@@ -739,7 +874,7 @@ export const processScheduledContent = internalAction({
       });
 
       // Schedule the content generation (include scheduling context and scheduledContentId)
-      await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
+      const generationArgs = {
         articleId,
         leagueId,
         contentType,
@@ -749,7 +884,18 @@ export const processScheduledContent = internalAction({
         seasonId,
         week: targetWeek,
         scheduledContentId: args.scheduledContentId,
-      });
+      };
+
+      if (args.awaitGeneration) {
+        // The dev end-to-end tool (spec §11.3.12) needs the generation to have
+        // started before this returns, so it runs inline rather than through
+        // the scheduler. The prepared content types still chain a scheduled
+        // step of their own, which is why the tool polls the article rather
+        // than trusting this to have finished.
+        await ctx.runAction(internal.aiContent.generateContentAction, generationArgs);
+      } else {
+        await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, generationArgs);
+      }
 
       // Leave status as generating; final status will be updated by the generation action
       return { success: true, contentId: articleId };
@@ -1031,6 +1177,244 @@ export const hasMatchupsForWeek = internalQuery({
     return matchups.length > 0;
   },
 });
+
+/* -------------------------------------------------------------------------- *
+ * Pre-generation quality gates (spec §11.1)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Week finality (spec §11.1.1).
+ *
+ * A lookback story is only true once the week it looks back on is over. The
+ * test is per matchup, not per league: ESPN sets `winner` as each game settles,
+ * so a Monday-night game that has not been scored leaves exactly one row
+ * unfinished - and that is the row a Tuesday 09:00 recap would get wrong.
+ *
+ * Two ways a matchup counts as finished:
+ *   1. `winner` is set. This is the authoritative signal and needs no clock.
+ *   2. Both sides scored and the scoring period's window has closed. ESPN
+ *      occasionally leaves `winner` unset on a settled week; the week boundary
+ *      from `nflSeasons.weekBoundaries` is what makes that safe to assume.
+ *      With no boundary row for the season we fall back to requiring `winner`,
+ *      which errs towards a late article rather than a wrong one.
+ *
+ * A week with no matchups at all is NOT final - there is nothing to be final
+ * about, and the caller should defer for data rather than publish an empty
+ * recap. `matchupPeriod` is the column, matching `hasMatchupsForWeek`.
+ */
+export const isWeekFinal = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    week: v.number(),
+    /** Supplied by tests and by callers that already have a stable clock. */
+    now: v.optional(v.number()),
+  },
+  returns: v.object({
+    final: v.boolean(),
+    matchups: v.number(),
+    unfinished: v.number(),
+    periodOver: v.boolean(),
+    reason: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+
+    const matchups = await ctx.db
+      .query("matchups")
+      .withIndex("by_league_period", (q) =>
+        q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+      )
+      .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
+      .take(MAX_MATCHUPS_PER_WEEK);
+
+    const season = await ctx.db
+      .query("nflSeasons")
+      .withIndex("by_year", (q) => q.eq("year", args.seasonId))
+      .first();
+    const boundary = (season?.weekBoundaries as WeekBoundary[] | undefined)?.find(
+      (entry) => entry.week === args.week,
+    );
+    const periodOver = boundary ? now > boundary.end : false;
+
+    if (matchups.length === 0) {
+      return {
+        final: false,
+        matchups: 0,
+        unfinished: 0,
+        periodOver,
+        reason: "no_matchups",
+      };
+    }
+
+    const unfinished = matchups.filter((matchup) => {
+      if (matchup.winner !== undefined) return false;
+      const bothScored = matchup.homeScore > 0 && matchup.awayScore > 0;
+      return !(bothScored && periodOver);
+    }).length;
+
+    return {
+      final: unfinished === 0,
+      matchups: matchups.length,
+      unfinished,
+      periodOver,
+      reason: unfinished === 0 ? "final" : "unfinished_matchups",
+    };
+  },
+});
+
+/**
+ * Data completeness (spec §11.1.2 and §11.1.3).
+ *
+ * `computeMissingRequiredData` is the prompt layer's answer to the same
+ * question, but it needs the assembled `LeagueDataContext` - which is exactly
+ * the expensive thing this gate exists to avoid building for an article we are
+ * about to defer. So the template's own `requiredData` vocabulary is read here
+ * (the single source of truth for what a type needs) and each core requirement
+ * is answered straight off an index instead.
+ *
+ * Only *core* inputs defer. Quotes, prior claims, injury reports, historical
+ * seasons and rivalry records are all things a writer can honestly work
+ * around; a recap with no matchups or a draft grade with no picks is not.
+ */
+export const checkDataCompleteness = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    contentType: v.string(),
+    seasonId: v.number(),
+    week: v.number(),
+  },
+  returns: v.object({
+    complete: v.boolean(),
+    missing: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const template = contentTemplates[args.contentType];
+    const required = new Set(template?.requiredData ?? []);
+    const isDraftType = DRAFT_CONTENT.has(args.contentType);
+    const missing: string[] = [];
+
+    const needs = (fields: Set<string>) =>
+      [...required].some((field) => fields.has(field));
+
+    // Teams. Everything that ranks, grades or recaps needs a roster of teams.
+    if (needs(REQUIRES_TEAMS) || isDraftType) {
+      const teams = await ctx.db
+        .query("teams")
+        .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+        .take(1);
+      if (teams.length === 0) missing.push("teams");
+    }
+
+    // The week this article is about.
+    if (needs(REQUIRES_WEEK_MATCHUPS)) {
+      const played = await ctx.db
+        .query("matchups")
+        .withIndex("by_league_period", (q) =>
+          q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+        )
+        .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
+        .take(1);
+      if (played.length === 0) missing.push(`matchups_week_${args.week}`);
+    }
+
+    // The week a preview is about: the slate that has not been played yet.
+    if (needs(REQUIRES_UPCOMING_MATCHUPS)) {
+      const upcomingWeek = args.week + 1;
+      const upcoming = await ctx.db
+        .query("matchups")
+        .withIndex("by_league_period", (q) =>
+          q.eq("leagueId", args.leagueId).eq("matchupPeriod", upcomingWeek),
+        )
+        .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
+        .take(1);
+      // A preview may legitimately be written about the current week's slate
+      // when that week has not started; accept either.
+      if (upcoming.length === 0) {
+        const thisWeek = await ctx.db
+          .query("matchups")
+          .withIndex("by_league_period", (q) =>
+            q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+          )
+          .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
+          .take(1);
+        if (thisWeek.length === 0) missing.push(`upcoming_matchups_week_${upcomingWeek}`);
+      }
+    }
+
+    // The player universe a waiver or mock-draft story picks from (§11.1.3:
+    // `mock_draft` additionally needs a non-empty free-agent pool).
+    if (needs(REQUIRES_PLAYER_POOL) || args.contentType === "mock_draft") {
+      const pool = await ctx.db
+        .query("playersEnhanced")
+        .withIndex("by_season", (q) => q.eq("season", args.seasonId))
+        .take(1);
+      if (pool.length === 0) missing.push("free_agent_pool");
+    }
+
+    // Draft picks, and the ADP column they would be graded against.
+    if (needs(REQUIRES_DRAFT_PICKS) || DRAFT_GRADED_CONTENT.has(args.contentType)) {
+      const picks = await draftPicksWithAdp(ctx, args.leagueId, args.seasonId);
+
+      if (picks.length === 0) {
+        missing.push("draft_picks");
+      } else if (
+        DRAFT_GRADED_CONTENT.has(args.contentType) &&
+        adpLooksLikePlaceholder(picks)
+      ) {
+        // ESPN stores one default ADP for every pick when it cannot join a
+        // real one (production 2025: all 170 picks at 170.0). Grading against
+        // that calls the first overall pick a 169-slot steal, so it counts as
+        // a missing input rather than a bad one (spec §11.1.3).
+        missing.push("draft_adp_placeholder");
+      }
+    }
+
+    return { complete: missing.length === 0, missing };
+  },
+});
+
+/**
+ * The drafted players' ADP column, read straight off the draft transactions.
+ *
+ * Bounded twice over: at most {@link MAX_DRAFT_PICKS_SAMPLED} picks are
+ * sampled, which is far more than the eight values
+ * `adpLooksLikePlaceholder` needs to make its call and far fewer than a
+ * full draft's worth of player lookups.
+ */
+async function draftPicksWithAdp(
+  ctx: { db: QueryCtx["db"] },
+  leagueId: Id<"leagues">,
+  seasonId: number,
+): Promise<Array<{ playerADP?: number | null }>> {
+  const draftTransactions = await ctx.db
+    .query("transactions")
+    .withIndex("by_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
+    .filter((q) => q.eq(q.field("type"), "DRAFT"))
+    .take(MAX_DRAFT_TRANSACTIONS);
+
+  const playerIds: string[] = [];
+  for (const transaction of draftTransactions) {
+    for (const item of transaction.items ?? []) {
+      if (playerIds.length >= MAX_DRAFT_PICKS_SAMPLED) break;
+      playerIds.push(String(item.playerId));
+    }
+    if (playerIds.length >= MAX_DRAFT_PICKS_SAMPLED) break;
+  }
+
+  const picks: Array<{ playerADP?: number | null }> = [];
+  for (const playerId of playerIds) {
+    const player = await ctx.db
+      .query("playersEnhanced")
+      .withIndex("by_espn_id_season", (q) =>
+        q.eq("espnId", playerId).eq("season", seasonId),
+      )
+      .first();
+    picks.push({ playerADP: player?.ownership?.averageDraftPosition ?? null });
+  }
+
+  return picks;
+}
 
 /**
  * Idempotency lookup (spec section 9.2.6): is there already a row for this

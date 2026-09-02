@@ -193,6 +193,24 @@ function toWhen(timestamp: number | undefined): string | undefined {
   }
 }
 
+/**
+ * ESPN's draft detail carries no ADP; when the sync cannot join a real ADP it stores one default
+ * for every pick (production 2025: all 170 picks at 170.0). Grading against that would call the
+ * first overall pick a 169-slot steal. Treat a near-constant ADP column as "no ADP".
+ */
+export function adpLooksLikePlaceholder(
+  picks: ReadonlyArray<{ playerADP?: number | null }> | undefined
+): boolean {
+  const values = (picks ?? [])
+    .map(pick => pick.playerADP)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (values.length < 8) return false;
+  const counts = new Map<number, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  const mostCommon = Math.max(...counts.values());
+  return mostCommon / values.length >= 0.8;
+}
+
 function toTimestamp(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -239,11 +257,21 @@ export function computeMissingRequiredData(contentType: string, data: LeagueData
           missing.push("matchup_results — no matchups in the payload");
         }
         break;
-      case "player_scores":
-        if (!data.teams?.some(team => team.roster && team.roster.length > 0)) {
+      case "player_scores": {
+        // The weekly-recap path carries rosters on the matchups, not on the teams; either counts.
+        const onTeams = data.teams?.some(team => team.roster && team.roster.length > 0);
+        const onMatchups = (data.recentMatchups ?? []).some(matchup => {
+          const loose = asLoose(matchup);
+          const home = Array.isArray(loose.homeRoster) ? loose.homeRoster.length : 0;
+          const away = Array.isArray(loose.awayRoster) ? loose.awayRoster.length : 0;
+          const top = Array.isArray(loose.topPerformers) ? loose.topPerformers.length : 0;
+          return home + away + top > 0;
+        });
+        if (!onTeams && !onMatchups) {
           missing.push("player_scores (rosters) — not available");
         }
         break;
+      }
       case "standings":
         if (!data.standings || data.standings.length === 0) {
           missing.push("standings — not available");
@@ -344,6 +372,10 @@ class TeamIndex {
       this.register(str(team.id), id);
       this.register(team.name, id);
       this.register(str(loose.abbreviation), id);
+      // Team documents are per season, so a standings row from a past season carries a different
+      // Convex id and possibly a different team name. The owner is the same person: register it.
+      this.register(str(team.manager) ?? str(loose.owner), id);
+      this.register(str(loose.owner), id);
     });
   }
 
@@ -507,7 +539,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
 
   const standings = (data.standings ?? []).map(row => ({
     rank: row.rank,
-    teamId: teams.resolve(row.teamId, row.team),
+    teamId: teams.resolve(row.teamId, row.team, asLoose(row).teamName, asLoose(row).externalId, asLoose(row).owner),
     record: `${row.wins}-${row.losses}-${row.ties ?? 0}`,
     pointsFor: num(row.pointsFor) ?? 0,
     streak: row.streakType && row.streakLength ? `${row.streakType}${row.streakLength}` : undefined,
@@ -544,8 +576,9 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     ],
   }));
 
+  const adpPlaceholder = adpLooksLikePlaceholder(data.draftPicks);
   const draftPicks = (data.draftPicks ?? []).map(pick => {
-    const adp = pick.playerADP === null ? undefined : num(pick.playerADP);
+    const adp = adpPlaceholder || pick.playerADP === null ? undefined : num(pick.playerADP);
     return {
       id: `D${pick.pickNumber}`,
       teamId: teams.resolve(pick.teamName, pick.teamAbbreviation),
@@ -599,6 +632,11 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   }));
 
   const missing = computeMissingRequiredData(req.contentType, data);
+  if (adpPlaceholder) {
+    missing.push(
+      "ADP — every pick carries the same placeholder value, so no ADP or value-vs-ADP is available; grade on projections and roster construction only"
+    );
+  }
   if (nonRespondents.length > 0) {
     const names = nonRespondents.map(entry => `${entry.speaker} (${entry.teamId})`).join(", ");
     missing.push(`quotes — ${names} did not respond to the comment request`);

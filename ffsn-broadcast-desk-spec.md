@@ -728,3 +728,72 @@ worst 76%.
 - **PRICE-D (Stripe + UI):** `convex/stripe.ts`, `convex/payments.ts`, `src/app/page.tsx` pricing
   copy, `src/components/LeagueSettingsPage.tsx` ("League Pass & seats" card), the join flow's
   at-capacity message, a top-up button where a manager's credits are shown, new components.
+
+---
+
+## 11. Quality gates for unattended publishing (approved 2026-09-02)
+
+The pipeline publishes without a human by default (§9), so every failure mode found on the real-data
+test becomes a gate. Nothing below asks the commissioner to do anything; it either fixes the article,
+regenerates it, or holds it and tells the right person.
+
+### 11.1 Before generation (Convex, `processScheduledContent`)
+
+1. **Week finality.** A lookback type (recap, power rankings, awards, hall of shame) runs only when
+   every matchup of the target week has `winner` set (or both scores > 0 and the scoring period is
+   over). Otherwise defer 30 min (max 6, then the existing failure path) — a Monday-night game must
+   not produce a Tuesday recap of an unfinished week. `internal.contentScheduling.isWeekFinal`.
+2. **Data completeness.** The type's `requiredData` (via `computeMissingRequiredData`) must be empty
+   apart from quotes/priorClaims; a missing core input defers and re-syncs once instead of generating.
+3. **Placeholder detection.** ADP columns that are one repeated value (§ facts `adpLooksLikePlaceholder`)
+   count as missing for draft types → defer/refuse rather than grade against them.
+
+### 11.2 After generation (prompt layer, `completeArticleFromMessage`)
+
+4. **Deterministic register check** (`fact-verifier.ts`, kind `data_speak`, severity `block` with the
+   section): FACTS field names (`benchImpact`, `available_players`, `fantasyTeamId`, `pointsFor`,
+   `wouldHaveReplaced`), the words "ledger", "payload", "FACTS", "JSON", "data feed", "the sheet",
+   ISO-8601 timestamps, and internal ids (`\b[TMQUDX]\d+\b`, `TR\d+`) anywhere in the title or body.
+   Block → the section is regenerated once with the violation named; a leak in the title regenerates
+   the title from the body.
+5. **Required sections.** `thin_article` fires when any template section marked required is absent,
+   not only at "fewer than half". Missing optional sections are a `warn`.
+6. **Quote placement.** For automated articles a declared quote with no directive is fine only if the
+   trailing "From the sideline" block will render it; the verifier keeps `quote_not_placed` as a warn
+   and the finalize step never blocks on it.
+7. **Editor pass, always on for automated articles** (Sonnet 5, effort low, ≤900 output tokens, one
+   call): input FACTS + body; output `{ contradictions[], unsupported[], registerLeaks[],
+   factsScore 1-5, voiceScore 1-5, incompleteSections[] }`. `contradicted` → strip + flag;
+   `registerLeaks` → treated like `data_speak`; `factsScore < 3` → hold for review with the reason;
+   `voiceScore < 3` → warn (never blocks). Env `FACT_CHECK_LLM="0"` disables; default on for every
+   type. Cost ≈ 2–3¢ per article.
+8. **One full regeneration before holding.** If, after section regeneration and strips, the article
+   still carries any `strip` or was held by the editor pass, the direct path regenerates the whole
+   article once on Opus 5 medium and re-verifies; only then does it hold. Batch path: held articles
+   are handed to the direct path at print time for the same single retry.
+9. **Publish gate** (`finalizeGeneratedArticle`): publish iff zero `block`, zero `strip`, editor
+   `factsScore ≥ 3`, `wordCount ≥ 30%` of the template ceiling, and every required section present.
+   Anything else stays `draft` with a "needs your review" notice naming the reason.
+
+### 11.3 Operations
+
+10. **Operator digest.** Daily 13:00 UTC (`internal.deskMetrics.sendOperatorDigest`): per league —
+    published / held / failed / deferred counts for the last 24h, spend and run-rate vs cap, top flag
+    kinds, batch fallbacks, interview decline rate. Email to `ADMIN_ALERT_EMAIL` via the existing
+    email path (console.error when unset). Any held or failed article also triggers an immediate
+    single notice (deduped per article).
+11. **Verifier noise.** Proper-noun warnings ignore tokens beginning with "The", "Because", "Here",
+    "And", and any name that is a substring of a FACTS team, manager, or player name, so real
+    warnings are visible.
+12. **Dev end-to-end tool.** `internal.devTools.runScheduledPipelineNow({ leagueId, contentType,
+    seasonId, week, persona? })` creates a scheduled row for that period, marks the pass active on the
+    DEV deployment only (refuses when `CONVEX_DEPLOYMENT`/deployment name is not a dev deployment),
+    runs the exact `processScheduledContent` path immediately (no batch), and returns the article id,
+    status, flags and cost. This is how the whole automation is exercised against a real league
+    before any prod deploy.
+
+Ownership: **Q-A** (prompt layer) `src/lib/ai/fact-verifier.ts`, `content-generation-service.ts`,
+`content-templates.ts` (a `required` flag per section where missing), `scripts/eval-articles.ts`,
+`tests/fact-verifier.test.ts`; **Q-B** (Convex) `convex/contentScheduling.ts`, `convex/aiContent.ts`,
+`convex/deskMetrics.ts`, `convex/crons.ts`, `convex/devTools.ts` (new), `convex/lib/generationFailure.ts`,
+tests. No agent runs any git command that changes the tree.

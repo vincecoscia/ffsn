@@ -18,10 +18,21 @@
  */
 
 import { v } from "convex/values";
-import { internalQuery, query, type QueryCtx } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+  type ActionCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireCommissioner } from "./lib/auth";
 import { passSeasonId } from "./credits";
+// Plain rendering module - no runtime deps. `emailService.ts` imports it from
+// the same isolate.
+import { renderSystemNoticeEmail } from "../src/lib/email/templates";
 
 /** How many recent articles one call may scan. Keeps the query bounded as the table grows. */
 const MAX_ARTICLES = 500;
@@ -502,5 +513,489 @@ export const getDeskMetrics = query({
       recentFlags,
       spend: { ...spend, seasonId },
     };
+  },
+});
+
+/* ========================================================================== *
+ * Operations (spec §11.3.10)
+ *
+ * Two things the operator gets, and only the operator: one email a day
+ * summarising every league, and one email the moment an article is held or
+ * fails. Neither reaches a commissioner - they have their own notifications -
+ * and neither is allowed to fail the pipeline that triggered it.
+ * ========================================================================== */
+
+/** How many rows of each kind one league's digest reads. */
+const MAX_DIGEST_ROWS = 400;
+
+/** Flag kinds listed in the digest (spec §11.3.10: "top 5 flag kinds"). */
+const TOP_FLAG_KINDS = 5;
+
+/** Regular-season weeks used to turn a 24h spend into a season run-rate. */
+const DIGEST_RUN_RATE_WEEKS = SEASON_WEEKS;
+
+/** What `releaseDueBatchRows` writes when a batch misses print time. */
+const BATCH_FALLBACK_MARKER = "Batch did not complete before print time";
+
+/** What `recordDeferral` writes when a row is pushed out for missing data. */
+const DEFERRAL_MARKER = "Waiting on league data";
+
+/* -------------------------------------------------------------------------- *
+ * Pure aggregation
+ * -------------------------------------------------------------------------- */
+
+/** The rows one league's digest is computed from. Structural, so tests can seed them. */
+export interface DigestInputs {
+  articles: ReadonlyArray<{
+    status: string;
+    createdAt?: number;
+    _creationTime?: number;
+    reviewFlags?: ReadonlyArray<{ kind: string; severity?: string }>;
+  }>;
+  scheduledRows: ReadonlyArray<{
+    status: string;
+    updatedAt?: number;
+    deferrals?: number;
+    errorMessage?: string;
+    batchSubmittedAt?: number;
+  }>;
+  commentRequests: ReadonlyArray<{ status: string; createdAt?: number }>;
+  /** Rows older than this are ignored. */
+  since: number;
+}
+
+export interface LeagueDigest {
+  published: number;
+  held: number;
+  failed: number;
+  deferred: number;
+  batchFallbacks: number;
+  topFlagKinds: Array<{ kind: string; count: number }>;
+  interviewsRequested: number;
+  interviewsDeclined: number;
+  /** declined / requested. `null` when nobody was asked - not the same as 0%. */
+  declineRate: number | null;
+  /** True when anything at all happened; a quiet league is left out of the email. */
+  active: boolean;
+}
+
+/**
+ * Roll one league's last 24 hours into the digest line.
+ *
+ * Deliberately pure and deliberately exported: this is the part worth testing,
+ * and the part that must not change meaning when the queries around it do.
+ *
+ * Counting rules:
+ *  - `published` / `held` / `failed` are article outcomes. "Held" is an
+ *    article that finished generating and stayed in `draft` - the publish gate
+ *    (spec §11.2.9) or a commissioner's own `requireApproval`.
+ *  - `deferred` counts scheduled rows waiting on league data (spec §11.1), NOT
+ *    article rows: a deferral happens before an article exists.
+ *  - `failed` on a scheduled row that also produced a failed article would
+ *    double count, so only articles are counted as failures; a scheduled row
+ *    that failed without ever creating one is added on top.
+ */
+export function aggregateLeagueDigest(inputs: DigestInputs): LeagueDigest {
+  const at = (row: { createdAt?: number; _creationTime?: number; updatedAt?: number }) =>
+    row.createdAt ?? row.updatedAt ?? row._creationTime ?? 0;
+
+  const articles = inputs.articles.filter((row) => at(row) >= inputs.since);
+  const scheduledRows = inputs.scheduledRows.filter((row) => at(row) >= inputs.since);
+  const commentRequests = inputs.commentRequests.filter((row) => at(row) >= inputs.since);
+
+  let published = 0;
+  let held = 0;
+  let failed = 0;
+  const flagCounts = new Map<string, number>();
+
+  for (const article of articles) {
+    if (article.status === "published") published += 1;
+    else if (article.status === "draft") held += 1;
+    else if (article.status === "failed") failed += 1;
+
+    for (const flag of article.reviewFlags ?? []) {
+      flagCounts.set(flag.kind, (flagCounts.get(flag.kind) ?? 0) + 1);
+    }
+  }
+
+  let deferred = 0;
+  let batchFallbacks = 0;
+  for (const row of scheduledRows) {
+    const waiting =
+      (row.deferrals ?? 0) > 0 || (row.errorMessage ?? "").startsWith(DEFERRAL_MARKER);
+    if (waiting && row.status === "pending") deferred += 1;
+    if (row.status === "failed" && waiting) failed += 1;
+    if ((row.errorMessage ?? "").includes(BATCH_FALLBACK_MARKER)) batchFallbacks += 1;
+  }
+
+  const interviewsRequested = commentRequests.length;
+  const interviewsDeclined = commentRequests.filter((row) => row.status === "declined").length;
+
+  const topFlagKinds = [...flagCounts.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind))
+    .slice(0, TOP_FLAG_KINDS);
+
+  return {
+    published,
+    held,
+    failed,
+    deferred,
+    batchFallbacks,
+    topFlagKinds,
+    interviewsRequested,
+    interviewsDeclined,
+    declineRate:
+      interviewsRequested === 0
+        ? null
+        : round(interviewsDeclined / interviewsRequested, 3),
+    active:
+      published + held + failed + deferred + batchFallbacks + interviewsRequested > 0,
+  };
+}
+
+/** One league's digest line, rendered for a plain-text email. */
+export function formatLeagueDigestLine(
+  leagueName: string,
+  digest: LeagueDigest,
+  spend: {
+    automatedUsd: number;
+    interviewUsd: number;
+    capUsd: number;
+    weeklyRunRateUsd: number;
+    projectedSeasonUsd: number;
+  }
+): string {
+  const covered = spend.automatedUsd + spend.interviewUsd;
+  const pctOfCap = spend.capUsd > 0 ? Math.round((covered / spend.capUsd) * 100) : 0;
+  const flags =
+    digest.topFlagKinds.length === 0
+      ? "none"
+      : digest.topFlagKinds.map((entry) => `${entry.kind} x${entry.count}`).join(", ");
+  const decline =
+    digest.declineRate === null
+      ? "nobody asked"
+      : `${Math.round(digest.declineRate * 100)}% (${digest.interviewsDeclined}/${digest.interviewsRequested})`;
+
+  return [
+    `${leagueName}`,
+    `  published ${digest.published} · held ${digest.held} · failed ${digest.failed} · deferred ${digest.deferred}`,
+    `  spend $${covered.toFixed(2)} of $${spend.capUsd.toFixed(2)} cap (${pctOfCap}%), ` +
+      `$${spend.weeklyRunRateUsd.toFixed(2)}/week, season projects to $${spend.projectedSeasonUsd.toFixed(2)}`,
+    `  flags: ${flags}`,
+    `  batch fallbacks ${digest.batchFallbacks} · interview declines ${decline}`,
+  ].join("\n");
+}
+
+/* -------------------------------------------------------------------------- *
+ * Digest data
+ * -------------------------------------------------------------------------- */
+
+const leagueDigestValidator = v.object({
+  published: v.number(),
+  held: v.number(),
+  failed: v.number(),
+  deferred: v.number(),
+  batchFallbacks: v.number(),
+  topFlagKinds: v.array(v.object({ kind: v.string(), count: v.number() })),
+  interviewsRequested: v.number(),
+  interviewsDeclined: v.number(),
+  declineRate: v.union(v.number(), v.null()),
+  active: v.boolean(),
+});
+
+/**
+ * One league's last 24 hours plus its season spend.
+ *
+ * Every scan is bounded and every window filter happens in
+ * `aggregateLeagueDigest`, so a league with a busy day costs the same reads as
+ * a quiet one and the arithmetic stays testable without a database.
+ */
+export const getLeagueDigest = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    since: v.number(),
+    now: v.optional(v.number()),
+  },
+  returns: v.object({
+    leagueName: v.string(),
+    seasonId: v.number(),
+    digest: leagueDigestValidator,
+    spend: deskSpendValidator,
+  }),
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    const seasonId = passSeasonId(league);
+
+    const articles = await ctx.db
+      .query("aiContent")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .order("desc")
+      .take(MAX_DIGEST_ROWS);
+
+    const scheduledRows = await ctx.db
+      .query("scheduledContent")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .order("desc")
+      .take(MAX_DIGEST_ROWS);
+
+    const commentRequests = await ctx.db
+      .query("commentRequests")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .order("desc")
+      .take(MAX_DIGEST_ROWS);
+
+    const digest = aggregateLeagueDigest({
+      articles,
+      scheduledRows,
+      commentRequests,
+      since: args.since,
+    });
+
+    const spend = projectSpend(
+      await seasonSpend(ctx, args.leagueId, seasonId),
+      args.now ?? Date.now()
+    );
+
+    return {
+      leagueName: league?.name ?? "Unknown league",
+      seasonId,
+      digest,
+      spend: { ...spend, seasonId },
+    };
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * Operator notices
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Claim one operator notice, or discover that it has already been sent.
+ *
+ * The row IS the lock: `operatorNotices.key` is unique by construction, so a
+ * finalize that runs twice, or a failure that is retried, still costs the
+ * operator exactly one email. Returns false when the key is already taken.
+ */
+export const claimOperatorNotice = internalMutation({
+  args: {
+    key: v.string(),
+    kind: v.string(),
+    subject: v.string(),
+    leagueId: v.optional(v.id("leagues")),
+    articleId: v.optional(v.id("aiContent")),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("operatorNotices")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    if (existing) return false;
+
+    await ctx.db.insert("operatorNotices", {
+      key: args.key,
+      kind: args.kind,
+      leagueId: args.leagueId,
+      articleId: args.articleId,
+      subject: args.subject,
+      sentAt: Date.now(),
+      delivered: false,
+    });
+    return true;
+  },
+});
+
+/** Stamp whether the claimed notice actually got out of the building. */
+export const markOperatorNoticeDelivered = internalMutation({
+  args: { key: v.string(), delivered: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("operatorNotices")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    if (row) await ctx.db.patch(row._id, { delivered: args.delivered });
+    return null;
+  },
+});
+
+/**
+ * Send one operator email, or log it loudly when there is nowhere to send it.
+ *
+ * `ADMIN_ALERT_EMAIL` is a Convex env var and is normally unset in
+ * development, which is exactly when a `console.error` is the right delivery
+ * mechanism. A send that fails never throws: every caller is on a path that
+ * has already done the important work.
+ */
+async function deliverToOperator(
+  ctx: ActionCtx,
+  subject: string,
+  text: string,
+  html?: string
+): Promise<boolean> {
+  const to = process.env.ADMIN_ALERT_EMAIL;
+  if (!to) {
+    console.error(`[operator] ${subject}\n${text}`);
+    return false;
+  }
+  try {
+    const result = await ctx.runAction(internal.emailService.sendPlainEmail, {
+      to,
+      subject,
+      text,
+      html,
+      fromName: "FFSN Desk",
+      relatedEntityType: "operator_alert",
+    });
+    if (!result.success) {
+      console.error(`[operator] send failed (${result.error}): ${subject}\n${text}`);
+    }
+    return result.success;
+  } catch (error) {
+    console.error(`[operator] send threw for "${subject}"`, error);
+    return false;
+  }
+}
+
+/**
+ * The immediate notice (spec §11.3.10): "any held or failed article also
+ * triggers an immediate single notice (deduped per article)".
+ *
+ * Called from `aiContent.finalizeGeneratedArticle` (held) and
+ * `lib/generationFailure.handleGenerationFailure` (failed). Both call it
+ * fire-and-forget; nothing here may throw back into them.
+ */
+export const notifyOperatorOfArticle = internalAction({
+  args: {
+    leagueId: v.id("leagues"),
+    articleId: v.id("aiContent"),
+    kind: v.union(v.literal("held"), v.literal("failed")),
+    contentType: v.string(),
+    persona: v.optional(v.string()),
+    reasons: v.array(v.string()),
+  },
+  returns: v.object({ sent: v.boolean(), deduped: v.boolean() }),
+  handler: async (ctx, args): Promise<{ sent: boolean; deduped: boolean }> => {
+    const key = `${args.kind}:${args.articleId}`;
+    const typeLabel = args.contentType.replace(/_/g, " ");
+    const subject =
+      args.kind === "held"
+        ? `FFSN held a ${typeLabel} for review`
+        : `FFSN failed to file a ${typeLabel}`;
+
+    const claimed: boolean = await ctx.runMutation(internal.deskMetrics.claimOperatorNotice, {
+      key,
+      kind: args.kind,
+      subject,
+      leagueId: args.leagueId,
+      articleId: args.articleId,
+    });
+    if (!claimed) return { sent: false, deduped: true };
+
+    const text = [
+      subject,
+      "",
+      `League: ${args.leagueId}`,
+      `Article: ${args.articleId}`,
+      `Writer: ${args.persona ?? "unknown"}`,
+      "",
+      args.kind === "held" ? "Why it was held:" : "Why it failed:",
+      ...args.reasons.map((reason) => `  - ${reason}`),
+    ].join("\n");
+
+    const sent = await deliverToOperator(ctx, subject, text);
+    await ctx.runMutation(internal.deskMetrics.markOperatorNoticeDelivered, {
+      key,
+      delivered: sent,
+    });
+    return { sent, deduped: false };
+  },
+});
+
+/**
+ * The daily operator digest (spec §11.3.10). Wired to 13:00 UTC in `crons.ts`.
+ *
+ * One email for the whole deployment rather than one per league: an operator
+ * reading twenty leagues wants one page, and a league with a quiet day is left
+ * out entirely so the ones that need attention are the ones on the page.
+ */
+export const sendOperatorDigest = internalAction({
+  args: {
+    /** Window length in hours. Defaults to the 24h the spec asks for. */
+    hours: v.optional(v.number()),
+    now: v.optional(v.number()),
+  },
+  returns: v.object({
+    leagues: v.number(),
+    activeLeagues: v.number(),
+    sent: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{ leagues: number; activeLeagues: number; sent: boolean }> => {
+    const now = args.now ?? Date.now();
+    const since = now - (args.hours ?? 24) * 60 * 60 * 1000;
+
+    const leagues = await ctx.runQuery(internal.leagues.listLeagues, {});
+
+    const lines: string[] = [];
+    const totals = { published: 0, held: 0, failed: 0, deferred: 0, coveredUsd: 0 };
+    let activeLeagues = 0;
+
+    for (const league of leagues) {
+      const row = await ctx.runQuery(internal.deskMetrics.getLeagueDigest, {
+        leagueId: league._id,
+        since,
+        now,
+      });
+      const covered = row.spend.automatedUsd + row.spend.interviewUsd;
+      const overCap = row.spend.overCap;
+
+      totals.published += row.digest.published;
+      totals.held += row.digest.held;
+      totals.failed += row.digest.failed;
+      totals.deferred += row.digest.deferred;
+      totals.coveredUsd += covered;
+
+      // A league that did nothing and spent nothing is not news - unless it is
+      // over its cap, which is news every day until somebody acts on it.
+      if (!row.digest.active && !overCap) continue;
+
+      activeLeagues += 1;
+      lines.push(
+        formatLeagueDigestLine(`${row.leagueName}${overCap ? "  [OVER CAP]" : ""}`, row.digest, row.spend)
+      );
+    }
+
+    const window = `${new Date(since).toISOString()} → ${new Date(now).toISOString()}`;
+    const subject =
+      `FFSN desk digest: ${totals.published} published, ${totals.held} held, ` +
+      `${totals.failed} failed, ${totals.deferred} deferred`;
+
+    const body = [
+      `Window: ${window}`,
+      `Leagues: ${leagues.length} (${activeLeagues} with activity)`,
+      `Automated + interview spend across all leagues this season: $${totals.coveredUsd.toFixed(2)}`,
+      `Season run-rate horizon: ${DIGEST_RUN_RATE_WEEKS} weeks`,
+      "",
+      lines.length > 0 ? lines.join("\n\n") : "Nothing to report.",
+    ].join("\n");
+
+    const siteUrl = process.env.SITE_URL || "https://ffsn.ai";
+    let html: string | undefined;
+    try {
+      html = renderSystemNoticeEmail({
+        kicker: "Desk digest",
+        title: subject,
+        paragraphs: body.split("\n\n"),
+        preferencesUrl: `${siteUrl}/dashboard/settings/notifications`,
+        siteUrl,
+      }).html;
+    } catch (error) {
+      // A rendering failure must not cost the operator the digest itself.
+      console.warn("Could not render the operator digest as HTML; sending plain text", error);
+    }
+
+    const sent = await deliverToOperator(ctx, subject, body, html);
+    return { leagues: leagues.length, activeLeagues, sent };
   },
 });

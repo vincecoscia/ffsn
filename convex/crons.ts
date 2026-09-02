@@ -105,4 +105,17 @@ crons.cron(
   {},
 );
 
+// Operator digest (spec §11.3.10). One email a day for whoever runs this
+// deployment: what published, what was held, what failed, what deferred, spend
+// against the cap, the loudest verifier flags, batch fallbacks and the
+// interview decline rate - per league, for the last 24 hours. 13:00 UTC is
+// after the Tuesday recap window and the Wednesday rankings/waiver window, so
+// the digest reports on a day that has already happened.
+crons.daily(
+  "operator digest",
+  { hourUTC: 13, minuteUTC: 0 },
+  internal.deskMetrics.sendOperatorDigest,
+  {},
+);
+
 export default crons;

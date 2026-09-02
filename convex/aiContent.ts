@@ -1,10 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { query, mutation, action, internalQuery, internalMutation, internalAction, MutationCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
-import schema from "./schema";
+import schema, { editorReviewValidator } from "./schema";
 import { contentTemplates } from "../src/lib/ai/content-templates";
+// The publish gate (spec §11.2.9). A pure, SDK-free module owned by the prompt
+// layer, so Convex and the generator apply the same rule rather than two copies
+// of it.
+import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
+
+/** The editor pass exactly as it is stored on `aiContent.generationStats.editor`. */
+export type StoredEditorReview = Infer<typeof editorReviewValidator>;
 import { creditCostFor } from "./credits";
 // Type-only: never a value import from src/lib/ai in a non-Node Convex file.
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
@@ -843,6 +850,9 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           leagueId: args.leagueId,
           scheduledContentId: args.scheduledContentId,
           reviewFlags: generatedContent.metadata.reviewFlags,
+          // The editor pass's verdict rides on metadata (spec §11.2.7) and is
+          // half of the publish gate. `null` means the pass did not run.
+          editor: generatedContent.metadata.editor ?? undefined,
           generatedByUserId: args.userId,
         });
         console.log("Article finalized:", finalized);
@@ -1120,6 +1130,12 @@ export const updateGeneratedContent = internalMutation({
       // (spec §8.7). All four are optional, so a generation from a prompt layer
       // that does not report them still saves.
       verifierStats: v.optional(verifierStatsValidator),
+      // The editor pass's verdict (spec §11.2.7), emitted by the prompt layer
+      // as `metadata.editor`. Declared here so a generation that carries one
+      // is not rejected for an unknown field, and so it lands on the row.
+      // `null` is accepted because that is what the prompt layer sends when
+      // the pass is switched off (`FACT_CHECK_LLM="0"`).
+      editor: v.optional(v.union(editorReviewValidator, v.null())),
       // Explicit predictions the writer made (spec §8.4). Stored with
       // outcome "open" plus the byline, week and season below.
       claims: v.optional(v.array(generatedClaimValidator)),
@@ -1188,6 +1204,7 @@ export const updateGeneratedContent = internalMutation({
     }
 
     const verifierStats = args.metadata.verifierStats;
+    const editorReview = normalizeEditorReview(args.metadata.editor);
 
     // Receipts (spec §8.4). The model emits the prediction; who made it, in which
     // week and season, and how it turned out are ours to stamp on. Everything
@@ -1221,18 +1238,30 @@ export const updateGeneratedContent = internalMutation({
       // The season this article belongs to, so `deskMetrics.getLeagueSeasonSpend`
       // can roll a league's spend up off an index instead of scanning.
       seasonId: season,
-      generationStats: verifierStats
-        ? {
-            ...verifierStats,
-            promptTokens: args.metadata.promptTokens,
-            completionTokens: args.metadata.completionTokens,
-            modelUsed: args.metadata.modelUsed,
-            // Cost accounting (spec §10.3.4).
-            costUsd: args.metadata.costUsd,
-            route: args.metadata.route,
-            billing: args.billing,
-          }
-        : undefined,
+      // Written whenever the run reported EITHER verifier stats or an editor
+      // verdict (spec §11.2.7): the editor's scores are what the publish gate
+      // re-reads, so losing them because the verifier said nothing would let a
+      // held article quietly publish on a later finalize.
+      generationStats:
+        verifierStats || editorReview
+          ? {
+              ...(verifierStats ?? {
+                blocks: (args.metadata.reviewFlags ?? []).filter((f) => f.severity === "block").length,
+                strips: (args.metadata.reviewFlags ?? []).filter((f) => f.severity === "strip").length,
+                warns: (args.metadata.reviewFlags ?? []).filter((f) => f.severity === "warn").length,
+                sectionsRegenerated: 0,
+              }),
+              promptTokens: args.metadata.promptTokens,
+              completionTokens: args.metadata.completionTokens,
+              modelUsed: args.metadata.modelUsed,
+              // Cost accounting (spec §10.3.4).
+              costUsd: args.metadata.costUsd,
+              route: args.metadata.route,
+              billing: args.billing,
+              // Quality gate bookkeeping (spec §11.2.7).
+              editor: editorReview,
+            }
+          : undefined,
       status: "draft", // Set to draft for review instead of auto-publishing
       // publishedAt will be set when actually published
     });
@@ -1352,6 +1381,49 @@ async function leaguePreferencesFor(
     .first();
 }
 
+/* -------------------------------------------------------------------------- *
+ * Publish gate (spec §11.2.9)
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The rule itself lives in `src/lib/ai/publish-gate.ts` (workstream Q-A):
+ * publish iff zero `block`, zero `strip`, editor `factsScore >= 3`,
+ * `wordCount >= 30%` of the template ceiling, and every required section
+ * present. It is a pure, SDK-free module, so it imports cleanly into the V8
+ * isolate and the prompt layer and Convex cannot drift apart on the decision.
+ */
+
+/** Words in a stored body, for articles whose generation never reported a count. */
+function countWords(body: string | undefined): number | undefined {
+  if (!body) return undefined;
+  const words = body.split(/\s+/).filter(Boolean).length;
+  return words > 0 ? words : undefined;
+}
+
+/**
+ * Narrow `EditorPassResult | null` down to what is stored on the row.
+ *
+ * `model` and `costUsd` are carried through for the operator digest; `null`
+ * (the pass did not run) becomes `undefined`, which is what a Convex optional
+ * field means.
+ */
+function normalizeEditorReview(
+  editor: Partial<EditorPassResult> | null | undefined,
+): StoredEditorReview | undefined {
+  if (!editor) return undefined;
+  const normalized: StoredEditorReview = {
+    contradictions: editor.contradictions,
+    unsupported: editor.unsupported,
+    registerLeaks: editor.registerLeaks,
+    factsScore: editor.factsScore,
+    voiceScore: editor.voiceScore,
+    incompleteSections: editor.incompleteSections,
+    model: editor.model,
+    costUsd: editor.costUsd,
+  };
+  return Object.values(normalized).some((value) => value !== undefined) ? normalized : undefined;
+}
+
 export const finalizeGeneratedArticle = internalMutation({
   args: {
     articleId: v.id("aiContent"),
@@ -1361,11 +1433,17 @@ export const finalizeGeneratedArticle = internalMutation({
     // updateGeneratedContent already stored on the row, so a caller that does
     // not have them in hand still gets the right auto-publish decision.
     reviewFlags: v.optional(v.array(reviewFlagValidator)),
+    // The editor pass's verdict (spec §11.2.7). Persisted onto the row and fed
+    // to the publish gate. Falls back to what is already stored, so a caller
+    // that does not carry it still gets the right decision.
+    editor: v.optional(editorReviewValidator),
     generatedByUserId: v.optional(v.string()),
   },
   returns: v.object({
     published: v.boolean(),
     blockingFlags: v.number(),
+    /** Why the gate held it. Empty when it published (spec §11.2.9). */
+    holdReasons: v.array(v.string()),
     notifiedCommissioner: v.boolean(),
     scheduledRowCompleted: v.boolean(),
     alreadyFinalized: v.boolean(),
@@ -1376,6 +1454,7 @@ export const finalizeGeneratedArticle = internalMutation({
   handler: async (ctx, args): Promise<{
     published: boolean;
     blockingFlags: number;
+    holdReasons: string[];
     notifiedCommissioner: boolean;
     scheduledRowCompleted: boolean;
     alreadyFinalized: boolean;
@@ -1383,6 +1462,7 @@ export const finalizeGeneratedArticle = internalMutation({
     const noop = {
       published: false,
       blockingFlags: 0,
+      holdReasons: [] as string[],
       notifiedCommissioner: false,
       scheduledRowCompleted: false,
       alreadyFinalized: true,
@@ -1420,38 +1500,62 @@ export const finalizeGeneratedArticle = internalMutation({
       console.error("Failed to mark comment responses as integrated", args.articleId, e);
     }
 
-    // The verifier wins over the preference: an article carrying a block or
-    // strip finding always stops in draft so a human sees the flagged
-    // sentences first (spec decision 6).
+    // The publish gate (spec §11.2.9) wins over the preference: an article
+    // that fails any of its five tests stops in draft so a human sees it
+    // first, whatever `autoPublish` says.
     const reviewFlags = args.reviewFlags ?? article.reviewFlags ?? [];
     const blockingFlags = reviewFlags.filter(
       (flag) => flag.severity === "block" || flag.severity === "strip"
     ).length;
 
+    // The editor's verdict, from this call or from what was already stored.
+    // A verdict that arrives here and is not yet on the row is persisted, so
+    // the reason an article was held survives the generation action.
+    const editor = normalizeEditorReview(args.editor) ?? article.generationStats?.editor;
+    if (args.editor && editor && article.generationStats) {
+      await ctx.db.patch(args.articleId, {
+        generationStats: { ...article.generationStats, editor },
+      });
+    }
+
+    const gate = shouldPublish({
+      contentType: article.type,
+      reviewFlags,
+      verifierStats: article.generationStats,
+      wordCount: article.generationStats?.wordCount ?? countWords(article.content),
+      editor,
+    });
+
     const preferences = await leaguePreferencesFor(ctx, args.leagueId);
     const prefs = contentPreferenceDefaults(preferences);
-    const shouldPublish = prefs.autoPublish && !prefs.requireApproval && blockingFlags === 0;
+    const publish = prefs.autoPublish && !prefs.requireApproval && gate.ok;
 
     let notifiedCommissioner = false;
-    if (shouldPublish) {
+    if (publish) {
       // Fans out reader notifications + emails through notifyArticlePublished.
       await updateContentStatusHandler(ctx, {
         articleId: args.articleId,
         status: "published",
       });
     } else {
-      if (blockingFlags > 0 && prefs.autoPublish) {
+      if (!gate.ok && prefs.autoPublish) {
         console.log(
-          `Auto-publish suppressed: ${blockingFlags} blocking review flag(s) on article ${args.articleId}`
+          `Auto-publish suppressed on article ${args.articleId}: ${gate.reasons.join("; ")}`
         );
+        // The operator hears about every held article immediately, deduped on
+        // the article id (spec §11.3.10). Scheduled rather than awaited: an
+        // email must never be able to fail a finalize.
+        await ctx.scheduler.runAfter(0, internal.deskMetrics.notifyOperatorOfArticle, {
+          leagueId: args.leagueId,
+          articleId: args.articleId,
+          kind: "held" as const,
+          contentType: article.type,
+          persona: article.persona,
+          reasons: gate.reasons,
+        });
       }
       if (prefs.notifyCommissioner) {
-        const detail =
-          blockingFlags > 0
-            ? `${blockingFlags} sentence${blockingFlags === 1 ? "" : "s"} need${
-                blockingFlags === 1 ? "s" : ""
-              } a look before this one goes out.`
-            : undefined;
+        const detail = gate.ok ? undefined : `Needs your review: ${gate.reasons.join("; ")}.`;
         const notificationId: Id<"userNotifications"> | null = await ctx.runMutation(
           internal.notifications.notifyCommissionerOfContent,
           {
@@ -1486,13 +1590,16 @@ export const finalizeGeneratedArticle = internalMutation({
 
     console.log(
       `finalizeGeneratedArticle: article ${args.articleId} ${
-        shouldPublish ? "published" : "left in draft"
-      } (${blockingFlags} blocking flag(s), requested by ${args.generatedByUserId ?? "unknown"})`
+        publish ? "published" : "left in draft"
+      } (${blockingFlags} blocking flag(s)${
+        gate.ok ? "" : `, gate: ${gate.reasons.join("; ")}`
+      }, requested by ${args.generatedByUserId ?? "unknown"})`
     );
 
     return {
-      published: shouldPublish,
+      published: publish,
       blockingFlags,
+      holdReasons: gate.reasons,
       notifiedCommissioner,
       scheduledRowCompleted,
       alreadyFinalized: false,

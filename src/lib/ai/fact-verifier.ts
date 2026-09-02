@@ -5,6 +5,7 @@
 // sentence) or a `warn` (publish, flag for the commissioner).
 
 import type { FactsBlock, FactsPlayer } from "./facts";
+import type { ContentTemplate } from "./content-templates";
 import type { GeneratedArticleT } from "./content-generation-service";
 
 export type ViolationKind =
@@ -26,7 +27,17 @@ export type ViolationKind =
   /** Optional Sonnet 5 pass: the body states something FACTS neither supports nor denies. */
   | "llm_unsupported"
   /** Far fewer sections or words than the template calls for; held for review, never published as-is. */
-  | "thin_article";
+  | "thin_article"
+  /** Every section the template calls required is present, but an optional one is not (spec §11.2.5). */
+  | "sections_missing"
+  /** Prompt-layer register in the prose: a FACTS field name, an internal id, a timestamp (§11.2.4). */
+  | "data_speak"
+  /** Editor pass scored the facts below 3; the article is held for review (spec §11.2.7). */
+  | "editor_hold"
+  /** Editor pass scored the voice below 3. A warning; voice never blocks (spec §11.2.7). */
+  | "editor_voice"
+  /** The editor pass was enabled but did not run (API error, bad schema); the article shipped on the deterministic checks alone. */
+  | "editor_unavailable";
 
 export interface Violation {
   kind: ViolationKind;
@@ -73,6 +84,139 @@ export function normalizeQuote(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+/**
+ * `section` on a violation that came out of the title rather than a section body. The title has no
+ * heading of its own, so the finalize step recognises this sentinel and re-titles instead of
+ * regenerating a section (spec §11.2.4).
+ */
+export const TITLE_SECTION = "__title__";
+
+/* -------------------------------------------------------------------------- */
+/* Register check (spec §11.2.4)                                               */
+/*                                                                             */
+/* The writer is handed a machine-readable FACTS block and is expected to speak */
+/* like a broadcaster. When the two leak into each other the article says       */
+/* "T7 posted a pointsFor of 812.4" instead of "the Grinders have scored more   */
+/* than anyone". Every pattern below is a phrase no human broadcaster says.     */
+/* -------------------------------------------------------------------------- */
+
+/** FACTS field names. Matched as whole identifiers, so "would have replaced" in prose is fine. */
+const FACTS_FIELD_NAMES = [
+  "benchImpact",
+  "available_players",
+  "fantasyTeamId",
+  "fantasyTeamName",
+  "nflTeam",
+  "pointsFor",
+  "wouldHaveReplaced",
+  "pointGain",
+  "questionTopic",
+  "priorClaims",
+];
+
+/** What a leak is, for the regeneration prompt: the phrase plus why it is not English. */
+export interface RegisterLeak {
+  phrase: string;
+  why: string;
+}
+
+const REGISTER_PATTERNS: Array<{ pattern: RegExp; why: string }> = [
+  {
+    pattern: new RegExp(`\\b(?:${FACTS_FIELD_NAMES.join("|")})\\b`, "gi"),
+    why: "a FACTS field name",
+  },
+  { pattern: /\b(?:ledger|payload|JSON)\b/gi, why: "prompt-layer jargon" },
+  { pattern: /\bdata feed\b/gi, why: "prompt-layer jargon" },
+  { pattern: /\bthe sheet\b/gi, why: "prompt-layer jargon" },
+  // "FACTS" only as the block's own name: the ordinary word "facts" is perfectly good English and
+  // a case-insensitive match on it would block half the desk.
+  { pattern: /<\/?FACTS>|\bFACTS\b|\b[Ff]acts (?:block|blob|ledger)\b/g, why: "the name of the prompt block" },
+  // "came through" is only data-speak when the subject is the data. "Halyard Bay came through in
+  // the fourth" is exactly the sentence this desk exists to write, so the pipeline nouns are
+  // required for a match.
+  {
+    pattern:
+      /\b(?:nothing|none|no comment|no response|quotes?|comments?|responses?|replies|answers?|data|numbers|feed|ledger|payload)\b[^.!?]{0,24}?\bcame through\b/gi,
+    why: "pipeline talk",
+  },
+  {
+    pattern: /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g,
+    why: "an ISO-8601 timestamp",
+  },
+  // Internal ids (T3, M1, Q2, U1, D19, X4, TR2). Never preceded by a letter or a digit, so player
+  // initials ("TJ") and ids inside longer tokens ("M1Pp204") do not match.
+  { pattern: /(?<![A-Za-z0-9])(?:TR|[TMQUDX])\d+\b/g, why: "an internal id" },
+];
+
+/** Quote directives are markup for the renderer, not prose; their ids must not read as leaks. */
+const QUOTE_DIRECTIVE_ANY = /^[ \t]*:::quote\{id=[A-Za-z0-9_-]+\}[ \t]*$/gm;
+
+/** Every register leak in one piece of text, deduplicated, in order of appearance. */
+export function findRegisterLeaks(text: string): RegisterLeak[] {
+  if (!text) return [];
+  const prose = text.replace(QUOTE_DIRECTIVE_ANY, "");
+  const seen = new Map<string, RegisterLeak>();
+  for (const { pattern, why } of REGISTER_PATTERNS) {
+    for (const match of prose.matchAll(pattern)) {
+      const phrase = match[0].trim();
+      if (phrase.length === 0 || seen.has(phrase.toLowerCase())) continue;
+      seen.set(phrase.toLowerCase(), { phrase, why });
+    }
+  }
+  return [...seen.values()];
+}
+
+/** `data_speak` violations for one piece of text. `section` names where the finalize step looks. */
+function registerViolations(text: string, section: string): Violation[] {
+  return findRegisterLeaks(text).map(leak => ({
+    kind: "data_speak" as const,
+    detail: `"${leak.phrase}" is ${leak.why}, not something a broadcaster says. Remove it and write the same point in plain English.`,
+    section,
+    severity: "block" as const,
+  }));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Required sections (spec §11.2.5)                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The model titles its sections in its own voice, so a name-by-name match against the template is
+ * meaningless. What is checkable is the count: an article with fewer sections than the template has
+ * *required* sections is definitionally missing a required one.
+ *
+ * Fewer sections than the template has in total, but at least the required count, is a `warn`.
+ */
+export function verifyRequiredSections(
+  article: Pick<GeneratedArticleT, "sections">,
+  template: ContentTemplate | undefined
+): Violation[] {
+  const total = template?.sections?.length ?? 0;
+  if (total === 0) return [];
+  const required = template!.sections.filter(section => section.required).length;
+  const got = article.sections?.length ?? 0;
+
+  if (got < required) {
+    return [
+      {
+        kind: "thin_article",
+        detail: `${got} section(s) for a template with ${required} required section(s) (${total} in all); a required section is missing`,
+        severity: "strip",
+      },
+    ];
+  }
+  if (got < total) {
+    return [
+      {
+        kind: "sections_missing",
+        detail: `${got} of ${total} template sections; every required section is present`,
+        severity: "warn",
+      },
+    ];
+  }
+  return [];
 }
 
 const COMMON_WORDS = new Set([
@@ -160,7 +304,27 @@ function splitSentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+/);
 }
 
-export function verifyArticle(article: GeneratedArticleT, facts: FactsBlock): Violation[] {
+/**
+ * Proper-noun warnings that are almost always the start of an ordinary sentence rather than a name
+ * the writer invented (spec §11.3.11). "The Grinders had it won" must not read as an unknown
+ * player, or the real warnings drown.
+ */
+const LEADING_NOISE_WORDS = new Set(["the", "because", "here", "and", "but", "so", "now"]);
+
+export interface VerifyOptions {
+  /**
+   * The template this article was written from. Given it, the verifier also reports missing
+   * required sections (spec §11.2.5); without it that check is simply skipped, which is what the
+   * recorded eval samples and the batch path rely on.
+   */
+  template?: ContentTemplate;
+}
+
+export function verifyArticle(
+  article: GeneratedArticleT,
+  facts: FactsBlock,
+  options?: VerifyOptions
+): Violation[] {
   const violations: Violation[] = [];
 
   const teamById = new Map(facts.teams.map(team => [team.id, team]));
@@ -186,6 +350,11 @@ export function verifyArticle(article: GeneratedArticleT, facts: FactsBlock): Vi
     });
   }
   const playerNames = new Set([...playerById.values()].map(player => player.name.toLowerCase()));
+  // A bench swap names the starter it would have replaced; that starter is a real player in FACTS
+  // even when he has no line of his own, so he must not read as an unknown proper noun.
+  for (const player of playerById.values()) {
+    if (player.benchImpact?.wouldHaveReplaced) playerNames.add(player.benchImpact.wouldHaveReplaced.toLowerCase());
+  }
   const quoteById = new Map(facts.quotes.map(quote => [quote.id, quote]));
   const ledgerTexts = facts.quotes.map(quote => normalizeQuote(quote.text));
   const silentSpeakers = new Set(facts.nonRespondents.map(entry => entry.speaker.toLowerCase()));
@@ -349,6 +518,8 @@ export function verifyArticle(article: GeneratedArticleT, facts: FactsBlock): Vi
 
     for (const noun of properNouns(content)) {
       const lower = noun.toLowerCase();
+      // "The Grinders", "Here Comes", "But Nobody" — a sentence opener, not a name (spec §11.3.11).
+      if (LEADING_NOISE_WORDS.has(lower.split(/\s+/)[0])) continue;
       if (playerNames.has(lower) || teamNames.has(lower) || managers.has(lower)) continue;
       if (NFL_TEAMS.has(lower) || lower.split(/\s+/).every(word => COMMON_WORDS.has(word))) continue;
       if ([...playerNames, ...teamNames, ...managers].some(known => known.includes(lower) || lower.includes(known))) {
@@ -357,6 +528,16 @@ export function verifyArticle(article: GeneratedArticleT, facts: FactsBlock): Vi
       violations.push({ kind: "unknown_player", detail: noun, section: section.name, severity: "warn" });
     }
   }
+
+  // 5. Register check (spec §11.2.4). The title carries the sentinel section name so the finalize
+  //    step re-titles instead of hunting for a heading that does not exist.
+  violations.push(...registerViolations(article.title ?? "", TITLE_SECTION));
+  for (const section of article.sections ?? []) {
+    violations.push(...registerViolations(section.content ?? "", section.name));
+  }
+
+  // 6. Required sections (spec §11.2.5), when the caller told us which template this is.
+  violations.push(...verifyRequiredSections(article, options?.template));
 
   return violations;
 }

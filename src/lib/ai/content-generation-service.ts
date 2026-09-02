@@ -6,13 +6,38 @@ import { enhancePromptWithComments } from './comment-integration';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
 import {
+  findRegisterLeaks,
   parseQuoteDirectives,
   stripQuoteDirectives,
   verifyArticle,
+  TITLE_SECTION,
   type Violation,
 } from './fact-verifier';
+import { shouldPublish } from './publish-gate';
+import type {
+  EditorFinding,
+  EditorPassResult,
+  EditorRegisterLeak,
+  PublishGateFlag,
+  PublishGateMetadata,
+} from './publish-gate';
+import { getPersona } from './persona-prompts';
 import type { RelationshipTier } from './persona-prompts';
 import type { Id } from '../../../convex/_generated/dataModel';
+
+/**
+ * The publish gate and the editor-pass shapes live in `publish-gate.ts` (no SDK import, so Convex
+ * can call them), and are re-exported here so the prompt layer has one import surface.
+ */
+export { shouldPublish };
+export type {
+  EditorFinding,
+  EditorPassResult,
+  EditorRegisterLeak,
+  PublishGateFlag,
+  PublishGateMetadata,
+};
+
 
 // Upper bound for the retry after a max_tokens truncation. Thinking tokens share this budget.
 // Kept under ~21k: the Anthropic SDK refuses non-streaming requests it expects to run past ten
@@ -292,7 +317,15 @@ const ArticleSection = z.object({
  * Opus 5 sometimes wraps a forced tool call's arguments in a single container key
  * (`{"parameters": {...}}`). Unwrap that before validating.
  */
-const WRAPPER_KEYS = new Set(['parameters', 'input', 'article', 'arguments', 'generate_article', 'rewrite_sections']);
+const WRAPPER_KEYS = new Set([
+  'parameters',
+  'input',
+  'article',
+  'arguments',
+  'generate_article',
+  'rewrite_sections',
+  'report_edit',
+]);
 function unwrapToolInput(input: unknown): unknown {
   if (input && typeof input === 'object' && !Array.isArray(input)) {
     const keys = Object.keys(input as Record<string, unknown>);
@@ -434,6 +467,11 @@ export interface GeneratedContent {
     reviewFlags: ReviewFlag[];
     factsMissing: string[];
     verifierStats: VerifierStats;
+    /**
+     * The §11.2.7 editor pass, verbatim. `null` when the pass was disabled (`FACT_CHECK_LLM="0"`)
+     * or failed; `convex/aiContent.ts` reads `factsScore` through `shouldPublish`.
+     */
+    editor: EditorPassResult | null;
   };
 }
 
@@ -451,6 +489,8 @@ export interface VerifierStats {
   quotesOffered: number;
   /** Quotes still standing in `quotes[]` after verification. */
   quotesUsed: number;
+  /** Whole-article regenerations this piece took: the thin retry, or the §11.2.8 hold retry. */
+  fullRegenerations: number;
 }
 
 /* ------------------------------------------------------------------------------------------- *
@@ -559,10 +599,16 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
   return next;
 }
 
-/** Ledger quote ids named anywhere in a set of violations. */
+/**
+ * Ledger quote ids named anywhere in a set of violations. Only the quote kinds are read: a
+ * `data_speak` violation quotes the leaked token itself, and "Q1" leaking into the prose must not
+ * delete quote Q1 from the article.
+ */
+const QUOTE_BEARING_KINDS = new Set(['bad_quote', 'ghost_speaker', 'unknown_quote_directive']);
 function quoteIdsIn(violations: Violation[]): Set<string> {
   const ids = new Set<string>();
   for (const violation of violations) {
+    if (!QUOTE_BEARING_KINDS.has(violation.kind)) continue;
     const direct = violation.detail.match(/:::quote\{id=([A-Za-z0-9_-]+)\}/)?.[1];
     if (direct) ids.add(direct);
     const ledger = violation.detail.match(/\b(Q\d+)\b/)?.[1];
@@ -603,41 +649,269 @@ function countWords(body: string): number {
 }
 
 /* ------------------------------------------------------------------------------------------- *
- * Optional LLM fact-check pass (spec §8.6)
+ * Editor pass (spec §11.2.7)
+ *
+ * One Sonnet 5 call per article, on by default for every content type. It is the second reader the
+ * desk cannot hire: it re-reads the body against <FACTS> and against the writer's own voice and
+ * reports contradictions, unsupported claims, register leaks the deterministic patterns cannot
+ * anticipate, and two 1-5 scores. `factsScore < 3` holds the article; `voiceScore < 3` only warns.
+ *
+ * It replaces the §8.6 opt-in fact-check pass, whose findings are a subset of this one's.
  * ------------------------------------------------------------------------------------------- */
 
-const FactCheckFindings = z.object({
-  findings: z.array(
-    z.object({
-      claim: z
-        .string()
-        .describe("The sentence from the article body, copied verbatim, that carries the claim"),
-      sectionName: z.string().describe("The heading of the section the sentence is in"),
-      verdict: z.enum(["supported", "contradicted", "unsupported"]),
-      factPath: z
-        .string()
-        .optional()
-        .describe("Dotted path into <FACTS> that settles it, e.g. 'teams.T3.pointsFor'"),
-    })
-  ),
+const EditorFindingSchema = z.object({
+  claim: z
+    .string()
+    .describe("The sentence from the article body, copied verbatim, that carries the claim"),
+  sectionName: z.string().describe("The heading of the section the sentence is in"),
+  factPath: z
+    .string()
+    .optional()
+    .describe("Dotted path into <FACTS> that settles it, e.g. 'teams.T3.pointsFor'"),
 });
 
-const FACT_CHECK_SYSTEM = `You are a fact-checker for a fantasy football desk. You are given a
-<FACTS> block and an article body written from it. Report only sentences that state something
-factual — a name, number, score, record, rank, pick, transaction, or quote.
+const EditorReport = z.object({
+  contradictions: z
+    .array(EditorFindingSchema)
+    .default([])
+    .describe("Sentences <FACTS> carries something different about. Empty array if none."),
+  unsupported: z
+    .array(EditorFindingSchema)
+    .default([])
+    .describe("Sentences <FACTS> neither carries nor denies. Empty array if none."),
+  registerLeaks: z
+    .array(
+      z.object({
+        phrase: z.string().describe("The exact phrase, copied from the body or the title"),
+        sectionName: z.string().describe("The section heading, or the title"),
+      })
+    )
+    .default([])
+    .describe("Phrases that read as data-pipeline language rather than broadcast English"),
+  factsScore: z.coerce
+    .number()
+    .describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
+  voiceScore: z.coerce.number().describe("1-5. How much this reads like the writer described above."),
+  incompleteSections: z
+    .array(z.string())
+    .default([])
+    .describe("Headings of sections that stop early, repeat themselves, or say nothing"),
+});
 
-- supported: <FACTS> carries it. Give the factPath.
-- contradicted: <FACTS> carries something different. Give the factPath.
-- unsupported: <FACTS> neither carries nor denies it.
+const EDITOR_SYSTEM = `You are the desk editor for a fantasy football network. You read one article
+against the <FACTS> block it was written from, and you are the last person to see it before it
+publishes with nobody watching.
 
-Opinions, predictions, jokes, rhetorical questions and stated uncertainty are not claims — skip them.
-Arithmetic on two numbers that are both in <FACTS> is supported. Copy each claim sentence verbatim
-from the body. Report nothing you are not sure about; a short list of real findings is the goal.`;
+Report:
+- contradictions: a factual sentence that <FACTS> says something different about. Give the factPath.
+- unsupported: a factual sentence <FACTS> neither carries nor denies.
+- registerLeaks: phrases that belong to the data, not to broadcasting — field names (pointsFor,
+  benchImpact, nflTeam), internal ids (T3, M1, Q2), timestamps, "the ledger", "the payload", "the
+  data feed", "per the sheet", or any sentence that describes where a number came from instead of
+  what it means. NOT leaks: hand-offs to another desk ("Numbers desk has more on that", "Insider
+  desk is working it"), ":::quote{id=…}" lines (renderer markup for a pull quote), "on the record",
+  "did not respond to a request for comment", and stating that a number is a projection.
+- incompleteSections: headings whose body stops early, repeats another section, or says nothing.
+- factsScore 1-5: 5 = every factual sentence resolves to <FACTS>; 3 = nothing is wrong but some
+  claims are loose; 1 = the article invents things.
+- voiceScore 1-5: how much it reads like the writer described in the prompt below.
 
-/** The pass is opt-in per deployment and only worth running where the risk sits. */
-function shouldRunLlmFactCheck(contentType: string, facts: FactsBlock): boolean {
-  if (process.env.FACT_CHECK_LLM !== "1") return false;
-  return contentType === "draft_rankings" || contentType === "season_recap" || facts.quotes.length > 0;
+Opinions, predictions, jokes and stated uncertainty are not factual claims — skip them. Arithmetic
+on two <FACTS> numbers is supported. Copy each claim verbatim from the body. Report nothing you are
+not sure about; a short list of real findings is the goal.`;
+
+/** §11.2.7: on for every type unless the deployment turns it off with `FACT_CHECK_LLM="0"`. */
+export function editorPassEnabled(): boolean {
+  return process.env.FACT_CHECK_LLM !== '0';
+}
+
+/** Scores arrive as 1-5; anything else is clamped rather than thrown away. */
+function clampScore(value: unknown): number {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return 3;
+  return Math.min(5, Math.max(1, Math.round(score)));
+}
+
+function editorHoldReason(report: EditorPassResult): string {
+  const parts: string[] = [];
+  if (report.contradictions.length > 0) parts.push(`${report.contradictions.length} contradiction(s)`);
+  if (report.unsupported.length > 0) parts.push(`${report.unsupported.length} unsupported claim(s)`);
+  if (report.incompleteSections.length > 0) {
+    parts.push(`incomplete: ${report.incompleteSections.join(', ')}`);
+  }
+  if (report.registerLeaks.length > 0) parts.push(`${report.registerLeaks.length} register leak(s)`);
+  return parts.length > 0 ? parts.join('; ') : 'no reason given';
+}
+
+/**
+ * Runs the editor and turns its report into violations. Every failure of the pass itself —
+ * transport, refusal, malformed output — is logged and swallowed: it must never cost an article.
+ */
+async function runEditorPass(
+  anthropic: Anthropic,
+  prepared: PreparedArticleRequest,
+  article: GeneratedArticleT,
+  ledger: CostLedger
+): Promise<{ result: EditorPassResult; violations: Violation[] } | null> {
+  const spentBefore = ledger.usd;
+  try {
+    const body = article.sections
+      .map(section => `## ${section.name}\n${section.content}`)
+      .join('\n\n');
+    const persona = getPersona(prepared.request.persona);
+
+    const params: Anthropic.MessageCreateParamsNonStreaming = {
+      model: 'claude-sonnet-5',
+      max_tokens: 900,
+      output_config: { effort: 'low' },
+      system: `${EDITOR_SYSTEM}\n\nTHE WRITER\n${persona.voice}`,
+      messages: [
+        {
+          role: 'user' as const,
+          content: `${serializeFacts(prepared.facts)}\n\nTITLE\n${article.title}\n\nARTICLE BODY\n\n${body}`,
+        },
+      ],
+      tools: [
+        {
+          name: 'report_edit',
+          strict: true,
+          description: 'Report the edit: findings, register leaks and the two scores',
+          input_schema: { ...zodToJsonSchema(EditorReport, { $refStrategy: "none" }), type: 'object' } as const,
+        },
+      ],
+      tool_choice: { type: 'tool' as const, name: 'report_edit' },
+    };
+
+    let message: Anthropic.Message;
+    try {
+      message = await anthropic.messages.create(params);
+    } catch (error) {
+      if (error instanceof Anthropic.BadRequestError && /strict/i.test(error.message)) {
+        message = await anthropic.messages.create(withoutStrictTools(params));
+      } else {
+        throw error;
+      }
+    }
+    accrue(ledger, message);
+
+    const toolUse = message.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+    );
+    if (!toolUse) {
+      console.warn('Editor pass returned no tool call; continuing without it');
+      return null;
+    }
+    const parsed = EditorReport.safeParse(unwrapToolInput(toolUse.input));
+    if (!parsed.success) {
+      console.warn('Editor pass returned an unusable report; continuing without it', {
+        issues: parsed.error.issues.slice(0, 3).map(issue => issue.message),
+      });
+      return null;
+    }
+
+    const result: EditorPassResult = {
+      contradictions: parsed.data.contradictions,
+      unsupported: parsed.data.unsupported,
+      registerLeaks: parsed.data.registerLeaks,
+      factsScore: clampScore(parsed.data.factsScore),
+      voiceScore: clampScore(parsed.data.voiceScore),
+      incompleteSections: parsed.data.incompleteSections,
+      model: message.model || 'claude-sonnet-5',
+      costUsd: ledger.usd - spentBefore,
+    };
+
+    // Where a finding lands. The editor names the heading it read, which is usually one of ours;
+    // when it is not, the phrase itself is looked up so the rewrite still has an address.
+    const sectionNames = new Set(article.sections.map(section => section.name));
+    const locate = (name: string, phrase?: string): string | undefined => {
+      if (sectionNames.has(name)) return name;
+      if (phrase) {
+        const holder = article.sections.find(section => section.content.includes(phrase));
+        if (holder) return holder.name;
+        if (article.title.includes(phrase)) return TITLE_SECTION;
+      }
+      return undefined;
+    };
+
+    // Calibration (dev end-to-end, 2026-09-02): the editor stripped a sentence that FACTS supported
+    // (a defense's 21.0 for the right team) and would have held a sound article. A single LLM
+    // judgment is not enough to cut copy; a contradiction only strips when the editor also scores
+    // the article's facts 3 or lower, and a register leak only forces a rewrite when the
+    // deterministic pattern check agrees. Everything else is a warning the digest will show.
+    const contradictionSeverity: Violation['severity'] = result.factsScore <= 3 ? 'strip' : 'warn';
+    const violations: Violation[] = [
+      ...result.contradictions.map(finding => ({
+        kind: 'llm_contradicted' as const,
+        detail: `"${finding.claim}"${finding.factPath ? ` (${finding.factPath})` : ''}`,
+        section: locate(finding.sectionName, finding.claim),
+        severity: contradictionSeverity,
+      })),
+      ...result.unsupported.map(finding => ({
+        kind: 'llm_unsupported' as const,
+        detail: `"${finding.claim}"${finding.factPath ? ` (${finding.factPath})` : ''}`,
+        section: locate(finding.sectionName, finding.claim),
+        severity: 'warn' as const,
+      })),
+      // The editor's register leaks are the same violation as the deterministic ones, so they feed
+      // the same single section rewrite (spec §11.2.7).
+      ...result.registerLeaks.map(leak => ({
+        kind: 'data_speak' as const,
+        detail: `"${leak.phrase}" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.`,
+        section: locate(leak.sectionName, leak.phrase),
+        severity: (findRegisterLeaks(leak.phrase).length > 0 ? 'block' : 'warn') as Violation['severity'],
+      })),
+    ];
+
+    if (result.factsScore < 3) {
+      violations.push({
+        kind: 'editor_hold',
+        detail: `the editor scored the facts ${result.factsScore}/5: ${editorHoldReason(result)}`,
+        severity: 'strip',
+      });
+    }
+    if (result.voiceScore < 3) {
+      violations.push({
+        kind: 'editor_voice',
+        detail: `the editor scored the voice ${result.voiceScore}/5 for ${persona.name}`,
+        severity: 'warn',
+      });
+    }
+
+    return { result, violations };
+  } catch (error) {
+    console.warn('Editor pass failed; keeping the deterministic result', error);
+    return null;
+  }
+}
+
+/**
+ * A register leak in the title has no section to rewrite, so the title is derived from the body
+ * instead (spec §11.2.4). Deterministic and free: the first clean sentence of the body, else the
+ * summary, else a section heading.
+ */
+export function retitleFromBody(article: GeneratedArticleT): string | null {
+  const firstSentence = (text: string): string =>
+    (text ?? '')
+      .replace(/^[ \t]*:::quote\{id=[A-Za-z0-9_-]+\}[ \t]*$/gm, '')
+      .trim()
+      .split(/(?<=[.!?])\s+/)[0] ?? '';
+
+  const candidates = [
+    firstSentence(article.sections?.[0]?.content ?? ''),
+    firstSentence(article.summary ?? ''),
+    ...(article.sections ?? []).map(section => section.name),
+  ];
+
+  for (const candidate of candidates) {
+    const cleaned = candidate.replace(/\s+/g, ' ').replace(/[.!?]+$/, '').trim();
+    if (cleaned.length < 8) continue;
+    if (findRegisterLeaks(cleaned).length > 0) continue;
+    if (cleaned.length <= 70) return cleaned;
+    const clipped = cleaned.slice(0, 70);
+    const cut = clipped.lastIndexOf(' ');
+    return (cut > 20 ? clipped.slice(0, cut) : clipped).trim();
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------------------------------- *
@@ -691,7 +965,7 @@ function articleParams(
         name: 'generate_article',
         strict: true,
         description: 'Generate a structured fantasy football article',
-        input_schema: { ...zodToJsonSchema(GeneratedArticle), type: 'object' } as const,
+        input_schema: { ...zodToJsonSchema(GeneratedArticle, { $refStrategy: "none" }), type: 'object' } as const,
       },
     ],
     tool_choice: { type: 'tool' as const, name: 'generate_article' },
@@ -910,63 +1184,6 @@ async function createArticleMessage(
   return message;
 }
 
-/**
- * Second opinion from Sonnet 5 after a clean deterministic verify (spec §8.6). `contradicted`
- * strips the sentence and flags it; `unsupported` only warns. Any failure of the pass itself —
- * transport, refusal, malformed output — is logged and swallowed.
- */
-async function factCheckWithLlm(
-  anthropic: Anthropic,
-  facts: FactsBlock,
-  article: GeneratedArticleT,
-  ledger: CostLedger
-): Promise<Violation[]> {
-  try {
-    const body = article.sections
-      .map(section => `## ${section.name}\n${section.content}`)
-      .join('\n\n');
-
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 800,
-      output_config: { effort: 'low' },
-      system: FACT_CHECK_SYSTEM,
-      messages: [
-        { role: 'user' as const, content: `${serializeFacts(facts)}\n\nARTICLE BODY\n\n${body}` },
-      ],
-      tools: [
-        {
-          name: 'report_findings',
-          description: 'Report every factual claim in the body that FACTS does not support',
-          input_schema: { ...zodToJsonSchema(FactCheckFindings), type: 'object' } as const,
-        },
-      ],
-      tool_choice: { type: 'tool' as const, name: 'report_findings' },
-    });
-    accrue(ledger, message);
-
-    const toolUse = message.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
-    );
-    if (!toolUse) return [];
-
-    const sectionNames = new Set(article.sections.map(section => section.name));
-    const findings = FactCheckFindings.parse(toolUse.input).findings;
-
-    return findings
-      .filter(finding => finding.verdict !== 'supported')
-      .map(finding => ({
-        kind: finding.verdict === 'contradicted' ? ('llm_contradicted' as const) : ('llm_unsupported' as const),
-        detail: `"${finding.claim}"${finding.factPath ? ` (${finding.factPath})` : ''}`,
-        section: sectionNames.has(finding.sectionName) ? finding.sectionName : undefined,
-        severity: finding.verdict === 'contradicted' ? ('strip' as const) : ('warn' as const),
-      }));
-  } catch (error) {
-    console.warn('LLM fact-check pass failed; keeping the deterministic result', error);
-    return [];
-  }
-}
-
 /** Rewrites only the sections a `block` violation landed in, once, on the article's own route. */
 async function regenerateSections(
   anthropic: Anthropic,
@@ -986,12 +1203,18 @@ async function regenerateSections(
   const prompt = `${serializeFacts(facts)}
 
 PRIOR ATTEMPT VIOLATIONS — a fact-checker rejected part of your article. Every item below is a
-statement that is not supported by <FACTS>. Rewrite only the listed sections so that none of these
-remain. Do not restate the offending claim in softer language; remove it and write what <FACTS>
-actually supports.
+statement that is not supported by <FACTS>, or a phrase that gives away the machinery. Rewrite only
+the listed sections so that none of these remain. Do not restate the offending claim in softer
+language; remove it and write what <FACTS> actually supports.
 
 ${blockViolations.map(v => `- [${v.kind}] ${v.section ? `${v.section}: ` : ''}${v.detail}`).join('\n')}
-
+${
+  blockViolations.some(v => v.kind === 'data_speak')
+    ? `\nREGISTER — the [data_speak] items above are the words themselves, not the facts. The reader never
+sees the data you were given: no field names, no ids, no timestamps, no talk of feeds, ledgers or
+sheets. Name the team, the manager and the number the way you would say them on air.\n`
+    : ''
+}
 REWRITE THESE SECTIONS (same headings, same voice, same ceilings):
 ${sectionNames
   .map(name => {
@@ -1024,7 +1247,7 @@ ${surrounding || '(no other sections)'}`;
         name: 'rewrite_sections',
         strict: true,
         description: 'Rewrite the listed article sections so they are fully grounded in <FACTS>',
-        input_schema: { ...zodToJsonSchema(RegeneratedSections), type: 'object' } as const,
+        input_schema: { ...zodToJsonSchema(RegeneratedSections, { $refStrategy: "none" }), type: 'object' } as const,
       },
     ],
     tool_choice: { type: 'tool' as const, name: 'rewrite_sections' },
@@ -1099,17 +1322,55 @@ export async function completeArticleFromMessage(
   }
 
   const anthropic = new Anthropic({ apiKey });
+  const template = contentTemplates[request.contentType];
   let article = parsed.data;
-  let violations = verifyArticle(article, facts);
+  /** Deterministic findings. Recomputed from scratch after every change to the article. */
+  let deterministic = verifyArticle(article, facts, { template });
+  /** Editor findings. Kept apart because a rewritten section retires the ones that named it. */
+  let editorViolations: Violation[] = [];
+  let editor: EditorPassResult | null = null;
   let sectionsRegenerated = 0;
 
+  // --- Editor pass (spec §11.2.7) ------------------------------------------------------------
+  // On by default for every content type, and run *before* the rewrite so its register leaks and
+  // contradictions are fixed by the same single regeneration the deterministic blocks trigger.
+  if (editorPassEnabled()) {
+    const outcome = await runEditorPass(anthropic, prepared, article, ledger);
+    if (outcome) {
+      editor = outcome.result;
+      editorViolations = outcome.violations;
+    } else {
+      // A silent no-op here is how a broken editor schema went unnoticed on the first dev run.
+      // Publishing still proceeds on the deterministic checks, but the digest must see it.
+      editorViolations = [
+        {
+          kind: 'editor_unavailable',
+          severity: 'warn',
+          detail: 'Editor pass was enabled but did not complete; the article shipped on the deterministic checks alone',
+        },
+      ];
+    }
+  }
+
+  // --- Register leak in the title (spec §11.2.4) ---------------------------------------------
+  // The title has no section to rewrite, so it is derived from the body. No model call.
+  if ([...deterministic, ...editorViolations].some(v => v.kind === 'data_speak' && v.section === TITLE_SECTION)) {
+    const retitled = retitleFromBody(article);
+    if (retitled) {
+      console.warn(`Register leak in the title; retitled from the body: "${article.title}" -> "${retitled}"`);
+      article = { ...article, title: retitled };
+      deterministic = verifyArticle(article, facts, { template });
+      editorViolations = editorViolations.filter(
+        v => !(v.kind === 'data_speak' && v.section === TITLE_SECTION)
+      );
+    }
+  }
+
+  // --- One section rewrite for every block, deterministic or editor (spec §11.2.4) -----------
   const sectionNames = new Set(article.sections.map(section => section.name));
+  const blocks = [...deterministic, ...editorViolations].filter(v => v.severity === 'block');
   const blockedSections = [
-    ...new Set(
-      violations
-        .filter(v => v.severity === 'block' && v.section && sectionNames.has(v.section))
-        .map(v => v.section as string)
-    ),
+    ...new Set(blocks.filter(v => v.section && sectionNames.has(v.section)).map(v => v.section as string)),
   ];
 
   if (blockedSections.length > 0) {
@@ -1120,11 +1381,11 @@ export async function completeArticleFromMessage(
         prepared,
         article,
         blockedSections,
-        violations.filter(v => v.severity === 'block'),
+        blocks,
         ledger
       );
       if (rewritten.length > 0) {
-        const droppedQuoteIds = quoteIdsIn(violations.filter(v => v.severity === 'block'));
+        const droppedQuoteIds = quoteIdsIn(blocks);
         article = {
           ...article,
           sections: article.sections.map(section => {
@@ -1138,55 +1399,36 @@ export async function completeArticleFromMessage(
           }),
         };
         sectionsRegenerated = rewritten.length;
-        violations = verifyArticle(article, facts);
+        deterministic = verifyArticle(article, facts, { template });
+        // Editor findings that named a rewritten section described text that no longer exists.
+        const rewrittenNames = new Set(rewritten.map(section => section.name));
+        editorViolations = editorViolations.filter(v => !(v.section && rewrittenNames.has(v.section)));
       }
     } catch (regenerationError) {
       console.warn('Section regeneration failed; falling through to strip', regenerationError);
     }
   }
 
-  // Thin-article guard: a piece with fewer than half its template's sections, or under 30% of the
-  // template's word ceiling, is held for review instead of published. This is what a writer does
-  // when the data is missing and the contract forbids inventing - correct, but not publishable.
+  const violations = [...deterministic, ...editorViolations];
+
+  // Thin-article guard. Missing *required sections* are reported by the verifier (spec §11.2.5);
+  // what is left here is the word floor: under 30% of the template's ceiling is what a writer
+  // produces when the data is missing and the contract forbids inventing — correct, unpublishable.
   {
-    const template = contentTemplates[prepared.request.contentType];
-    const expectedSections = template?.sections?.length ?? 0;
     const ceiling = template?.estimatedWords ?? 0;
     const words = article.sections.reduce((sum, section) => sum + countWordsIn(section.content), 0);
-    const tooFewSections = expectedSections > 0 && article.sections.length < Math.ceil(expectedSections / 2);
-    const tooShort = ceiling > 0 && words < Math.round(ceiling * 0.3);
-    if (tooFewSections || tooShort) {
+    const alreadyThin = violations.some(v => v.kind === 'thin_article');
+    if (!alreadyThin && ceiling > 0 && words < Math.round(ceiling * 0.3)) {
       violations.push({
         kind: 'thin_article',
         severity: 'strip',
-        detail: `Article has ${article.sections.length} of ${expectedSections} sections and ${words} words (ceiling ${ceiling}); held for review`,
+        detail: `Article has ${article.sections.length} of ${template?.sections.length ?? 0} sections and ${words} words (ceiling ${ceiling}); held for review`,
       });
     }
   }
 
-  const deterministicBlocks = violations.filter(v => v.severity === 'block').length;
-  const deterministicStrips = violations.filter(v => v.severity === 'strip').length;
-
-  if (deterministicBlocks > 0 || deterministicStrips > 0) {
+  if (violations.some(v => v.severity === 'block' || v.severity === 'strip')) {
     article = applyStrips(article, violations);
-  }
-
-  // --- Optional LLM fact-check pass (spec §8.6) --------------------------------------------
-  // Only after a clean deterministic verify, and only where a second opinion is worth 800
-  // tokens: the two long-form draft/season pieces, and anything carrying quotes. A failure of
-  // the pass itself is logged and ignored — it must never cost the caller an article.
-  if (
-    deterministicBlocks === 0 &&
-    deterministicStrips === 0 &&
-    shouldRunLlmFactCheck(request.contentType, facts)
-  ) {
-    const findings = await factCheckWithLlm(anthropic, facts, article, ledger);
-    if (findings.length > 0) {
-      violations = [...violations, ...findings];
-      if (findings.some(finding => finding.severity === 'strip')) {
-        article = applyStrips(article, findings);
-      }
-    }
   }
 
   // --- Assemble ----------------------------------------------------------------------------
@@ -1206,6 +1448,8 @@ export async function completeArticleFromMessage(
     wordCount: countWords(content),
     quotesOffered: facts.quotes.length,
     quotesUsed: article.quotes?.length ?? 0,
+    // Set by `generateContent`, which is the only place a whole article is generated twice.
+    fullRegenerations: 0,
   };
 
   const factsTeamById = new Map(facts.teams.map(team => [team.id, team]));
@@ -1238,6 +1482,7 @@ export async function completeArticleFromMessage(
     reviewFlags: violations,
     factsMissing: facts.missing,
     verifierStats: stats,
+    editor,
   };
 
   console.log('=== completeArticleFromMessage SUCCESS ===', {
@@ -1246,6 +1491,8 @@ export async function completeArticleFromMessage(
     effort: route.effort,
     costUsd: Number(metadata.costUsd.toFixed(4)),
     cacheReadTokens: metadata.cacheReadTokens,
+    editor: editor ? { factsScore: editor.factsScore, voiceScore: editor.voiceScore } : 'off',
+    publish: shouldPublish(metadata),
   });
 
   return { title, content, summary, metadata };
@@ -1278,25 +1525,76 @@ export class ContentGenerationService {
       // Attempts that were thrown away still cost money; they are added to the article's total.
       const discarded: CostLedger = { usd: 0, cacheReadTokens: 0 };
       let generated: GeneratedContent | undefined;
+      let current = prepared;
+      /** §11.2.8: an article gets one whole-article regeneration, never two. */
+      let fullRegenerations = 0;
+      /** Opus 5 medium is the rescue route for both retries below. */
+      const onOpusMedium = (from: PreparedArticleRequest): PreparedArticleRequest => ({
+        ...from,
+        route: { model: 'claude-opus-5', effort: 'medium' },
+        params: { ...from.params, model: 'claude-opus-5', output_config: { effort: 'medium' } },
+      });
+      const discard = (attempt: GeneratedContent): void => {
+        discarded.usd += attempt.metadata.costUsd;
+        discarded.cacheReadTokens += attempt.metadata.cacheReadTokens;
+      };
+      const stripCount = (attempt: GeneratedContent): number =>
+        (attempt.metadata.reviewFlags ?? []).filter(flag => flag.severity === 'strip').length;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const message = await createArticleMessage(anthropic, prepared, discarded);
-        generated = await completeArticleFromMessage(message, prepared, apiKey);
+        const message = await createArticleMessage(anthropic, current, discarded);
+        generated = await completeArticleFromMessage(message, current, apiKey);
         const thin = (generated.metadata.reviewFlags ?? []).some(flag => flag.kind === 'thin_article');
-        // Measured 2026-09-02: Opus occasionally returns one section and stops ("Let's go to the
-        // tape." and nothing after). One fresh attempt fixes it far more often than a review does.
+        // Measured 2026-09-02: a model occasionally returns one section (or none) and stops. One
+        // fresh attempt fixes it far more often than a review does. Sonnet-routed types were the
+        // repeat offenders on the real-league test, so the retry always runs on Opus 5 at medium:
+        // the cheap route keeps its savings when it works and is rescued when it does not.
         if (thin && attempt === 0) {
-          console.warn('Thin article on first attempt; regenerating once', {
+          console.warn('Thin article on first attempt; regenerating once on claude-opus-5', {
             contentType: request.contentType,
             persona: request.persona,
+            model: current.route.model,
             words: generated.metadata.verifierStats?.wordCount,
           });
-          discarded.usd += generated.metadata.costUsd;
-          discarded.cacheReadTokens += generated.metadata.cacheReadTokens;
+          discard(generated);
+          fullRegenerations++;
+          current = onOpusMedium(current);
           continue;
         }
         break;
       }
       if (!generated) throw new Error('No article produced');
+
+      // --- One full regeneration before holding (spec §11.2.8) --------------------------------
+      // A `strip` survived, or the editor held it. Rather than hand the commissioner a half-empty
+      // article, write it again from scratch on Opus 5 medium and keep the better of the two. The
+      // thin retry above is the same regeneration, so an article never pays for both.
+      const gate = shouldPublish(generated.metadata);
+      if (!gate.ok && fullRegenerations === 0) {
+        console.warn('Article would be held; regenerating in full once on claude-opus-5', {
+          contentType: request.contentType,
+          persona: request.persona,
+          reasons: gate.reasons,
+        });
+        try {
+          const retryPrepared = onOpusMedium(current);
+          const retryMessage = await createArticleMessage(anthropic, retryPrepared, discarded);
+          const second = await completeArticleFromMessage(retryMessage, retryPrepared, apiKey);
+          fullRegenerations++;
+          // Fewer strips wins; a tie goes to the second attempt, which was written knowing more.
+          if (stripCount(second) <= stripCount(generated)) {
+            discard(generated);
+            generated = second;
+          } else {
+            discard(second);
+          }
+        } catch (retryError) {
+          console.warn('Full regeneration failed; keeping the first article', retryError);
+        }
+      }
+      if (generated.metadata.verifierStats) {
+        generated.metadata.verifierStats.fullRegenerations = fullRegenerations;
+      }
+
       generated.metadata.costUsd += discarded.usd;
       generated.metadata.cacheReadTokens += discarded.cacheReadTokens;
       return generated;

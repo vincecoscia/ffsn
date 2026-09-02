@@ -45,6 +45,7 @@ import {
 } from "../src/lib/ai/content-templates";
 import { resolveRoute } from "../src/lib/ai/content-generation-service";
 import type { GeneratedArticleT, GenerationRoute } from "../src/lib/ai/content-generation-service";
+import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
 
 /* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
@@ -62,6 +63,8 @@ interface Options {
   out?: string;
   /** Write every live article body (markdown, with its flags) into this directory. */
   dump?: string;
+  /** Load an extra EvalFixture from a JSON file (kept out of the repo); select it with --fixture <its name>. */
+  fixtureFile?: string;
   concurrency: number;
   /** Matrix: also grade each article with the Sonnet 5 persona-adherence rubric. */
   rubric: boolean;
@@ -110,6 +113,9 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--dump":
         options.dump = value();
+        break;
+      case "--fixture-file":
+        options.fixtureFile = value();
         break;
       case "--route":
         options.route = true;
@@ -201,6 +207,24 @@ function printTable(headers: string[], rows: string[][]): void {
 }
 
 const failures: string[] = [];
+
+/**
+ * Fixtures available to this run: the checked-in ones plus any `--fixture-file` (a JSON file with
+ * the `EvalFixture` shape). Fixture files let real league data be evaluated without committing it.
+ */
+const fixtureMap: Record<string, EvalFixture> = { ...fixturesByName };
+
+async function loadFixtureFile(path: string): Promise<string> {
+  const { readFileSync } = await import("node:fs");
+  const fixture = JSON.parse(readFileSync(path, "utf8")) as EvalFixture;
+  if (!fixture.name || !fixture.leagueData) throw new Error(`${path} is not an EvalFixture (needs name + leagueData)`);
+  fixture.commentResponses ??= [];
+  fixture.nonRespondents ??= [];
+  fixture.relationships ??= [];
+  fixture.priorClaims ??= [];
+  fixtureMap[fixture.name] = fixture;
+  return fixture.name;
+}
 
 async function dumpBody(
   dir: string,
@@ -375,7 +399,7 @@ function runSamples(): string[][] {
   const rows: string[][] = [];
 
   for (const sample of samples) {
-    const fixture = fixturesByName[sample.fixture];
+    const fixture = fixtureMap[sample.fixture];
     if (!fixture) {
       check(false, `sample ${sample.name}: unknown fixture ${sample.fixture}`);
       continue;
@@ -455,6 +479,12 @@ interface LiveResult {
   /** Measured, from `metadata.costUsd`: every call the article took, cache pricing included. */
   costUsd: number;
   sectionsRegenerated: number;
+  /** Whole-article regenerations (thin retry or the §11.2.8 hold retry). */
+  fullRegenerations: number;
+  /** The §11.2.7 editor pass, or null when it was off or failed. */
+  editor: EditorPassResult | null;
+  /** §11.2.9: would this article publish unattended, and if not, why not. */
+  gate: { ok: boolean; reasons: string[] };
 }
 
 function wordCount(text: string): number {
@@ -551,6 +581,9 @@ async function generateOne(
     // the optional fact-check pass, with cache pricing applied. Never recompute it here.
     costUsd: generated.metadata.costUsd ?? 0,
     sectionsRegenerated: generated.metadata.verifierStats?.sectionsRegenerated ?? 0,
+    fullRegenerations: generated.metadata.verifierStats?.fullRegenerations ?? 0,
+    editor: generated.metadata.editor ?? null,
+    gate: shouldPublish(generated.metadata),
   };
 }
 
@@ -579,6 +612,18 @@ interface MatrixRow {
   strips?: number;
   warns?: number;
   sectionsRegenerated?: number;
+  /** §11.2.8 whole-article regenerations. */
+  fullRegenerations?: number;
+  /** §11.2.4 register leaks, §11.2.7 editor holds, §11.2.5 optional sections missing. */
+  dataSpeak?: number;
+  editorHold?: number;
+  sectionsMissing?: number;
+  /** §11.2.7 editor scores, 1-5. */
+  factsScore?: number;
+  voiceScore?: number;
+  /** §11.2.9: whether the article would publish unattended. */
+  publishes?: boolean;
+  holdReasons?: string[];
   quotesUsed?: number;
   title?: string;
   /** Sonnet 5 persona-adherence rubric, when --rubric was passed. */
@@ -624,7 +669,7 @@ async function runMatrix(options: Options): Promise<void> {
   const worker = async (): Promise<void> => {
     while (next < plan.length) {
       const job = plan[next++];
-      const fixture = fixturesByName[job.fixture];
+      const fixture = fixtureMap[job.fixture];
       const label = `${job.contentType} / ${job.persona} / ${job.fixture}`;
       if (!fixture) {
         rows.push({ ...job, status: "failed", message: "fixture missing" });
@@ -653,6 +698,14 @@ async function runMatrix(options: Options): Promise<void> {
           strips: result.violations.filter(v => v.severity === "strip").length,
           warns: result.violations.filter(v => v.severity === "warn").length,
           sectionsRegenerated: result.sectionsRegenerated,
+          fullRegenerations: result.fullRegenerations,
+          dataSpeak: countKinds(result, ["data_speak"]),
+          editorHold: countKinds(result, ["editor_hold"]),
+          sectionsMissing: countKinds(result, ["sections_missing"]),
+          factsScore: result.editor?.factsScore,
+          voiceScore: result.editor?.voiceScore,
+          publishes: result.gate.ok,
+          holdReasons: result.gate.reasons,
           quotesUsed: result.quotes.length,
           flags: result.violations.map(v => ({
             kind: v.kind,
@@ -665,7 +718,9 @@ async function runMatrix(options: Options): Promise<void> {
           `  ok    ${label} [${result.route.model.replace("claude-", "")}/${result.route.effort}]: ` +
             `${result.words} words, ${result.promptTokens} in / ${result.completionTokens} out` +
             `${result.cacheReadTokens ? ` (+${result.cacheReadTokens} cached)` : ""}, ` +
-            `$${result.costUsd.toFixed(3)}, ${Math.round(result.durationMs / 1000)}s`
+            `$${result.costUsd.toFixed(3)}, ${Math.round(result.durationMs / 1000)}s, ` +
+            `editor ${result.editor ? `facts ${result.editor.factsScore}/5 voice ${result.editor.voiceScore}/5` : "off"}, ` +
+            `${result.gate.ok ? "publishes" : `HELD: ${result.gate.reasons.join("; ")}`}`
         );
       } catch (error) {
         const message = (error as Error).message;
@@ -687,7 +742,28 @@ async function runMatrix(options: Options): Promise<void> {
   const totalCost = ok.reduce((sum, row) => sum + (row.costUsd ?? 0), 0);
   console.log("\nMatrix summary\n");
   printTable(
-    ["type", "writer", "model", "effort", "words", "in", "cached", "out", "cost", "blocks", "strips", "warns", "regen"],
+    [
+      "type",
+      "writer",
+      "model",
+      "effort",
+      "words",
+      "in",
+      "cached",
+      "out",
+      "cost",
+      "blocks",
+      "strips",
+      "warns",
+      "regen",
+      "full",
+      "leaks",
+      "hold",
+      "sec-",
+      "facts",
+      "voice",
+      "publish",
+    ],
     rows
       .slice()
       .sort((a, b) => a.contentType.localeCompare(b.contentType))
@@ -708,6 +784,13 @@ async function runMatrix(options: Options): Promise<void> {
           String(row.strips ?? ""),
           String(row.warns ?? ""),
           String(row.sectionsRegenerated ?? ""),
+          String(row.fullRegenerations ?? ""),
+          String(row.dataSpeak ?? ""),
+          String(row.editorHold ?? ""),
+          String(row.sectionsMissing ?? ""),
+          row.factsScore !== undefined ? `${row.factsScore}/5` : "",
+          row.voiceScore !== undefined ? `${row.voiceScore}/5` : "",
+          row.status === "ok" ? (row.publishes ? "yes" : "held") : "",
         ];
       })
   );
@@ -842,7 +925,7 @@ async function runLive(options: Options): Promise<void> {
 
   const results: LiveResult[] = [];
   for (const name of names) {
-    const fixture = fixturesByName[name];
+    const fixture = fixtureMap[name];
     if (!fixture) {
       failures.push(`--fixture ${name} is not a fixture`);
       return;
@@ -864,7 +947,25 @@ async function runLive(options: Options): Promise<void> {
 
   console.log("\nLive quality panel\n");
   printTable(
-    ["fixture", "model", "effort", "words", "cost", "attribution", "quote fidelity", "ghosts", "numbers", "sources"],
+    [
+      "fixture",
+      "model",
+      "effort",
+      "words",
+      "cost",
+      "attribution",
+      "quote fidelity",
+      "ghosts",
+      "numbers",
+      "sources",
+      "data_speak",
+      "editor_hold",
+      "sections_missing",
+      "facts",
+      "voice",
+      "full regens",
+      "publish",
+    ],
     results.map(result => [
       result.fixture,
       result.route.model.replace("claude-", ""),
@@ -876,6 +977,13 @@ async function runLive(options: Options): Promise<void> {
       String(countKinds(result, ["ghost_speaker"])),
       String(countKinds(result, ["unverified_number"])),
       String(countKinds(result, ["bad_source_path"])),
+      String(countKinds(result, ["data_speak"])),
+      String(countKinds(result, ["editor_hold"])),
+      String(countKinds(result, ["sections_missing"])),
+      result.editor ? `${result.editor.factsScore}/5` : "off",
+      result.editor ? `${result.editor.voiceScore}/5` : "off",
+      String(result.fullRegenerations),
+      result.gate.ok ? "yes" : `held: ${result.gate.reasons.join("; ")}`,
     ])
   );
 
@@ -911,6 +1019,11 @@ async function runLive(options: Options): Promise<void> {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  if (options.fixtureFile) {
+    const name = await loadFixtureFile(options.fixtureFile);
+    options.fixture ??= name;
+    console.log(`Loaded fixture "${name}" from ${options.fixtureFile}`);
+  }
 
   if (options.route) {
     printRouteTable();

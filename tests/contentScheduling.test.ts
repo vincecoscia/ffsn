@@ -34,7 +34,7 @@ function isoUTC(ms: number): string {
 
 async function seedLeague(
   t: TestHarness,
-  opts?: { balance?: number; lastSyncedAt?: number; subscriptionStatus?: string }
+  opts?: { balance?: number; lastSyncedAt?: number; subscriptionStatus?: string; teams?: number }
 ) {
   return await t.run(async (ctx) => {
     const now = Date.now();
@@ -72,6 +72,24 @@ async function seedLeague(
       createdAt: now,
       lastActiveAt: now,
     });
+
+    // Every real league has teams. The data-completeness gate (spec §11.1.2)
+    // reads them, and a league with none is not a state the pipeline should
+    // treat as writable - so the fixture has them too.
+    for (let i = 1; i <= (opts?.teams ?? 10); i++) {
+      await ctx.db.insert("teams", {
+        leagueId,
+        externalId: String(i),
+        seasonId: SEASON,
+        name: `Team ${i}`,
+        owner: `Manager ${i}`,
+        abbreviation: `T${i}`,
+        record: { wins: 3, losses: 2, ties: 0, pointsFor: 600 + i, pointsAgainst: 590 + i },
+        roster: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
     if (opts?.balance !== undefined) {
       await ctx.db.insert("userCredits", {

@@ -4,11 +4,16 @@ import type { FactsRequest } from "../src/lib/ai/facts";
 import { InsufficientDataError, PromptBuilder } from "../src/lib/ai/prompt-builder";
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
 import {
+  findRegisterLeaks,
   parseQuoteDirectives,
   stripQuoteDirectives,
   verifyArticle,
+  verifyRequiredSections,
+  TITLE_SECTION,
 } from "../src/lib/ai/fact-verifier";
 import type { Violation } from "../src/lib/ai/fact-verifier";
+import { shouldPublish } from "../src/lib/ai/publish-gate";
+import { contentTemplates } from "../src/lib/ai/content-templates";
 import type { GeneratedArticleT } from "../src/lib/ai/content-generation-service";
 import {
   DEFAULT_PERSONA,
@@ -444,6 +449,226 @@ describe("verifier", () => {
     // 128.4 + 121.9 = 250.3
     const violations = verify(prose("Alpha and Beta combined for 250.3 points."));
     expect(violations.filter((v) => v.kind === "unverified_number")).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Register check (spec §11.2.4)                                                */
+/* -------------------------------------------------------------------------- */
+
+describe("register check", () => {
+  const leaks = (content: string): Violation[] =>
+    verify(prose(content)).filter((violation) => violation.kind === "data_speak");
+
+  it("blocks a FACTS field name in the prose", () => {
+    const violations = leaks("Alpha leads the league in pointsFor and it is not close.");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ severity: "block", section: "introduction" });
+    expect(violations[0].detail).toContain("pointsFor");
+    expect(leaks("Beta's benchImpact was the story.")[0]?.detail).toContain("benchImpact");
+    expect(leaks("His nflTeam plays Sunday.")[0]?.detail).toContain("nflTeam");
+  });
+
+  it("blocks prompt-layer jargon", () => {
+    expect(leaks("The ledger says Ann answered.")[0]).toMatchObject({
+      kind: "data_speak",
+      severity: "block",
+    });
+    expect(leaks("Nothing in the payload backs that up.")).toHaveLength(1);
+    expect(leaks("Per the sheet, Alpha is fine.")).toHaveLength(1);
+    expect(leaks("The data feed had it first.")).toHaveLength(1);
+    expect(leaks("It is not in the FACTS block.")).toHaveLength(1);
+  });
+
+  it("blocks an ISO-8601 timestamp", () => {
+    const violations = leaks("The trade landed 2026-09-02T14:31:00Z, which is late.");
+    expect(violations).toHaveLength(1);
+    expect(violations[0].detail).toContain("2026-09-02T14:31:00Z");
+    expect(leaks("Filed 2026-09-02.")).toHaveLength(1);
+  });
+
+  it("blocks an internal id in the body and in the title, and never a real word", () => {
+    const inBody = leaks("T3 beat T7 by six and a half.");
+    expect(inBody).toHaveLength(2);
+    expect(inBody.every((violation) => violation.severity === "block")).toBe(true);
+
+    const inTitle = verify({ title: "M1 was the game of the week" }).filter(
+      (violation) => violation.kind === "data_speak"
+    );
+    expect(inTitle).toHaveLength(1);
+    expect(inTitle[0].section).toBe(TITLE_SECTION);
+
+    // Player initials and ids inside longer tokens are not internal ids.
+    expect(leaks("TJ Watt and M1Pp204 aside, Alpha won.").map((v) => v.detail).join()).not.toContain(
+      '"TJ"'
+    );
+  });
+
+  it("leaves the pull-quote directive and ordinary English alone", () => {
+    // The directive is markup for the renderer: its id must not read as a leak.
+    expect(verifyArticle(cleanArticle, facts)).toEqual([]);
+    expect(findRegisterLeaks("Here are the facts: Alpha won.")).toEqual([]);
+    expect(findRegisterLeaks("Alpha came through in the fourth quarter.")).toEqual([]);
+    // ...but the same phrase about the data is pipeline talk.
+    expect(findRegisterLeaks("Only two quotes came through before deadline.")).toHaveLength(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Required sections (spec §11.2.5)                                             */
+/* -------------------------------------------------------------------------- */
+
+describe("required sections", () => {
+  const template = contentTemplates.weekly_recap;
+  const requiredCount = template.sections.filter((section) => section.required).length;
+
+  const withSections = (count: number): GeneratedArticleT => ({
+    ...cleanArticle,
+    quotes: [],
+    sections: Array.from({ length: count }, (_, index) => ({
+      name: `section ${index + 1}`,
+      content: "Alpha won the game and Beta did not.",
+      wordCount: 8,
+    })),
+  });
+
+  it("holds an article with fewer sections than the template has required ones", () => {
+    const violations = verifyRequiredSections(withSections(requiredCount - 1), template);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ kind: "thin_article", severity: "strip" });
+    expect(violations[0].detail).toContain(`${requiredCount} required`);
+  });
+
+  it("only warns when every required section is there but an optional one is not", () => {
+    const violations = verifyRequiredSections(withSections(requiredCount), template);
+    expect(violations).toEqual([
+      {
+        kind: "sections_missing",
+        detail: `${requiredCount} of ${template.sections.length} template sections; every required section is present`,
+        severity: "warn",
+      },
+    ]);
+  });
+
+  it("says nothing about a full article, or when no template was passed", () => {
+    expect(verifyRequiredSections(withSections(template.sections.length), template)).toEqual([]);
+    expect(verifyRequiredSections(withSections(1), undefined)).toEqual([]);
+  });
+
+  it("reports through verifyArticle only when the template is supplied", () => {
+    const thin = withSections(1);
+    expect(verifyArticle(thin, facts).some((v) => v.kind === "thin_article")).toBe(false);
+    expect(
+      verifyArticle(thin, facts, { template }).some((v) => v.kind === "thin_article")
+    ).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Verifier noise (spec §11.3.11)                                               */
+/* -------------------------------------------------------------------------- */
+
+describe("verifier noise", () => {
+  const unknownNouns = (content: string): string[] =>
+    verify(prose(content))
+      .filter((violation) => violation.kind === "unknown_player")
+      .map((violation) => violation.detail);
+
+  it("ignores a sentence opener that only looks like a name", () => {
+    expect(unknownNouns("The Grinders had it won at halftime.")).toEqual([]);
+    expect(unknownNouns("Because Alpha started fast, Beta never led.")).toEqual([]);
+    expect(unknownNouns("Here Comes the bench discourse again.")).toEqual([]);
+    expect(unknownNouns("Now Alpha has to do it twice.")).toEqual([]);
+  });
+
+  it("ignores anything that is part of a FACTS name, and still flags a real unknown", () => {
+    // "QB One" is a FACTS player; "Alpha" is a FACTS team.
+    expect(unknownNouns("QB One carried Alpha again.")).toEqual([]);
+    expect(unknownNouns("Marcus Wembley went off for someone else.")).toEqual(["Marcus Wembley"]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Publish gate (spec §11.2.9)                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe("shouldPublish", () => {
+  const clean = {
+    tags: ["weekly_recap", "curtis-vaughn"],
+    reviewFlags: [] as Violation[],
+    verifierStats: { wordCount: 1200 },
+    editor: {
+      contradictions: [],
+      unsupported: [],
+      registerLeaks: [],
+      factsScore: 4,
+      voiceScore: 4,
+      incompleteSections: [],
+      model: "claude-sonnet-5",
+      costUsd: 0.02,
+    },
+  };
+
+  it("publishes a clean article", () => {
+    expect(shouldPublish(clean)).toEqual({ ok: true, reasons: [] });
+  });
+
+  it("holds on a block", () => {
+    const gate = shouldPublish({
+      ...clean,
+      reviewFlags: [{ kind: "data_speak", detail: '"T3"', severity: "block" }],
+    });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons.join(" ")).toContain("data_speak");
+  });
+
+  it("holds on a strip", () => {
+    const gate = shouldPublish({
+      ...clean,
+      reviewFlags: [{ kind: "llm_contradicted", detail: '"Beta won."', severity: "strip" }],
+    });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons.join(" ")).toContain("llm_contradicted");
+  });
+
+  it("holds when a required section is missing", () => {
+    const gate = shouldPublish({
+      ...clean,
+      reviewFlags: [{ kind: "thin_article", detail: "2 sections", severity: "strip" }],
+    });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons).toContain("a required section is missing");
+  });
+
+  it("holds when the editor scored the facts below 3, and publishes at 3", () => {
+    expect(shouldPublish({ ...clean, editor: { ...clean.editor, factsScore: 2 } })).toMatchObject({
+      ok: false,
+      reasons: ["the editor scored the facts 2/5"],
+    });
+    expect(shouldPublish({ ...clean, editor: { ...clean.editor, factsScore: 3 } }).ok).toBe(true);
+    // Voice never blocks.
+    expect(shouldPublish({ ...clean, editor: { ...clean.editor, voiceScore: 1 } }).ok).toBe(true);
+  });
+
+  it("holds an article under 30% of its template ceiling", () => {
+    const gate = shouldPublish({ ...clean, verifierStats: { wordCount: 100 } });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons.join(" ")).toContain("under the 480-word floor");
+    // 30% exactly publishes.
+    expect(shouldPublish({ ...clean, verifierStats: { wordCount: 480 } }).ok).toBe(true);
+  });
+
+  it("names every reason at once, and needs no editor pass to decide", () => {
+    const gate = shouldPublish({
+      tags: ["weekly_recap"],
+      reviewFlags: [
+        { kind: "bad_quote", detail: "x", severity: "block" },
+        { kind: "thin_article", detail: "y", severity: "strip" },
+      ],
+      verifierStats: { wordCount: 40 },
+    });
+    expect(gate.ok).toBe(false);
+    expect(gate.reasons).toHaveLength(4);
   });
 });
 

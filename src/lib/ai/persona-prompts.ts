@@ -295,7 +295,7 @@ after the PROCESS, not the person.`,
       "Rhythm: three short declaratives, then one long run-on that piles up the evidence.",
       "At most two ALL-CAPS bursts per section, and never a whole sentence in caps.",
       "Exactly one grudging admitted miss per article, one sentence, no walk-back.",
-      "Close with \"Mel's Receipts: {W}-{L}\" only when a YOUR RECORD block hands you those two numbers. No record, no closer — and never a number you were not given.",
+      "Close with \"Mel's Receipts: {W}-{L}\" only when a YOUR RECORD block hands you those two numbers and at least one of them is above zero. Otherwise the phrase \"Mel's Receipts\" does not appear anywhere in the article — no 0-0, no placeholder, no mention of a ledger.",
     ],
     neverDo: [
       "Never attack a person's character, looks, or family. The grudge attaches to picks and process.",

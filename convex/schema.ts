@@ -12,6 +12,46 @@ import {
   writerSentimentValidator,
 } from "./validators";
 
+/** `EditorFinding` from `src/lib/ai/publish-gate.ts` (spec §11.2.7). */
+const editorFindingValidator = v.object({
+  claim: v.string(),
+  sectionName: v.string(),
+  factPath: v.optional(v.string()),
+});
+
+/** `EditorRegisterLeak` from `src/lib/ai/publish-gate.ts` (spec §11.2.7). */
+const editorRegisterLeakValidator = v.object({
+  phrase: v.string(),
+  sectionName: v.string(),
+});
+
+/**
+ * The editor pass's verdict on one generated article (spec §11.2.7).
+ *
+ * Mirrors `EditorPassResult` from `src/lib/ai/publish-gate.ts`: produced by the
+ * prompt layer as `GeneratedContent.metadata.editor` and stored on
+ * `aiContent.generationStats.editor`, so the reason an article was held
+ * survives long after the generation action has gone.
+ *
+ * Every field is optional even though the prompt layer's type requires most of
+ * them. The pass is switched off by `FACT_CHECK_LLM="0"`, articles written
+ * before it shipped are still in the table, and a validator failure here would
+ * lose an article that has already been paid for and written.
+ */
+export const editorReviewValidator = v.object({
+  contradictions: v.optional(v.array(editorFindingValidator)),
+  unsupported: v.optional(v.array(editorFindingValidator)),
+  registerLeaks: v.optional(v.array(editorRegisterLeakValidator)),
+  /** 1-5. Below 3 holds the article for review (spec §11.2.9). */
+  factsScore: v.optional(v.number()),
+  /** 1-5. Below 3 is a warning only - voice never blocks. */
+  voiceScore: v.optional(v.number()),
+  incompleteSections: v.optional(v.array(v.string())),
+  model: v.optional(v.string()),
+  /** Already included in `generationStats.costUsd`; kept for the digest. */
+  costUsd: v.optional(v.number()),
+});
+
 export default defineSchema({
   // User profiles and preferences
   users: defineTable({
@@ -390,6 +430,10 @@ export default defineSchema({
         costUsd: v.optional(v.number()),
         route: v.optional(v.object({ model: v.string(), effort: v.string() })),
         billing: v.optional(v.union(v.literal("pass"), v.literal("credits"))),
+        // The editor pass's verdict (spec §11.2.7). Persisted so the publish
+        // gate's decision can be re-read - and re-explained to the
+        // commissioner - long after the generation action has gone.
+        editor: v.optional(editorReviewValidator),
       })
     ),
     // Verified ledger quotes actually used, with the writer's in-voice reply.
@@ -1823,5 +1867,25 @@ export default defineSchema({
     .index("by_league_user_persona", ["leagueId", "userId", "persona"])
     .index("by_article", ["articleId"])
     .index("by_league", ["leagueId"]),
+
+  // --- Operator alerting (spec §11.3.10) --------------------------------
+  //
+  // One row per operator notice actually claimed, keyed on what the notice is
+  // about ("held:<articleId>", "failed:<articleId>", "digest:<yyyy-mm-dd>").
+  // The insert IS the dedupe: `deskMetrics.claimOperatorNotice` refuses to
+  // write a key that already exists, so an article that is finalized twice, or
+  // a failure that is retried, still costs the operator exactly one email.
+  operatorNotices: defineTable({
+    key: v.string(),
+    kind: v.string(), // "held" | "failed" | "digest"
+    leagueId: v.optional(v.id("leagues")),
+    articleId: v.optional(v.id("aiContent")),
+    subject: v.string(),
+    sentAt: v.number(),
+    /** False when ADMIN_ALERT_EMAIL is unset or SendGrid refused it. */
+    delivered: v.boolean(),
+  })
+    .index("by_key", ["key"])
+    .index("by_kind_sent", ["kind", "sentAt"]),
 
 });

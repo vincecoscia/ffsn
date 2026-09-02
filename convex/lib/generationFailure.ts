@@ -131,6 +131,26 @@ export async function handleGenerationFailure(
     }
   }
 
+  // The operator hears about a failed article the moment it is final (spec
+  // §11.3.10), deduped on the article id so a three-attempt failure is one
+  // email. A retry that is about to happen is not yet news. Never allowed to
+  // throw: this is the failure path, and it has already done the work that
+  // matters (status, refund, scheduled row).
+  if (!willRetry) {
+    try {
+      await ctx.runAction(internal.deskMetrics.notifyOperatorOfArticle, {
+        leagueId: args.leagueId,
+        articleId: args.articleId,
+        kind: "failed" as const,
+        contentType: args.contentType,
+        persona: args.persona,
+        reasons: [message],
+      });
+    } catch (e) {
+      console.error("Failed to notify the operator of a failed generation", args.articleId, e);
+    }
+  }
+
   if (willRetry) {
     console.log(
       `Scheduling retry ${retryCount + 1}/${MAX_GENERATION_RETRIES} for failed ${args.contentType} generation`

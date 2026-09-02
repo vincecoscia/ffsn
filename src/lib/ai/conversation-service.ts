@@ -517,8 +517,8 @@ export class ConversationService {
           description: "Ask the manager one grounded, on-the-record question",
           input_schema: {
             type: "object",
-            properties: (zodToJsonSchema(ConversationResponse) as unknown as { properties: Record<string, unknown> }).properties,
-            required: (zodToJsonSchema(ConversationResponse) as unknown as { required: string[] }).required,
+            properties: (zodToJsonSchema(ConversationResponse, { $refStrategy: "none" }) as unknown as { properties: Record<string, unknown> }).properties,
+            required: (zodToJsonSchema(ConversationResponse, { $refStrategy: "none" }) as unknown as { required: string[] }).required,
           },
         }],
         tool_choice: { type: "tool", name: "generate_conversation_question" },
@@ -614,8 +614,8 @@ Rules:
           description: "Analyze a manager's interview reply",
           input_schema: {
             type: "object",
-            properties: (zodToJsonSchema(ResponseAnalysisSchema) as unknown as { properties: Record<string, unknown> }).properties,
-            required: (zodToJsonSchema(ResponseAnalysisSchema) as unknown as { required: string[] }).required,
+            properties: (zodToJsonSchema(ResponseAnalysisSchema, { $refStrategy: "none" }) as unknown as { properties: Record<string, unknown> }).properties,
+            required: (zodToJsonSchema(ResponseAnalysisSchema, { $refStrategy: "none" }) as unknown as { required: string[] }).required,
           },
         }],
         tool_choice: { type: "tool", name: "analyze_response" },

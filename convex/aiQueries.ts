@@ -120,10 +120,17 @@ export const getLeagueDataForAI = internalQuery({
         .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .collect(),
       
-      // Get recent matchups (last 3 weeks)
+      // Get recent matchups (last 3 weeks, never a future week). Without the upper bound every
+      // unplayed game of the season came back as "recent" in preseason and a writer read 0-0
+      // scheduled games as prior meetings.
       ctx.db.query("matchups")
         .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
-        .filter(q => q.gte(q.field("matchupPeriod"), Math.max(1, currentWeek - 3)))
+        .filter(q =>
+          q.and(
+            q.gte(q.field("matchupPeriod"), Math.max(1, currentWeek - 3)),
+            q.lte(q.field("matchupPeriod"), currentWeek)
+          )
+        )
         .collect(),
       
       // Get recent trades
@@ -483,7 +490,12 @@ export const getLeagueDataForAI = internalQuery({
     });
     
     // Transform recent matchups with memorable moments
-    const enrichedMatchups = recentMatchups.map(matchup => {
+    // Only games that have actually been played are "recent"; a scheduled game with 0-0 and no
+    // winner is the upcoming slate, which `upcomingMatchups` below carries separately.
+    const playedRecentMatchups = recentMatchups.filter(
+      matchup => matchup.winner !== undefined || matchup.homeScore > 0 || matchup.awayScore > 0
+    );
+    const enrichedMatchups = playedRecentMatchups.map(matchup => {
       const homeTeam = teams.find(t => t.externalId === matchup.homeTeamId);
       const awayTeam = teams.find(t => t.externalId === matchup.awayTeamId);
       

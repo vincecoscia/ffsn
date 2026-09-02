@@ -215,6 +215,9 @@ export const generationStatsValidator = v.object({
   wordCount: v.optional(v.number()),
   quotesOffered: v.optional(v.number()),
   quotesUsed: v.optional(v.number()),
+  // Whole-article regenerations before the article was accepted or held
+  // (spec §11.2.8).
+  fullRegenerations: v.optional(v.number()),
 });
 
 /** The `verifierStats` half of `GeneratedContent.metadata` (spec §4.2 + §8.7). */
@@ -227,4 +230,8 @@ export const verifierStatsValidator = v.object({
   wordCount: v.optional(v.number()),
   quotesOffered: v.optional(v.number()),
   quotesUsed: v.optional(v.number()),
+  // Whole-article regenerations this piece took: the thin retry, or the one
+  // full retry the publish gate allows before holding (spec §11.2.8).
+  // Optional, like the §8.7 fields, so a run from before it shipped saves.
+  fullRegenerations: v.optional(v.number()),
 });
