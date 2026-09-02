@@ -37,6 +37,7 @@ import {
 } from "@/components/broadcast";
 import { MarkdownPreview, type ArticleQuote } from "@/components/MarkdownPreview";
 import { WaitingOnComment } from "@/components/WaitingOnComment";
+import { CreditTopUpButton } from "@/components/CreditTopUpButton";
 import { cn } from "@/lib/utils";
 
 interface AIGenerationPageProps {
@@ -229,6 +230,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
           kicker="Production desk"
           title="AI content"
           description={`Create and manage AI-generated content for ${league.name}.`}
+          actions={<CreditTopUpButton leagueId={leagueId} variant="glow" size="sm" />}
         />
 
         {/* Tabs for different sections */}
