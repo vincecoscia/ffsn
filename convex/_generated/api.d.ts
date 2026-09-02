@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as adminTools from "../adminTools.js";
 import type * as aiBatch from "../aiBatch.js";
 import type * as aiContent from "../aiContent.js";
 import type * as aiContentHelpers from "../aiContentHelpers.js";
@@ -65,6 +66,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminTools: typeof adminTools;
   aiBatch: typeof aiBatch;
   aiContent: typeof aiContent;
   aiContentHelpers: typeof aiContentHelpers;

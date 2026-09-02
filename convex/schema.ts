@@ -143,6 +143,10 @@ export default defineSchema({
       // $10 seats the commissioner bought on top of `includedManagers`.
       // Incremented by `leagues.recordExtraSeat` when a seat payment settles.
       extraSeats: v.optional(v.number()),
+      // Set by adminTools.compLeaguePass when a pass was granted without a payment, so a comped
+      // league is never counted as revenue.
+      compedAt: v.optional(v.number()),
+      compedReason: v.optional(v.string()),
       // The NFL season this pass covers. Drives credit expiry and the
       // per-season automated spend cap. Falls back to `seasonYear`.
       seasonId: v.optional(v.number()),
