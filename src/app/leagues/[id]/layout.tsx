@@ -15,6 +15,7 @@ import {
   type AppHeaderNavItem,
 } from "@/components/broadcast";
 import { NotificationDropdown } from "@/components/notifications";
+import { CreditWallet } from "@/components/CreditWallet";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { useLeagueTicker } from "@/components/league/useLeagueTicker";
 
@@ -105,6 +106,7 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
           <Chip variant="signal" live>Week {ticker.week + 1} &middot; On deck</Chip>
         </>
       )}
+      <CreditWallet leagueId={league._id} variant="header" />
     </>
   );
 

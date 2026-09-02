@@ -11,7 +11,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { contentTemplates } from "@/lib/ai/content-templates";
+import { contentTemplates, creditCostFor } from "@/lib/ai/content-templates";
 import { SeasonSelector } from "./SeasonSelector";
 import {
   Form,
@@ -55,6 +55,7 @@ import {
   defaultPrintDeadline,
   formatPrintDeadline,
 } from "@/components/PrintDeadlineField";
+import { CreditWallet, useCreditBalance } from "@/components/CreditWallet";
 import { cn } from "@/lib/utils";
 
 interface ContentGeneratorProps {
@@ -189,6 +190,9 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const completedWeeks = useQuery(api.matchups.getCompletedWeeks, { leagueId });
   const currentUserTeam = useQuery(api.teams.getCurrentUserTeam, { leagueId });
   const claimedTeams = useQuery(api.teams.getClaimedTeams, { leagueId });
+  // Shared with the CreditWallet strip mounted below, so the balance is read
+  // from a single query rather than each duplicating `getUserCredits`.
+  const { balance: creditBalance } = useCreditBalance();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -314,9 +318,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       setRequestComments(false);
       setSelectedUserIds([]);
     } catch (error) {
-      toast.error("Failed to generate content", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      });
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (message.startsWith("Insufficient credits")) {
+        toast.error("Not enough credits", { description: message });
+      } else {
+        toast.error("Failed to generate content", { description: message });
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -375,6 +382,14 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const selectedPersona = form.watch("persona");
   const selectedTemplate = selectedContentType ? contentTemplates[selectedContentType] : null;
   const recommendedPersonas = getRecommendedPersonas(selectedContentType);
+  // What the server will actually charge: the template price plus 5 credits
+  // per manager asked for comment (`creditCostFor`, spec §10.1) - so the
+  // wallet strip and the disabled state agree with `createGenerationWithComments`.
+  const requiredCredits = selectedContentType
+    ? creditCostFor(selectedContentType, requestComments ? selectedUserIds.length : 0)
+    : undefined;
+  const insufficientCredits =
+    requiredCredits != null && creditBalance != null && creditBalance < requiredCredits;
 
   return (
     <Panel padding="lg" className="mx-auto w-full max-w-4xl">
@@ -390,6 +405,12 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
           Generate engaging fantasy football content with AI-powered personas.
         </p>
       </div>
+
+      <CreditWallet
+        leagueId={leagueId}
+        requiredCredits={requiredCredits}
+        className="mb-7 sm:mb-8"
+      />
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handleGenerate)} className="flex flex-col gap-7 sm:gap-8">
@@ -790,7 +811,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                       value={
                         <span className="inline-flex items-center gap-1.5">
                           <CreditCard className="size-4 text-bc-text-3" />
-                          {selectedTemplate.creditCost}
+                          {requiredCredits ?? selectedTemplate.creditCost}
                         </span>
                       }
                     />
@@ -806,12 +827,17 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
             variant="glow"
             size="lg"
             className="w-full"
-            disabled={isGenerating}
+            disabled={isGenerating || insufficientCredits}
           >
             {isGenerating ? (
               <>
                 <Spinner size={16} className="[&>span]:bg-white" />
                 Generating content&hellip;
+              </>
+            ) : insufficientCredits ? (
+              <>
+                <CreditCard className="size-4" />
+                Not enough credits
               </>
             ) : form.watch("contentType") === "trade_rumor_mill" ? (
               <>
@@ -822,7 +848,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
               <>
                 <Sparkles className="size-4" />
                 Generate content
-                {selectedTemplate && <span className="bc-num opacity-80">&middot; {selectedTemplate.creditCost} credits</span>}
+                {selectedTemplate && <span className="bc-num opacity-80">&middot; {requiredCredits ?? selectedTemplate.creditCost} credits</span>}
               </>
             )}
           </Button>
