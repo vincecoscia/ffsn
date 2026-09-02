@@ -1,7 +1,14 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, mutation, query } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+import { leagueCurrentSeason } from "./lib/season";
+import {
+  contentTypeLabel,
+  interviewerDisplay,
+  renderArticlePublishedEmail,
+  writerDisplay,
+} from "../src/lib/email";
 
 // ===============================
 // PUBLIC QUERIES (for frontend)
@@ -341,6 +348,168 @@ export const createNotification = internalMutation({
 // ENHANCED COMMENT NOTIFICATIONS
 // ===============================
 
+/**
+ * The manager's display name plus the week the request is about. Used to fill the
+ * comment-request email template, which previously shipped "User" and no week.
+ */
+export const getCommentRecipient = internalQuery({
+  args: {
+    userId: v.id("users"),
+    commentRequestId: v.id("commentRequests"),
+  },
+  returns: v.object({
+    userName: v.string(),
+    week: v.optional(v.number()),
+    leagueId: v.optional(v.id("leagues")),
+    contentType: v.optional(v.string()),
+    articleGenerationTime: v.optional(v.number()),
+    writerPersona: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    const request = await ctx.db.get(args.commentRequestId);
+    // First name only: the templates read as a note from the newsroom, not a form letter.
+    const fullName = user?.name?.trim();
+    return {
+      userName: fullName ? fullName.split(/\s+/)[0] : "there",
+      week: request?.articleContext.week,
+      leagueId: request?.leagueId,
+      contentType: request?.contentType,
+      articleGenerationTime: request?.articleGenerationTime,
+      writerPersona: request?.writerPersona,
+    };
+  },
+});
+
+/**
+ * Nudge a manager who has not answered yet (spec §5). Scheduled twice per request by
+ * `aiContentWithComments.createCommentRequestsAndWait`: `reminder` at 50% of the
+ * window and `final_reminder` 30 minutes before the article generates. Both no-op if
+ * the request is no longer open, so a manager who already answered is never pestered.
+ */
+export const sendCommentReminder = internalAction({
+  args: {
+    commentRequestId: v.id("commentRequests"),
+    type: v.union(v.literal("reminder"), v.literal("final_reminder")),
+  },
+  returns: v.object({ sent: v.boolean() }),
+  handler: async (ctx, args): Promise<{ sent: boolean }> => {
+    const request = await ctx.runQuery(internal.notifications.getOpenCommentRequest, {
+      commentRequestId: args.commentRequestId,
+    });
+
+    // Answered, declined, expired or cancelled: nothing to chase.
+    if (!request) return { sent: false };
+
+    const minutesRemaining = Math.max(
+      0,
+      Math.round((request.articleGenerationTime - Date.now()) / 60000)
+    );
+    const isFinal = args.type === "final_reminder";
+    const weekLabel = request.week ? `the Week ${request.week} ` : "the ";
+    const storyLabel = `${weekLabel}${request.contentType.replace(/_/g, " ")}`;
+
+    await ctx.runMutation(internal.notifications.createNotification, {
+      userId: request.targetUserId,
+      leagueId: request.leagueId,
+      type: "comment_reminder",
+      title: isFinal
+        ? `Last call: ${request.leagueName}`
+        : `Still time to comment: ${request.leagueName}`,
+      message: isFinal
+        ? `We go to print on ${storyLabel} in ${minutesRemaining} minutes and we'd still like your side of it.`
+        : `${storyLabel} runs soon. One quick comment and you're in it.`,
+      actionUrl: `/leagues/${request.leagueId}/comment-requests/${args.commentRequestId}`,
+      actionText: isFinal ? "Respond now" : "Add your comment",
+      relatedEntityType: "comment_request",
+      relatedEntityId: args.commentRequestId,
+      priority: isFinal ? "high" : "medium",
+      deliveryChannels: ["in_app", "email"],
+      expiresAt: request.articleGenerationTime,
+    });
+
+    // The matching email, from the sideline desk (src/lib/email "comment_reminder").
+    // emailService.sendCommentRequestEmail checks the manager's email preference and
+    // fills in their name and time zone; a failure here must not block the in-app nudge.
+    const baseUrl = process.env.SITE_URL || "https://ffsn.ai";
+    try {
+      await ctx.scheduler.runAfter(0, internal.emailService.sendCommentRequestEmail, {
+        userId: request.targetUserId,
+        commentRequestId: args.commentRequestId,
+        leagueId: request.leagueId,
+        templateData: {
+          variant: args.type,
+          leagueName: request.leagueName,
+          contentTypeLabel: contentTypeLabel(request.contentType),
+          week: request.week,
+          writer: writerDisplay(request.writerPersona),
+          interviewer: interviewerDisplay(),
+          deadline: request.articleGenerationTime,
+          minutesRemaining,
+          commentRequestUrl: `${baseUrl}/leagues/${request.leagueId}/comment-requests/${args.commentRequestId}`,
+          preferencesUrl: `${baseUrl}/dashboard/settings/notifications`,
+          siteUrl: baseUrl,
+        },
+      });
+    } catch (emailError) {
+      console.error(`Failed to schedule ${args.type} email for comment request ${args.commentRequestId}:`, emailError);
+    }
+
+    await ctx.runMutation(internal.commentRequests.updateRequestStatus, {
+      commentRequestId: args.commentRequestId,
+      notificationSent: {
+        type: args.type,
+        sentAt: Date.now(),
+        method: "app_notification",
+        delivered: true,
+      },
+    });
+
+    console.log(`Sent ${args.type} for comment request ${args.commentRequestId}`);
+    return { sent: true };
+  },
+});
+
+/** The request plus its league name, but only while it is still open for comment. */
+export const getOpenCommentRequest = internalQuery({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      targetUserId: v.id("users"),
+      leagueId: v.id("leagues"),
+      leagueName: v.string(),
+      contentType: v.string(),
+      week: v.optional(v.number()),
+      articleGenerationTime: v.number(),
+      writerPersona: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) return null;
+    if (request.status !== "pending" && request.status !== "active") return null;
+
+    // A request with a response already recorded is answered, whatever its status says.
+    const response = await ctx.db
+      .query("commentResponses")
+      .withIndex("by_comment_request", q => q.eq("commentRequestId", args.commentRequestId))
+      .first();
+    if (response) return null;
+
+    const league = await ctx.db.get(request.leagueId);
+    return {
+      targetUserId: request.targetUserId,
+      leagueId: request.leagueId,
+      leagueName: league?.name ?? "your league",
+      contentType: request.contentType,
+      week: request.articleContext.week,
+      articleGenerationTime: request.articleGenerationTime,
+      writerPersona: request.writerPersona,
+    };
+  },
+});
+
 // Send initial comment request notification
 export const sendCommentRequest = internalAction({
   args: {
@@ -350,28 +519,19 @@ export const sendCommentRequest = internalAction({
     articleType: v.string(),
     leagueName: v.string(),
     leagueId: v.id("leagues"),
+    writerPersona: v.optional(v.string()),
+    week: v.optional(v.number()),
+    deadline: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // Generate contextual title based on article type
-    const getNotificationTitle = (articleType: string, leagueName: string) => {
-      const articleTypeMap: Record<string, string> = {
-        'weekly_recap': `Weekly recap for the ${leagueName}`,
-        'trade_analysis': `Trade analysis for the ${leagueName}`,
-        'waiver_wire_report': `Waiver wire insights for the ${leagueName}`,
-        'power_rankings': `Power rankings for the ${leagueName}`,
-        'draft_rankings': `Draft recap for the ${leagueName}`,
-        'matchup_preview': `Matchup preview for the ${leagueName}`,
-      };
-      
-      return articleTypeMap[articleType] || `Article feedback for the ${leagueName}`;
-    };
+    const title = `${contentTypeLabel(args.articleType)} for ${args.leagueName}`;
 
     // Create in-app notification
     await ctx.runMutation(internal.notifications.createNotification, {
       userId: args.userId,
       leagueId: args.leagueId,
       type: "comment_request",
-      title: getNotificationTitle(args.articleType, args.leagueName),
+      title,
       message: args.message,
       actionUrl: `/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`,
       actionText: "Join Conversation",
@@ -382,10 +542,10 @@ export const sendCommentRequest = internalAction({
       expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
     });
 
-    // Send email notification
+    // Send email notification - recipientName and timeZone are filled in by
+    // emailService.sendCommentRequestEmail from the user record itself.
     const baseUrl = process.env.SITE_URL || "https://ffsn.ai";
     const commentRequestUrl = `${baseUrl}/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`;
-    const unsubscribeUrl = `${baseUrl}/dashboard/settings/notifications`;
 
     try {
       await ctx.scheduler.runAfter(0, internal.emailService.sendCommentRequestEmail, {
@@ -393,12 +553,17 @@ export const sendCommentRequest = internalAction({
         commentRequestId: args.commentRequestId,
         leagueId: args.leagueId,
         templateData: {
-          userName: "User", // We'll get this from the user record in the email service
+          variant: "request",
           leagueName: args.leagueName,
-          articleType: getNotificationTitle(args.articleType, args.leagueName),
-          week: undefined, // TODO: Extract from context if needed
+          contentTypeLabel: contentTypeLabel(args.articleType),
+          week: args.week,
+          question: args.message,
+          writer: writerDisplay(args.writerPersona),
+          interviewer: interviewerDisplay(),
+          deadline: args.deadline,
           commentRequestUrl,
-          unsubscribeUrl,
+          preferencesUrl: `${baseUrl}/dashboard/settings/notifications`,
+          siteUrl: baseUrl,
         },
       });
       console.log(`Scheduled email notification for comment request to user ${args.userId}`);
@@ -441,7 +606,12 @@ export const sendCommentFollowUp = internalAction({
   },
 });
 
-// Send expiring soon notification
+/**
+ * Reminder notification + email for a comment request closing soon. Nothing
+ * schedules this today - the spec's W1-C reminder workstream will call it at
+ * 50% of the window (variant "reminder") and again shortly before the
+ * article generates (variant "final_reminder" via `final: true`).
+ */
 export const sendExpiringNotification = internalAction({
   args: {
     userId: v.id("users"),
@@ -449,22 +619,59 @@ export const sendExpiringNotification = internalAction({
     leagueId: v.id("leagues"),
     minutesRemaining: v.number(),
     leagueName: v.string(),
+    writerPersona: v.optional(v.string()),
+    week: v.optional(v.number()),
+    deadline: v.optional(v.number()),
+    question: v.optional(v.string()),
+    final: v.optional(v.boolean()),
+    articleType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const label = args.articleType ? contentTypeLabel(args.articleType) : "story";
+
     await ctx.runMutation(internal.notifications.createNotification, {
       userId: args.userId,
       leagueId: args.leagueId,
       type: "comment_reminder",
-      title: `Reminder: ${args.leagueName} article feedback`,
-      message: `Response window closes in ${args.minutesRemaining} minutes`,
+      title: `Reminder: ${label} for ${args.leagueName}`,
+      message: `The window for comment closes in ${args.minutesRemaining} minutes`,
       actionUrl: `/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`,
       actionText: "Respond Now",
       relatedEntityType: "comment_request",
       relatedEntityId: args.commentRequestId,
       priority: "high",
-      deliveryChannels: ["in_app"],
+      deliveryChannels: ["in_app", "email"],
       expiresAt: Date.now() + (args.minutesRemaining * 60 * 1000),
     });
+
+    const baseUrl = process.env.SITE_URL || "https://ffsn.ai";
+    const commentRequestUrl = `${baseUrl}/leagues/${args.leagueId}/comment-requests/${args.commentRequestId}`;
+
+    try {
+      await ctx.scheduler.runAfter(0, internal.emailService.sendCommentRequestEmail, {
+        userId: args.userId,
+        commentRequestId: args.commentRequestId,
+        leagueId: args.leagueId,
+        templateData: {
+          variant: args.final ? "final_reminder" : "reminder",
+          leagueName: args.leagueName,
+          contentTypeLabel: label,
+          week: args.week,
+          question: args.question,
+          writer: writerDisplay(args.writerPersona),
+          interviewer: interviewerDisplay(),
+          deadline: args.deadline,
+          minutesRemaining: args.minutesRemaining,
+          commentRequestUrl,
+          preferencesUrl: `${baseUrl}/dashboard/settings/notifications`,
+          siteUrl: baseUrl,
+        },
+      });
+      console.log(`Scheduled expiring-reminder email for comment request to user ${args.userId}`);
+    } catch (emailError) {
+      console.error(`Failed to schedule expiring-reminder email to user ${args.userId}:`, emailError);
+      // Don't fail the entire operation if email fails
+    }
 
     console.log(`Created expiring notification for user ${args.userId}`);
   },
@@ -516,15 +723,6 @@ function deriveArticleSummary(article: { content: string; summary?: string }): s
   return plain.length > 200 ? `${plain.slice(0, 200).trim()}…` : plain;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 // Notify every member of an article's league that it was published. Called
 // (scheduled via ctx.scheduler.runAfter) from both places an article can be
 // published: the commissioner-gated aiContent.updateContentStatus mutation
@@ -541,9 +739,30 @@ export const notifyArticlePublished = internalMutation({
       return;
     }
 
+    const league = await ctx.db.get(article.leagueId);
     const summary = deriveArticleSummary(article);
     const actionUrl = `/articles/${args.articleId}`;
     const now = Date.now();
+
+    // `quote.teamId` may arrive as a Convex team id or as a FACTS id ("T" + externalId)
+    // - the same ambiguity resolved in relationships.recordArticleMentions - so resolve
+    // every quoted team to a Convex id up front, once, rather than per member below.
+    const seasonId = leagueCurrentSeason(league);
+    const quotedTeamIds = new Set<Id<"teams">>();
+    for (const quote of article.quotes ?? []) {
+      let teamId = ctx.db.normalizeId("teams", quote.teamId);
+      if (!teamId) {
+        const externalId = quote.teamId.startsWith("T") ? quote.teamId.slice(1) : quote.teamId;
+        const team = await ctx.db
+          .query("teams")
+          .withIndex("by_external", (q) =>
+            q.eq("leagueId", article.leagueId).eq("externalId", externalId).eq("seasonId", seasonId)
+          )
+          .first();
+        teamId = team?._id ?? null;
+      }
+      if (teamId) quotedTeamIds.add(teamId);
+    }
 
     const memberships = await ctx.db
       .query("leagueMemberships")
@@ -552,7 +771,7 @@ export const notifyArticlePublished = internalMutation({
 
     let notifiedCount = 0;
     let skippedCount = 0;
-    const emailRecipients: string[] = [];
+    const emailRecipients: Array<{ email: string; recipientName?: string; quoted?: boolean }> = [];
 
     for (const membership of memberships) {
       const user = await ctx.db
@@ -595,7 +814,19 @@ export const notifyArticlePublished = internalMutation({
       notifiedCount++;
 
       if (user.preferences?.emailNotifications && user.email) {
-        emailRecipients.push(user.email);
+        let quoted: boolean | undefined;
+        if (quotedTeamIds.size > 0) {
+          // Same pattern as aiContentWithComments.getUserTeam: resolve the member's
+          // active team claim for this league via their Clerk id.
+          const claim = await ctx.db
+            .query("teamClaims")
+            .withIndex("by_user", (q) => q.eq("userId", user.clerkId))
+            .filter((q) => q.eq(q.field("leagueId"), article.leagueId))
+            .filter((q) => q.eq(q.field("status"), "active"))
+            .first();
+          if (claim) quoted = quotedTeamIds.has(claim.teamId);
+        }
+        emailRecipients.push({ email: user.email, recipientName: user.name, quoted });
       }
     }
 
@@ -604,6 +835,10 @@ export const notifyArticlePublished = internalMutation({
         title: article.title,
         summary,
         actionUrl,
+        leagueName: league?.name ?? "your league",
+        contentTypeLabel: contentTypeLabel(article.type),
+        week: article.metadata.week,
+        writerPersona: article.persona,
         recipients: emailRecipients,
       });
     }
@@ -616,31 +851,54 @@ export const notifyArticlePublished = internalMutation({
 
 // Sends the "article published" email to a batch of recipients via the
 // plain-text send path (no SendGrid dynamic template - see
-// emailService.sendPlainEmail). Kept as one action per publish event so we
-// log one line per batch instead of one per member.
+// emailService.sendPlainEmail), rendered from src/lib/email's Broadcast
+// template. Kept as one action per publish event so we log one line per
+// batch instead of one per member.
 export const sendArticlePublishedEmails = internalAction({
   args: {
     title: v.string(),
     summary: v.string(),
     actionUrl: v.string(),
-    recipients: v.array(v.string()),
+    leagueName: v.string(),
+    contentTypeLabel: v.string(),
+    week: v.optional(v.number()),
+    writerPersona: v.string(),
+    recipients: v.array(v.object({
+      email: v.string(),
+      recipientName: v.optional(v.string()),
+      quoted: v.optional(v.boolean()),
+    })),
   },
   handler: async (ctx, args) => {
     const baseUrl = process.env.SITE_URL || "https://ffsn.ai";
     const fullUrl = `${baseUrl}${args.actionUrl}`;
-    const subject = `New on FFSN: ${args.title}`;
-    const text = `${args.title}\n\n${args.summary}\n\nRead it here: ${fullUrl}`;
-    const html = `<p><strong>${escapeHtml(args.title)}</strong></p><p>${escapeHtml(args.summary)}</p><p><a href="${escapeHtml(fullUrl)}">Read the full article</a></p>`;
+    const writer = writerDisplay(args.writerPersona);
+    const preferencesUrl = `${baseUrl}/dashboard/settings/notifications`;
 
     let sent = 0;
     let failed = 0;
-    for (const to of args.recipients) {
+    for (const recipient of args.recipients) {
       try {
+        const rendered = renderArticlePublishedEmail({
+          title: args.title,
+          summary: args.summary,
+          articleUrl: fullUrl,
+          leagueName: args.leagueName,
+          contentTypeLabel: args.contentTypeLabel,
+          week: args.week,
+          writer,
+          recipientName: recipient.recipientName,
+          quoted: recipient.quoted,
+          preferencesUrl,
+          siteUrl: baseUrl,
+        });
+
         const result = await ctx.runAction(internal.emailService.sendPlainEmail, {
-          to,
-          subject,
-          text,
-          html,
+          to: recipient.email,
+          subject: rendered.subject,
+          text: rendered.text,
+          html: rendered.html,
+          fromName: rendered.fromName,
           relatedEntityType: "article_published",
         });
         if (result.success) {
@@ -650,7 +908,7 @@ export const sendArticlePublishedEmails = internalAction({
         }
       } catch (error) {
         failed++;
-        console.error(`sendArticlePublishedEmails: failed to send to ${to}`, error);
+        console.error(`sendArticlePublishedEmails: failed to send to ${recipient.email}`, error);
       }
     }
 

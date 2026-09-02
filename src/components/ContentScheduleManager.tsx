@@ -10,7 +10,16 @@ import { Label } from "./ui/label";
 import { Separator } from "./ui/separator";
 import { Progress } from "./ui/progress";
 import { Clock, Settings, Calendar, Zap, BarChart3, FileText, TrendingUp, Users } from "lucide-react";
-import { Panel, SectionHeader, Chip, PersonaAvatar, LoadingScreen } from "@/components/broadcast";
+import {
+  Panel,
+  SectionHeader,
+  Chip,
+  PersonaAvatar,
+  LoadingScreen,
+  writerRoster,
+  defaultPersonaFor,
+  personaName,
+} from "@/components/broadcast";
 import { cn } from "@/lib/utils";
 
 interface ContentScheduleManagerProps {
@@ -98,14 +107,12 @@ const CONTENT_TYPE_CONFIG = {
   }
 };
 
-const PERSONAS = [
-  { value: "mel-diaper", name: "Mel Diaper", label: "Mel Diaper - Bombastic draft expert who's never wrong" },
-  { value: "stan-deviation", name: "Stan Deviation", label: "Stan Deviation - Cold analytics and statistics expert" },
-  { value: "vinny-marinara", name: "Vinny \"The Sauce\" Marinara", label: "Vinny \"The Sauce\" Marinara - Mysterious insider with rumors" },
-  { value: "chad-thunderhype", name: "Chad Thunderhype", label: "Chad Thunderhype - Aggressively positive hype man" },
-  { value: "rick-two-beers", name: "Rick \"Two Beers\" O'Sullivan", label: "Rick \"Two Beers\" O'Sullivan - Bitter rambling ex-husband" },
-  { value: "mike-harrison", name: "Mike Harrison", label: "Mike Harrison - Professional sportswriter with balanced analysis" },
-];
+// Only the writers currently on air (spec §3); retired personas are never offered.
+const PERSONAS = writerRoster.map((writer) => ({
+  value: writer.slug,
+  name: writer.name,
+  label: `${writer.name} — ${writer.role}`,
+}));
 
 const TIMEZONES = [
   { value: "America/New_York", label: "Eastern Time" },
@@ -339,7 +346,8 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
             const schedule = schedules.find(s => s.contentType === contentType);
             const IconComponent = config.icon;
             const enabled = schedule?.enabled ?? false;
-            const selectedPersona = PERSONAS.find(p => p.value === (schedule?.preferredPersona || ""));
+            // A schedule with no writer yet falls back to this type's default (spec §3).
+            const personaSlug = schedule?.preferredPersona || defaultPersonaFor(contentType);
 
             return (
               <div
@@ -382,12 +390,12 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                     <span className="bc-label-sm text-bc-text-3">Writer</span>
                     <div className="flex items-center gap-2.5">
                       <PersonaAvatar
-                        persona={selectedPersona?.name || "analyst"}
+                        persona={personaName(personaSlug)}
                         size={32}
                         className="flex-none border border-bc-border-strong"
                       />
                       <Select
-                        value={schedule?.preferredPersona || "analyst"}
+                        value={personaSlug}
                         onValueChange={(persona) =>
                           schedule && handleUpdatePersona(schedule._id, persona)
                         }

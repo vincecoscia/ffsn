@@ -1,5 +1,16 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  articleClaimValidator,
+  articleQuoteValidator,
+  generationStatsValidator,
+  managerMentionValidator,
+  relationshipEventTypeValidator,
+  relationshipTierValidator,
+  quoteReviewEntryValidator,
+  reviewFlagValidator,
+  writerSentimentValidator,
+} from "./validators";
 
 export default defineSchema({
   // User profiles and preferences
@@ -162,6 +173,7 @@ export default defineSchema({
   })
     .index("by_league", ["leagueId"])
     .index("by_season", ["leagueId", "seasonId"])
+    .index("by_league_owner", ["leagueId", "owner"])
     .index("by_external", ["leagueId", "externalId", "seasonId"]),
 
   // Enhanced player data from ESPN
@@ -338,11 +350,39 @@ export default defineSchema({
       articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
       targetUserIds: v.array(v.string()),
       requestedAt: v.number(),
+      // Everything `checkAndGenerate` needs to run the deadline early, so
+      // `aiContentWithComments.goToPrintNow` can reschedule it without the
+      // caller re-supplying arguments it must not be trusted for (spec §8.2).
+      // `userId` is the requester's Clerk subject and is also the non-commissioner
+      // half of goToPrintNow's authorization check.
+      userId: v.optional(v.string()),
+      customContext: v.optional(v.string()),
+      seasonId: v.optional(v.number()),
+      week: v.optional(v.number()),
+      creditsDeductedUpFront: v.optional(v.number()),
     })),
+
+    // --- Broadcast Desk: grounding + verification (spec §4.2, §4.5) ---
+    // Deterministic verifier findings surfaced in edit-before-publish. Any
+    // "block" or "strip" finding suppresses auto-publish.
+    reviewFlags: v.optional(v.array(reviewFlagValidator)),
+    // Dotted FACTS paths the generator asked for and did not have.
+    factsMissing: v.optional(v.array(v.string())),
+    // Verifier + model bookkeeping for this generation run.
+    generationStats: v.optional(generationStatsValidator),
+    // Verified ledger quotes actually used, with the writer's in-voice reply.
+    quotes: v.optional(v.array(articleQuoteValidator)),
+    // Structured roast/praise, consumed by relationships.recordArticleMentions.
+    managerMentions: v.optional(v.array(managerMentionValidator)),
+    // Explicit on-the-record predictions this writer made (spec §8.4). Written
+    // with outcome "open"; claims.resolveOpenClaims settles them weekly.
+    claims: v.optional(v.array(articleClaimValidator)),
   })
     .index("by_league", ["leagueId"])
     .index("by_status", ["status"])
-    .index("by_league_published", ["leagueId", "publishedAt"]),
+    .index("by_league_published", ["leagueId", "publishedAt"])
+    // Receipts: one writer's back catalogue in one league (spec §8.4).
+    .index("by_league_persona", ["leagueId", "persona"]),
 
   // Reader reactions on published (or league-visible) articles. One reaction
   // per user per article — see articleEngagement.toggleReaction.
@@ -1104,6 +1144,10 @@ export default defineSchema({
   commentRequests: defineTable({
     // Core relationships
     leagueId: v.id("leagues"),
+    // Broadcast Desk (spec §5): sam-ortega conducts every interview; the
+    // writer whose article the quotes are destined for.
+    interviewerPersona: v.optional(v.string()),
+    writerPersona: v.optional(v.string()),
     scheduledContentId: v.optional(v.id("scheduledContent")), // The article this comment is for (optional for manual content)
     manualContentId: v.optional(v.id("aiContent")), // For manually generated content with comments
     targetUserId: v.id("users"), // User being asked for comment
@@ -1190,6 +1234,7 @@ export default defineSchema({
     updatedAt: v.number(),
     completedAt: v.optional(v.number()),
     expiredAt: v.optional(v.number()),
+    declinedAt: v.optional(v.number()), // Set by declineCommentRequest ("No comment")
   })
     .index("by_scheduled_content", ["scheduledContentId"])
     .index("by_manual_content", ["manualContentId"])
@@ -1215,6 +1260,9 @@ export default defineSchema({
       v.literal("user_response"),  // User providing response
       v.literal("ai_follow_up"),   // AI asking for clarification
       v.literal("ai_confirmation"), // AI confirming understanding
+      // Sam's sign-off asking the manager to approve the quotes we plan to
+      // print. The chat UI renders commentResponses.quoteReview under it (spec §8.1).
+      v.literal("quote_approval"),
       v.literal("system_message")  // System notifications (auto-end, etc.)
     ),
     
@@ -1240,6 +1288,12 @@ export default defineSchema({
       relevantTopics: v.optional(v.array(v.string())), // Extracted topics
       needsFollowUp: v.optional(v.boolean()),     // Should AI ask follow-up?
       suggestedFollowUps: v.optional(v.array(v.string())), // Potential questions
+      // Verbatim spans of this message that may be quoted. processCompletedResponse
+      // builds extractedQuotes from these only (spec §5).
+      quotableSegments: v.optional(v.array(v.string())),
+      // How the manager talked about each writer named in context; each entry
+      // records an interview_jab / interview_praise relationship event (spec §6).
+      writerSentiment: v.optional(v.array(writerSentimentValidator)),
     })),
     
     // Timing
@@ -1307,6 +1361,15 @@ export default defineSchema({
       v.literal("archived")     // Archived after article completion
     ),
     
+    // Quotes the manager approved for print, verbatim (spec §4.2 CommentResponseData.quotes)
+    approvedQuotes: v.optional(v.array(v.string())),
+
+    // Quote approval (spec §8.1). Seeded pending from the verified extracted
+    // quotes when the response row is created; the manager approves, edits or
+    // withdraws each one, and whatever is still pending at the deadline is
+    // auto-approved. This is the source of truth for what the writer may print.
+    quoteReview: v.optional(v.array(quoteReviewEntryValidator)),
+
     // Usage tracking
     usedInArticle: v.optional(v.boolean()),
     articleSection: v.optional(v.string()), // Which section it was used in
@@ -1620,5 +1683,42 @@ export default defineSchema({
     error: v.optional(v.string()),
   })
     .index("by_event_id", ["eventId"]),
+
+  // --- Broadcast Desk relationship meter (spec §6.1) ---
+
+  // Running score between one manager (users row) and one writer persona,
+  // scoped to a league. No row exists until the first event; a missing row
+  // reads as { score: 0, tier: "neutral" }.
+  writerRelationships: defineTable({
+    leagueId: v.id("leagues"),
+    userId: v.id("users"),
+    teamId: v.optional(v.id("teams")),
+    persona: v.string(),
+    score: v.number(), // clamped to [-100, 100]
+    tier: relationshipTierValidator,
+    eventCount: v.number(),
+    lastEventAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_league_user", ["leagueId", "userId"])
+    .index("by_league_persona", ["leagueId", "persona"])
+    .index("by_league_user_persona", ["leagueId", "userId", "persona"]),
+
+  // Append-only ledger of everything that moved a relationship score.
+  relationshipEvents: defineTable({
+    leagueId: v.id("leagues"),
+    userId: v.id("users"),
+    persona: v.string(),
+    type: relationshipEventTypeValidator,
+    delta: v.number(),
+    articleId: v.optional(v.id("aiContent")),
+    commentRequestId: v.optional(v.id("commentRequests")),
+    week: v.optional(v.number()),
+    evidence: v.string(), // <= 280 chars: the sentence or quote that caused it
+    createdAt: v.number(),
+  })
+    .index("by_league_user_persona", ["leagueId", "userId", "persona"])
+    .index("by_article", ["articleId"])
+    .index("by_league", ["leagueId"]),
 
 });

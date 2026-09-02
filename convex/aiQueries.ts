@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { internalQuery, QueryCtx } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { 
   calculateStrengthOfSchedule, 
@@ -14,6 +14,75 @@ import {
  * Enhanced query functions for AI content generation
  * These queries provide all the enriched data needed for accurate article generation
  */
+
+/* -------------------------------------------------------------------------- *
+ * Manager identity (spec section 2)
+ *
+ * `teams.owner` is an ESPN owner string (frequently an opaque GUID) and is never
+ * a Convex user id. The manager's *display* name is resolved here: ESPN's
+ * `ownerInfo` first, then the user who claimed the team for the league's current
+ * season (`teamClaims.userId` is a Clerk id -> `users.by_clerk_id`), then
+ * "Unknown". Every payload that carries a `manager` / `teamAOwner` / `teamBOwner`
+ * uses this, so the prompt layer never prints a raw ESPN owner id.
+ * -------------------------------------------------------------------------- */
+
+const UNKNOWN_MANAGER = "Unknown";
+
+/** ESPN-provided display name for a team's owner, or null when unusable. */
+function espnManagerName(team: Doc<"teams">): string | null {
+  const info = team.ownerInfo;
+  if (!info) return null;
+  const full = [info.firstName, info.lastName]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join(" ")
+    .trim();
+  if (full) return full;
+  const display = info.displayName?.trim();
+  return display ? display : null;
+}
+
+/** The name of the user who claimed this team for `seasonId`, or null. */
+async function claimedManagerName(
+  ctx: QueryCtx,
+  teamId: Id<"teams">,
+  seasonId: number
+): Promise<string | null> {
+  const claim = await ctx.db
+    .query("teamClaims")
+    .withIndex("by_team_season", (q) =>
+      q.eq("teamId", teamId).eq("seasonId", seasonId)
+    )
+    .filter((q) => q.eq(q.field("status"), "active"))
+    .first();
+  if (!claim) return null;
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerkId", claim.userId))
+    .unique();
+  const name = user?.name?.trim();
+  return name ? name : null;
+}
+
+/** Convex team id -> manager display name for every team passed in. */
+async function buildManagerNames(
+  ctx: QueryCtx,
+  teams: Array<Doc<"teams">>,
+  seasonId: number
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for (const team of teams) {
+    const fromEspn = espnManagerName(team);
+    if (fromEspn) {
+      names.set(team._id, fromEspn);
+      continue;
+    }
+    names.set(
+      team._id,
+      (await claimedManagerName(ctx, team._id, seasonId)) ?? UNKNOWN_MANAGER
+    );
+  }
+  return names;
+}
 
 // Get comprehensive league data for AI content generation
 export const getLeagueDataForAI = internalQuery({
@@ -176,6 +245,9 @@ export const getLeagueDataForAI = internalQuery({
         playerName: string;
         position: string;
         team: string;
+        nflTeam?: string;
+        fantasyTeamId: string;
+        fantasyTeamName: string;
         acquisitionType: string;
         fullName?: string;
       }>;
@@ -192,7 +264,7 @@ export const getLeagueDataForAI = internalQuery({
       previousSeasons[seasonId] = seasonTeams.map(team => ({
         teamId: team.externalId,
         teamName: team.name,
-        manager: team.owner,
+        manager: espnManagerName(team) || team.owner || UNKNOWN_MANAGER,
         record: {
           wins: team.record.wins,
           losses: team.record.losses,
@@ -204,7 +276,10 @@ export const getLeagueDataForAI = internalQuery({
           playerId: player.playerId,
           playerName: player.playerName,
           position: player.position,
-          team: player.team,
+          team: player.team, // legacy: NFL team abbreviation
+          nflTeam: player.team || undefined,
+          fantasyTeamId: String(team.externalId),
+          fantasyTeamName: team.name,
           acquisitionType: player.acquisitionType || "UNKNOWN",
           fullName: player.playerName,
         })),
@@ -300,6 +375,9 @@ export const getLeagueDataForAI = internalQuery({
         },
       }));
     
+    // Manager display names for every current-season team (see the helpers above).
+    const managerNames = await buildManagerNames(ctx, teams, currentSeason);
+
     // Debug roster availability
     console.log("Team roster check:", {
       totalTeams: teams.length,
@@ -361,6 +439,8 @@ export const getLeagueDataForAI = internalQuery({
           }
         } : null;
         
+        const nflTeam = enhancedPlayer?.proTeamAbbrev || rosterPlayer.team || undefined;
+
         return {
           ...rosterPlayer,
           playerId: rosterPlayer.playerId, // This is the ESPN ID
@@ -368,7 +448,12 @@ export const getLeagueDataForAI = internalQuery({
           fullName: enhancedPlayer?.fullName || rosterPlayer.playerName,
           playerName: enhancedPlayer?.fullName || rosterPlayer.playerName,
           position: enhancedPlayer?.defaultPosition || rosterPlayer.position,
-          team: enhancedPlayer?.proTeamAbbrev || rosterPlayer.team,
+          // Legacy key, unchanged: the NFL team abbreviation. New code reads the
+          // three explicit keys below (spec section 4.3) and never this one.
+          team: nflTeam,
+          nflTeam,
+          fantasyTeamId: String(team.externalId),
+          fantasyTeamName: team.name,
           injured: enhancedPlayer?.injured || false,
           injuryStatus: enhancedPlayer?.injuryStatus,
           stats: playerStats,
@@ -378,10 +463,15 @@ export const getLeagueDataForAI = internalQuery({
       return {
         id: team._id,
         name: team.name,
+        // Legacy key, unchanged: the raw ESPN owner string. `manager` is the
+        // display name the prompt layer prints.
         owner: team.owner,
+        manager: managerNames.get(team._id) ?? UNKNOWN_MANAGER,
         logo: team.logo,
         abbreviation: team.abbreviation,
         record: team.record,
+        pointsFor: team.record.pointsFor ?? 0,
+        pointsAgainst: team.record.pointsAgainst ?? 0,
         roster: enrichedRoster,
         playoffSeed,
         strengthOfSchedule,
@@ -417,6 +507,20 @@ export const getLeagueDataForAI = internalQuery({
       
       return {
         ...matchup,
+        // Same shape getWeeklyRecapDataForAI produces: names, external ids and
+        // manager display names, so the prompt layer never has to guess which
+        // of teamA/teamB is a name and which is an id.
+        teamA: homeTeam?.name || matchup.homeTeamId,
+        teamB: awayTeam?.name || matchup.awayTeamId,
+        teamAId: matchup.homeTeamId,
+        teamBId: matchup.awayTeamId,
+        teamAOwner: homeTeam ? managerNames.get(homeTeam._id) ?? UNKNOWN_MANAGER : UNKNOWN_MANAGER,
+        teamBOwner: awayTeam ? managerNames.get(awayTeam._id) ?? UNKNOWN_MANAGER : UNKNOWN_MANAGER,
+        scoreA: matchup.homeScore,
+        scoreB: matchup.awayScore,
+        projectedScoreA: matchup.homeProjectedScore,
+        projectedScoreB: matchup.awayProjectedScore,
+        // Kept for compatibility with existing readers.
         teamAName: homeTeam?.name || "Unknown",
         teamBName: awayTeam?.name || "Unknown",
         memorableMoment,
@@ -583,7 +687,12 @@ export const getWeeklyPlayerDataForAI = internalQuery({
     const allPlayers: Array<{
       playerName: string;
       position: string;
+      /** Legacy: the NFL team abbreviation. */
       team: string;
+      nflTeam?: string;
+      fantasyTeamId: string;
+      fantasyTeamName: string;
+      /** Legacy alias of `fantasyTeamName`. */
       fantasyTeam: string;
       points: number;
       projected: number;
@@ -597,6 +706,9 @@ export const getWeeklyPlayerDataForAI = internalQuery({
             playerName: player.playerName,
             position: player.position,
             team: player.team,
+            nflTeam: player.team || undefined,
+            fantasyTeamId: String(team.externalId),
+            fantasyTeamName: team.name,
             fantasyTeam: team.name,
             points: player.playerStats.appliedTotal,
             projected: player.playerStats.projectedTotal || 0,
@@ -670,6 +782,9 @@ export const getMockDraftDataForAI = internalQuery({
         .take(12); // Limit to 12 teams max
       
       console.log(`Found ${teams.length} teams for season ${targetSeason}`);
+
+      // Manager display names, never the raw ESPN owner string (spec section 2).
+      const managerNames = await buildManagerNames(ctx, teams, targetSeason);
       
       // Fetch top 50 players with enhanced data
       console.log("Fetching player data for mock draft...");
@@ -722,6 +837,8 @@ export const getMockDraftDataForAI = internalQuery({
               playerName: player.fullName,
               position: player.defaultPosition,
               proTeam: player.proTeamAbbrev || "",
+              // Free agents have no fantasy team; the NFL team is still explicit.
+              nflTeam: player.proTeamAbbrev || undefined,
               seasonOutlook: player.seasonOutlook || "",
               projectedStats: projectedData,
               ownership: {
@@ -746,7 +863,7 @@ export const getMockDraftDataForAI = internalQuery({
             position: index + 1,
             teamId: teamIdStr,
             teamName: team?.name || `Team ${index + 1}`,
-            manager: team?.owner || "Unknown",
+            manager: (team ? managerNames.get(team._id) : undefined) ?? UNKNOWN_MANAGER,
           };
         });
       } else if (teams.length > 0) {
@@ -755,7 +872,7 @@ export const getMockDraftDataForAI = internalQuery({
           position: index + 1,
           teamId: team.externalId,
           teamName: team.name,
-          manager: team.owner || "Unknown",
+          manager: managerNames.get(team._id) ?? UNKNOWN_MANAGER,
         }));
       }
       
@@ -772,7 +889,8 @@ export const getMockDraftDataForAI = internalQuery({
           id: team._id,
           externalId: team.externalId,
           name: team.name,
-          manager: team.owner,
+          owner: team.owner, // legacy: raw ESPN owner string
+          manager: managerNames.get(team._id) ?? UNKNOWN_MANAGER,
           draftPosition: draftOrder.findIndex(d => d.teamId === team.externalId) + 1,
         })),
         availablePlayers: draftablePlayers,
@@ -892,6 +1010,9 @@ export const getSeasonWelcomeDataForAI = internalQuery({
           playerName: string;
           position: string;
           team: string;
+          nflTeam?: string;
+          fantasyTeamId: string;
+          fantasyTeamName: string;
           acquisitionType: string;
           fullName?: string;
         }>;
@@ -912,7 +1033,7 @@ export const getSeasonWelcomeDataForAI = internalQuery({
           previousSeasons[season.seasonId] = seasonTeams.map(team => ({
             teamId: team.externalId,
             teamName: team.name,
-            manager: team.owner || "Unknown",
+            manager: espnManagerName(team) || team.owner || UNKNOWN_MANAGER,
             record: {
               wins: team.record.wins,
               losses: team.record.losses,
@@ -924,7 +1045,10 @@ export const getSeasonWelcomeDataForAI = internalQuery({
               playerId: player.playerId,
               playerName: player.playerName,
               position: player.position,
-              team: player.team,
+              team: player.team, // legacy: NFL team abbreviation
+              nflTeam: player.team || undefined,
+              fantasyTeamId: String(team.externalId),
+              fantasyTeamName: team.name,
               acquisitionType: player.acquisitionType || "DRAFT",
               fullName: player.playerName,
             })) || [],
@@ -1462,6 +1586,8 @@ export const getWaiverWireDataForAI = internalQuery({
           playerName: player.fullName,
           position: player.defaultPositionId,
           proTeam: player.proTeamAbbrev,
+          // Waiver targets are free agents: NFL team only, no fantasy team.
+          nflTeam: player.proTeamAbbrev || undefined,
           ownership: {
             percentOwned: player.ownership?.percentOwned || 0,
             percentChange: player.ownership?.percentChange || 0,
@@ -1509,7 +1635,12 @@ export const getWaiverWireDataForAI = internalQuery({
             .map((p: any) => ({
               playerId: p.playerId,
               playerName: p.playerName,
+              // Legacy key, unchanged: here it has always been the fantasy team
+              // name. Read `nflTeam` / `fantasyTeamName` instead.
               team: team.name,
+              nflTeam: p.nflTeam,
+              fantasyTeamId: String(team.externalId),
+              fantasyTeamName: team.name,
               position: p.position,
               status: p.injuryStatus || "QUESTIONABLE",
               fantasyTeam: team.name,
@@ -1642,6 +1773,11 @@ export const getTradeAnalysisDataForAI = internalQuery({
         const enhanced = tradedPlayersEnhanced.find(p => p.espnId === player.playerId);
         return {
           ...player,
+          // Explicit ids (spec section 4.3). Fantasy ownership is stated
+          // post-trade: what team A gave up now sits on team B.
+          nflTeam: enhanced?.proTeamAbbrev || player.team || undefined,
+          fantasyTeamId: String(teamBData?.externalId ?? targetTrade.teamB.teamId),
+          fantasyTeamName: teamBData?.name ?? targetTrade.teamB.teamName,
           seasonStats: enhanced?.stats ? {
             totalPoints: enhanced.stats.appliedTotal || 0,
             averagePoints: enhanced.stats.appliedAverage || 0,
@@ -1659,6 +1795,11 @@ export const getTradeAnalysisDataForAI = internalQuery({
         const enhanced = tradedPlayersEnhanced.find(p => p.espnId === player.playerId);
         return {
           ...player,
+          // Explicit ids (spec section 4.3). Fantasy ownership is stated
+          // post-trade: what team B gave up now sits on team A.
+          nflTeam: enhanced?.proTeamAbbrev || player.team || undefined,
+          fantasyTeamId: String(teamAData?.externalId ?? targetTrade.teamA.teamId),
+          fantasyTeamName: teamAData?.name ?? targetTrade.teamA.teamName,
           seasonStats: enhanced?.stats ? {
             totalPoints: enhanced.stats.appliedTotal || 0,
             averagePoints: enhanced.stats.appliedAverage || 0,
@@ -1837,6 +1978,27 @@ export const getWeeklyRecapDataForAI = internalQuery({
       
       // Create a map of teamId to team data
       const teamMap = new Map(teams.map(team => [team.externalId, team]));
+
+      // Manager display names and NFL teams come from the enriched league payload
+      // (which already resolved ownerInfo / teamClaims and playersEnhanced), so
+      // this query invents nothing of its own.
+      const managerByExternalId = new Map<string, string>();
+      const nflTeamByPlayerId = new Map<string, string>();
+      for (const enrichedTeam of (basicLeagueData.teams ?? []) as any[]) {
+        if (enrichedTeam?.externalId) {
+          managerByExternalId.set(
+            String(enrichedTeam.externalId),
+            enrichedTeam.manager || UNKNOWN_MANAGER
+          );
+        }
+        for (const rosterPlayer of (enrichedTeam?.roster ?? []) as any[]) {
+          if (rosterPlayer?.playerId && rosterPlayer.nflTeam) {
+            nflTeamByPlayerId.set(String(rosterPlayer.playerId), rosterPlayer.nflTeam);
+          }
+        }
+      }
+      const managerFor = (externalId: string | undefined) =>
+        (externalId ? managerByExternalId.get(String(externalId)) : undefined) ?? UNKNOWN_MANAGER;
       
       // Categorize matchups by playoff tier
       const playoffMatchups = weekMatchups.filter(m => m.playoffTier === "WINNERS_BRACKET");
@@ -1866,9 +2028,20 @@ export const getWeeklyRecapDataForAI = internalQuery({
         const awayRoster = matchup.awayRoster?.players || [];
         
         // Separate starters from bench players
+        // Every player carries its NFL team and its fantasy team as separate,
+        // explicit keys (spec section 4.3). `team` keeps its legacy meaning in
+        // this payload - the fantasy team name - and is no longer read on its own.
+        const withTeamContext = (p: any, team: typeof homeTeam, fallbackId: string) => ({
+          ...p,
+          team: team?.name || fallbackId,
+          nflTeam: nflTeamByPlayerId.get(String(p.espnId)),
+          fantasyTeamId: String(team?.externalId ?? fallbackId),
+          fantasyTeamName: team?.name || fallbackId,
+        });
+
         const allPlayers = [
-          ...homeRoster.map((p: any) => ({ ...p, team: homeTeam?.name || matchup.homeTeamId })),
-          ...awayRoster.map((p: any) => ({ ...p, team: awayTeam?.name || matchup.awayTeamId }))
+          ...homeRoster.map((p: any) => withTeamContext(p, homeTeam, matchup.homeTeamId)),
+          ...awayRoster.map((p: any) => withTeamContext(p, awayTeam, matchup.awayTeamId))
         ];
         
         // Categorize players by lineup status
@@ -1885,6 +2058,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
             points: player.points,
             projectedPoints: player.projectedPoints || 0,
             team: player.team,
+            nflTeam: player.nflTeam,
+            fantasyTeamId: player.fantasyTeamId,
+            fantasyTeamName: player.fantasyTeamName,
             isStarter: true,
             lineupSlotId: player.lineupSlotId,
             overPerformance: player.projectedPoints ? 
@@ -1922,6 +2098,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
               points: player.points,
               projectedPoints: player.projectedPoints || 0,
               team: player.team,
+              nflTeam: player.nflTeam,
+              fantasyTeamId: player.fantasyTeamId,
+              fantasyTeamName: player.fantasyTeamName,
               isStarter: false,
               lineupSlotId: player.lineupSlotId,
               overPerformance: player.projectedPoints ? 
@@ -1990,8 +2169,12 @@ export const getWeeklyRecapDataForAI = internalQuery({
           ...matchup,
           teamA: homeTeam?.name || matchup.homeTeamId,
           teamB: awayTeam?.name || matchup.awayTeamId,
-          teamAOwner: homeTeam?.owner || 'Unknown',
-          teamBOwner: awayTeam?.owner || 'Unknown',
+          teamAId: matchup.homeTeamId,
+          teamBId: matchup.awayTeamId,
+          teamAName: homeTeam?.name || matchup.homeTeamId,
+          teamBName: awayTeam?.name || matchup.awayTeamId,
+          teamAOwner: managerFor(homeTeam?.externalId),
+          teamBOwner: managerFor(awayTeam?.externalId),
           scoreA: matchup.homeScore,
           scoreB: matchup.awayScore,
           projectedScoreA: matchup.homeProjectedScore,
@@ -2008,6 +2191,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
           homeRoster: homeRoster.map((p: any) => ({
             ...p,
             teamName: homeTeam?.name || matchup.homeTeamId,
+            nflTeam: nflTeamByPlayerId.get(String(p.espnId)),
+            fantasyTeamId: String(homeTeam?.externalId ?? matchup.homeTeamId),
+            fantasyTeamName: homeTeam?.name || matchup.homeTeamId,
             isStarter: p.lineupSlotId !== 20 && p.lineupSlotId !== 21,
             isBench: p.lineupSlotId === 20,
             isIR: p.lineupSlotId === 21,
@@ -2015,6 +2201,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
           awayRoster: awayRoster.map((p: any) => ({
             ...p,
             teamName: awayTeam?.name || matchup.awayTeamId,
+            nflTeam: nflTeamByPlayerId.get(String(p.espnId)),
+            fantasyTeamId: String(awayTeam?.externalId ?? matchup.awayTeamId),
+            fantasyTeamName: awayTeam?.name || matchup.awayTeamId,
             isStarter: p.lineupSlotId !== 20 && p.lineupSlotId !== 21,
             isBench: p.lineupSlotId === 20,
             isIR: p.lineupSlotId === 21,
@@ -2073,7 +2262,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
           return {
             teamId: team._id,
             teamName: team.name,
-            owner: team.owner,
+            externalId: team.externalId,
+            owner: team.owner, // legacy: raw ESPN owner string
+            manager: managerFor(team.externalId),
             wins,
             losses,
             ties,

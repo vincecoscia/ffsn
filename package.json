@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval:articles": "vite-node scripts/eval-articles.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

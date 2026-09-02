@@ -1,0 +1,155 @@
+{
+  "name": "ghost-speaker",
+  "fixture": "rich-week",
+  "contentType": "weekly_recap",
+  "persona": "dex-alvarez",
+  "note": "A manager who never answered is given a line, and a player nobody in this league rosters is named in prose.",
+  "expected": [
+    {
+      "kind": "ghost_speaker",
+      "severity": "block",
+      "section": "From the sideline"
+    },
+    {
+      "kind": "unknown_player",
+      "severity": "warn",
+      "section": "From the sideline"
+    }
+  ],
+  "article": {
+    "title": "Milltown, on the record and off it",
+    "summary": "Gravel Pit Grinders stayed unbeaten by 5.3 over the only winless team in the league. Sable Ridge Sentinels left 17.9 points on their bench. Halyard Bay Harriers took the week's upset.",
+    "tone": "professional",
+    "sections": [
+      {
+        "name": "Top of the show",
+        "content": "Gravel Pit Grinders are 7-0, and the closest thing to a scare they have had all season came from the only winless team on the board. Sable Ridge Sentinels lost by 5.3 with 17.9 points on their bench. That is the week.",
+        "wordCount": 41
+      },
+      {
+        "name": "The rundown, tightest first",
+        "content": "Quarry Road Quakers 118.7, Milltown Mudlarks 112.3. The margin was 6.4, and Nico Barrantes had 19.7 of it back for the Quakers. Foundry District Foxes 121.4, Pike County Pilots 99.6, with Dane Kowalczyk at 27.2. Halyard Bay Harriers 127.5 over Ninth Street Nightjars 103.8 is the upset of the week: Gil Provost went for 29.9 and Tobias Reneau went for 8.1. Cedar Falls Cormorants 141.6, Ashgrove Anvils 96.4. Cass Lindqvist had 33.4 and Bo Tremaine had 4.8.",
+        "wordCount": 78
+      },
+      {
+        "name": "From the sideline",
+        "content": "Ruth Tanaka of the Sable Ridge Sentinels answered for the bench.\n\n:::quote{id=Q1}\n\nThe injury report is a real thing. So is 17.9 points, and Duke Ellery would have replaced Cole Vandermeer.\n\n:::quote{id=Q2}\n\nShe does.\n\nDana Whitlock of the Gravel Pit Grinders was asked about the start.\n\n:::quote{id=Q3}\n\nNumbers desk has more on that. Owen Radcliffe said \"no comment.\" Chase Willoughby had 22 off the Milltown bench. We reached out to Milltown Mudlarks and Ashgrove Anvils and did not hear back.",
+        "wordCount": 71
+      }
+    ],
+    "featuredTeams": [
+      {
+        "teamId": "T1",
+        "teamName": "Gravel Pit Grinders",
+        "mentions": 3
+      },
+      {
+        "teamId": "T10",
+        "teamName": "Sable Ridge Sentinels",
+        "mentions": 3
+      },
+      {
+        "teamId": "T5",
+        "teamName": "Halyard Bay Harriers",
+        "mentions": 2
+      },
+      {
+        "teamId": "T2",
+        "teamName": "Cedar Falls Cormorants",
+        "mentions": 1
+      }
+    ],
+    "featuredPlayers": [
+      {
+        "playerId": "M1Pp204",
+        "playerName": "Duke Ellery",
+        "position": "WR",
+        "fantasyTeamId": "T10",
+        "nflTeam": "CAR",
+        "mentions": 2
+      },
+      {
+        "playerId": "M1Pp101",
+        "playerName": "Rex Dolan",
+        "position": "QB",
+        "fantasyTeamId": "T1",
+        "nflTeam": "KC",
+        "mentions": 1
+      },
+      {
+        "playerId": "M4Pp151",
+        "playerName": "Gil Provost",
+        "position": "QB",
+        "fantasyTeamId": "T5",
+        "nflTeam": "DET",
+        "mentions": 1
+      }
+    ],
+    "keyStats": [
+      {
+        "stat": "Points left on the Sable Ridge bench",
+        "value": "17.9",
+        "context": "Duke Ellery would have replaced Cole Vandermeer",
+        "source": "matchups.M1.players.M1Pp204.benchImpact.pointGain"
+      },
+      {
+        "stat": "Gravel Pit points for",
+        "value": "812.4",
+        "context": "most in the league",
+        "source": "teams.T1.pointsFor"
+      },
+      {
+        "stat": "Week 7 upset margin",
+        "value": "23.7",
+        "context": "Halyard Bay over Ninth Street",
+        "source": "matchups.M4.margin"
+      }
+    ],
+    "quotes": [
+      {
+        "quoteId": "Q1",
+        "speaker": "Ruth Tanaka",
+        "teamId": "T10",
+        "text": "I had Ellery on the bench because the injury report said questionable at noon and I did not want to risk a zero.",
+        "questionTopic": "leaving Duke Ellery on the bench",
+        "sectionName": "From the sideline",
+        "writerResponse": "The injury report is a real thing. So is 17.9 points, and Duke Ellery would have replaced Cole Vandermeer."
+      },
+      {
+        "quoteId": "Q2",
+        "speaker": "Ruth Tanaka",
+        "teamId": "T10",
+        "text": "We lost by five. I know what that number means.",
+        "questionTopic": "leaving Duke Ellery on the bench",
+        "sectionName": "From the sideline",
+        "writerResponse": "She does."
+      },
+      {
+        "quoteId": "Q3",
+        "speaker": "Dana Whitlock",
+        "teamId": "T1",
+        "text": "Seven and oh is a number, not a trophy.",
+        "questionTopic": "starting the season seven and zero",
+        "sectionName": "From the sideline",
+        "writerResponse": "Numbers desk has more on that."
+      }
+    ],
+    "managerMentions": [
+      {
+        "teamId": "T10",
+        "managerName": "Ruth Tanaka",
+        "stance": "neutral",
+        "intensity": 1,
+        "evidence": "Sable Ridge Sentinels lost by 5.3 with 17.9 points on their bench."
+      }
+    ],
+    "claims": [
+      {
+        "text": "Gravel Pit Grinders take the one seed.",
+        "kind": "team_finish",
+        "subjectTeamId": "T1",
+        "maxRank": 1
+      }
+    ]
+  }
+}

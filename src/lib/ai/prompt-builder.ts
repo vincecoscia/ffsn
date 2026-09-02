@@ -1,5 +1,64 @@
-import { personaPrompts, getPersonaSettings } from './persona-prompts';
+import { getPersona, type PersonaPrompt } from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
+import { buildFactsBlock, serializeFacts, type FactsBlock } from './facts';
+import type {
+  CommentResponseData,
+  NonRespondent,
+  PriorClaim,
+  PriorRecord,
+  WriterRelationshipContext,
+} from './content-generation-service';
+
+/**
+ * Thrown when a content type's core data is absent. The pipeline must surface this as a failed
+ * generation with a human-readable reason and refund the credit — never paper over it with
+ * invented matchups, trades or rivalries.
+ */
+export class InsufficientDataError extends Error {
+  readonly contentType: string;
+  readonly missing: string[];
+
+  constructor(contentType: string, missing: string[]) {
+    super(
+      `Not enough data to write a ${contentType}. Missing: ${missing.join(', ')}. ` +
+        `Sync the league and try again.`
+    );
+    this.name = 'InsufficientDataError';
+    this.contentType = contentType;
+    this.missing = missing;
+  }
+}
+
+/**
+ * The grounding contract. Emitted at the very top of the system prompt, above the persona, because
+ * position matters: the contract must frame the voice, not the other way round.
+ */
+const GROUNDING_CONTRACT = `GROUNDING CONTRACT — this overrides every style instruction below.
+
+Everything factual in your article must come from the <FACTS> block in the user message. A fact is
+any name, team, score, point total, record, rank, pick number, date, transaction, or quote.
+
+1. Never state a number that is not in <FACTS>. Do not compute new statistics, ratios, percentages,
+   or projections beyond simple sums and differences of numbers that are present — and when you do
+   that arithmetic, show both inputs.
+2. Never attribute a player to a fantasy team except via that player's fantasyTeamId field. Never
+   infer team membership from who they were mentioned near.
+3. Never quote, paraphrase, or characterize a manager's opinion unless that manager appears in
+   facts.quotes. If a manager did not respond, write about their team without them. Silence is a
+   fact you may mention; it is not a licence to invent a reaction.
+4. Never reference your own past predictions, previous articles, prior rankings, or league lore
+   unless it appears in facts.priorClaims. If that array is empty, you have no history — write as
+   if this is your first piece.
+5. facts.missing lists data unavailable this week. Do not fill those gaps. Name the gap in
+   character instead — "the box score doesn't tell us why he sat" is in voice; inventing why is not.
+
+Uncertainty is in-voice, not out-of-voice. You may be as loud, cocky, or dismissive as your
+persona demands about interpretation — who was lucky, who is cooked, who should be ashamed. Speak
+in absolutes about opinions. Speak only from <FACTS> about events. If you want a stronger claim
+than the facts support, escalate the rhetoric, never the data.
+
+Word targets are ceilings, not quotas. A shorter accurate section always beats a padded one. If
+a section has thin material, say so briefly and move on.`;
 
 interface Matchup {
   teamA: string;
@@ -51,6 +110,11 @@ export interface PromptBuilderOptions {
   leagueData: LeagueDataContext;
   customContext?: string;
   includeExamples?: boolean;
+  commentResponses?: CommentResponseData[];
+  nonRespondents?: NonRespondent[];
+  relationships?: WriterRelationshipContext[];
+  priorClaims?: PriorClaim[];
+  priorRecord?: PriorRecord;
 }
 
 export interface LeagueDataContext {
@@ -351,256 +415,225 @@ export interface LeagueDataContext {
 export class PromptBuilder {
   private options: PromptBuilderOptions;
   private template: ContentTemplate;
-  private personaPrompt: typeof personaPrompts[string];
+  private persona: PersonaPrompt;
+  private facts: FactsBlock;
 
   constructor(options: PromptBuilderOptions) {
     this.options = options;
     this.template = contentTemplates[options.contentType];
-    this.personaPrompt = personaPrompts[options.persona];
+    // Unknown slugs fall back to the default anchor rather than throwing — archived and
+    // mis-typed personas must still be able to produce an article.
+    this.persona = getPersona(options.persona);
 
     if (!this.template) {
       throw new Error(`Unknown content type: ${options.contentType}`);
     }
-    if (!this.personaPrompt) {
-      throw new Error(`Unknown persona: ${options.persona}`);
-    }
+
+    this.facts = buildFactsBlock(options);
   }
 
-  build(): { systemPrompt: string; userPrompt: string; settings: { maxTokens: number; temperature: number; } } {
-    console.log("=== PromptBuilder START ===");
-    console.log("Content type:", this.options.contentType);
-    console.log("Persona:", this.options.persona);
-    console.log("League data available:", !!this.options.leagueData);
-    
-    // Validate required data for the template
-    const validation = this.validateRequiredData();
-    if (!validation.valid) {
-      console.warn("=== MISSING REQUIRED DATA ===");
-      console.warn("Content type:", this.options.contentType);
-      console.warn("Missing fields:", validation.missing);
-      console.warn("This may result in lower quality content generation");
+  build(): { systemPrompt: string; userPrompt: string; facts: FactsBlock; maxTokens: number } {
+    if (this.facts.missing.length > 0) {
+      console.warn("MISSING DATA for", this.options.contentType, this.facts.missing);
     }
-    
+
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt();
-    const settings = getPersonaSettings(this.options.persona);
-    
-    console.log("System prompt length:", systemPrompt.length);
-    console.log("User prompt length:", userPrompt.length);
-    console.log("=== PromptBuilder END ===");
 
-    return { systemPrompt, userPrompt, settings };
-  }
-  
-  private validateRequiredData(): { valid: boolean; missing: string[] } {
-    const missing: string[] = [];
-    const data = this.options.leagueData;
-    
-    // Check each required field
-    this.template.requiredData.forEach(field => {
-      switch (field) {
-        case 'historical_data':
-          if (!data.previousSeasons || Object.keys(data.previousSeasons).length === 0) {
-            missing.push('historical_data (previousSeasons)');
-          }
-          break;
-        case 'all_time_records':
-          if (!data.leagueHistory?.allTimeRecords || Object.keys(data.leagueHistory.allTimeRecords).length === 0) {
-            missing.push('all_time_records');
-          }
-          break;
-        case 'championship_history':
-          if (!data.leagueHistory?.seasons || data.leagueHistory.seasons.length === 0) {
-            missing.push('championship_history');
-          }
-          break;
-        case 'matchup_results':
-          if (!data.recentMatchups || data.recentMatchups.length === 0) {
-            missing.push('matchup_results');
-          }
-          break;
-        case 'player_scores':
-          if (!data.teams.some(team => team.roster && team.roster.length > 0)) {
-            missing.push('player_scores (rosters)');
-          }
-          break;
-        case 'standings':
-          if (!data.standings || data.standings.length === 0) {
-            missing.push('standings');
-          }
-          break;
-        case 'draft_order':
-          if (!data.draftOrder || data.draftOrder.length === 0) {
-            missing.push('draft_order');
-          }
-          break;
-        case 'available_players':
-          if (!data.availablePlayers || data.availablePlayers.length === 0) {
-            missing.push('available_players');
-          }
-          break;
-        case 'trade_details':
-          if (!data.trades || data.trades.length === 0) {
-            missing.push('trade_details');
-          }
-          break;
-        case 'rivalry_history':
-          if (!data.rivalries || data.rivalries.length === 0) {
-            missing.push('rivalry_history');
-          }
-          break;
-        case 'draft_results':
-          if (!data.draftPicks || data.draftPicks.length === 0) {
-            missing.push('draft_results (draftPicks)');
-          }
-          break;
-        case 'team_rosters':
-          if (!data.teams || data.teams.length === 0) {
-            missing.push('team_rosters (teams)');
-          }
-          break;
-        case 'player_projections':
-          if (!data.draftPicks || !data.draftPicks.some(pick => pick.playerProjectedPoints !== null)) {
-            missing.push('player_projections');
-          }
-          break;
-        case 'league_settings':
-          if (!data.scoringType && !data.totalTeams && !data.draftType) {
-            missing.push('league_settings');
-          }
-          break;
-      }
+    console.log("=== PromptBuilder ===", {
+      contentType: this.options.contentType,
+      persona: this.persona.slug,
+      systemPromptLength: systemPrompt.length,
+      userPromptLength: userPrompt.length,
+      factsTeams: this.facts.teams.length,
+      factsMatchups: this.facts.matchups.length,
+      factsQuotes: this.facts.quotes.length,
+      factsMissing: this.facts.missing.length,
     });
-    
-    return {
-      valid: missing.length === 0,
-      missing
-    };
+
+    return { systemPrompt, userPrompt, facts: this.facts, maxTokens: this.persona.maxTokens };
   }
 
+  /** System prompt order is fixed: contract, voice, quotes, relationships, template, gaps. */
   private buildSystemPrompt(): string {
-    return `${this.personaPrompt.systemPrompt}
+    const persona = this.persona;
+    const parts: string[] = [GROUNDING_CONTRACT];
 
-STYLE GUIDE:
-${this.personaPrompt.styleGuide}
+    parts.push(`WHO YOU ARE
+${persona.voice}
 
-VOCABULARY PREFERENCES:
-Use these phrases and words frequently: ${this.personaPrompt.vocabularyPreferences.join(', ')}
+Your signature moves:
+${persona.signatureMoves.map(move => `- ${move}`).join('\n')}
 
-FORBIDDEN PHRASES:
-Never use these phrases: ${this.personaPrompt.forbiddenPhrases.join(', ')}
+Never do these (style rules — they never override the grounding contract):
+${persona.neverDo.map(rule => `- ${rule}`).join('\n')}
 
-CONTENT STRUCTURE:
-You are writing a ${this.template.name} article for a fantasy football league.
-Target length: approximately ${this.template.estimatedWords} words.
+How you handle certainty:
+- When the facts are strong: ${persona.truthPosture.whenCertain}
+- When the data is thin: ${persona.truthPosture.whenUnsure}
+- When something is listed in facts.missing: ${persona.truthPosture.whenDataMissing}`);
 
-${this.options.includeExamples ? `
-EXAMPLE OUTPUTS IN YOUR STYLE:
-${this.personaPrompt.exampleOutputs.join('\n')}
-` : ''}`;
+    parts.push(`QUOTES
+- Attribution pattern: ${persona.quoteStyle.attributionPattern}
+- How you react to a quote: ${persona.quoteStyle.reactionStyle}
+- When a manager did not respond: ${persona.quoteStyle.whenNoQuote}
+
+Hard rules for quotes:
+- Quotation marks mean verbatim text from facts.quotes. Copy it character for character.
+- A paraphrase never goes inside quotation marks.
+- First reference is "Name, Team"; the team alone afterwards.
+- A person in facts.nonRespondents may only be described with the sanctioned phrasing above. Never
+  invent their reaction, their reasoning, or a reason for their silence.
+- For every ledger quote you use, respond to it in voice in the same section. That reply is what you
+  report in quotes[].writerResponse.
+
+How a quote is placed in the body — this is the only way to print one:
+- Put the directive line ":::quote{id=Q1}" on a line of its own, where the quote belongs, using the
+  id from facts.quotes. Write it exactly like that, with no spaces inside the braces. One directive
+  per quote, for every ledger quote you print.
+- Do not also repeat the quote text inside quotation marks anywhere in the body. The directive
+  prints the words, the speaker, the team and the week.
+- Your reply to the quote goes in quotes[].writerResponse, not in the body prose.
+- You may write your own prose in the lines after the directive; the directive line stands alone.
+- Every id you place must exist in facts.quotes. There is no directive for a manager who did not
+  respond.`);
+
+    if (this.facts.relationships.length > 0) {
+      const lines = this.facts.relationships.map(relationship => {
+        const team = this.facts.teams.find(candidate => candidate.id === relationship.teamId);
+        const posture = persona.relationshipPosture[relationship.tier];
+        const recent = relationship.recentEvents
+          .slice(0, 3)
+          .map(event => `${event.week ? `Wk ${event.week}: ` : ''}${event.evidence} (${event.delta > 0 ? '+' : ''}${event.delta})`)
+          .join(' · ');
+        return `- ${relationship.manager} (${team?.name ?? relationship.teamId}): ${relationship.tier}, score ${relationship.score}. ${posture}${recent ? ` Recent: ${recent}` : ''}`;
+      });
+
+      parts.push(`RELATIONSHIPS
+These are your standing relationships with the managers in this league. Relationship evidence is a
+fact: you may quote it back ("you told Sam that I should stick to mock drafts").
+${lines.join('\n')}`);
+    }
+
+    const recordBlock = this.buildRecordBlock();
+    if (recordBlock) parts.push(recordBlock);
+
+    const sections = this.templateSections();
+    parts.push(`TEMPLATE — ${this.template.name}
+Write these sections, in this order. Word counts are CEILINGS, never quotas.
+${sections.map(section => `- ${section.name} (${section.description}): up to ${section.wordCount ?? 200} words`).join('\n')}
+Whole-article ceiling: ${this.template.estimatedWords} words. Coming in well under it is a good outcome.`);
+
+    if (this.facts.missing.length > 0) {
+      parts.push(`MISSING DATA
+The following is unavailable for this article. Name the gap in character if it matters; never fill it.
+${this.facts.missing.map(entry => `- ${entry}`).join('\n')}`);
+    }
+
+    if (this.options.includeExamples !== false && persona.exampleOutputs.length > 0) {
+      parts.push(`VOICE SAMPLES — style only. The braces are placeholders, not content. Never copy a
+placeholder, a number, or a name out of these lines into your article.
+${persona.exampleOutputs.map(sample => `- ${sample}`).join('\n')}`);
+    }
+
+    return parts.join('\n\n');
+  }
+
+  /**
+   * YOUR RECORD (spec §8.4). Emitted only when the writer actually has a history in this league —
+   * resolved claims are quotable facts; an empty ledger is not a licence to invent one.
+   */
+  private buildRecordBlock(): string | null {
+    const claims = this.facts.priorClaims;
+    const record = this.facts.priorRecord;
+    const decided = record ? record.hits + record.misses : 0;
+    if (claims.length === 0 && decided === 0) return null;
+
+    const parts = [`YOUR RECORD
+These are predictions you made in earlier articles for this league, and how they turned out. They
+are facts. You may cite one by week, with its outcome, in your own words. Nothing else about your
+past coverage is available to you.`];
+
+    if (claims.length > 0) {
+      parts.push(
+        claims
+          .map(claim => {
+            const week = claim.week ? `Wk ${claim.week}` : 'undated';
+            return `- [${week}] ${claim.outcome ?? 'open'}: "${claim.claim}"`;
+          })
+          .join('\n')
+      );
+    }
+
+    if (record && decided > 0) {
+      const open = record.open > 0 ? `, with ${record.open} still open` : '';
+      parts.push(
+        `Your record in this league is ${record.hits}-${record.misses}${open}. You may state it once, in a single line.`
+      );
+      if (this.persona.slug === 'mel-diaper') {
+        parts.push(`Close the article with this line, exactly: "Mel's Receipts: ${record.hits}-${record.misses}"`);
+      }
+    }
+
+    return parts.join('\n\n');
+  }
+
+  /** Template sections, with the weekly-recap playoff sections resolved against the payload. */
+  private templateSections() {
+    const playoffData = (this.options.leagueData as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown })
+      .playoffBreakdown;
+
+    return this.template.sections.filter(section => {
+      // A quotes section exists only when there are quotes — for every content type.
+      if (section.name === 'team_comments') return this.facts.quotes.length > 0;
+      if (this.options.contentType !== 'weekly_recap') return section.required;
+      if (section.name === 'championship_game') return playoffData?.isChampionshipWeek || false;
+      if (section.name === 'playoff_games') {
+        return (playoffData?.playoffGameCount || 0) > 0 && !playoffData?.isChampionshipWeek;
+      }
+      if (section.name === 'playoff_implications') return playoffData?.isPlayoffWeek || false;
+      return section.required;
+    });
   }
 
   private buildUserPrompt(): string {
     const { leagueData, customContext } = this.options;
-    
-    console.log("=== buildUserPrompt START ===");
-    console.log("Building prompt for:", this.template.name);
-    console.log("League context:", {
-      name: leagueData.leagueName,
-      week: leagueData.currentWeek,
-      teams: leagueData.teams.length,
-      hasPreviousSeasons: !!leagueData.previousSeasons && Object.keys(leagueData.previousSeasons).length > 0,
-      hasMatchups: !!leagueData.recentMatchups && leagueData.recentMatchups.length > 0,
-      hasRosters: leagueData.teams.some(t => t.roster && t.roster.length > 0),
-    });
-    
-    let prompt = `Write a ${this.template.name} article for "${leagueData.leagueName}" fantasy football league.
 
-CURRENT CONTEXT:
-- Week: ${leagueData.currentWeek}
-- Number of teams: ${leagueData.teams.length} (current season only)
-- Teams maintain consistent externalId across seasons for performance tracking
+    // FACTS first. Everything after it is a readable rendering of the same data.
+    let prompt = `${serializeFacts(this.facts)}
 
+Write a ${this.template.name} article for "${leagueData.leagueName}".
+
+The <FACTS> block above is the complete set of facts available to you. Cite ids from it in the
+structured fields of your output. The prose below restates the same data in a more readable form —
+where the two ever disagree, <FACTS> wins.
 `;
 
-    // Add section requirements with playoff-specific adjustments
-    prompt += `\nARTICLE SECTIONS (follow this structure):\n`;
-    this.template.sections.forEach(section => {
-      let shouldInclude = section.required;
-      
-      // Handle playoff-specific sections for weekly recap
-      if (this.options.contentType === 'weekly_recap') {
-        const playoffData = (leagueData as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown }).playoffBreakdown;
-        
-        if (section.name === 'championship_game') {
-          shouldInclude = playoffData?.isChampionshipWeek || false;
-        } else if (section.name === 'playoff_games') {
-          shouldInclude = (playoffData?.playoffGameCount || 0) > 0 && !playoffData?.isChampionshipWeek;
-        } else if (section.name === 'playoff_implications') {
-          shouldInclude = playoffData?.isPlayoffWeek || false;
-        }
-      }
-      
-      if (shouldInclude) {
-        prompt += `- ${section.name} (${section.description}): ~${section.wordCount} words\n`;
-      }
+    const sections = this.templateSections();
+    prompt += `\nSECTIONS (word counts are ceilings):\n`;
+    sections.forEach(section => {
+      prompt += `- ${section.name} (${section.description}): up to ${section.wordCount ?? 200} words\n`;
     });
 
-    // Add specific data based on content type
-    const contentSpecificData = this.addContentSpecificData(leagueData);
-    console.log("Content specific data length:", contentSpecificData.length);
-    console.log("Content specific data preview:", contentSpecificData.substring(0, 200) + "...");
-    prompt += `\n${contentSpecificData}`;
+    prompt += `\n${this.addContentSpecificData(leagueData)}`;
 
-    // Add custom context if provided
     if (customContext) {
-      console.log("Custom context provided, length:", customContext.length);
-      prompt += `\nADDITIONAL CONTEXT:\n${customContext}\n`;
+      prompt += `\nADDITIONAL CONTEXT FROM THE COMMISSIONER:\n${customContext}\n`;
     }
 
-    // Add formatting instructions
-    prompt += `\nFORMATTING:
-- Use markdown formatting
-- Include a compelling title
-- Break up sections with clear headers
-- Stay in character as ${this.options.persona} throughout
-- Make specific references to team names and manager names
-- Include specific scores and statistics where relevant
-- When discussing past performance, remember team names may change but externalId stays consistent
+    prompt += `\nFORMATTING AND ACCURACY
+- Markdown prose. Clear section headings written in your voice.
+- Stay in character throughout, and stay inside the grounding contract throughout.
+- Refer to teams and managers by the names in <FACTS>. Never print a raw id in the prose.
+- Attribute a player to a fantasy team only via that player's fantasyTeamId. A player object's
+  nflTeam is their NFL club and is never their fantasy team.
+- Bench players: only discuss one when the player carries a benchImpact object, and when you do,
+  say plainly that they were benched, who they would have replaced, and the point gain from
+  benchImpact. Bench players without benchImpact are not part of the story.
+- Every number you print must be in <FACTS>, or a sum or difference of two numbers that are, with
+  both inputs shown.
+- If a section has thin material, write less. Padding is the failure mode this desk cares about.`;
 
-CRITICAL PLAYER MENTION RULES:
-- ONLY mention players marked as [STARTER] in your analysis unless specified otherwise
-- [BENCH] players should ONLY be mentioned if they have the "benchImpact" flag AND specific replacement information
-- When mentioning a [BENCH] player with benchImpact, ALWAYS note they were on the bench and specify who they would have replaced and by how many points
-- Example: "Saquon Barkley exploded for 25.3 points on the bench - if he had started over Joe Mixon's 8.2 points, Team X would have won by 10 points instead of losing by 7!"
-- Do NOT mention bench players who scored well but wouldn't have improved the starting lineup
-- Focus your analysis on the players who actually contributed to the team's final score (starters)
-- Bench players without the benchImpact flag should be ignored completely in your analysis
-
-CRITICAL PLAYER-TEAM ASSIGNMENT RULES:
-- Each player in the "Top performers" section includes their team name in brackets: [TEAM NAME]
-- ALWAYS check the team name in brackets to correctly attribute players to their teams
-- Example: "Josh Allen (QB) [The Stinky Faggots] - 40.8 pts" means Josh Allen plays for "The Stinky Faggots"
-- NEVER assume a player belongs to a team based on the matchup context - ONLY use the bracketed team name
-- When discussing a player's performance, reference their actual team from the brackets, not the opposing team
-
-COMMENT INTEGRATION FOR WEEKLY RECAPS:
-- Manager names are provided in matchup data (Team Name (Manager Name))
-- Comments are organized BY TEAM NAME in the comments section - match them exactly to the team in each matchup
-- When analyzing "Team Destroyers (John Smith) vs Team Rivals (Mike Johnson)", look for:
-  * Comments under "## Team Destroyers:" for John Smith's quotes
-  * Comments under "## Team Rivals:" for Mike Johnson's quotes
-- NEVER mix up team comments - only use comments from the team you're currently analyzing
-- Integrate their quotes naturally into the game analysis, not as a separate section
-- Use their reactions to explain lineup decisions, celebrate wins, or express frustration with losses
-- Example: "Team Destroyers dominated 145-98! When asked about his explosive performance, John Smith said: 'I knew starting Lamar over Mahomes was the right call' - and boy was he right!"
-- Always provide context for what question prompted their response
-- Make it feel like a conversation between you and the managers about their specific games
-- If no comments exist for a team, analyze their game without quotes - don't use another team's comments`;
-
-    console.log("Final user prompt length:", prompt.length);
-    console.log("=== buildUserPrompt END ===");
-    
     return prompt;
   }
 
@@ -634,6 +667,25 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
         break;
       case 'trade_rumor_mill':
         contextData = this.buildTradeRumorData(data);
+        break;
+      // Spec §8.5. Each of the seven has a path; the ones whose material is the ordinary league
+      // overview reuse `buildGenericData` rather than inventing a near-duplicate builder.
+      case 'draft_strategy_guide':
+        contextData = this.buildDraftStrategyData(data);
+        break;
+      case 'team_name_power_rankings':
+        contextData = this.buildTeamNameRankingsData(data);
+        break;
+      case 'trade_block_tuesday':
+        contextData = this.buildTradeRumorData(data);
+        break;
+      case 'playoff_picture':
+        contextData = this.buildPlayoffPictureData(data);
+        break;
+      case 'commissioner_corner':
+      case 'hall_of_shame':
+      case 'player_glazing':
+        contextData = this.buildGenericData(data);
         break;
       default:
         contextData = this.buildGenericData(data);
@@ -683,14 +735,23 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
       const performerCount = isChampionshipGame ? 5 : (isPlayoffGame ? 4 : 3);
       details += '  Top performers:\n';
       matchup.topPerformers.slice(0, performerCount).forEach((perf) => {
+        const loose = perf as unknown as Record<string, unknown>;
         const playerName = perf.playerName || perf.player || 'Unknown Player';
         const position = perf.position ? ` (${perf.position})` : '';
-        const teamName = perf.team ? ` [${perf.team}]` : '';
+        // `fantasyTeamName` is authoritative. `nflTeam` is a separate, differently-named key.
+        // The legacy `team` key is ambiguous and only used when nothing better is present.
+        const fantasyTeam =
+          (typeof loose.fantasyTeamName === 'string' && loose.fantasyTeamName) ||
+          (typeof loose.teamName === 'string' && loose.teamName) ||
+          perf.team;
+        const nflTeam = typeof loose.nflTeam === 'string' ? loose.nflTeam : undefined;
+        const fantasyLabel = fantasyTeam ? ` fantasy team: ${fantasyTeam}` : '';
+        const nflLabel = nflTeam ? `, NFL: ${nflTeam}` : '';
         const overPerf = perf.overPerformance ? ` (+${perf.overPerformance}% vs proj)` : '';
         const lineupStatus = perf.isStarter === false ? ' [BENCH]' : ' [STARTER]';
-        const benchNote = perf.benchImpact && perf.wouldHaveReplacedPlayer ? 
+        const benchNote = perf.benchImpact && perf.wouldHaveReplacedPlayer ?
           ` (would have replaced ${perf.wouldHaveReplacedPlayer} for +${perf.pointImprovementIfStarted} pts)` : '';
-        details += `    - ${playerName}${position}${teamName} - ${perf.points.toFixed(1)} pts${overPerf}${lineupStatus}${benchNote}\n`;
+        details += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts${overPerf}${lineupStatus}${benchNote} —${fantasyLabel}${nflLabel}\n`;
       });
     }
     
@@ -711,7 +772,7 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
 
   private buildWeeklyRecapData(data: LeagueDataContext): string {
     if (!data.recentMatchups || data.recentMatchups.length === 0) {
-      return 'No matchup data available. Create fictional but realistic matchups.';
+      throw new InsufficientDataError('weekly_recap', ['matchup_results']);
     }
 
     let recap = '';
@@ -858,7 +919,9 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
     sortedTeams.forEach((team, index) => {
       rankings += `${index + 1}. ${team.name} (${team.record.wins}-${team.record.losses}`;
       if (team.record.ties > 0) rankings += `-${team.record.ties}`;
-      rankings += `) - ${team.pointsFor.toFixed(1)} PF, ${team.pointsAgainst.toFixed(1)} PA\n`;
+      const pointsFor = team.pointsFor ?? team.record.pointsFor ?? 0;
+      const pointsAgainst = team.pointsAgainst ?? team.record.pointsAgainst ?? 0;
+      rankings += `) - ${pointsFor.toFixed(1)} PF, ${pointsAgainst.toFixed(1)} PA\n`;
       
       // Add top performers from each team
       if (team.roster && team.roster.length > 0) {
@@ -906,7 +969,7 @@ COMMENT INTEGRATION FOR WEEKLY RECAPS:
 
   private buildTradeAnalysisData(data: LeagueDataContext): string {
     if (!data.trades || data.trades.length === 0) {
-      return 'Create a fictional but realistic trade between two teams for analysis.';
+      throw new InsufficientDataError('trade_analysis', ['trade_details']);
     }
 
     const latestTrade = data.trades[0];
@@ -1013,8 +1076,8 @@ CURRENT SEASON STATUS:
       const teamBData = data.teams.find(t => t.id === rivalry.teamB.id || t.externalId === rivalry.teamB.id);
       
       if (teamAData && teamBData) {
-        rivalryData += `${rivalry.teamA.name}: ${teamAData.record.wins}-${teamAData.record.losses}, ${teamAData.pointsFor.toFixed(1)} PF
-${rivalry.teamB.name}: ${teamBData.record.wins}-${teamBData.record.losses}, ${teamBData.pointsFor.toFixed(1)} PF
+        rivalryData += `${rivalry.teamA.name}: ${teamAData.record.wins}-${teamAData.record.losses}, ${(teamAData.pointsFor ?? teamAData.record.pointsFor ?? 0).toFixed(1)} PF
+${rivalry.teamB.name}: ${teamBData.record.wins}-${teamBData.record.losses}, ${(teamBData.pointsFor ?? teamBData.record.pointsFor ?? 0).toFixed(1)} PF
 
 RECENT FORM:
 `;
@@ -1033,13 +1096,16 @@ RECENT FORM:
         });
       }
       
-      rivalryData += '\nCreate an exciting narrative about this rivalry matchup, incorporating the history and current context.';
+      rivalryData += '\nWrite about this matchup using the history above. Every head-to-head result you cite must appear in <FACTS> or in the lines above.';
       
       return rivalryData;
     }
     
-    // Fallback: Create rivalry from two competitive teams
+    // No imported rivalry record. Fall back to the two best teams, and say so.
     const sortedTeams = [...data.teams].sort((a, b) => b.record.wins - a.record.wins);
+    if (sortedTeams.length < 2) {
+      throw new InsufficientDataError('rivalry_week_special', ['rivalry_history', 'team_rosters']);
+    }
     const team1 = sortedTeams[0];
     const team2 = sortedTeams[1];
 
@@ -1049,13 +1115,13 @@ ${team1.name} (${team1.record.wins}-${team1.record.losses}) vs ${team2.name} (${
 CURRENT SEASON STATS:
 ${team1.name}:
 - Manager: ${team1.manager}
-- Points For: ${team1.pointsFor.toFixed(1)}
+- Points For: ${(team1.pointsFor ?? team1.record.pointsFor ?? 0).toFixed(1)}
 - Playoff Seed: ${team1.playoffSeed || 'TBD'}
 ${team1.recentForm ? `- Recent Form: ${team1.recentForm.wins}-${team1.recentForm.losses}, ${team1.recentForm.avgPoints.toFixed(1)} ppg` : ''}
 
 ${team2.name}:
 - Manager: ${team2.manager}
-- Points For: ${team2.pointsFor.toFixed(1)}
+- Points For: ${(team2.pointsFor ?? team2.record.pointsFor ?? 0).toFixed(1)}
 - Playoff Seed: ${team2.playoffSeed || 'TBD'}
 ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm.losses}, ${team2.recentForm.avgPoints.toFixed(1)} ppg` : ''}
 `;
@@ -1077,7 +1143,7 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
       });
     }
 
-    rivalryData += '\nCreate an exciting rivalry narrative between these two competitive teams.';
+    rivalryData += `\nNOTE: this league has no imported rivalry record, so there is no rivalry history to draw on. These are simply the two teams with the best records. Say that plainly rather than inventing a backstory.`;
     
     return rivalryData;
   }
@@ -1124,7 +1190,7 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         .sort((a, b) => (b.ownership?.percentChange || 0) - (a.ownership?.percentChange || 0))
         .slice(0, 10)
         .forEach(player => {
-          waiverData += `- ${player.playerName} (${player.position}, ${player.team}) - ${player.ownership?.percentOwned}% owned`;
+          waiverData += `- ${player.playerName} (${player.position}, NFL: ${player.team}) - ${player.ownership?.percentOwned}% owned`;
           if (player.ownership?.percentChange && player.ownership.percentChange > 0) {
             waiverData += ` (+${player.ownership.percentChange}% this week)`;
           }
@@ -1159,7 +1225,10 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
   }
 
   private buildGenericData(data: LeagueDataContext): string {
-    const leader = data.teams.sort((a, b) => b.record.wins - a.record.wins)[0];
+    if (!data.teams || data.teams.length === 0) {
+      throw new InsufficientDataError(this.options.contentType, ['team_rosters (teams)']);
+    }
+    const leader = [...data.teams].sort((a, b) => b.record.wins - a.record.wins)[0];
     let genericData = `LEAGUE OVERVIEW:
 - ${data.teams.length} teams
 - Current leader: ${leader.name} (${leader.record.wins}-${leader.record.losses})
@@ -1198,12 +1267,132 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         .sort((a, b) => b.avgPoints - a.avgPoints)
         .slice(0, 5)
         .forEach((player, idx) => {
-          genericData += `${idx + 1}. ${player.playerName} (${player.position}, ${player.team}) - ${player.avgPoints.toFixed(1)} ppg
+          genericData += `${idx + 1}. ${player.playerName} (${player.position}) - ${player.avgPoints.toFixed(1)} ppg - fantasy team: ${player.team}
 `;
         });
     }
 
     return genericData;
+  }
+
+  /** Pre-draft planning material: settings, order, and the pool with ADP where it exists. */
+  private buildDraftStrategyData(data: LeagueDataContext): string {
+    if (!data.teams || data.teams.length === 0) {
+      throw new InsufficientDataError('draft_strategy_guide', ['team_rosters (teams)']);
+    }
+
+    const order = data.draftOrder ?? data.draftSettings?.pickOrder ?? [];
+
+    let guide = `DRAFT STRATEGY CONTEXT:\n\nLEAGUE SETTINGS:\n`;
+    guide += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'} | ${data.scoringType || 'PPR'}\n`;
+    guide += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n`;
+    guide += `- ${data.playoffTeams ?? 'unknown'} playoff teams | ${data.regularSeasonWeeks ?? 'unknown'} regular season weeks\n\n`;
+
+    if (order.length > 0) {
+      guide += `DRAFT ORDER:\n${order.map(pick => `${pick.position}. ${pick.teamName}`).join(' | ')}\n\n`;
+    }
+
+    if (data.availablePlayers && data.availablePlayers.length > 0) {
+      guide += `PLAYER POOL BY POSITION (ADP is average draft position; lower is earlier):\n`;
+      ['QB', 'RB', 'WR', 'TE'].forEach(position => {
+        const pool = data.availablePlayers!
+          .filter(player => player.position === position)
+          .sort(
+            (a, b) =>
+              (a.ownership?.averageDraftPosition ?? Number.MAX_SAFE_INTEGER) -
+              (b.ownership?.averageDraftPosition ?? Number.MAX_SAFE_INTEGER)
+          )
+          .slice(0, position === 'QB' || position === 'TE' ? 8 : 14);
+        if (pool.length === 0) return;
+        guide += `\n${position}s:\n`;
+        pool.forEach(player => {
+          const adp = player.ownership?.averageDraftPosition;
+          guide += `- ${player.playerName} (${player.proTeam || player.team || 'NFL team unknown'})`;
+          guide += adp ? ` — ADP ${adp.toFixed(1)}` : ` — no ADP in the payload`;
+          if (player.projectedStats) {
+            guide += `, projected ${player.projectedStats.projectedTotal.toFixed(0)} pts`;
+          }
+          guide += '\n';
+        });
+      });
+      guide += '\n';
+    }
+
+    guide += `STRATEGY GUIDE RULES:
+- This is a plan for a draft that has not happened. Never describe a pick as made.
+- Every positional claim is carried by the ADP or projection in the pool above, or it is not made.
+- Slot advice is about the order above: name the slot, name what it can realistically get.
+- No invented tiers, no invented ADP. If the payload has no ADP for a player, say so.`;
+
+    return guide;
+  }
+
+  /** The names themselves are the subject matter, so they are printed verbatim and in full. */
+  private buildTeamNameRankingsData(data: LeagueDataContext): string {
+    if (!data.teams || data.teams.length === 0) {
+      throw new InsufficientDataError('team_name_power_rankings', ['team_rosters (teams)']);
+    }
+
+    let names = `EVERY TEAM NAME IN THIS LEAGUE (copy them character for character):\n`;
+    data.teams.forEach((team, index) => {
+      const record = `${team.record.wins}-${team.record.losses}${team.record.ties > 0 ? `-${team.record.ties}` : ''}`;
+      names += `${index + 1}. "${team.name}" — manager ${team.manager}, ${record}\n`;
+    });
+
+    names += `\nTEAM NAME RANKING RULES:
+- Rank the names, not the teams. A bad team can hold the best name in the league.
+- Print every name exactly as it appears above, including punctuation and capitalisation.
+- Never invent a joke that requires a name the league does not have.
+- The record and manager are context. They are not the criteria unless you say so out loud.`;
+
+    return names;
+  }
+
+  /** Standings, the seed line, and the results the picture is computed from. */
+  private buildPlayoffPictureData(data: LeagueDataContext): string {
+    if (!data.standings || data.standings.length === 0) {
+      throw new InsufficientDataError('playoff_picture', ['standings']);
+    }
+
+    const playoffTeams = data.playoffTeams;
+    let picture = `PLAYOFF PICTURE CONTEXT:\n`;
+    picture += `- Week ${data.currentWeek}`;
+    if (data.regularSeasonWeeks) picture += ` of ${data.regularSeasonWeeks} regular season weeks`;
+    picture += `\n- Playoff field: ${playoffTeams ?? 'not in the payload'}\n\n`;
+
+    picture += `STANDINGS:\n`;
+    data.standings.forEach(team => {
+      picture += `${team.rank}. ${team.team} (${team.wins}-${team.losses}`;
+      if (team.ties > 0) picture += `-${team.ties}`;
+      picture += `) — ${team.pointsFor.toFixed(1)} PF, ${team.pointsAgainst.toFixed(1)} PA`;
+      if (team.streakType && team.streakLength) picture += ` [${team.streakType}${team.streakLength}]`;
+      if (team.playoffSeed) picture += ` [#${team.playoffSeed} seed]`;
+      picture += '\n';
+    });
+
+    if (data.recentMatchups && data.recentMatchups.length > 0) {
+      picture += `\nMOST RECENT RESULTS:\n`;
+      data.recentMatchups.slice(0, 8).forEach(matchup => {
+        picture += `- Week ${matchup.week ?? data.currentWeek}: ${matchup.teamA} ${matchup.scoreA} - ${matchup.scoreB} ${matchup.teamB}\n`;
+      });
+    }
+
+    if (data.upcomingSchedule && data.upcomingSchedule.length > 0) {
+      picture += `\nNEXT OPPONENTS:\n`;
+      data.upcomingSchedule.forEach(entry => {
+        picture += `- ${entry.teamName} vs ${entry.nextOpponent}`;
+        if (entry.nextOpponentRank) picture += ` (#${entry.nextOpponentRank})`;
+        picture += '\n';
+      });
+    }
+
+    picture += `\nPLAYOFF PICTURE RULES:
+- Seeding comes from the standings above and nowhere else.
+- Every piece of elimination or clinching arithmetic shows both inputs.
+- ${playoffTeams ? `The field is ${playoffTeams} teams.` : 'The payload does not say how many teams make the playoffs. Say that instead of assuming six.'}
+- No playoff odds. There is no odds model in this payload, so there is no percentage to print.`;
+
+    return picture;
   }
 
   private buildMockDraftData(data: LeagueDataContext): string {
@@ -1321,11 +1510,36 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     return mockDraftData;
   }
 
+  /**
+   * One pick, printed the same way everywhere it appears (spec §8.6): ADP and the signed delta on
+   * every pick, plus the perceivedValue score. The reader — and the model — never has to infer a
+   * sign from a label.
+   */
+  private formatDraftPick(pick: NonNullable<LeagueDataContext['draftPicks']>[number]): string {
+    const adp = pick.playerADP;
+    const delta = adp === null || adp === undefined ? undefined : pick.pickNumber - adp;
+    const adpLabel =
+      adp === null || adp === undefined
+        ? 'no ADP in the payload'
+        : `ADP ${adp.toFixed(1)}, delta ${delta! >= 0 ? '+' : ''}${delta!.toFixed(1)}`;
+    const projected =
+      pick.playerProjectedPoints === null || pick.playerProjectedPoints === undefined
+        ? ''
+        : `, proj ${pick.playerProjectedPoints.toFixed(0)} pts`;
+    const value = `, perceivedValue ${pick.perceivedValue >= 0 ? '+' : ''}${pick.perceivedValue.toFixed(1)}`;
+    const rookie = pick.isRookie ? ' [rookie]' : '';
+    return `${pick.pickNumber}. ${pick.playerName} (${pick.playerPosition}, ${pick.playerTeam}) → ${pick.teamName} — ${adpLabel}${projected}${value}${rookie}`;
+  }
+
   private buildDraftRankingsData(data: LeagueDataContext): string {
     console.log("=== buildDraftRankingsData START ===");
-    
+
     let draftData = `POST-DRAFT RANKINGS & ANALYSIS:\n\n`;
-    
+
+    draftData += `HOW TO READ A PICK LINE:\n`;
+    draftData += `- delta = pick number minus ADP. Positive delta = drafted LATER than ADP (value). Negative delta = drafted EARLIER than ADP (reach).\n`;
+    draftData += `- perceivedValue is this desk's score for the pick: positive is value, negative is a reach, and it is already scaled for round.\n\n`;
+
     // League Information
     draftData += `LEAGUE SETTINGS:\n`;
     draftData += `- ${data.leagueName}\n`;
@@ -1345,9 +1559,14 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
             draftData += `   Strategy: ${team.strategy.strategy}\n`;
           }
           draftData += `   Projected Starter Points: ${team.projectedStarterPoints.toFixed(0)}\n`;
-          draftData += `   Best Pick: ${team.bestPicks[0]?.playerName} (${team.bestPicks[0]?.playerPosition}) at pick ${team.bestPicks[0]?.pickNumber}\n`;
-          if (team.worstPicks.length > 0 && team.worstPicks[0].perceivedValue < -20) {
-            draftData += `   Biggest Reach: ${team.worstPicks[0].playerName} at pick ${team.worstPicks[0].pickNumber}\n`;
+          const bestPick = team.bestPicks[0];
+          if (bestPick) {
+            draftData += `   Best Pick: ${this.formatDraftPick(bestPick)}\n`;
+          }
+          // Same dedupe rule as the league-wide lists: a pick is best or worst, never both.
+          const worstPick = team.worstPicks.find(pick => pick.playerName !== bestPick?.playerName);
+          if (worstPick && worstPick.perceivedValue < -20) {
+            draftData += `   Biggest Reach: ${this.formatDraftPick(worstPick)}\n`;
           }
           draftData += `   Reasoning: ${team.reasoning}\n`;
           draftData += `\n`;
@@ -1375,22 +1594,7 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
             draftData += `\nRound ${round}:\n`;
             picks.sort((a, b) => a.pickNumber - b.pickNumber)
               .forEach(pick => {
-                draftData += `${pick.pickNumber}. ${pick.playerName} (${pick.playerPosition}, ${pick.playerTeam}) → ${pick.teamName}`;
-                
-                if (pick.playerADP) {
-                  const adpDiff = pick.pickNumber - pick.playerADP;
-                  if (adpDiff > 10) {
-                    draftData += ` [VALUE: ADP ${pick.playerADP.toFixed(1)}]`;
-                  } else if (adpDiff < -10) {
-                    draftData += ` [REACH: ADP ${pick.playerADP.toFixed(1)}]`;
-                  }
-                }
-                
-                if (pick.playerProjectedPoints) {
-                  draftData += ` | Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
-                }
-                
-                draftData += `\n`;
+                draftData += `${this.formatDraftPick(pick)}\n`;
               });
           });
         draftData += `\n`;
@@ -1442,22 +1646,11 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
       const uniqueBestPicks = hotTakeBestPicks
         .filter((pick, index, arr) => arr.findIndex(p => p.playerName === pick.playerName) === index)
         .slice(0, 8);
-      
+
       if (uniqueBestPicks.length > 0) {
         draftData += `HOT TAKE BEST PICKS:\n`;
         uniqueBestPicks.forEach(pick => {
-          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
-          if (pick.playerProjectedPoints) {
-            draftData += ` - Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
-          }
-          if (pick.playerADP && pick.pickNumber > pick.playerADP + 10) {
-            const adpDiff = pick.pickNumber - pick.playerADP;
-            draftData += ` (STEAL: ADP ${pick.playerADP.toFixed(1)}, +${adpDiff.toFixed(1)} value)`;
-          }
-          if (pick.isRookie) {
-            draftData += ` [ROOKIE SLEEPER]`;
-          }
-          draftData += `\n`;
+          draftData += `${this.formatDraftPick(pick)}\n`;
         });
         draftData += `\n`;
       }
@@ -1494,25 +1687,18 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         hotTakeWorstPicks.push(...terribleValue);
       }
       
-      // Remove duplicates and limit
+      // Unified dedupe: a player appears in exactly one of the two lists. Best wins the tie, so
+      // the same name can never be sold as a steal in one paragraph and a reach in the next.
+      const bestNames = new Set(uniqueBestPicks.map(pick => pick.playerName));
       const uniqueWorstPicks = hotTakeWorstPicks
         .filter((pick, index, arr) => arr.findIndex(p => p.playerName === pick.playerName) === index)
+        .filter(pick => !bestNames.has(pick.playerName))
         .slice(0, 6);
-      
+
       if (uniqueWorstPicks.length > 0) {
         draftData += `HOT TAKE QUESTIONABLE PICKS:\n`;
         uniqueWorstPicks.forEach(pick => {
-          draftData += `${pick.playerName} (${pick.playerPosition}) to ${pick.teamName} at pick ${pick.pickNumber}`;
-          if (pick.playerProjectedPoints) {
-            draftData += ` - Proj: ${pick.playerProjectedPoints.toFixed(0)} pts`;
-          }
-          if (pick.playerADP && pick.pickNumber < pick.playerADP - 15) {
-            draftData += ` (REACH: ADP ${pick.playerADP.toFixed(1)})`;
-          }
-          if (pick.perceivedValue < -30) {
-            draftData += ` [YIKES]`;
-          }
-          draftData += `\n`;
+          draftData += `${this.formatDraftPick(pick)}\n`;
         });
         draftData += `\n`;
       }
@@ -1537,36 +1723,27 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     draftData += `GRADING METHODOLOGY:\n`;
     draftData += `- Grades based on: projected starter points (40%), perceived pick value vs ADP (40%), bench depth (20%)\n`;
     draftData += `- Strategy analysis considers first 5 picks and position distribution\n`;
-    draftData += `- STEALS/Value picks: Players drafted significantly LATER than their ADP (e.g., ADP 30, drafted at pick 50 = 20-spot steal)\n`;
-    draftData += `- REACHES: Players drafted significantly EARLIER than their ADP (e.g., ADP 50, drafted at pick 30 = 20-spot reach)\n`;
     draftData += `- Consider league scoring system (${data.scoringType}) when evaluating positional value\n\n`;
-    
-    draftData += `CRITICAL ADP INTERPRETATION:\n`;
-    draftData += `- When you see [VALUE: ADP X.X], this means the player was drafted LATER than their ADP (a STEAL)\n`;
-    draftData += `- When you see [REACH: ADP X.X], this means the player was drafted EARLIER than their ADP (a REACH)\n`;
-    draftData += `- NEVER call a reach a "steal" or "value" - reaches are BAD picks, steals are GOOD picks\n`;
-    draftData += `- Example: Pick 30, ADP 43 = REACH (drafted 13 spots too early) - DO NOT CALL THIS A STEAL!\n`;
-    draftData += `- Example: Pick 50, ADP 30 = STEAL (drafted 20 spots later than expected) - This is actual value!\n`;
-    draftData += `- If a player's pick number is LOWER than their ADP, it's a REACH, not a steal!\n\n`;
-    
+
     draftData += `DRAFT RANKINGS INSTRUCTIONS:\n`;
+    draftData += `- Read the delta on the pick line: positive is value, negative is a reach. Say which one it is.\n`;
+    draftData += `- Every pick you call a steal or a reach is quoted with its ADP and its delta.\n`;
+    draftData += `- A player appears in the best list or the questionable list, never both.\n`;
     draftData += `- Focus on ACTUAL draft results and grades, not predictions\n`;
     draftData += `- Go through EACH TEAM INDIVIDUALLY and give them their personalized grade and analysis\n`;
     draftData += `- Don't group teams by grade (no "A+ teams", "B teams" sections) - analyze each team separately\n`;
     draftData += `- Use the provided team-by-team data with specific reasoning for each team's grade\n`;
-    draftData += `- CRITICAL: If team manager comments are provided, INTEGRATE them directly into each team's breakdown\n`;
-    draftData += `- MANDATORY QUOTE FORMAT: ALWAYS include the manager's name and question context when quoting\n`;
-    draftData += `- Structure team analysis: "[AI analysis of pick] When asked about [SPECIFIC QUESTION/TOPIC], [MANAGER NAME] said: '[EXACT QUOTE]' [AI snarky response]"\n`;
-    draftData += `- NEVER quote a player without including their name - use "John Smith said:" not just "said:"\n`;
-    draftData += `- ALWAYS provide context about what question prompted their response (e.g., "about their draft strategy", "about picking Mahomes early", "about their running back depth")\n`;
-    draftData += `- Make comments feel like natural conversation between you and the managers, not an afterthought\n`;
-    draftData += `- Use manager quotes to explain controversial picks, draft strategy, or team construction decisions\n`;
+    draftData += `- If the quote ledger has a manager's words, place them inside that team's own grade block\n`;
+    draftData += `- Attribution is "{MANAGER} of {TEAM}" on first reference, and the quote is verbatim\n`;
+    draftData += `- Say what the manager was asked about, using the questionTopic from the ledger\n`;
+    draftData += `- Respond to the quote in your own voice in the same paragraph\n`;
+    draftData += `- A team with no quote gets analysed without one, and you say nothing about why\n`;
     draftData += `- Be critical of bad picks but give credit where due\n`;
     draftData += `- Include specific analysis of each team's strategy (when provided), best picks, and biggest reaches\n`;
     draftData += `- NEVER mention confidence levels or percentages related to draft strategy analysis\n`;
-    draftData += `- The "Hot Take Best Picks" section highlights elite projections, TRUE STEALS (drafted later than ADP), and rookie sleepers\n`;
+    draftData += `- The "Hot Take Best Picks" list is elite projections, picks with a positive delta, and rookie sleepers\n`;
     draftData += `- Rookies are identified by the isRookie field, determined from ESPN's eligibility data\n`;
-    draftData += `- The "Hot Take Questionable Picks" section focuses on reaches and low-projection players drafted early\n`;
+    draftData += `- The "Hot Take Questionable Picks" list is negative deltas and low-projection players drafted early\n`;
     draftData += `- Make bold, entertaining takes on these picks - don't just list them, give hot takes!\n`;
     draftData += `- Reference the grading methodology but don't be overly technical\n`;
     draftData += `- Make it entertaining while being informative with personalized takes for each team\n`;
@@ -1678,26 +1855,19 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         });
     }
     
-    rumorData += `\nTRADE RUMOR INSTRUCTIONS:
-- You are Vinny "The Sauce" Marinara, spreading mysterious insider information
-- The specific trade rumor details are provided in the ADDITIONAL CONTEXT section below
-- IMPORTANT: Use the actual player names, team names, and stats provided in the ADDITIONAL CONTEXT
-- DO NOT reference player IDs or team IDs - always use the proper names
-- Make the rumor sound like it came from your unreliable but entertaining sources
-- Add colorful details about where you heard it (barber, uber driver, guy at the deli, etc.)
-- Be vague but tantalizing - hint at more information you can't share yet
-- Use mob movie references and Italian-American slang
-- Present it as insider knowledge but maintain plausible deniability
-- Create drama and intrigue around the potential trade
-- Reference the specific player stats and recent performance when discussing trade value
+    rumorData += `\nTHE ASKING PRICE — REPORTING RULES:
+- This column reports only three things: completed transactions, standing trade-block listings, and
+  on-record manager statements. Nothing else is printable.
+- No unnamed sources. "Word is", "hearing", "league sources" and "sources say" are not available.
+- Use the names in <FACTS>. Never print a raw player id or team id.
+- Timestamp what you can timestamp, using only dates present in <FACTS>.
+- You get exactly one speculative paragraph. It stands alone and opens with "My read, not reporting:".
+- Never characterize a manager's motive unless the manager stated it on the record.
+- If there is no listing and no transaction, the market is quiet. Report that it is quiet; that is
+  the story, and it is a short one.
 
-ADDITIONAL CONTEXT:
-The custom context below contains the specific trade rumor details including:
-- The actual player names involved (NOT IDs)
-- Their positions and current team names
-- Their season stats and recent performance
-- The target team information if applicable
-Use these specific details to craft your rumor narrative.`;
+The ADDITIONAL CONTEXT section below, if present, carries the specific listing or transaction this
+column is about — the player and team names, positions, and stats. Use those names verbatim.`;
     
     console.log("Trade rumor data length:", rumorData.length);
     console.log("=== buildTradeRumorData END ===");

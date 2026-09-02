@@ -9,10 +9,11 @@ import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { SeasonSelector } from "@/components/SeasonSelector";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { RivalriesTab } from "@/components/RivalriesTab";
+import { TeamRelationships } from "@/components/TeamRelationships";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChevronDown, ChevronUp, Users, Swords } from "lucide-react";
+import { ChevronDown, ChevronUp, Users, Swords, Radio } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -87,6 +88,8 @@ export default function TeamsPage({ params }: TeamsPageProps) {
   const [selectedSeason, setSelectedSeason] = useState(currentSeason);
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState("teams");
+  // Which team's relationship meters the "The desk" tab is showing.
+  const [deskTeamId, setDeskTeamId] = useState<Id<"teams"> | null>(null);
 
   // Sync the selected season once the real current season resolves
   const hasSyncedSeason = React.useRef(false);
@@ -186,6 +189,10 @@ export default function TeamsPage({ params }: TeamsPageProps) {
             <TabsTrigger value="rivalries" className="gap-2">
               <Swords className="size-4" />
               Rivalries
+            </TabsTrigger>
+            <TabsTrigger value="desk" className="gap-2">
+              <Radio className="size-4" />
+              The desk
             </TabsTrigger>
           </TabsList>
 
@@ -350,6 +357,30 @@ export default function TeamsPage({ params }: TeamsPageProps) {
 
           <TabsContent value="rivalries">
             <RivalriesTab leagueId={leagueId} />
+          </TabsContent>
+
+          <TabsContent value="desk" className="flex flex-col gap-5">
+            <div className="flex flex-wrap gap-2">
+              {sortedTeams.map((team) => {
+                const active = (deskTeamId ?? sortedTeams[0]?._id) === team._id;
+                return (
+                  <Button
+                    key={team._id}
+                    variant={active ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDeskTeamId(team._id)}
+                  >
+                    {team.name}
+                  </Button>
+                );
+              })}
+            </div>
+            {(deskTeamId ?? sortedTeams[0]?._id) && (
+              <TeamRelationships
+                leagueId={leagueId}
+                teamId={(deskTeamId ?? sortedTeams[0]._id) as Id<"teams">}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </Panel>

@@ -1,0 +1,237 @@
+{
+  "name": "rich-week",
+  "description": "Week 7 of a fully synced 10-team league: five matchups with per-player detail, complete standings, waivers, one trade, a four-quote comment ledger, two non-respondents, three standing relationships and two prior claims. The happy path for every content type except the draft.",
+  "leagueData": {
+    "leagueName": "Ironclad Fantasy Conference",
+    "currentWeek": 7,
+    "season": 2025,
+    "scoringType": "PPR",
+    "rosterSize": 16,
+    "playoffTeams": 6,
+    "regularSeasonWeeks": 14,
+    "totalTeams": 10,
+    "teams": [
+      {
+        "id": "team_01", "externalId": "1", "name": "Gravel Pit Grinders", "manager": "Dana Whitlock",
+        "record": { "wins": 7, "losses": 0, "ties": 0, "pointsFor": 812.4, "pointsAgainst": 690.1 },
+        "pointsFor": 812.4, "pointsAgainst": 690.1, "playoffSeed": 1,
+        "roster": [
+          { "playerId": "p101", "playerName": "Rex Dolan", "position": "QB", "team": "KC" },
+          { "playerId": "p111", "playerName": "Wes Trombley", "position": "RB", "team": "SF" }
+        ]
+      },
+      {
+        "id": "team_02", "externalId": "2", "name": "Cedar Falls Cormorants", "manager": "Marcus Bly",
+        "record": { "wins": 5, "losses": 2, "ties": 0, "pointsFor": 788.9, "pointsAgainst": 702.6 },
+        "pointsFor": 788.9, "pointsAgainst": 702.6, "playoffSeed": 2,
+        "roster": [
+          { "playerId": "p121", "playerName": "Cass Lindqvist", "position": "WR", "team": "MIN" },
+          { "playerId": "p122", "playerName": "Kian Odutola", "position": "RB", "team": "BAL" }
+        ]
+      },
+      {
+        "id": "team_03", "externalId": "3", "name": "Quarry Road Quakers", "manager": "Priya Nandi",
+        "record": { "wins": 5, "losses": 2, "ties": 0, "pointsFor": 761.3, "pointsAgainst": 728.4 },
+        "pointsFor": 761.3, "pointsAgainst": 728.4, "playoffSeed": 3,
+        "roster": [
+          { "playerId": "p131", "playerName": "Nico Barrantes", "position": "TE", "team": "DAL" },
+          { "playerId": "p132", "playerName": "Juno Castellanos", "position": "WR", "team": "TEN" }
+        ]
+      },
+      {
+        "id": "team_04", "externalId": "4", "name": "Ninth Street Nightjars", "manager": "Trevor Ashby",
+        "record": { "wins": 4, "losses": 3, "ties": 0, "pointsFor": 744.8, "pointsAgainst": 716.9 },
+        "pointsFor": 744.8, "pointsAgainst": 716.9, "playoffSeed": 4,
+        "roster": [
+          { "playerId": "p141", "playerName": "Tobias Reneau", "position": "WR", "team": "CIN" },
+          { "playerId": "p142", "playerName": "Aldo Renkema", "position": "TE", "team": "LAC" }
+        ]
+      },
+      {
+        "id": "team_05", "externalId": "5", "name": "Halyard Bay Harriers", "manager": "Lena Okafor",
+        "record": { "wins": 4, "losses": 3, "ties": 0, "pointsFor": 733.5, "pointsAgainst": 741.2 },
+        "pointsFor": 733.5, "pointsAgainst": 741.2, "playoffSeed": 5,
+        "roster": [
+          { "playerId": "p151", "playerName": "Gil Provost", "position": "QB", "team": "DET" },
+          { "playerId": "p152", "playerName": "Zane Brackenbury", "position": "RB", "team": "PHI" }
+        ]
+      },
+      {
+        "id": "team_06", "externalId": "6", "name": "Foundry District Foxes", "manager": "Sam Kestrel",
+        "record": { "wins": 3, "losses": 4, "ties": 0, "pointsFor": 720.7, "pointsAgainst": 735.8 },
+        "pointsFor": 720.7, "pointsAgainst": 735.8, "playoffSeed": 6,
+        "roster": [
+          { "playerId": "p161", "playerName": "Dane Kowalczyk", "position": "RB", "team": "GB" },
+          { "playerId": "p162", "playerName": "Hank Osterberg", "position": "RB", "team": "NE" }
+        ]
+      },
+      {
+        "id": "team_07", "externalId": "7", "name": "Milltown Mudlarks", "manager": "Owen Radcliffe",
+        "record": { "wins": 3, "losses": 4, "ties": 0, "pointsFor": 705.2, "pointsAgainst": 749.5 },
+        "pointsFor": 705.2, "pointsAgainst": 749.5, "playoffSeed": 7,
+        "roster": [
+          { "playerId": "p171", "playerName": "Femi Adeyemi", "position": "RB", "team": "PIT" },
+          { "playerId": "p172", "playerName": "Rudy Halvorsen", "position": "RB", "team": "CLE" }
+        ]
+      },
+      {
+        "id": "team_08", "externalId": "8", "name": "Ashgrove Anvils", "manager": "Bea Coleridge",
+        "record": { "wins": 2, "losses": 5, "ties": 0, "pointsFor": 688.6, "pointsAgainst": 758.3 },
+        "pointsFor": 688.6, "pointsAgainst": 758.3, "playoffSeed": 8,
+        "roster": [
+          { "playerId": "p181", "playerName": "Bo Tremaine", "position": "RB", "team": "HOU" },
+          { "playerId": "p182", "playerName": "Sy Delacruz", "position": "WR", "team": "DAL" }
+        ]
+      },
+      {
+        "id": "team_09", "externalId": "9", "name": "Pike County Pilots", "manager": "Hollis Vance",
+        "record": { "wins": 2, "losses": 5, "ties": 0, "pointsFor": 664.1, "pointsAgainst": 771.4 },
+        "pointsFor": 664.1, "pointsAgainst": 771.4, "playoffSeed": 9,
+        "roster": [
+          { "playerId": "p191", "playerName": "Ellis Marchetti", "position": "WR", "team": "ARI" },
+          { "playerId": "p192", "playerName": "Bram Whitesell", "position": "TE", "team": "NYG" }
+        ]
+      },
+      {
+        "id": "team_10", "externalId": "10", "name": "Sable Ridge Sentinels", "manager": "Ruth Tanaka",
+        "record": { "wins": 0, "losses": 7, "ties": 0, "pointsFor": 651.9, "pointsAgainst": 677.2 },
+        "pointsFor": 651.9, "pointsAgainst": 677.2, "playoffSeed": 10,
+        "roster": [
+          { "playerId": "p201", "playerName": "Ivan Petrosky", "position": "RB", "team": "LV" },
+          { "playerId": "p202", "playerName": "Otis Kirkwood", "position": "QB", "team": "NO" }
+        ]
+      }
+    ],
+    "recentMatchups": [
+      {
+        "teamA": "1", "teamB": "10", "teamAName": "Gravel Pit Grinders", "teamBName": "Sable Ridge Sentinels",
+        "scoreA": 134.2, "scoreB": 128.9, "projectedScoreA": 121.6, "projectedScoreB": 118.3,
+        "week": 7, "closeness": "nail-biter", "benchPointsA": 41.3, "benchPointsB": 78.6,
+        "topPerformers": [
+          { "playerId": "p101", "playerName": "Rex Dolan", "position": "QB", "points": 31.8, "projectedPoints": 22.4, "nflTeam": "KC", "fantasyTeamId": "team_01", "fantasyTeamName": "Gravel Pit Grinders", "isStarter": true },
+          { "playerId": "p201", "playerName": "Ivan Petrosky", "position": "RB", "points": 28.6, "projectedPoints": 14.9, "nflTeam": "LV", "fantasyTeamId": "team_10", "fantasyTeamName": "Sable Ridge Sentinels", "isStarter": true },
+          { "playerId": "p203", "playerName": "Cole Vandermeer", "position": "WR", "points": 6.2, "projectedPoints": 15.8, "nflTeam": "SEA", "fantasyTeamId": "team_10", "fantasyTeamName": "Sable Ridge Sentinels", "isStarter": true },
+          { "playerId": "p204", "playerName": "Duke Ellery", "position": "WR", "points": 24.1, "projectedPoints": 11.7, "nflTeam": "CAR", "fantasyTeamId": "team_10", "fantasyTeamName": "Sable Ridge Sentinels", "isStarter": false, "benchImpact": true, "wouldHaveReplacedPlayer": "Cole Vandermeer", "pointImprovementIfStarted": 17.9 }
+        ]
+      },
+      {
+        "teamA": "2", "teamB": "8", "teamAName": "Cedar Falls Cormorants", "teamBName": "Ashgrove Anvils",
+        "scoreA": 141.6, "scoreB": 96.4, "projectedScoreA": 124.9, "projectedScoreB": 108.2,
+        "week": 7, "closeness": "blowout", "benchPointsA": 52.7, "benchPointsB": 44.1,
+        "topPerformers": [
+          { "playerId": "p121", "playerName": "Cass Lindqvist", "position": "WR", "points": 33.4, "projectedPoints": 17.6, "nflTeam": "MIN", "fantasyTeamId": "team_02", "fantasyTeamName": "Cedar Falls Cormorants", "isStarter": true },
+          { "playerId": "p181", "playerName": "Bo Tremaine", "position": "RB", "points": 4.8, "projectedPoints": 16.2, "nflTeam": "HOU", "fantasyTeamId": "team_08", "fantasyTeamName": "Ashgrove Anvils", "isStarter": true }
+        ]
+      },
+      {
+        "teamA": "3", "teamB": "7", "teamAName": "Quarry Road Quakers", "teamBName": "Milltown Mudlarks",
+        "scoreA": 118.7, "scoreB": 112.3, "projectedScoreA": 114.5, "projectedScoreB": 119.8,
+        "week": 7, "closeness": "close", "benchPointsA": 38.9, "benchPointsB": 47.2,
+        "topPerformers": [
+          { "playerId": "p131", "playerName": "Nico Barrantes", "position": "TE", "points": 19.7, "projectedPoints": 10.4, "nflTeam": "DAL", "fantasyTeamId": "team_03", "fantasyTeamName": "Quarry Road Quakers", "isStarter": true },
+          { "playerId": "p171", "playerName": "Femi Adeyemi", "position": "RB", "points": 26.3, "projectedPoints": 18.1, "nflTeam": "PIT", "fantasyTeamId": "team_07", "fantasyTeamName": "Milltown Mudlarks", "isStarter": true }
+        ]
+      },
+      {
+        "teamA": "4", "teamB": "5", "teamAName": "Ninth Street Nightjars", "teamBName": "Halyard Bay Harriers",
+        "scoreA": 103.8, "scoreB": 127.5, "projectedScoreA": 126.2, "projectedScoreB": 109.4,
+        "week": 7, "closeness": "comfortable", "isUpset": true, "benchPointsA": 61.5, "benchPointsB": 33.8,
+        "topPerformers": [
+          { "playerId": "p151", "playerName": "Gil Provost", "position": "QB", "points": 29.9, "projectedPoints": 20.7, "nflTeam": "DET", "fantasyTeamId": "team_05", "fantasyTeamName": "Halyard Bay Harriers", "isStarter": true },
+          { "playerId": "p141", "playerName": "Tobias Reneau", "position": "WR", "points": 8.1, "projectedPoints": 19.3, "nflTeam": "CIN", "fantasyTeamId": "team_04", "fantasyTeamName": "Ninth Street Nightjars", "isStarter": true }
+        ]
+      },
+      {
+        "teamA": "6", "teamB": "9", "teamAName": "Foundry District Foxes", "teamBName": "Pike County Pilots",
+        "scoreA": 121.4, "scoreB": 99.6, "projectedScoreA": 115.1, "projectedScoreB": 107.9,
+        "week": 7, "closeness": "comfortable", "benchPointsA": 36.4, "benchPointsB": 55.3,
+        "topPerformers": [
+          { "playerId": "p161", "playerName": "Dane Kowalczyk", "position": "RB", "points": 27.2, "projectedPoints": 16.8, "nflTeam": "GB", "fantasyTeamId": "team_06", "fantasyTeamName": "Foundry District Foxes", "isStarter": true },
+          { "playerId": "p191", "playerName": "Ellis Marchetti", "position": "WR", "points": 12.5, "projectedPoints": 15.4, "nflTeam": "ARI", "fantasyTeamId": "team_09", "fantasyTeamName": "Pike County Pilots", "isStarter": true }
+        ]
+      }
+    ],
+    "standings": [
+      { "rank": 1, "team": "Gravel Pit Grinders", "teamId": "1", "wins": 7, "losses": 0, "ties": 0, "pointsFor": 812.4, "pointsAgainst": 690.1, "playoffSeed": 1, "streakType": "W", "streakLength": 7 },
+      { "rank": 2, "team": "Cedar Falls Cormorants", "teamId": "2", "wins": 5, "losses": 2, "ties": 0, "pointsFor": 788.9, "pointsAgainst": 702.6, "playoffSeed": 2, "streakType": "W", "streakLength": 2 },
+      { "rank": 3, "team": "Quarry Road Quakers", "teamId": "3", "wins": 5, "losses": 2, "ties": 0, "pointsFor": 761.3, "pointsAgainst": 728.4, "playoffSeed": 3, "streakType": "W", "streakLength": 1 },
+      { "rank": 4, "team": "Ninth Street Nightjars", "teamId": "4", "wins": 4, "losses": 3, "ties": 0, "pointsFor": 744.8, "pointsAgainst": 716.9, "playoffSeed": 4, "streakType": "L", "streakLength": 1 },
+      { "rank": 5, "team": "Halyard Bay Harriers", "teamId": "5", "wins": 4, "losses": 3, "ties": 0, "pointsFor": 733.5, "pointsAgainst": 741.2, "playoffSeed": 5, "streakType": "W", "streakLength": 2 },
+      { "rank": 6, "team": "Foundry District Foxes", "teamId": "6", "wins": 3, "losses": 4, "ties": 0, "pointsFor": 720.7, "pointsAgainst": 735.8, "playoffSeed": 6, "streakType": "W", "streakLength": 1 },
+      { "rank": 7, "team": "Milltown Mudlarks", "teamId": "7", "wins": 3, "losses": 4, "ties": 0, "pointsFor": 705.2, "pointsAgainst": 749.5, "playoffSeed": 7, "streakType": "L", "streakLength": 1 },
+      { "rank": 8, "team": "Ashgrove Anvils", "teamId": "8", "wins": 2, "losses": 5, "ties": 0, "pointsFor": 688.6, "pointsAgainst": 758.3, "playoffSeed": 8, "streakType": "L", "streakLength": 3 },
+      { "rank": 9, "team": "Pike County Pilots", "teamId": "9", "wins": 2, "losses": 5, "ties": 0, "pointsFor": 664.1, "pointsAgainst": 771.4, "playoffSeed": 9, "streakType": "L", "streakLength": 2 },
+      { "rank": 10, "team": "Sable Ridge Sentinels", "teamId": "10", "wins": 0, "losses": 7, "ties": 0, "pointsFor": 651.9, "pointsAgainst": 677.2, "playoffSeed": 10, "streakType": "L", "streakLength": 7 }
+    ],
+    "transactions": [
+      { "teamId": "team_07", "teamName": "Milltown Mudlarks", "type": "waiver_claim", "week": 7, "date": "2025-10-15T13:02:00.000Z", "faabBid": 34, "playerAdded": { "playerId": "p172", "playerName": "Rudy Halvorsen", "position": "RB" }, "playerDropped": { "playerId": "p173", "playerName": "Pete Sandoval", "position": "WR" } },
+      { "teamId": "team_09", "teamName": "Pike County Pilots", "type": "add_drop", "week": 7, "date": "2025-10-15T14:20:00.000Z", "playerAdded": { "playerId": "p193", "playerName": "Nate Brill", "position": "TE" }, "playerDropped": { "playerId": "p194", "playerName": "Kip Whorley", "position": "K" } },
+      { "teamId": "team_02", "teamName": "Cedar Falls Cormorants", "type": "waiver_claim", "week": 7, "date": "2025-10-15T13:04:00.000Z", "faabBid": 12, "playerAdded": { "playerId": "p123", "playerName": "Trey Ballinger", "position": "WR" } },
+      { "teamId": "team_10", "teamName": "Sable Ridge Sentinels", "type": "drop", "week": 7, "date": "2025-10-17T22:41:00.000Z", "playerDropped": { "playerId": "p205", "playerName": "Sonny Vega", "position": "DST" } }
+    ],
+    "trades": [
+      {
+        "teamA": "Quarry Road Quakers", "teamB": "Foundry District Foxes", "week": 6,
+        "date": "2025-10-09T18:30:00.000Z",
+        "playersFromA": [ { "playerId": "p162", "playerName": "Hank Osterberg", "position": "RB" } ],
+        "playersFromB": [ { "playerId": "p132", "playerName": "Juno Castellanos", "position": "WR" }, { "playerId": "p133", "playerName": "Vic Trawick", "position": "TE" } ],
+        "tradeGrade": { "teamA": "B+", "teamB": "B-" }
+      }
+    ]
+  },
+  "commentResponses": [
+    {
+      "userId": "user_ruth", "userName": "Ruth Tanaka", "teamId": "team_10", "teamName": "Sable Ridge Sentinels",
+      "questionTopic": "leaving Duke Ellery on the bench",
+      "quotes": [
+        "I had Ellery on the bench because the injury report said questionable at noon and I did not want to risk a zero.",
+        "We lost by five. I know what that number means."
+      ],
+      "rawResponse": "I had Ellery on the bench because the injury report said questionable at noon and I did not want to risk a zero. We lost by five. I know what that number means."
+    },
+    {
+      "userId": "user_dana", "userName": "Dana Whitlock", "teamId": "team_01", "teamName": "Gravel Pit Grinders",
+      "questionTopic": "starting the season seven and zero",
+      "quotes": [ "Seven and oh is a number, not a trophy." ],
+      "rawResponse": "Seven and oh is a number, not a trophy. Ask me again in December."
+    },
+    {
+      "userId": "user_lena", "userName": "Lena Okafor", "teamId": "team_05", "teamName": "Halyard Bay Harriers",
+      "questionTopic": "the upset win over Ninth Street",
+      "quotes": [ "We were not supposed to win that one and I did not care." ],
+      "rawResponse": "We were not supposed to win that one and I did not care."
+    }
+  ],
+  "nonRespondents": [
+    { "userId": "user_owen", "userName": "Owen Radcliffe", "teamName": "Milltown Mudlarks", "status": "no_response" },
+    { "userId": "user_bea", "userName": "Bea Coleridge", "teamName": "Ashgrove Anvils", "status": "declined" }
+  ],
+  "relationships": [
+    {
+      "userId": "user_ruth", "teamId": "team_10", "teamName": "Sable Ridge Sentinels", "managerName": "Ruth Tanaka",
+      "score": -58, "tier": "feud",
+      "recentEvents": [
+        { "type": "article_roast", "delta": -10, "evidence": "called the Sentinels lineup the least defensible in the league", "week": 5 },
+        { "type": "interview_jab", "delta": -8, "evidence": "told Sam the desk should try setting a lineup once", "week": 6 }
+      ]
+    },
+    {
+      "userId": "user_dana", "teamId": "team_01", "teamName": "Gravel Pit Grinders", "managerName": "Dana Whitlock",
+      "score": 24, "tier": "warm",
+      "recentEvents": [
+        { "type": "article_praise", "delta": 6, "evidence": "credited the Grinders waiver discipline", "week": 4 }
+      ]
+    },
+    {
+      "userId": "user_owen", "teamId": "team_07", "teamName": "Milltown Mudlarks", "managerName": "Owen Radcliffe",
+      "score": -6, "tier": "neutral",
+      "recentEvents": [
+        { "type": "reaction", "delta": -2, "evidence": "salty reaction on the week 6 recap", "week": 6 }
+      ]
+    }
+  ],
+  "priorClaims": [
+    { "articleId": "article_wk5_recap", "week": 5, "claim": "Sable Ridge does not win a game before Thanksgiving.", "outcome": "open" },
+    { "articleId": "article_wk4_power", "week": 4, "claim": "Cedar Falls finishes the season top two in points for.", "outcome": "hit" }
+  ]
+}

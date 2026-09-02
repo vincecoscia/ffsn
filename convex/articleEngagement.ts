@@ -9,6 +9,7 @@
  */
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { Doc } from "./_generated/dataModel";
 import { getLeagueMembership, requireIdentity } from "./lib/auth";
 
@@ -93,6 +94,19 @@ export const toggleReaction = mutation({
       )
       .first();
 
+    // A reaction that lands on an article moves the reader's relationship with
+    // its writer (spec section 6.2). Scheduled, not inline, so a relationship
+    // write can never fail the reaction itself. Only additions count: removing a
+    // reaction, or switching away from one, records nothing - the switch's new
+    // reaction is what gets recorded.
+    const recordReaction = async () => {
+      await ctx.scheduler.runAfter(0, internal.relationships.recordReactionEvent, {
+        articleId: args.articleId,
+        userId: identity.subject,
+        reaction: args.reaction,
+      });
+    };
+
     if (existing) {
       if (existing.reaction === args.reaction) {
         // Tapping the same reaction again removes it.
@@ -101,6 +115,7 @@ export const toggleReaction = mutation({
       }
       // A different reaction replaces the old one (one reaction per user).
       await ctx.db.patch(existing._id, { reaction: args.reaction });
+      await recordReaction();
       return { mine: args.reaction };
     }
 
@@ -110,6 +125,7 @@ export const toggleReaction = mutation({
       reaction: args.reaction,
       createdAt: Date.now(),
     });
+    await recordReaction();
     return { mine: args.reaction };
   },
 });

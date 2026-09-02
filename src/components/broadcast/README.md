@@ -203,6 +203,33 @@ Props: same as `Badge` (`variant`, etc.) plus `live?: boolean`.
 
 ---
 
+## Roster
+
+### `personaRoster` (not a component)
+Display data derived from `src/lib/ai/persona-prompts.ts`, so no screen re-states a writer's name, role
+or beat. Everything here is a plain value or function — import it from the barrel like any component.
+
+- `writerRoster: RosterWriter[]` — the selectable writers in spec §3 order, each
+  `{ slug, name, role, tagline, beat, isInterviewer }`. Retired personas are excluded, so a picker built
+  from this can never offer one.
+- `personasForContentType(type)` — the writers for a content type, default first.
+- `defaultPersonaFor(type)` — that type's default writer slug.
+- `isSelectableContentType(type)` / `UNAVAILABLE_CONTENT_TYPES` — whether a content type has a template
+  behind it, derived from `contentTemplates` at runtime (spec §8.5), so a type becomes selectable
+  everywhere the moment its template ships and is dropped everywhere if one is removed. Filter every
+  picker through this — `ContentGenerator` builds its whole rundown this way, taking each entry's label
+  from `contentTypeLabel` and its credit cost from the template itself.
+- `contentTypeLabel(type)` / `CONTENT_TYPE_LABELS` — display names for every type, including the renamed
+  segments ("The Asking Price", "The Case For").
+- `personaName(slug)` / `personaRole(slug)` — byline text for any slug, retired writers included. Use
+  these instead of de-slugging a persona string.
+
+```tsx
+import { writerRoster, defaultPersonaFor, personaName } from "@/components/broadcast";
+```
+
+---
+
 ## Sports/data
 
 ### `ScoreBug`
@@ -297,27 +324,42 @@ Props: `name: ReactNode`, `role?: ReactNode`, `avatar?: ReactNode` (56px slot, 4
 
 ### `WriterPlate`
 The talent-lineup card: a 300px portrait (scanline texture + faint index number + `PersonaAvatar`
-illustration), a name plate + red role strip, an italic tagline, and a "Writes" beat line.
+illustration), a name plate + red role strip, an italic tagline, a "Writes" beat line and an optional
+footnote under it.
 
 Props: `persona: string` (display name — also used to match the `PersonaAvatar` illustration), `index:
 number | string` (`1` renders as `"01"`), `tagline: string`, `beat: string[]` (joined with " · "), `role:
-string`, `className?`.
+string`, `footnote?: ReactNode` (small red line under the beat, e.g. "Feuding with 2 managers"),
+`className?`.
+
+Don't hand-write a lineup: `WriterLineup` (`src/components/WriterLineup.tsx`) renders one plate per
+writer from the roster, in spec order, with the league's feud/favorite counts as the footnote.
 
 ```tsx
 <WriterPlate
   persona="Mel Diaper"
   index={1}
   role="The Draft Disaster"
-  tagline="I'm never wrong, you're just not listening!"
-  beat={["Mock drafts", "Draft grades", "Power rankings"]}
+  tagline="I had him three rounds later and I have the receipts."
+  beat={["Mock draft", "Draft rankings & grades"]}
+  footnote="Feuding with 2 managers"
 />
 ```
 
 ### `PersonaAvatar`
-The five drawn on-air-talent silhouettes — Mel (headset), Stan (glasses + bar chart), Vinny (fedora), Chad
-(spiked hair + shades), Rick ("87" cap + two cans) — matched loosely (case-insensitive substring) against
-`persona`, with an initials-plate fallback for any other writer (e.g. `mike-harrison`). Fills read from
+The drawn on-air-talent silhouettes, matched by slug **or** display name (case-insensitive) against
+`persona`, with an initials-plate fallback for any other byline (e.g. `mike-harrison`). Fills read from
 `--bc-*` tokens so they invert correctly in light mode.
+
+On air: Curtis Vaughn (earpiece coil + flagged hand mic), Sam Ortega (stick mic + credential lanyard),
+Nina Sharpe (glasses + stylus over a three-bar chart), Dex Alvarez (phone at the ear), Mel Diaper
+(headset + boom mic), Walt Brennan (glasses pushed up + folded newspaper). Retired but still drawn so
+archived bylines keep their portrait: Stan (glasses + bar chart), Vinny (fedora), Chad (spiked hair +
+shades), Rick ("87" cap + two cans).
+
+Adding a writer: reuse the shared `Bust()` (shoulders / neck / head) and the `STRONG` / `INK` / `RED` /
+`SIGNAL` / `TEXT_2` token fills, keep the identifying prop inside the `bust` crop (`viewBox "20 30 216
+216"`, so roughly x 20–236 / y 30–246), and register the pattern ahead of the retired entries.
 
 Props: `persona: string`, `size?: number` (px; **only** applies to `variant="bust"` — `"portrait"` fills its
 container via `preserveAspectRatio="xMidYMid slice"`, so give the parent explicit dimensions instead),
@@ -329,6 +371,93 @@ container via `preserveAspectRatio="xMidYMid slice"`, so give the parent explici
 <div className="h-[300px]">
   <PersonaAvatar persona="Chad Thunderhype" variant="portrait" />
 </div>
+```
+
+### `PullQuote`
+A sideline quote as it appears under an article: the verbatim line against a red rule, a `LowerThird`
+naming the manager and their team, and the writer's in-voice reply (`quotes[].writerResponse`) beneath it
+in the writer's own byline. Used by the "From the sideline" block on the article page.
+
+Props: `quote: string` (without quotation marks — the component adds them), `speaker: string`, `team?:
+string`, `week?: number` (red strip reads "Told FFSN Sideline · Week 7"), `writerResponse?: string`,
+`writerPersona?: string` (writer slug for the reply byline), `className?`.
+
+Also placed *inside* an article body: `MarkdownPreview` renders every `:::quote{id=…}` directive line as
+one of these, resolved against the article's `quotes[]` (spec §8.3), and the page's "From the sideline"
+block then carries only the quotes that weren't placed inline (`placedQuoteIds(content)` says which).
+That's why its blockquote carries `!` utilities — it has to outrank the `.bc-prose blockquote` rule it
+renders inside.
+
+```tsx
+<PullQuote
+  quote="I'd do it again."
+  speaker="Priya Natarajan"
+  team="Lamar's Army"
+  week={7}
+  writerResponse="She would. That's the problem."
+  writerPersona="mel-diaper"
+/>
+```
+
+### `RelationshipMeter`
+The five-stop relationship meter (Feud · Cold · Neutral · Warm · Favorite) from spec §6.5: the writer's
+`PersonaAvatar` bust and name plate, a tier chip and the signed score, a marker at the score, and the most
+recent evidence lines with their deltas ("Wk 7 · 'nineteen picks of air' −6"). Presentational — feed it
+rows straight from `relationships.getMyRelationships` / `getTeamRelationships`.
+
+Props: `persona: string` (slug — name and role resolve from the roster), `score: number` (−100…100),
+`tier: RelationshipTier`, `events?: RelationshipMeterEvent[]` (`{ delta, evidence, week?, type? }`,
+newest first), `maxEvents?: number` (default 3; `0` hides the list), `name?: string`, `className?`.
+
+Also exported: `relationshipTierLabel(tier)` and `formatDelta(n)` (`-6` → `"−6"`).
+
+The two mounted views live outside the kit because they query Convex:
+`MyDeskRelationships` (`src/components/MyDeskRelationships.tsx`, league homepage sidebar, the signed-in
+manager, most extreme writer first) and `TeamRelationships` (`src/components/TeamRelationships.tsx`, the
+"The desk" tab on the teams page, any team).
+
+```tsx
+<RelationshipMeter persona="mel-diaper" score={-38} tier="cold" events={writer.recentEvents} />
+```
+
+### `DeskReview`
+The verifier findings panel above the edit-before-publish editor (spec §4.5): blocks and strips first with
+a red rule, warnings muted, each with its sentence, plus a "Not in the data this week" list of the FACTS
+paths the writer asked for and didn't have. Renders `null` when the draft came back clean.
+
+Props: `flags?: ReviewFlag[]` (`aiContent.reviewFlags` — `{ kind, detail, section?, severity }`),
+`factsMissing?: string[]` (`aiContent.factsMissing`), `className?`.
+
+```tsx
+<DeskReview flags={article.reviewFlags} factsMissing={article.factsMissing} />
+```
+
+### `QuoteApprovalCard`
+One quote awaiting the manager's sign-off (spec §8.1), as it appears under Sam's "here's what we'll quote
+you saying" message: the line itself, then Looks good / Edit / Take it back while it's pending, a status
+chip once it isn't ("Approved" / "Edited" / "Taken back"), and the manager's original line underneath an
+edited one. Edit swaps the quote for a textarea — Esc cancels, ⌘/Ctrl+Enter saves. `locked` makes the card
+read-only for a story that has already gone to print. Renders an `<li>`, so give it a `<ul>` parent.
+
+Props: `quote: QuoteReviewEntry` (`{ original, text, status }`), `index: number`, `total?: number`,
+`locked?: boolean`, `busy?: boolean`, `onApprove?`, `onEdit?: (text: string) => void`, `onWithdraw?`,
+`className?`.
+
+Presentational, like the rest of the kit. The mounted view is `QuoteApproval`
+(`src/components/QuoteApproval.tsx`), which owns the `commentConversations.getQuoteReview` query and the
+`reviewQuote` mutation and is dropped under the `quote_approval` message by both interview surfaces
+(`CommentConversation` and the comment-request page). The other Convex-backed view from this phase lives
+outside the kit for the same reason: `WaitingOnComment` / `LeagueWaitingOnComment`
+(`src/components/WaitingOnComment.tsx`) — the requester's board ("3 of 6 responded", a countdown and
+"Go to print now") and its league-homepage wrapper. Two more app-level pieces sit next to them:
+`PrintDeadlineField` (`src/components/PrintDeadlineField.tsx`, the "We go to print at" presets that
+replaced the datetime picker) and `useNow` (`src/components/useNow.ts`), the ticking clock those two use
+so a countdown moves and a card locks itself at the deadline instead of reading `Date.now()` in render.
+
+```tsx
+<ul>
+  <QuoteApprovalCard quote={quote} index={0} total={3} onApprove={approve} onEdit={edit} onWithdraw={pull} />
+</ul>
 ```
 
 ### `BannerPlaceholder`

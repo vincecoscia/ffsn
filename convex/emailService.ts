@@ -2,19 +2,26 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import {
+  contentTypeLabel,
+  interviewerDisplay,
+  isLocalTemplateId,
+  localTemplateId,
+  renderLocalTemplate,
+  renderSystemNoticeEmail,
+  writerDisplay,
+  type CommentRequestEmailData,
+} from "../src/lib/email";
 
 // SendGrid email service for FFSN using fetch-based approach
 // Record → queue → send pattern for reliable email delivery
-
-// Types for email templates and data
-export interface CommentRequestEmailData {
-  userName: string;
-  leagueName: string;
-  articleType: string;
-  week?: number;
-  commentRequestUrl: string;
-  unsubscribeUrl: string;
-}
+//
+// Two kinds of templates can be queued (see `email.templateId`):
+//  - SendGrid Dynamic Templates (id starts with "d-") - rendered by SendGrid itself
+//    from `dynamic_template_data`.
+//  - Local templates (id starts with "ffsn:", see `isLocalTemplateId`) - rendered
+//    in code by `renderLocalTemplate` (src/lib/email) at send time, and sent as a
+//    plain subject/html/text payload instead of a SendGrid template reference.
 
 export interface EmailResult {
   success: boolean;
@@ -39,8 +46,8 @@ function emailSendingDisabled(): boolean {
 export const queueEmail = internalMutation({
   args: {
     to: v.string(),
-    templateId: v.string(),            // SendGrid Dynamic Template ID
-    data: v.any(),                     // dynamic_template_data
+    templateId: v.string(),            // SendGrid Dynamic Template ID, or an "ffsn:" local template id
+    data: v.any(),                     // dynamic_template_data (SendGrid) or the local template's data
     userId: v.optional(v.id("users")), // For tracking
     relatedEntityType: v.optional(v.string()),
     relatedEntityId: v.optional(v.string()),
@@ -73,47 +80,84 @@ export const sendNow = internalAction({
     if (!email || (email.status as any) !== "queued") return;
 
     // Get the email data from the email log
-    let templateData = {};
+    let templateData: unknown = {};
     try {
       const emailData = JSON.parse(email.relatedEntityId || "{}");
       // Handle both old format (direct template data) and new format (with templateData property)
       templateData = emailData.templateData || emailData;
     } catch (error) {
       console.error("Failed to parse email template data:", error);
-      await ctx.runMutation(internal.emailService.markFailed, { 
-        id, 
-        error: "Invalid template data format", 
-        statusCode: 400 
+      await ctx.runMutation(internal.emailService.markFailed, {
+        id,
+        error: "Invalid template data format",
+        statusCode: 400
       });
       return;
     }
 
-    const payload = {
-      from: { email: "support@ffsn.ai", name: "FFSN Support" },
-      personalizations: [{
-        to: [{ email: email.email }],
-        dynamic_template_data: templateData,
-        // Helpful for webhook correlation
-        custom_args: { email_id: id },
-      }],
-      template_id: email.templateId,
-      categories: [email.templateType, "notification"],
-      asm: {
-        group_id: parseInt((process.env.SENDGRID_UNSUBSCRIBE_GROUP_ID || "1").replace(/^ID:/, "")),
-      },
-      tracking_settings: {
-        click_tracking: {
-          enable: true,
-          enable_text: true,
-        },
-        open_tracking: {
-          enable: true,
-        },
-      },
+    const unsubscribeGroupId = parseInt((process.env.SENDGRID_UNSUBSCRIBE_GROUP_ID || "1").replace(/^ID:/, ""));
+    const asm = { group_id: unsubscribeGroupId };
+    const trackingSettings = {
+      click_tracking: { enable: true, enable_text: true },
+      open_tracking: { enable: true },
     };
 
+    let payload: Record<string, unknown>;
+
+    if (isLocalTemplateId(email.templateId)) {
+      // Code-owned template (src/lib/email): render subject/html/text now instead
+      // of handing SendGrid a dynamic_template_data blob.
+      let rendered;
+      try {
+        rendered = renderLocalTemplate(email.templateId, templateData);
+        if (!rendered) {
+          throw new Error(`Unrecognized local template id: ${email.templateId}`);
+        }
+      } catch (error: any) {
+        console.error(`Failed to render local email template ${email.templateId}:`, error);
+        await ctx.runMutation(internal.emailService.markFailed, {
+          id,
+          error: error?.message || "Template render failed",
+          statusCode: 0,
+        });
+        return;
+      }
+
+      payload = {
+        from: { email: "support@ffsn.ai", name: rendered.fromName },
+        personalizations: [{
+          to: [{ email: email.email }],
+          // Helpful for webhook correlation
+          custom_args: { email_id: id },
+        }],
+        subject: rendered.subject,
+        content: [
+          { type: "text/plain", value: rendered.text },
+          { type: "text/html", value: rendered.html },
+        ],
+        categories: [email.templateType, "notification"],
+        asm,
+        tracking_settings: trackingSettings,
+      };
+    } else {
+      payload = {
+        from: { email: "support@ffsn.ai", name: "FFSN Support" },
+        personalizations: [{
+          to: [{ email: email.email }],
+          dynamic_template_data: templateData,
+          // Helpful for webhook correlation
+          custom_args: { email_id: id },
+        }],
+        template_id: email.templateId,
+        categories: [email.templateType, "notification"],
+        asm,
+        tracking_settings: trackingSettings,
+      };
+    }
+
+    // Template data can carry an interview question and recipient names now,
+    // so only log who/what - never the rendered content.
     console.log(`Sending email to ${email.email} with template ${email.templateId}`);
-    console.log(`Template data:`, JSON.stringify(templateData, null, 2));
 
     if (emailSendingDisabled()) {
       console.log(`Email sending is disabled on this deployment; not sending ${email.email} (${email.templateId})`);
@@ -132,11 +176,11 @@ export const sendNow = internalAction({
     if (!res.ok) {
       const errorText = await res.text().catch(() => "");
       console.error(`SendGrid API error ${res.status}:`, errorText);
-      console.error(`Failed payload:`, JSON.stringify(payload, null, 2));
-      await ctx.runMutation(internal.emailService.markFailed, { 
-        id, 
-        error: errorText, 
-        statusCode: res.status 
+      console.error(`Failed to send to ${email.email} with template ${email.templateId}`);
+      await ctx.runMutation(internal.emailService.markFailed, {
+        id,
+        error: errorText,
+        statusCode: res.status
       });
       throw new Error(`SendGrid ${res.status}: ${errorText}`);
     }
@@ -152,10 +196,10 @@ export const sendNow = internalAction({
 export const markSent = internalMutation({
   args: { id: v.id("emailLogs"), xMessageId: v.string() },
   handler: async (ctx, { id, xMessageId }) => {
-    await ctx.db.patch(id, { 
-      status: "sent", 
-      messageId: xMessageId, 
-      sentAt: Date.now() 
+    await ctx.db.patch(id, {
+      status: "sent",
+      messageId: xMessageId,
+      sentAt: Date.now()
     });
   },
 });
@@ -164,10 +208,10 @@ export const markSent = internalMutation({
 export const markFailed = internalMutation({
   args: { id: v.id("emailLogs"), error: v.string(), statusCode: v.number() },
   handler: async (ctx, { id, error, statusCode }) => {
-    await ctx.db.patch(id, { 
-      status: "error", 
+    await ctx.db.patch(id, {
+      status: "error",
       error: `${statusCode}: ${error}`,
-      sentAt: Date.now() 
+      sentAt: Date.now()
     });
   },
 });
@@ -184,19 +228,26 @@ export const getEmailById = internalQuery({
 // COMMENT REQUEST EMAIL FUNCTIONS
 // ===============================
 
-// Send comment request notification email (simplified)
+// Send comment request notification email (and its reminder variants), rendered
+// locally from src/lib/email's Broadcast templates.
 export const sendCommentRequestEmail = internalAction({
   args: {
     userId: v.id("users"),
     commentRequestId: v.id("commentRequests"),
     leagueId: v.id("leagues"),
     templateData: v.object({
-      userName: v.string(),
+      variant: v.optional(v.union(v.literal("request"), v.literal("reminder"), v.literal("final_reminder"))),
       leagueName: v.string(),
-      articleType: v.string(),
+      contentTypeLabel: v.string(),
       week: v.optional(v.number()),
+      question: v.optional(v.string()),
+      writer: v.object({ name: v.string(), role: v.string() }),
+      interviewer: v.object({ name: v.string(), role: v.string() }),
+      deadline: v.optional(v.number()),
+      minutesRemaining: v.optional(v.number()),
       commentRequestUrl: v.string(),
-      unsubscribeUrl: v.string(),
+      preferencesUrl: v.string(),
+      siteUrl: v.string(),
     }),
   },
   handler: async (ctx, args): Promise<EmailResult> => {
@@ -228,32 +279,28 @@ export const sendCommentRequestEmail = internalAction({
         return { success: false, error: "SendGrid not configured" };
       }
 
-      // Get template ID
-      const templateId = process.env.SENDGRID_COMMENT_REQUEST_TEMPLATE_ID;
-      if (!templateId) {
-        console.error("SENDGRID_COMMENT_REQUEST_TEMPLATE_ID not set");
-        return { success: false, error: "Template not configured" };
-      }
+      const variant = args.templateData.variant ?? "request";
+      const templateKey = variant === "request" ? "comment_request" : "comment_reminder";
+      const templateId = localTemplateId(templateKey);
 
-      // Enhanced template data with user info
-      const enhancedTemplateData = {
+      // Fill in what only the send path knows: the recipient's name and timezone.
+      const emailData: CommentRequestEmailData = {
         ...args.templateData,
-        userName: user.name || "User",
-        supportEmail: "support@ffsn.ai",
-        currentYear: new Date().getFullYear(),
+        recipientName: user.name,
+        timeZone: user.timezone,
       };
 
       // Queue the email for sending
       const emailId = await ctx.runMutation(internal.emailService.queueEmailInternal, {
         to: user.email,
         templateId,
-        data: enhancedTemplateData,
+        data: emailData,
         userId: args.userId,
-        relatedEntityType: "comment_request",
+        relatedEntityType: templateKey,
         relatedEntityId: args.commentRequestId, // This will be overridden in queueEmailInternal
       });
 
-      console.log(`Queued comment request email for user ${args.userId}, email ID: ${emailId}`);
+      console.log(`Queued ${templateKey} email for user ${args.userId}, email ID: ${emailId}`);
 
       return {
         success: true,
@@ -312,16 +359,18 @@ export const queueEmailInternal = internalMutation({
 
 // Send a one-off plain-text (optionally with HTML) email via the same
 // SendGrid fetch client and env vars as the template-based sendNow, but
-// without a Dynamic Template. Used for notifications that don't warrant a
-// dedicated SendGrid template, e.g. article-published emails. Internal
-// only, for the same reason queueEmail is internal - it sends mail from the
-// app's verified sender to an arbitrary recipient.
+// without a Dynamic Template. Used for notifications rendered locally in
+// src/lib/email (e.g. article-published emails) rather than by a SendGrid
+// Dynamic Template. Internal only, for the same reason queueEmail is
+// internal - it sends mail from the app's verified sender to an arbitrary
+// recipient.
 export const sendPlainEmail = internalAction({
   args: {
     to: v.string(),
     subject: v.string(),
     text: v.string(),
     html: v.optional(v.string()),
+    fromName: v.optional(v.string()),
     relatedEntityType: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<EmailResult> => {
@@ -333,7 +382,7 @@ export const sendPlainEmail = internalAction({
       }
 
       const payload = {
-        from: { email: "support@ffsn.ai", name: "FFSN Support" },
+        from: { email: "support@ffsn.ai", name: args.fromName || "FFSN Support" },
         personalizations: [{ to: [{ email: args.to }] }],
         subject: args.subject,
         content: [
@@ -398,6 +447,7 @@ export const getUserEmailPreferences = internalQuery({
       email: user.email,
       name: user.name,
       emailNotificationsEnabled: user.preferences?.emailNotifications ?? true, // Default to true (opt-in)
+      timezone: user.preferences?.timezone,
     };
   },
 });
@@ -412,7 +462,7 @@ export const updateEmailPreferences = internalAction({
     const user = await ctx.runQuery(internal.emailService.getUserEmailPreferences, {
       userId: args.userId,
     });
-    
+
     if (!user || !user.email) {
       console.log("User not found or no email address");
       return;
@@ -461,7 +511,7 @@ export const addToSuppressionList = internalAction({
       }
 
       const unsubscribeGroupId = parseInt((process.env.SENDGRID_UNSUBSCRIBE_GROUP_ID || "1").replace(/^ID:/, ""));
-      
+
       const res = await fetch(`https://api.sendgrid.com/v3/asm/groups/${unsubscribeGroupId}/suppressions`, {
         method: 'POST',
         headers: {
@@ -502,7 +552,7 @@ export const removeFromSuppressionList = internalAction({
       }
 
       const unsubscribeGroupId = parseInt((process.env.SENDGRID_UNSUBSCRIBE_GROUP_ID || "1").replace(/^ID:/, ""));
-      
+
       const res = await fetch(`https://api.sendgrid.com/v3/asm/groups/${unsubscribeGroupId}/suppressions/${args.email}`, {
         method: 'DELETE',
         headers: {
@@ -534,10 +584,10 @@ export const optInAllUsers = internalAction({
   args: {},
   handler: async (ctx): Promise<{ updatedCount: number; errorCount: number; totalUsers: number }> => {
     console.log("Starting opt-in migration for all users...");
-    
+
     // Get all users
     const users = await ctx.runQuery(internal.emailService.getAllUsers, {});
-    
+
     let updatedCount = 0;
     let errorCount = 0;
 
@@ -597,7 +647,7 @@ export const getRecentEmailLogs = internalQuery({
       .query("emailLogs")
       .order("desc")
       .take(args.limit || 10);
-    
+
     return logs.map(log => ({
       id: log._id,
       email: log.email,
@@ -618,20 +668,21 @@ export const debugEmailConfig = internalAction({
   args: {},
   handler: async (ctx) => {
     const apiKey = process.env.SENDGRID_API_KEY;
-    const templateId = process.env.SENDGRID_COMMENT_REQUEST_TEMPLATE_ID;
+    // Legacy/unused: comment-request emails render locally (src/lib/email) now,
+    // so this SendGrid Dynamic Template id is no longer read for sending.
+    const legacyTemplateId = process.env.SENDGRID_COMMENT_REQUEST_TEMPLATE_ID;
     const unsubscribeGroupId = process.env.SENDGRID_UNSUBSCRIBE_GROUP_ID;
-    
+
     const parsedUnsubscribeGroupId = parseInt((unsubscribeGroupId || "1").replace(/^ID:/, ""));
-    
+
     console.log("Email Configuration Debug:");
     console.log("- SENDGRID_API_KEY:", apiKey ? "SET" : "NOT SET");
-    console.log("- SENDGRID_COMMENT_REQUEST_TEMPLATE_ID:", templateId ? templateId : "NOT SET");
+    console.log("- SENDGRID_COMMENT_REQUEST_TEMPLATE_ID (legacy, unused):", legacyTemplateId ? legacyTemplateId : "NOT SET");
     console.log("- SENDGRID_UNSUBSCRIBE_GROUP_ID:", unsubscribeGroupId ? `${unsubscribeGroupId} (parsed: ${parsedUnsubscribeGroupId})` : "NOT SET");
-    
+
     return {
       hasApiKey: !!apiKey,
-      hasTemplateId: !!templateId,
-      templateId: templateId || null,
+      legacyTemplateId: legacyTemplateId || null,
       hasUnsubscribeGroupId: !!unsubscribeGroupId,
       unsubscribeGroupId: unsubscribeGroupId || null,
       parsedUnsubscribeGroupId,
@@ -639,47 +690,55 @@ export const debugEmailConfig = internalAction({
   },
 });
 
-// Test comment request email with mock data
+// Test comment request email with mock data, rendered from the same local
+// template as production (variant defaults to the initial request; pass
+// "reminder" or "final_reminder" to preview those instead).
 export const testCommentRequestEmail: any = internalAction({
   args: {
     testEmail: v.string(),
+    variant: v.optional(v.union(v.literal("request"), v.literal("reminder"), v.literal("final_reminder"))),
   },
   handler: async (ctx, args): Promise<{ success: boolean; error?: string; emailId?: string; message?: string }> => {
     // First check configuration
     const config: any = await ctx.runAction(internal.emailService.debugEmailConfig, {});
-    
+
     if (!config.hasApiKey) {
       return { success: false, error: "SENDGRID_API_KEY not configured" };
     }
-    
-    if (!config.hasTemplateId) {
-      return { success: false, error: "SENDGRID_COMMENT_REQUEST_TEMPLATE_ID not configured" };
-    }
-    
+
+    const siteUrl = process.env.SITE_URL || "https://ffsn.ai";
+    const variant = args.variant ?? "request";
+    const templateId = localTemplateId(variant === "request" ? "comment_request" : "comment_reminder");
+
     // Create mock template data
-    const mockTemplateData = {
-      userName: "Test User",
-      leagueName: "Test League",
-      articleType: "Weekly recap for Test League",
-      week: 12,
-      commentRequestUrl: "https://ffsn.ai/test-comment-request",
-      unsubscribeUrl: "https://ffsn.ai/settings/notifications",
-      supportEmail: "support@ffsn.ai",
-      currentYear: new Date().getFullYear(),
+    const mockTemplateData: CommentRequestEmailData = {
+      variant,
+      leagueName: "The Sunday Scaries",
+      contentTypeLabel: contentTypeLabel("weekly_recap"),
+      week: 3,
+      question:
+        "You left 31 points on the bench in a game you lost by 4. Walk me through the Sunday-morning call on Jaylen Waddle.",
+      writer: writerDisplay("curtis-vaughn"),
+      interviewer: interviewerDisplay(),
+      deadline: Date.now() + 6 * 60 * 60 * 1000,
+      recipientName: "Dana Whitlock",
+      commentRequestUrl: `${siteUrl}/test-comment-request`,
+      preferencesUrl: `${siteUrl}/dashboard/settings/notifications`,
+      siteUrl,
     };
-    
+
     // Queue the test email
     const emailId: string = await ctx.runMutation(internal.emailService.queueEmailInternal, {
       to: args.testEmail,
-      templateId: config.templateId!,
+      templateId,
       data: mockTemplateData,
       userId: undefined,
-      relatedEntityType: "comment_request_test",
+      relatedEntityType: variant === "request" ? "comment_request_test" : "comment_reminder_test",
       relatedEntityId: "test-comment-request-123",
     });
-    
-    console.log(`Queued test comment request email, ID: ${emailId}`);
-    
+
+    console.log(`Queued test comment request email (${variant}), ID: ${emailId}`);
+
     return {
       success: true,
       emailId,
@@ -701,21 +760,29 @@ export const sendTestEmail = internalAction({
         throw new Error("SENDGRID_API_KEY not configured");
       }
 
+      const siteUrl = process.env.SITE_URL || "https://ffsn.ai";
+      const rendered = renderSystemNoticeEmail({
+        kicker: "Signal check",
+        title: "The desk is on the air.",
+        paragraphs: [
+          "This is a test message from FFSN to confirm email delivery is working.",
+          `Test type: ${args.testType || "basic"}. Sent ${new Date().toISOString()}.`,
+        ],
+        cta: { label: "Open the dashboard", url: `${siteUrl}/dashboard` },
+        preferencesUrl: `${siteUrl}/dashboard/settings/notifications`,
+        siteUrl,
+      });
+
       const payload = {
-        from: { email: "support@ffsn.ai", name: "FFSN Support" },
+        from: { email: "support@ffsn.ai", name: rendered.fromName },
         personalizations: [{
           to: [{ email: args.toEmail }],
         }],
-        subject: "FFSN Email Test",
-        content: [{
-          type: "text/html",
-          value: `
-            <h2>Email Test Successful!</h2>
-            <p>This is a test email from FFSN to verify SendGrid integration is working.</p>
-            <p>Test type: ${args.testType || "basic"}</p>
-            <p>Sent at: ${new Date().toISOString()}</p>
-          `,
-        }],
+        subject: rendered.subject,
+        content: [
+          { type: "text/plain", value: rendered.text },
+          { type: "text/html", value: rendered.html },
+        ],
         categories: ["test"],
       };
 

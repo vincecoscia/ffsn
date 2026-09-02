@@ -199,7 +199,7 @@ api.commentRequestTesting.getTestStatus({ leagueId: "LEAGUE_ID" })
 api.notifications.getUserNotifications()
 
 // Check conversations
-api.commentConversations.getActiveRequests({ userId: "USER_ID" })
+api.commentConversations.getMyRequests({ userId: "USER_ID" })
 ```
 
 ---

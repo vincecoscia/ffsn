@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader, Panel, SectionHeader, Chip, EmptyState, LoadingScreen, PersonaAvatar, Spinner } from "@/components/broadcast";
+import { QuoteApproval } from "@/components/QuoteApproval";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -36,10 +37,25 @@ const STATUS_CHIP: Record<RequestStatus, { variant: "outline" | "signal" | "win"
   pending: { variant: "outline", label: "Pending" },
   active: { variant: "signal", label: "Active", live: true },
   completed: { variant: "win", label: "Answered" },
-  expired: { variant: "muted", label: "Expired" },
-  declined: { variant: "muted", label: "Declined" },
+  expired: { variant: "muted", label: "Went to print" },
+  declined: { variant: "muted", label: "No comment" },
   cancelled: { variant: "muted", label: "Cancelled" },
 };
+
+/** Sam Ortega conducts every comment-request interview (spec §1.2). */
+const INTERVIEWER_SLUG = "sam-ortega";
+const INTERVIEWER_NAME = "Sam Ortega";
+
+/** `commentConversations.messageType` for the quote sign-off message (spec §8.1). */
+const QUOTE_APPROVAL_MESSAGE = "quote_approval";
+
+function deadlineLabel(timestamp?: number) {
+  if (!timestamp) return null;
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export default function CommentRequestPage({ params }: CommentRequestPageProps) {
   const resolvedParams = React.use(params);
@@ -54,14 +70,8 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
   // Get current user's Convex user ID first
   const currentUser = useQuery(api.users.getCurrentUser);
 
-  // Get comment request details and context - only if we have current user.
-  // getActiveRequests derives the target user from the caller's own
-  // identity server-side, so no userId is passed here.
-  const requestDetails = useQuery(api.commentConversations.getActiveRequests,
-    currentUser ? {} : "skip"
-  );
-
-  // Also fetch the request directly by ID regardless of status for view-only scenarios
+  // Resolve the request by id, not through the active-only list: a completed,
+  // declined or expired request still has to render its own state.
   const requestById = useQuery(api.commentRequests.getRequestById, {
     commentRequestId: requestId,
   });
@@ -75,6 +85,7 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
 
   // Send user response mutation
   const sendResponse = useMutation(api.commentConversations.sendUserResponse);
+  const declineRequest = useMutation(api.commentConversations.declineCommentRequest);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -102,6 +113,21 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
     }
   };
 
+  // "No comment" - honored immediately and permanently.
+  const handleDecline = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await declineRequest({ commentRequestId: requestId });
+      toast.success("Noted - you declined to comment.");
+    } catch (error) {
+      console.error("Error declining comment request:", error);
+      toast.error("Could not record that. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Handle textarea keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -114,8 +140,7 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
   const isLoading =
     currentUser === undefined ||
     messages === undefined ||
-    requestById === undefined ||
-    (!!currentUser && requestDetails === undefined);
+    requestById === undefined;
 
   if (isLoading) {
     return (
@@ -125,8 +150,7 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
     );
   }
 
-  // Find the specific request from active requests
-  const currentRequest = (requestDetails ?? []).find(req => req._id === requestId) || requestById || null;
+  const currentRequest = requestById;
 
   // Check authorization - only target user can respond
   if (!user || !currentRequest || !currentUser || currentUser._id !== currentRequest.targetUserId) {
@@ -180,16 +204,17 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
         </div>
 
         <PageHeader
-          kicker="Locker room interview"
-          title="Comment request"
-          description="Share your insights for upcoming content."
+          kicker={`${INTERVIEWER_NAME} · FFSN sideline`}
+          title="Reaching out for comment"
+          description="On the record. You'll be quoted with your name and team, in your own words."
         />
 
-        {/* Expiration Warning */}
+        {/* Deadline */}
         {currentRequest.articleGenerationTime && (
           (() => {
             const timeUntilGeneration = currentRequest.articleGenerationTime - Date.now();
             const hoursUntilGeneration = timeUntilGeneration / (1000 * 60 * 60);
+            const printTime = deadlineLabel(currentRequest.articleGenerationTime);
 
             if (hoursUntilGeneration <= 24 && hoursUntilGeneration > 0) {
               return (
@@ -198,13 +223,13 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                     <Clock className="size-5 flex-none text-bc-signal" />
                     <div>
                       <h3 className="font-display text-[15px] font-bold uppercase tracking-[0.02em] text-bc-ink">
-                        {hoursUntilGeneration <= 1 ? "Urgent: " : ""}Article generation soon
+                        Deadline {printTime}
                       </h3>
                       <p className="mt-1 text-sm text-bc-text-2">
-                        The article will be generated {formatDistanceToNow(new Date(currentRequest.articleGenerationTime), { addSuffix: true })}.
+                        We go to print {formatDistanceToNow(new Date(currentRequest.articleGenerationTime), { addSuffix: true })}.
                         {hoursUntilGeneration <= 1
-                          ? " Please respond as soon as possible!"
-                          : " Make sure to share your thoughts before then."}
+                          ? " After that the story runs with what we have."
+                          : " Anything you send before then can run in it."}
                       </p>
                     </div>
                   </div>
@@ -228,11 +253,11 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                   </p>
                 </div>
                 <div className="border border-bc-hairline bg-bc-panel-2 p-3">
-                  <h4 className="bc-label-sm text-bc-text-3">Generation time</h4>
+                  <h4 className="bc-label-sm text-bc-text-3">Deadline</h4>
                   <p className="mt-1 flex items-center gap-1.5 text-sm text-bc-ink">
                     <Clock className="size-3.5 text-bc-text-3" />
                     {currentRequest.articleGenerationTime
-                      ? formatDistanceToNow(new Date(currentRequest.articleGenerationTime), { addSuffix: true })
+                      ? `${deadlineLabel(currentRequest.articleGenerationTime)} · ${formatDistanceToNow(new Date(currentRequest.articleGenerationTime), { addSuffix: true })}`
                       : "Not scheduled"}
                   </p>
                 </div>
@@ -267,7 +292,7 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
             <div className="border-b border-bc-hairline px-4 py-4 sm:px-6">
               <div className="flex items-center gap-2 font-display text-[18px] font-bold uppercase tracking-[0.01em] text-bc-ink">
                 <MessageCircle className="size-5" />
-                Conversation ({messages.length} messages)
+                {INTERVIEWER_NAME} ({messages.length} messages)
               </div>
             </div>
             <div className="flex flex-1 flex-col">
@@ -283,28 +308,38 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                     <>
                       {messages.map((message) => {
                         const isUser = message.messageType === "user_response";
+                        // Sam's "here's what we'll quote you saying" message carries the
+                        // sign-off cards (spec §8.1). Compared as a string so this file
+                        // doesn't depend on codegen ordering.
+                        const isQuoteApproval =
+                          (message.messageType as string) === QUOTE_APPROVAL_MESSAGE;
                         return (
-                          <div
-                            key={message._id}
-                            className={cn("flex items-end gap-3", isUser && "flex-row-reverse")}
-                          >
-                            {!isUser && (
-                              <PersonaAvatar persona="FFSN AI" size={32} className="flex-none border border-bc-border-strong" />
-                            )}
+                          <div key={message._id} className="flex flex-col gap-3">
+                            <div
+                              className={cn("flex items-end gap-3", isUser && "flex-row-reverse")}
+                            >
+                              {!isUser && (
+                                <PersonaAvatar persona={INTERVIEWER_SLUG} size={32} className="flex-none border border-bc-border-strong" />
+                              )}
 
-                            <div className={cn("flex-1", isUser && "text-right")}>
-                              <div
-                                className={cn(
-                                  "inline-block max-w-[80%] px-4 py-2 text-sm sm:text-base",
-                                  isUser ? "bc-cut-sm bg-bc-plate text-bc-plate-fg" : "bg-bc-panel-2 text-bc-ink"
-                                )}
-                              >
-                                <p className="whitespace-pre-wrap text-left leading-relaxed">{message.content}</p>
+                              <div className={cn("flex-1", isUser && "text-right")}>
+                                <div
+                                  className={cn(
+                                    "inline-block max-w-[80%] px-4 py-2 text-sm sm:text-base",
+                                    isUser ? "bc-cut-sm bg-bc-plate text-bc-plate-fg" : "bg-bc-panel-2 text-bc-ink"
+                                  )}
+                                >
+                                  <p className="whitespace-pre-wrap text-left leading-relaxed">{message.content}</p>
+                                </div>
+                                <p className="mt-1 text-xs text-bc-text-3">
+                                  {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
+                                </p>
                               </div>
-                              <p className="mt-1 text-xs text-bc-text-3">
-                                {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
-                              </p>
                             </div>
+
+                            {isQuoteApproval && (
+                              <QuoteApproval commentRequestId={requestId} className="sm:ml-11" />
+                            )}
                           </div>
                         );
                       })}
@@ -315,12 +350,12 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                         if (!isAiTyping) return null;
                         return (
                           <div className="flex items-end gap-3">
-                            <PersonaAvatar persona="FFSN AI" size={32} className="flex-none border border-bc-border-strong" />
+                            <PersonaAvatar persona={INTERVIEWER_SLUG} size={32} className="flex-none border border-bc-border-strong" />
                             <div className="flex-1">
                               <div className="inline-block max-w-[80%] bg-bc-panel-2 px-4 py-2 text-bc-ink">
                                 <div className="flex items-center gap-2 text-bc-text-2">
                                   <Spinner size={14} />
-                                  <span>AI is replying&hellip;</span>
+                                  <span>{INTERVIEWER_NAME} is typing&hellip;</span>
                                 </div>
                               </div>
                             </div>
@@ -343,7 +378,7 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                       value={response}
                       onChange={(e) => setResponse(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Share your thoughts, insights, or answer the AI's questions..."
+                      placeholder="Anything you want on the record?"
                       rows={3}
                       className="w-full resize-none text-sm sm:text-base"
                       disabled={isSubmitting || currentRequest.status !== "active"}
@@ -358,20 +393,35 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
                       </div>
                       <Progress value={Math.min((response.length / 1000) * 100, 100)} className="h-1.5 w-full sm:w-48" />
                     </div>
-                    <Button
-                      type="submit"
-                      disabled={!response.trim() || isSubmitting || response.length > 1000 || currentRequest.status !== "active"}
-                      className="w-full min-w-[120px] sm:w-auto"
-                    >
-                      {isSubmitting ? <Spinner size={14} className="[&>span]:bg-white" /> : <Send className="size-4" />}
-                      {isSubmitting ? "Sending" : "Send response"}
-                    </Button>
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleDecline}
+                        disabled={isSubmitting || currentRequest.status !== "active"}
+                        className="flex-1 sm:flex-none"
+                      >
+                        No comment
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={!response.trim() || isSubmitting || response.length > 1000 || currentRequest.status !== "active"}
+                        className="min-w-[120px] flex-1 sm:flex-none"
+                      >
+                        {isSubmitting ? <Spinner size={14} className="[&>span]:bg-white" /> : <Send className="size-4" />}
+                        {isSubmitting ? "Sending" : "Send response"}
+                      </Button>
+                    </div>
                   </div>
 
                   {currentRequest.status !== "active" && (
                     <div className="border-l-2 border-l-bc-red-deep bg-bc-panel-2 p-3">
                       <p className="text-sm text-bc-text-2">
-                        This comment request is no longer active. You cannot send new responses.
+                        {currentRequest.status === "declined"
+                          ? "You declined to comment. Nothing here will be quoted."
+                          : currentRequest.status === "completed"
+                          ? "Thanks. Your words go to the desk exactly as you typed them."
+                          : "This one has gone to print. You can still read the thread."}
                       </p>
                     </div>
                   )}

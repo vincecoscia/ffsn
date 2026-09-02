@@ -20,6 +20,25 @@ Router) frontend.
 - **AI**: Anthropic (Claude) for articles and comment conversations, OpenAI
   for banner images
 
+## AI writers and the relationship meter
+
+Six writers share the desk (`src/lib/ai/persona-prompts.ts`); their voices and
+history are documented in [`ffsn-ai-personas.md`](./ffsn-ai-personas.md), and the
+end-to-end design — grounding contract, FACTS block, verifier, comment flow —
+in [`ffsn-broadcast-desk-spec.md`](./ffsn-broadcast-desk-spec.md). Every article
+is generated from a FACTS block and then checked by a deterministic verifier
+(`src/lib/ai/fact-verifier.ts`), whose findings are stored on the article as
+`reviewFlags` for edit-before-publish.
+
+Each manager also carries a running score (−100…100, tiers feud · cold · neutral
+· warm · favorite) with every writer, in `writerRelationships` /
+`relationshipEvents`. Roasts and praise in an article, interview jabs, and reader
+reactions move it, and the tier changes how that writer treats the manager next
+time. A weekly cooldown moves every non-zero score 15% toward 0 — cron
+`decay writer relationships` in `convex/crons.ts`, **Tuesday 10:00 UTC**. No new
+environment variables: the writers, the interviewer, and the verifier all run on
+the existing `ANTHROPIC_API_KEY`.
+
 ## Getting started
 
 Install dependencies, then run the Next.js dev server and the Convex dev

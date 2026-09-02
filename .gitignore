@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Serena (IDE tooling) symbol cache — large binary, never commit
 .serena/cache/
+
+# Rendered email previews (npx vite-node scripts/preview-emails.ts)
+.email-preview/

@@ -1,0 +1,55 @@
+{
+  "fixture": "sparse-week",
+  "note": "No rosters, no standings, no ledger and no prediction history: the writer must say so and come in short. trade_analysis refuses outright.",
+  "facts": {
+    "teams": 10,
+    "matchups": 5,
+    "matchupPlayers": 0,
+    "standings": 0,
+    "transactions": 0,
+    "trades": 0,
+    "draftPicks": 0,
+    "quotes": 0,
+    "nonRespondents": 1,
+    "relationships": 0,
+    "priorClaims": 0
+  },
+  "unresolvedTeamRefs": 0,
+  "byType": {
+    "weekly_recap": {
+      "missing": [
+        "player_scores (rosters) — not available",
+        "standings — not available",
+        "quotes — Hollis Vance (T9) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": null
+    },
+    "draft_rankings": {
+      "missing": [
+        "draft_results (draftPicks) — not available",
+        "player_projections — not available",
+        "draft_order — not available",
+        "quotes — Hollis Vance (T9) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": null
+    },
+    "power_rankings": {
+      "missing": [
+        "standings — not available",
+        "quotes — Hollis Vance (T9) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": null
+    },
+    "trade_analysis": {
+      "missing": [
+        "trade_details — no trades in the payload",
+        "quotes — Hollis Vance (T9) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": "InsufficientDataError"
+    }
+  }
+}

@@ -18,6 +18,9 @@ import {
   PersonaAvatar,
   BannerPlaceholder,
   Chip,
+  writerRoster,
+  personaName,
+  personaRole,
 } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,46 +47,19 @@ const TICKER_ITEMS: TickerItem[] = [
   { k: "Winless", v: "Nacua Matata 0-3" },
   { k: "New story", v: "Bijan Mustard Is 3-0 and Mel Diaper Would Like a Word" },
   { k: "Week 4", v: "Bijan Mustard vs Kittle Me This · proj", n: "128.4 – 121.7" },
-  { k: "Waiver wire", v: "Stan Deviation says your claims are 0.23 correlated with optimal play" },
+  { k: "Waiver wire", v: "Nina Sharpe on the Week 4 claims: two numbers, one caveat" },
+  { k: "The Asking Price", v: "Dex Alvarez has the Week 3 log — three adds, one completed trade" },
 ];
 
-const WRITERS: WriterPlateProps[] = [
-  {
-    persona: "Mel Diaper",
-    index: 1,
-    role: "The Draft Disaster",
-    tagline: "I'm never wrong, you're just not listening!",
-    beat: ["Mock drafts", "Draft grades", "Power rankings"],
-  },
-  {
-    persona: "Stan Deviation",
-    index: 2,
-    role: "The Analytics Overlord",
-    tagline: "Your feelings are statistically insignificant.",
-    beat: ["Waiver-wire reports", "Injury analysis", "Deep dives"],
-  },
-  {
-    persona: `Vinny "The Sauce" Marinara`,
-    index: 3,
-    role: "Trade Rumor Mogul",
-    tagline: "My cousin's brother-in-law heard from a guy...",
-    beat: ["Trade rumors", "Bold predictions"],
-  },
-  {
-    persona: "Chad Thunderhype",
-    index: 4,
-    role: "The Glaze God",
-    tagline: "Your players are literally gods among men!",
-    beat: ["Stud alerts", "Team-name rankings"],
-  },
-  {
-    persona: `Rick "Two Beers" O'Sullivan`,
-    index: 5,
-    role: "The Drunk Uncle",
-    tagline: "I'm not drunk, you're drunk!",
-    beat: ["Weekly recaps", "Drunk trade evaluations"],
-  },
-];
+// The lineup is the roster — adding or retiring a writer in persona-prompts.ts
+// changes this section with no edit here.
+const WRITERS: WriterPlateProps[] = writerRoster.map((writer, index) => ({
+  persona: writer.name,
+  index: index + 1,
+  role: writer.role,
+  tagline: writer.tagline,
+  beat: writer.beat,
+}));
 
 const STEPS = [
   {
@@ -96,7 +72,7 @@ const STEPS = [
     num: "02",
     meta: "Tue recaps · Thu previews",
     title: "The writers get to work",
-    body: "Recaps land Tuesday, previews Thursday, power rankings when Mel feels like it, and trade rumors whenever Vinny's barber talks.",
+    body: "Recaps land Tuesday, previews Thursday, power rankings from the numbers desk, and The Asking Price whenever a trade actually happens.",
   },
   {
     num: "03",
@@ -106,7 +82,7 @@ const STEPS = [
   },
 ];
 
-const INCLUDES = ["ESPN sync", "All five writers", "Scheduled stories", "Unlimited readers"];
+const INCLUDES = ["ESPN sync", "All six writers", "Scheduled stories", "Unlimited readers"];
 
 export default function Home() {
   return (
@@ -132,8 +108,8 @@ export default function Home() {
                 <span className="text-bc-red-text">your league.</span>
               </h1>
               <p className="max-w-xl text-[15px] leading-relaxed text-bc-text-2 sm:text-[17px]">
-                FFSN syncs with your ESPN league and puts five unhinged AI sportswriters on the
-                beat — weekly recaps, power rankings, trade rumors and draft grades about your
+                FFSN syncs with your ESPN league and puts a six-writer broadcast desk on the
+                beat — weekly recaps, power rankings, transactions and draft grades about your
                 teams, your trades, and your bad decisions.
               </p>
               <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center">
@@ -163,7 +139,7 @@ export default function Home() {
               <div className="flex flex-wrap items-center gap-3">
                 <span className="bc-label text-bc-text-3">ESPN sync</span>
                 <span className="bc-sep bc-sep-muted" aria-hidden="true" />
-                <span className="bc-label text-bc-text-3">Five writers</span>
+                <span className="bc-label text-bc-text-3">Six writers</span>
                 <span className="bc-sep bc-sep-muted" aria-hidden="true" />
                 <span className="bc-label text-bc-text-3">
                   One price covers the whole league
@@ -211,11 +187,11 @@ export default function Home() {
                 </div>
                 <div className="absolute inset-x-4 bottom-4">
                   <LowerThird
-                    name={`Rick "Two Beers" O'Sullivan`}
-                    role="The Drunk Uncle · Senior Recap Correspondent"
-                    avatar={<PersonaAvatar persona="Rick" size={56} variant="bust" />}
-                    tag="Weekly recap"
-                    note={`"Never text gg. That's rule one."`}
+                    name={personaName("sam-ortega")}
+                    role={`${personaRole("sam-ortega")} · FFSN`}
+                    avatar={<PersonaAvatar persona="sam-ortega" size={56} variant="bust" />}
+                    tag="Sideline"
+                    note={`"I asked. Here's exactly what they said."`}
                   />
                 </div>
               </Panel>
@@ -241,15 +217,15 @@ export default function Home() {
               <div className="flex flex-col gap-3.5">
                 <SegmentSlate code="Seg 01" label="On-air talent" />
                 <h2 className="bc-display text-bc-ink text-[32px] sm:text-[44px] lg:text-[52px]">
-                  Ten teams. Five writers. Zero chill.
+                  Ten teams. Six writers. Zero chill.
                 </h2>
               </div>
               <p className="text-[16px] leading-relaxed text-bc-text-2 sm:text-[17px]">
-                No real headshots, no real credentials, no real restraint. Five AI sportswriters,
+                No real headshots, no real credentials, no real restraint. Six AI sportswriters,
                 each with a beat, an ego and a grudge against at least one manager in your league.
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
               {WRITERS.map((writer) => (
                 <WriterPlate key={writer.persona} {...writer} />
               ))}
@@ -333,17 +309,17 @@ export default function Home() {
                   <span className="bc-label text-bc-text-3">8 min read</span>
                 </div>
                 <h3 className="bc-display text-bc-ink text-[24px] sm:text-[28px] lg:text-[32px]">
-                  {"Week 3 Recap: Lamar's Army Wins by 1.7 Points and I Need Another Beer"}
+                  {"Week 3 Recap: Lamar's Army Won by 1.7, and That's the Whole Argument"}
                 </h3>
                 <LowerThird
-                  name={`Rick "Two Beers" O'Sullivan`}
-                  role="The Drunk Uncle"
-                  avatar={<PersonaAvatar persona="Rick" size={40} variant="bust" />}
+                  name={personaName("walt-brennan")}
+                  role={personaRole("walt-brennan")}
+                  avatar={<PersonaAvatar persona="walt-brennan" size={40} variant="bust" />}
                   compact
                 />
                 <p className="text-[16px] leading-relaxed text-bc-body sm:text-[17px]">
                   {
-                    "Listen. I've been doing this since 1987, back when you had to call a 1-900 number to get your scores and Janet still answered the phone. And I have never, not once, seen a game decided by 1.7 points on a Monday night kicker."
+                    "I have been reading this league's box scores since 2019, and I have never seen a week turn on a Monday-night kicker the way this one did. Lamar's Army won by 1.7 points. That is not a system, it is a coin landing on its edge, and the standings are going to spend the next ten weeks treating it like a system anyway."
                   }
                 </p>
               </div>

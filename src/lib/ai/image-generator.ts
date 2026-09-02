@@ -99,23 +99,45 @@ function generateImagePrompt(params: ImageGenerationParams): string {
     }
   }
   
-  // Add persona flavor if applicable
+  // Add persona flavor. Broadcast Desk slugs first; retired slugs still resolve so archived
+  // articles regenerate with the look they shipped with.
   if (persona) {
     switch (persona) {
+      // --- Broadcast Desk roster ---
+      case 'curtis-vaughn':
+        prompt += "Studio broadcast aesthetic, anchor desk lighting, clean rundown graphics, controlled and authoritative. ";
+        break;
+      case 'sam-ortega':
+        prompt += "Sideline vantage point, field-level depth of field, handheld reportage feel, warm practical lighting. ";
+        break;
+      case 'nina-sharpe':
+        prompt += "Include data visualization elements, charts, telestrator overlays, precise and analytical. ";
+        break;
+      case 'dex-alvarez':
+        prompt += "Newswire urgency, transaction ticker motifs, cool blue press-room light, documentary restraint. ";
+        break;
       case 'mel-diaper':
         prompt += "Angry, dramatic visuals with explosive energy, dark storm clouds, intense contrast. ";
+        break;
+      case 'walt-brennan':
+        prompt += "Op-ed column aesthetic, warm print-newspaper tones, considered and unhurried, long shadows. ";
+        break;
+
+      // --- Retired slugs (archived bylines only) ---
+      case 'mike-harrison':
+        prompt += "Studio broadcast aesthetic, anchor desk lighting, clean rundown graphics, controlled and authoritative. ";
         break;
       case 'stan-deviation':
         prompt += "Include data visualization elements, charts, graphs, analytics overlay, technical feel. ";
         break;
       case 'vinny-marinara':
-        prompt += "Mysterious, noir atmosphere, shadows and secrets, Italian restaurant aesthetic. ";
+        prompt += "Newswire urgency, transaction ticker motifs, cool blue press-room light, documentary restraint. ";
         break;
       case 'chad-thunderhype':
-        prompt += "Ultra high energy, explosions, lightning, maximum intensity, gym and protein shake vibes. ";
+        prompt += "Ultra high energy, explosions, lightning, maximum intensity. ";
         break;
       case 'rick-two-beers':
-        prompt += "Slightly blurry, sports bar atmosphere, vintage 80s elements, nostalgic feel. ";
+        prompt += "Op-ed column aesthetic, warm print-newspaper tones, considered and unhurried, long shadows. ";
         break;
     }
   }

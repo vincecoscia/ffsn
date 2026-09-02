@@ -1,5 +1,15 @@
 # SendGrid Email Implementation Summary
 
+> **Update, Sept 2026:** Comment-request (and its reminder variants), article-published,
+> and test emails now render from code-owned templates in `src/lib/email/` (the
+> Broadcast design system) instead of a SendGrid Dynamic Template - see
+> `SENDGRID_SETUP.md`'s "Templates" section. `convex/emailService.ts` still queues
+> through SendGrid and still respects the ASM unsubscribe group; only the
+> subject/HTML/text rendering moved into the app. This also added the reminder email
+> path (`notifications.sendExpiringNotification` -> `emailService.sendCommentRequestEmail`
+> with `variant: "reminder" | "final_reminder"`), which nothing schedules yet - the
+> spec's W1-C workstream will.
+
 ## ✅ Completed Tasks
 
 All requested tasks have been successfully implemented:

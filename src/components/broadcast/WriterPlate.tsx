@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
+
 import { PersonaAvatar } from "./PersonaAvatar";
 import { cn } from "@/lib/utils";
 
 export interface WriterPlateProps {
-  /** The writer's display name, e.g. `Rick "Two Beers" O'Sullivan`. Also used to match the `PersonaAvatar` illustration. */
+  /** The writer's display name, e.g. `Simone "Sam" Ortega`. Also used to match the `PersonaAvatar` illustration. */
   persona: string;
   /** Lineup position, e.g. `1` (rendered as "01") or a pre-formatted string. */
   index: number | string;
@@ -11,6 +13,8 @@ export interface WriterPlateProps {
   beat: string[];
   /** Role label in the red strip, e.g. "The Draft Disaster". */
   role: string;
+  /** Optional line under the beat, e.g. "Feuding with 2 managers". */
+  footnote?: ReactNode;
   className?: string;
 }
 
@@ -22,7 +26,15 @@ function formatIndex(index: number | string) {
  * The on-air-talent lineup card: a 300px portrait with a faint index number,
  * a name plate + red role strip, an italic tagline, and a "Writes" beat line.
  */
-export function WriterPlate({ persona, index, tagline, beat, role, className }: WriterPlateProps) {
+export function WriterPlate({
+  persona,
+  index,
+  tagline,
+  beat,
+  role,
+  footnote,
+  className,
+}: WriterPlateProps) {
   return (
     <div className={cn("flex flex-col border border-bc-hairline bg-bc-panel", className)}>
       <div className="bc-scan relative h-[240px] flex-none overflow-hidden bg-bc-panel-2 lg:h-[260px]">
@@ -52,6 +64,7 @@ export function WriterPlate({ persona, index, tagline, beat, role, className }: 
         <div className="mt-auto flex flex-col gap-1.5 border-t border-bc-hairline pt-2.5">
           <span className="bc-label-sm text-[12px] text-bc-text-3">Writes</span>
           <span className="text-[14px] leading-relaxed text-bc-ink">{beat.join(" · ")}</span>
+          {footnote && <span className="bc-label-sm text-bc-red-text">{footnote}</span>}
         </div>
       </div>
     </div>

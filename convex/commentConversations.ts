@@ -3,14 +3,64 @@ import { mutation, query, internalAction, internalMutation, internalQuery } from
 import { api, internal } from "./_generated/api";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
 import { Id } from "./_generated/dataModel";
-import { getLeagueMembership } from "./lib/auth";
+import { getLeagueMembership, requireIdentity } from "./lib/auth";
+import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import {
+  quoteReviewActionValidator,
+  quoteReviewEntryValidator,
+  writerSentimentValidator,
+} from "./validators";
+import { DELTAS } from "./relationships";
 
-// Get active comment requests for the signed-in user. The target user is
-// derived from the caller's identity rather than a client-supplied userId,
-// which previously let anyone read anyone else's comment requests.
-export const getActiveRequests = query({
-  args: {},
-  handler: async (ctx) => {
+/* -------------------------------------------------------------------------- */
+/* Quote integrity (spec §5)                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** Curly quotes and dashes folded so a re-typed span still matches the raw text. */
+function foldPunctuation(text: string): string {
+  return text
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”‟]/g, '"')
+    .replace(/[–—]/g, "-");
+}
+
+function normalizeForMatch(text: string): string {
+  return foldPunctuation(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Keep only the segments that are genuinely contained in `raw` after
+ * case-insensitive, whitespace-normalized comparison. Anything the model
+ * rephrased, merged, or invented is dropped rather than stored as a quote.
+ *
+ * This is deliberately duplicated from `conversation-service.ts`: that module is a
+ * Node-runtime file (it loads the Anthropic SDK), so Convex isolate code may only
+ * import types from it.
+ */
+export function keepVerbatimSegments(raw: string, segments: string[]): string[] {
+  const haystack = normalizeForMatch(raw);
+  const kept: string[] = [];
+  for (const segment of segments ?? []) {
+    const trimmed = foldPunctuation(segment).replace(/\s+/g, " ").trim();
+    if (trimmed.length === 0) continue;
+    if (!haystack.includes(trimmed.toLowerCase())) continue;
+    if (!kept.includes(trimmed)) kept.push(trimmed);
+  }
+  return kept;
+}
+
+/**
+ * Every comment request for the signed-in manager, open or closed, newest first.
+ *
+ * This replaces the old `getActiveRequests`, which filtered to `status === "active"` and
+ * so made answered and expired requests vanish from the list the moment they mattered
+ * most (spec §5). This is the query the requests list renders from; the target user is
+ * still derived from the caller's identity, never from an argument.
+ */
+export const getMyRequests = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
 
@@ -22,39 +72,134 @@ export const getActiveRequests = query({
 
     const requests = await ctx.db
       .query("commentRequests")
-      .withIndex("by_user_status", q =>
-        q.eq("targetUserId", user._id)
-         .eq("status", "active")
-      )
-      .collect();
+      .withIndex("by_user", (q) => q.eq("targetUserId", user._id))
+      .order("desc")
+      .take(Math.min(Math.max(args.limit ?? 25, 1), 100));
 
-    // Enrich with scheduled content info
-    const enrichedRequests = await Promise.all(
-      requests.map(async (request) => {
-        const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
-        const league = await ctx.db.get(request.leagueId);
-        
-        // Get conversation messages
-        const messages = await ctx.db
-          .query("commentConversations")
-          .withIndex("by_comment_request_order", q => 
-            q.eq("commentRequestId", request._id)
-          )
-          .collect();
+    return await Promise.all(
+      requests
+        .filter((request) => request.status !== "cancelled")
+        .map(async (request) => {
+          const scheduledContent = request.scheduledContentId
+            ? await ctx.db.get(request.scheduledContentId)
+            : null;
+          const league = await ctx.db.get(request.leagueId);
 
-        return {
-          ...request,
-          leagueName: league?.name || "Unknown League",
-          articleType: scheduledContent?.contentType || request.contentType,
-          messageCount: messages.length,
-          lastMessage: messages[messages.length - 1],
-        };
-      })
+          const messages = await ctx.db
+            .query("commentConversations")
+            .withIndex("by_comment_request_order", (q) =>
+              q.eq("commentRequestId", request._id)
+            )
+            .collect();
+
+          return {
+            ...request,
+            leagueName: league?.name || "Unknown League",
+            articleType: scheduledContent?.contentType || request.contentType,
+            messageCount: messages.length,
+            lastMessage: messages[messages.length - 1],
+          };
+        })
     );
-
-    return enrichedRequests;
   },
 });
+
+/* -------------------------------------------------------------------------- */
+/* Quote approval (spec §8.1)                                                  */
+/* -------------------------------------------------------------------------- */
+
+type QuoteReviewEntry = {
+  original: string;
+  text: string;
+  status: "pending" | "approved" | "edited" | "withdrawn";
+};
+
+/** The response row for a request, or null. One row per request by construction. */
+async function responseForRequest(
+  ctx: QueryCtx | MutationCtx,
+  commentRequestId: Id<"commentRequests">
+): Promise<Doc<"commentResponses"> | null> {
+  return await ctx.db
+    .query("commentResponses")
+    .withIndex("by_comment_request", q =>
+      q.eq("commentRequestId", commentRequestId)
+    )
+    .first();
+}
+
+/** The signed-in caller's `users` row, resolved through `by_clerk_id`. */
+async function callerUser(
+  ctx: QueryCtx | MutationCtx,
+  clerkId: string
+): Promise<Doc<"users"> | null> {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", q => q.eq("clerkId", clerkId))
+    .unique();
+}
+
+/**
+ * "We go to print at ..." in the manager's own timezone when we have one.
+ * Convex's isolate ships Intl; a bad tz string still must not cost us the message.
+ */
+function formatDeadline(deadline: number, timeZone?: string): string {
+  const tz = timeZone || "America/New_York";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(deadline));
+  } catch {
+    return new Date(deadline).toUTCString();
+  }
+}
+
+/**
+ * Post Sam's one quote-approval message, once, when there is something to approve.
+ *
+ * Called at the moment the response row lands (`createCommentResponse`) and again
+ * from the closing message when a row already exists, so the manager sees it right
+ * after the close and never twice.
+ */
+async function postQuoteApproval(
+  ctx: MutationCtx,
+  commentRequestId: Id<"commentRequests">
+): Promise<Id<"commentConversations"> | null> {
+  const request = await ctx.db.get(commentRequestId);
+  if (!request) return null;
+
+  const response = await responseForRequest(ctx, commentRequestId);
+  const pending = (response?.quoteReview ?? []).filter(q => q.status === "pending");
+  if (pending.length === 0) return null;
+
+  const messages = await ctx.db
+    .query("commentConversations")
+    .withIndex("by_comment_request", q => q.eq("commentRequestId", commentRequestId))
+    .collect();
+  if (messages.some(m => m.messageType === "quote_approval")) return null;
+
+  const user = await ctx.db.get(request.targetUserId);
+  const deadline = formatDeadline(
+    request.articleGenerationTime,
+    user?.preferences?.timezone
+  );
+
+  return await ctx.db.insert("commentConversations", {
+    commentRequestId,
+    leagueId: request.leagueId,
+    userId: request.targetUserId,
+    messageType: "quote_approval",
+    content: `Here's what we'll quote you saying. Tighten it if you want. We go to print at ${deadline}.`,
+    messageOrder: messages.length,
+    isRead: false,
+    aiMetadata: { intent: "quote_approval" },
+    createdAt: Date.now(),
+    threadDepth: 0,
+  });
+}
 
 // Get conversation messages for a comment request. Readable by the
 // request's target user or a commissioner of its league.
@@ -228,7 +373,7 @@ export const processUserResponse = internalAction({
 
       console.log("User response analysis:", analysis);
 
-      // Store the analysis
+      // Store the analysis, including the verbatim spans the quote ledger is built from.
       await ctx.runMutation(internal.commentConversations.updateMessageAnalysis, {
         messageId: args.userMessageId,
         analysis: {
@@ -237,15 +382,42 @@ export const processUserResponse = internalAction({
           relevantTopics: analysis.relevantTopics,
           needsFollowUp: analysis.needsFollowUp,
           suggestedFollowUps: analysis.suggestedFollowUps,
+          quotableSegments: analysis.quotableSegments,
+          writerSentiment: analysis.writerSentiment,
         },
       });
+
+      // A manager jabbing or praising a writer during the interview moves the
+      // relationship meter (spec §6.2). Neutral mentions are not events.
+      for (const entry of analysis.writerSentiment ?? []) {
+        if (entry.sentiment === "neutral") continue;
+        const isJab = entry.sentiment === "hostile" || entry.sentiment === "dismissive";
+        const delta = isJab
+          ? DELTAS.interview_jab[entry.sentiment as "hostile" | "dismissive"]
+          : DELTAS.interview_praise.friendly;
+        try {
+          await ctx.runMutation(internal.relationships.recordEvent, {
+            leagueId: request.leagueId,
+            userId: request.targetUserId,
+            persona: entry.persona,
+            type: isJab ? "interview_jab" : "interview_praise",
+            delta,
+            evidence: entry.evidence.slice(0, 280),
+            commentRequestId: args.commentRequestId,
+            week: request.articleContext?.week,
+          });
+        } catch (relationshipError) {
+          // A meter write must never cost us the interview itself.
+          console.error("Failed to record interview relationship event:", relationshipError);
+        }
+      }
 
       // Count total messages so far for this conversation
       const allMessages = await ctx.runQuery(internal.commentConversations.getUserMessages, {
         commentRequestId: args.commentRequestId,
       });
 
-      // Check if we should continue the conversation
+      // Continue only for the single sanctioned follow-up (spec §5).
       const shouldContinue = await ctx.runMutation(internal.commentConversations.evaluateConversationContinuation, {
         commentRequestId: args.commentRequestId,
         responseQuality: analysis.responseQuality,
@@ -253,9 +425,6 @@ export const processUserResponse = internalAction({
         offTopicScore: analysis.offTopicScore,
         quotableSegments: analysis.quotableSegments,
       });
-
-      // The evaluateConversationContinuation function now handles all termination logic
-      // including hard stops, quality stops, and continuation conditions
 
       if (shouldContinue) {
         // Generate follow-up question (ignore analysis.needsFollowUp as our logic is more robust)
@@ -315,6 +484,15 @@ export const generateAIFollowUp = internalAction({
 
       console.log("AI follow-up generated:", result);
 
+      // Honor a decline once (spec §5): if Sam read the reply as "no comment", the
+      // request is marked declined instead of being asked a second question.
+      if (result.shouldRecordDecline) {
+        await ctx.runMutation(internal.commentConversations.recordDeclineInternal, {
+          commentRequestId: args.commentRequestId,
+        });
+        return;
+      }
+
       // Check for abuse detection
       if (result.detectedAbuse && result.detectedAbuse.severity !== "low") {
         await ctx.runMutation(internal.commentConversations.completeConversation, {
@@ -337,6 +515,15 @@ export const generateAIFollowUp = internalAction({
         },
         shouldEndAfterResponse: result.shouldEndAfterResponse,
       });
+
+      // Sam just closed. If the response row already exists, the manager gets the
+      // quote-approval prompt right here; otherwise `createCommentResponse` posts it
+      // the moment the row lands. Either way it appears once (spec §8.1).
+      if (result.intent === "closing") {
+        await ctx.runMutation(internal.commentConversations.postQuoteApprovalMessage, {
+          commentRequestId: args.commentRequestId,
+        });
+      }
 
       // Send notification to user - request is already available from above
       if (request) {
@@ -368,15 +555,35 @@ export const updateMessageAnalysis = internalMutation({
       relevantTopics: v.optional(v.array(v.string())),
       needsFollowUp: v.optional(v.boolean()),
       suggestedFollowUps: v.optional(v.array(v.string())),
+      // The verbatim spans. `processCompletedResponse` builds the quote ledger from
+      // these and from nothing else (spec §5); `relevantTopics` are labels, not quotes.
+      quotableSegments: v.optional(v.array(v.string())),
+      writerSentiment: v.optional(v.array(writerSentimentValidator)),
     }),
   },
   handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) return;
+
+    // Defence in depth: a segment that is not actually contained in what the manager
+    // typed never reaches storage, so no downstream consumer can print it as a quote.
+    const quotableSegments = args.analysis.quotableSegments
+      ? keepVerbatimSegments(message.content, args.analysis.quotableSegments)
+      : undefined;
+
     await ctx.db.patch(args.messageId, {
-      responseAnalysis: args.analysis,
+      responseAnalysis: { ...args.analysis, quotableSegments },
     });
   },
 });
 
+/**
+ * Interview shape (spec §5): opener -> at most one follow-up -> close.
+ *
+ * Continue if and only if this is the manager's first reply and it is not off-topic.
+ * Everything else closes. This replaces a 120-line, twelve-branch heuristic that in
+ * practice produced the same outcome while burning an extra model call to get there.
+ */
 export const evaluateConversationContinuation = internalMutation({
   args: {
     commentRequestId: v.id("commentRequests"),
@@ -385,121 +592,317 @@ export const evaluateConversationContinuation = internalMutation({
     offTopicScore: v.number(),
     quotableSegments: v.array(v.string()),
   },
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.commentRequestId);
     if (!request) return false;
 
-    // Get all messages to understand conversation depth
-    const allMessages = await ctx.db
+    const messages = await ctx.db
       .query("commentConversations")
-      .withIndex("by_comment_request", q => 
+      .withIndex("by_comment_request", q =>
         q.eq("commentRequestId", args.commentRequestId)
       )
       .collect();
 
-    const userMessages = allMessages.filter(m => m.messageType === "user_response");
-    const aiMessages = allMessages.filter(m => m.messageType === "ai_question" || m.messageType === "ai_follow_up");
+    const userMessageCount = messages.filter(m => m.messageType === "user_response").length;
+    const shouldContinue = userMessageCount === 1 && args.offTopicScore < 50;
 
-    // Check auto-end criteria
-    const { autoEndCriteria } = request;
-    const totalExchanges = Math.min(userMessages.length, aiMessages.length);
-    const conversationAge = Date.now() - request.createdAt;
-    const lastUserMessage = userMessages[userMessages.length - 1];
-    
-    // HARD STOPS - These always end the conversation regardless of other factors
-    
-    // 1. Absolute message limit reached
-    if (autoEndCriteria.currentMessageCount >= autoEndCriteria.maxMessages) {
-      console.log("HARD STOP: Max messages reached, ending conversation");
-      return false;
+    console.log(
+      shouldContinue
+        ? "CONTINUE: first reply on topic, asking the one follow-up"
+        : `CLOSE: userMessages=${userMessageCount}, offTopicScore=${args.offTopicScore}`
+    );
+
+    return shouldContinue;
+  },
+});
+
+/**
+ * "No comment." The target manager ends the interview themselves; the writer may
+ * report the decline but may never turn it into a quote (spec §4/§5).
+ */
+export const declineCommentRequest = mutation({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) throw new Error("Comment request not found");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", q => q.eq("clerkId", identity.subject))
+      .unique();
+
+    if (!user || user._id !== request.targetUserId) {
+      throw new Error("Not authorized: this comment request is not yours");
     }
 
-    // 2. Absolute exchange limit (safety net)
-    if (totalExchanges >= 4) {
-      console.log("HARD STOP: Maximum exchanges (4) reached, ending conversation");
-      return false;
+    if (request.status === "declined") {
+      return { success: true };
+    }
+    if (request.status !== "pending" && request.status !== "active") {
+      throw new Error("This comment request is already closed");
     }
 
-    // 3. Time-based cutoff (30 minutes max conversation)
-    if (conversationAge > 30 * 60 * 1000) {
-      console.log("HARD STOP: Conversation too old (30+ minutes), ending");
-      return false;
+    const now = Date.now();
+    await ctx.db.patch(request._id, {
+      status: "declined",
+      conversationState: "auto_ended",
+      declinedAt: now,
+      updatedAt: now,
+    });
+
+    const messages = await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request", q =>
+        q.eq("commentRequestId", args.commentRequestId)
+      )
+      .collect();
+
+    await ctx.db.insert("commentConversations", {
+      commentRequestId: args.commentRequestId,
+      leagueId: request.leagueId,
+      userId: request.targetUserId,
+      messageType: "system_message",
+      content: "Noted - you declined to comment. The story will say so and nothing you have written here will be quoted.",
+      messageOrder: messages.length,
+      isRead: true,
+      createdAt: now,
+      threadDepth: 0,
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Server-side decline, used when the interviewer reads a reply as "no comment".
+ * The user-initiated path is the public `declineCommentRequest` mutation above.
+ */
+export const recordDeclineInternal = internalMutation({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) return null;
+    if (request.status !== "pending" && request.status !== "active") return null;
+
+    const now = Date.now();
+    await ctx.db.patch(request._id, {
+      status: "declined",
+      conversationState: "auto_ended",
+      declinedAt: now,
+      updatedAt: now,
+    });
+
+    const messages = await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request", q =>
+        q.eq("commentRequestId", args.commentRequestId)
+      )
+      .collect();
+
+    await ctx.db.insert("commentConversations", {
+      commentRequestId: args.commentRequestId,
+      leagueId: request.leagueId,
+      userId: request.targetUserId,
+      messageType: "system_message",
+      content: "Thanks for your time. We'll note that you declined to comment.",
+      messageOrder: messages.length,
+      isRead: false,
+      createdAt: now,
+      threadDepth: 0,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * The manager's approved quotes, verbatim, for this request. Ships now; the approval
+ * UI is P2 (spec §5). Only spans the manager actually typed are accepted.
+ */
+export const approveQuotes = mutation({
+  args: {
+    commentRequestId: v.id("commentRequests"),
+    quotes: v.array(v.string()),
+  },
+  returns: v.object({ approved: v.number(), rejected: v.number() }),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) throw new Error("Comment request not found");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", q => q.eq("clerkId", identity.subject))
+      .unique();
+
+    if (!user || user._id !== request.targetUserId) {
+      throw new Error("Not authorized: this comment request is not yours");
     }
 
-    // 4. Too many poor quality responses in a row
-    const recentUserMessages = userMessages.slice(-2);
-    const allPoorQuality = recentUserMessages.length >= 2 && 
-      recentUserMessages.every(msg => 
-        (msg.responseAnalysis?.completeness || 0) < 40 && 
-        (msg.responseAnalysis?.relevantTopics?.length || 0) === 0
-      );
-    if (allPoorQuality) {
-      console.log("HARD STOP: Multiple poor quality responses, ending conversation");
-      return false;
+    const response = await ctx.db
+      .query("commentResponses")
+      .withIndex("by_comment_request", q =>
+        q.eq("commentRequestId", args.commentRequestId)
+      )
+      .first();
+
+    if (!response) throw new Error("No response recorded for this comment request yet");
+
+    // Approving cannot mint new text: every quote must still be verbatim in what the
+    // manager typed. Light cleanup lives in the (P2) edit flow, not here.
+    const approvedQuotes = keepVerbatimSegments(response.rawResponse, args.quotes);
+
+    await ctx.db.patch(response._id, {
+      approvedQuotes,
+      updatedAt: Date.now(),
+    });
+
+    return { approved: approvedQuotes.length, rejected: args.quotes.length - approvedQuotes.length };
+  },
+});
+
+/**
+ * Manager sign-off on one quote (spec §8.1).
+ *
+ * `approve` keeps the extracted span as it stands. `edit` replaces it with what the
+ * manager typed - that text becomes the verbatim of record and is deliberately not
+ * re-checked against the raw reply, because they wrote it. `withdraw` takes it off
+ * the record: `getStructuredCommentResponses` never sends a withdrawn quote to the
+ * writer. Auth is the target manager only; the commissioner may read, never edit.
+ */
+export const reviewQuote = mutation({
+  args: {
+    commentRequestId: v.id("commentRequests"),
+    index: v.number(),
+    action: quoteReviewActionValidator,
+    text: v.optional(v.string()),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    quotes: v.array(quoteReviewEntryValidator),
+  }),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) throw new Error("Comment request not found");
+
+    const user = await callerUser(ctx, identity.subject);
+    if (!user || user._id !== request.targetUserId) {
+      throw new Error("Not authorized: this comment request is not yours");
     }
 
-    // QUALITY-BASED STOPS - End if we have good material
-    
-    // 5. Response is completely off-topic
-    if (args.offTopicScore > 70) {
-      console.log("QUALITY STOP: Response too off-topic, ending conversation");
-      return false;
+    const response = await responseForRequest(ctx, args.commentRequestId);
+    if (!response) {
+      throw new Error("No response recorded for this comment request yet");
     }
 
-    // 6. Multiple quality responses obtained
-    if (userMessages.length >= 2 && args.responseQuality >= 60) {
-      console.log("QUALITY STOP: Multiple quality responses obtained, ending conversation");
-      return false;
+    const quotes: QuoteReviewEntry[] = [...(response.quoteReview ?? [])];
+    if (!Number.isInteger(args.index) || args.index < 0 || args.index >= quotes.length) {
+      throw new Error("No quote at that position");
     }
 
-    // 7. Excellent quotes from even one response
-    if (args.quotableSegments.length >= 3 && args.responseQuality >= 80) {
-      console.log("QUALITY STOP: Excellent quotes obtained, ending conversation");
-      return false;
-    }
-
-    // 8. Substantial response with good quality
-    if (lastUserMessage && lastUserMessage.content.length > 100 && 
-        args.responseQuality >= 65 && args.completeness >= 70) {
-      console.log("QUALITY STOP: Substantial response received, ending conversation");
-      return false;
-    }
-
-    // 9. After 3 exchanges, end unless response was very incomplete
-    if (totalExchanges >= 3) {
-      if (args.completeness >= 50) {
-        console.log("QUALITY STOP: 3 exchanges completed with decent completeness, ending");
-        return false;
-      } else {
-        console.log("HARD STOP: 3 exchanges reached regardless of completeness, ending");
-        return false;
+    const entry = quotes[args.index];
+    if (args.action === "approve") {
+      quotes[args.index] = { ...entry, status: "approved" };
+    } else if (args.action === "withdraw") {
+      quotes[args.index] = { ...entry, status: "withdrawn" };
+    } else {
+      const text = (args.text ?? "").trim();
+      if (text.length === 0) {
+        throw new Error("Editing a quote requires the replacement text");
       }
+      quotes[args.index] = { ...entry, text, status: "edited" };
     }
 
-    // CONTINUATION CONDITIONS - Only continue in specific circumstances
-    
-    // 10. First response was very incomplete and on-topic
-    if (userMessages.length === 1 && args.completeness < 40 && args.offTopicScore < 30) {
-      console.log("CONTINUE: First response incomplete but on-topic, allowing follow-up");
-      return true;
+    await ctx.db.patch(response._id, { quoteReview: quotes, updatedAt: Date.now() });
+    return { success: true, quotes };
+  },
+});
+
+/**
+ * The quote ledger and the print deadline, for the approval UI (spec §8.1).
+ * Readable by the target manager or by a commissioner of the request's league.
+ */
+export const getQuoteReview = query({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.union(
+    v.object({
+      deadline: v.number(),
+      quotes: v.array(quoteReviewEntryValidator),
+    }),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) return null;
+
+    const identity = await ctx.auth.getUserIdentity();
+    let authorized = false;
+    if (identity) {
+      const user = await callerUser(ctx, identity.subject);
+      authorized = !!user && user._id === request.targetUserId;
+    }
+    if (!authorized) {
+      const membership = await getLeagueMembership(ctx, request.leagueId);
+      if (!membership || membership.membership.role !== "commissioner") return null;
     }
 
-    // 11. First response, allow one follow-up regardless (but not if off-topic)
-    if (userMessages.length === 1 && args.offTopicScore < 50) {
-      console.log("CONTINUE: First response received, allowing one follow-up");
-      return true;
+    const response = await responseForRequest(ctx, args.commentRequestId);
+    return {
+      deadline: request.articleGenerationTime,
+      quotes: response?.quoteReview ?? [],
+    };
+  },
+});
+
+/**
+ * Post the quote-approval message for a request that already has a response row.
+ * No-op when there is nothing pending or the message is already there.
+ */
+export const postQuoteApprovalMessage = internalMutation({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.union(v.id("commentConversations"), v.null()),
+  handler: async (ctx, args) => {
+    return await postQuoteApproval(ctx, args.commentRequestId);
+  },
+});
+
+/**
+ * Deadline behaviour (spec §8.1): silence is consent. Every quote still `pending`
+ * when we go to print becomes `approved`. Scheduled at the deadline alongside the
+ * other checks and re-run inside `checkAndGenerate` as a safety net, so it is
+ * idempotent - a second pass finds nothing pending and writes nothing.
+ */
+export const autoApprovePendingQuotes = internalMutation({
+  args: { commentRequestIds: v.array(v.id("commentRequests")) },
+  returns: v.object({ approved: v.number(), responses: v.number() }),
+  handler: async (ctx, args) => {
+    let approved = 0;
+    let responses = 0;
+
+    for (const requestId of args.commentRequestIds) {
+      const response = await responseForRequest(ctx, requestId);
+      if (!response?.quoteReview) continue;
+
+      const pending = response.quoteReview.filter(q => q.status === "pending").length;
+      if (pending === 0) continue;
+
+      const quotes: QuoteReviewEntry[] = response.quoteReview.map(q =>
+        q.status === "pending" ? { ...q, status: "approved" as const } : q
+      );
+      await ctx.db.patch(response._id, { quoteReview: quotes, updatedAt: Date.now() });
+      approved += pending;
+      responses += 1;
     }
 
-    // 12. Second response was incomplete and we haven't hit other limits
-    if (userMessages.length === 2 && args.completeness < 50 && args.offTopicScore < 30 && 
-        args.responseQuality < 60) {
-      console.log("CONTINUE: Second response incomplete, allowing final follow-up");
-      return true;
-    }
-
-    // DEFAULT: End the conversation
-    console.log("DEFAULT STOP: No continuation conditions met, ending conversation");
-    return false;
+    return { approved, responses };
   },
 });
 
@@ -648,10 +1051,20 @@ export const processCompletedResponse = internalAction({
       .map(m => m.content)
       .join("\n\n");
 
-    // Extract the best quotes
-    const allQuotes = messages
-      .flatMap(m => m.responseAnalysis?.relevantTopics || [])
-      .filter((quote, index, self) => self.indexOf(quote) === index);
+    // The quote ledger. Built from `quotableSegments` only, and re-checked against the
+    // message each segment came from, so nothing that is not a verbatim span of what the
+    // manager actually typed can be printed inside quotation marks (spec §5).
+    // `relevantTopics` are keyword labels ("lineup decisions") and were never quotes -
+    // reading them here is what made articles print managers saying category names.
+    const allQuotes: string[] = [];
+    for (const message of messages) {
+      for (const quote of keepVerbatimSegments(
+        message.content,
+        message.responseAnalysis?.quotableSegments ?? []
+      )) {
+        if (!allQuotes.includes(quote)) allQuotes.push(quote);
+      }
+    }
 
     // Calculate overall quality
     const avgQuality = messages.reduce((sum, m) => 
@@ -789,11 +1202,26 @@ export const createCommentResponse = internalMutation({
     processedAt: v.number(),
   },
   handler: async (ctx, args) => {
+    // Seed the approval ledger (spec §8.1). Every extracted quote starts
+    // `pending` with `text === original`; the manager approves, edits or
+    // withdraws each one, and anything still pending at the deadline is
+    // auto-approved. `getStructuredCommentResponses` reads this, not
+    // `extractedQuotes`, once it exists.
+    const quoteReview: QuoteReviewEntry[] = (
+      args.relevanceMetadata.extractedQuotes ?? []
+    )
+      .filter(q => q && q.trim().length > 0)
+      .map(q => ({ original: q, text: q, status: "pending" as const }));
+
     await ctx.db.insert("commentResponses", {
       ...args,
+      quoteReview: quoteReview.length > 0 ? quoteReview : undefined,
       integrationStatus: "pending",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+
+    // The manager sees the approval prompt once, immediately after the close.
+    await postQuoteApproval(ctx, args.commentRequestId);
   },
 });

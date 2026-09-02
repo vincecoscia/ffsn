@@ -1,0 +1,14 @@
+{
+  "name": "empty-league",
+  "description": "A league record that exists and nothing else: no teams, no matchups, no standings, no ledger. Every content type that needs real events must refuse rather than invent one - weekly_recap and trade_analysis throw InsufficientDataError.",
+  "leagueData": {
+    "leagueName": "Riverbend Startup League",
+    "currentWeek": 1,
+    "season": 2025,
+    "teams": []
+  },
+  "commentResponses": [],
+  "nonRespondents": [],
+  "relationships": [],
+  "priorClaims": []
+}

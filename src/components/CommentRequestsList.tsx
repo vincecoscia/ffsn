@@ -15,6 +15,23 @@ interface CommentRequestsListProps {
   userId: Id<"users">;
 }
 
+/** Sam Ortega conducts every comment-request interview (spec §1.2). */
+const INTERVIEWER_SLUG = "sam-ortega";
+
+type RequestStatus = "pending" | "active" | "completed" | "expired" | "declined" | "cancelled";
+
+const STATUS_CHIP: Record<
+  RequestStatus,
+  { variant: "outline" | "signal" | "win" | "muted"; label: string; live?: boolean }
+> = {
+  pending: { variant: "outline", label: "Pending" },
+  active: { variant: "signal", label: "Open", live: true },
+  completed: { variant: "win", label: "Answered" },
+  expired: { variant: "muted", label: "Went to print" },
+  declined: { variant: "muted", label: "No comment" },
+  cancelled: { variant: "muted", label: "Cancelled" },
+};
+
 function titleCase(value?: string) {
   return value?.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 }
@@ -22,25 +39,28 @@ function titleCase(value?: string) {
 export default function CommentRequestsList({ userId: _userId }: CommentRequestsListProps) {
   const [selectedRequest, setSelectedRequest] = useState<Id<"commentRequests"> | null>(null);
 
-  // Get active comment requests for the signed-in user. getActiveRequests
-  // derives the target user from the caller's own identity server-side, so
-  // no userId is passed here (the prop is kept for backwards compatibility
-  // with existing callers of this component).
-  const activeRequests = useQuery(api.commentConversations.getActiveRequests, {});
+  // Every request, open or closed. The target user is derived from the caller's own
+  // identity server-side, so no userId is passed here (the prop is kept for backwards
+  // compatibility with existing callers of this component).
+  const requests = useQuery(api.commentConversations.getMyRequests, {});
 
-  if (!activeRequests) {
+  if (!requests) {
     return <LoadingScreen message="Loading comment requests" />;
   }
 
-  if (activeRequests.length === 0) {
+  if (requests.length === 0) {
     return (
       <EmptyState
         icon={<MessageSquare className="size-6" strokeWidth={1.8} />}
-        title="No active comment requests"
-        description="You'll be notified when content creators need your input."
+        title="No comment requests yet"
+        description="Sam Ortega gets in touch when a story needs your side of it."
       />
     );
   }
+
+  const openCount = requests.filter(
+    (request) => request.status === "active" || request.status === "pending"
+  ).length;
 
   return (
     <>
@@ -49,20 +69,33 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
           title={
             <span className="flex items-center gap-2">
               <MessageSquare className="size-5" />
-              Active comment requests
+              Comment requests
             </span>
           }
-          kicker="Share your thoughts for upcoming articles"
+          kicker={
+            openCount > 0
+              ? `${openCount} still open for comment`
+              : "Everything you've been asked for"
+          }
         />
 
         <div className="mt-5 flex flex-col gap-3">
-          {activeRequests.map((request) => {
-            const hasUnread = request.lastMessage && !request.lastMessage.isRead &&
-                             request.lastMessage.messageType.startsWith("ai_");
-            const timeUntilArticle = request.articleGenerationTime
-              ? formatDistanceToNow(new Date(request.articleGenerationTime))
-              : null;
-            const generatingSoon = !!request.articleGenerationTime &&
+          {requests.map((request) => {
+            const status = (request.status as RequestStatus) ?? "pending";
+            const statusChip = STATUS_CHIP[status] ?? STATUS_CHIP.pending;
+            const isOpen = status === "active" || status === "pending";
+            const hasUnread =
+              isOpen &&
+              request.lastMessage &&
+              !request.lastMessage.isRead &&
+              request.lastMessage.messageType.startsWith("ai_");
+            const timeUntilArticle =
+              isOpen && request.articleGenerationTime
+                ? formatDistanceToNow(new Date(request.articleGenerationTime))
+                : null;
+            const generatingSoon =
+              isOpen &&
+              !!request.articleGenerationTime &&
               new Date(request.articleGenerationTime) < new Date(Date.now() + 60 * 60 * 1000);
 
             return (
@@ -73,14 +106,19 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
                   "flex items-start gap-4 border p-4 text-left transition-colors",
                   hasUnread
                     ? "border-bc-signal bg-bc-signal/5"
-                    : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                    : isOpen
+                    ? "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                    : "border-bc-hairline bg-bc-panel-2/60 hover:border-bc-border-strong"
                 )}
                 onClick={() => setSelectedRequest(request._id)}
               >
                 <PersonaAvatar
-                  persona="FFSN AI"
+                  persona={INTERVIEWER_SLUG}
                   size={40}
-                  className="flex-none border border-bc-border-strong"
+                  className={cn(
+                    "flex-none border border-bc-border-strong",
+                    !isOpen && "opacity-70"
+                  )}
                 />
 
                 <div className="min-w-0 flex-1">
@@ -88,6 +126,9 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
                     <h4 className="font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">
                       {titleCase(request.articleType)}
                     </h4>
+                    <Chip variant={statusChip.variant} live={statusChip.live}>
+                      {statusChip.label}
+                    </Chip>
                     {hasUnread && <Chip variant="signal" live>New message</Chip>}
                   </div>
                   <p className="mb-2 text-sm text-bc-text-2">
@@ -97,7 +138,7 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
                   {request.lastMessage && (
                     <div className="mb-2 text-sm text-bc-text-2">
                       <p className="line-clamp-2">
-                        {request.lastMessage.messageType.startsWith("ai_") ? "Q: " : "You: "}
+                        {request.lastMessage.messageType.startsWith("ai_") ? "Sam: " : "You: "}
                         {request.lastMessage.content}
                       </p>
                       <p className="mt-1 text-xs text-bc-text-3">
@@ -114,7 +155,7 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
                     {timeUntilArticle && (
                       <div className="flex items-center gap-1.5">
                         <Clock className="size-3" />
-                        Article in {timeUntilArticle}
+                        Prints in {timeUntilArticle}
                       </div>
                     )}
                   </div>
@@ -123,7 +164,7 @@ export default function CommentRequestsList({ userId: _userId }: CommentRequests
                     <div className="mt-3 flex items-center gap-2 border-l-2 border-l-bc-signal bg-bc-signal/10 px-2.5 py-1.5 text-bc-signal">
                       <Clock className="size-3.5" />
                       <span className="text-xs font-medium">
-                        Article generates {formatDistanceToNow(new Date(request.articleGenerationTime), { addSuffix: true })}
+                        Goes to print {formatDistanceToNow(new Date(request.articleGenerationTime), { addSuffix: true })}
                       </span>
                     </div>
                   )}

@@ -7,7 +7,18 @@ import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 
-import { Panel, SectionHeader, Chip, BannerPlaceholder, LowerThird, PersonaAvatar, RankPlate } from "@/components/broadcast";
+import {
+  Panel,
+  SectionHeader,
+  Chip,
+  BannerPlaceholder,
+  LowerThird,
+  PersonaAvatar,
+  RankPlate,
+  contentTypeLabel,
+  personaName,
+  personaRole,
+} from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -17,6 +28,9 @@ import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
 import { TeamLogo } from "./TeamLogo";
 import { LeagueSidebar } from "@/components/league/LeagueSidebar";
+import { MyDeskRelationships } from "./MyDeskRelationships";
+import { WriterLineup } from "./WriterLineup";
+import { LeagueWaitingOnComment } from "./WaitingOnComment";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { cn } from "@/lib/utils";
 
@@ -64,37 +78,9 @@ interface LeagueHomepageProps {
   isCommissioner: boolean;
 }
 
-// The five FFSN on-air personas and their broadcast roles. Any other byline
-// (e.g. a commissioner-edited article) falls back to a generic credit.
-// Mirrors src/app/articles/[id]/ArticleClient.tsx so bylines read the same
-// way everywhere in the app.
-const PERSONA_ROLES: { test: RegExp; role: string }[] = [
-  { test: /mel/i, role: "The Draft Disaster" },
-  { test: /stan/i, role: "The Analytics Overlord" },
-  { test: /vinny/i, role: "Trade Rumor Mogul" },
-  { test: /chad/i, role: "The Glaze God" },
-  { test: /rick/i, role: "The Drunk Uncle" },
-];
-
-function personaRole(persona: string): string {
-  return PERSONA_ROLES.find(({ test }) => test.test(persona))?.role ?? "FFSN correspondent";
-}
-
-// aiContent.persona is stored as a slug (e.g. "mel-diaper") — normalize it to
-// a readable byline ("Mel Diaper").
-function personaDisplayName(persona: string): string {
-  return persona
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-// "recap" / "power_rankings" -> "recap" / "power rankings"; the Badge itself
-// upper-cases via CSS so there's no need to title-case here.
-function formatStoryType(type: string): string {
-  return type.replace(/_/g, " ");
-}
+// Bylines resolve through `getPersonaDisplay` (re-exported as personaName /
+// personaRole from the broadcast kit), so archived articles by retired writers
+// keep their real name and role instead of a de-slugged guess.
 
 export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCommissioner }: LeagueHomepageProps) {
   const { currentSeason } = useLeagueSeason(league._id);
@@ -182,7 +168,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
             <div className="absolute inset-x-4 bottom-4 flex flex-col gap-4 sm:inset-x-6 sm:bottom-6">
               <div className="flex flex-wrap items-center gap-2.5">
                 {isRecent && <Chip live>New</Chip>}
-                <Badge variant="plate">{formatStoryType(featuredStory.type)}</Badge>
+                <Badge variant="plate">{contentTypeLabel(featuredStory.type)}</Badge>
                 <span className="bc-label text-bc-text-2">
                   {new Date(featuredStory.publishedAt || featuredStory.createdAt).toLocaleDateString('en-US', {
                     month: 'short',
@@ -208,7 +194,7 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <LowerThird
                   compact
-                  name={personaDisplayName(featuredStory.persona)}
+                  name={personaName(featuredStory.persona)}
                   role={personaRole(featuredStory.persona)}
                   avatar={<PersonaAvatar persona={featuredStory.persona} size={40} />}
                 />
@@ -248,6 +234,11 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
             </Panel>
           )}
 
+          {/* A story holding for comment sits above the stories that already ran —
+              it's the only one anyone can still change (spec §8.2). */}
+          <LeagueWaitingOnComment leagueId={league._id} />
+
+
           <ArticleList
             leagueId={league._id}
             cursor={cursor}
@@ -282,7 +273,23 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
       </div>
 
       {/* Sidebar */}
-      <LeagueSidebar leagueId={league._id} currentUserId={currentUserId} />
+      <div className="flex flex-col gap-7">
+        <MyDeskRelationships leagueId={league._id} />
+        <LeagueSidebar leagueId={league._id} currentUserId={currentUserId} />
+      </div>
+
+      {/* On-air talent */}
+      <div className="col-span-full flex flex-col gap-5">
+        <SectionHeader
+          title="The desk"
+          actions={
+            <span className="bc-label text-bc-text-3">
+              Who covers {league.name}
+            </span>
+          }
+        />
+        <WriterLineup leagueId={league._id} />
+      </div>
 
       {/* Standings: full-width big board */}
       <div className="col-span-full flex flex-col gap-5">

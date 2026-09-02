@@ -15,6 +15,13 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
+  commentResponseDataValidator,
+  nonRespondentValidator,
+  priorClaimValidator,
+  priorRecordValidator,
+  writerRelationshipContextValidator,
+} from "./validators";
+import {
   contentGenerationService,
   type GeneratedContent,
   type GenerationRequest,
@@ -41,9 +48,31 @@ function toConvexValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/** Generate a full article with the persona-driven content service. */
+/**
+ * Generate a full article with the persona-driven content service.
+ *
+ * The request is validated field by field (spec section 4.2) so a caller cannot
+ * quietly drop `commentResponses`, `relationships` or `priorClaims`. `leagueData`
+ * stays `v.any()`: it is the large, loosely-typed payload from `aiQueries.ts`,
+ * typed on the TypeScript side as `LeagueDataContext`.
+ */
 export const generateArticle = internalAction({
-  args: { request: v.any() },
+  args: {
+    request: v.object({
+      leagueId: v.id("leagues"),
+      contentType: v.string(),
+      persona: v.string(),
+      leagueData: v.any(),
+      customContext: v.optional(v.string()),
+      userId: v.string(),
+      commentResponses: v.optional(v.array(commentResponseDataValidator)),
+      nonRespondents: v.optional(v.array(nonRespondentValidator)),
+      relationships: v.optional(v.array(writerRelationshipContextValidator)),
+      priorClaims: v.optional(v.array(priorClaimValidator)),
+      // The writer's standing record on those claims (spec §8.4).
+      priorRecord: v.optional(priorRecordValidator),
+    }),
+  },
   handler: async (_ctx, args): Promise<GeneratedContent> => {
     const request = args.request as GenerationRequest;
     const result = await contentGenerationService.generateContent(

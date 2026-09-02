@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { Panel, Chip, BannerPlaceholder, PersonaAvatar, EmptyState } from "@/components/broadcast";
+import {
+  Panel,
+  Chip,
+  BannerPlaceholder,
+  PersonaAvatar,
+  EmptyState,
+  contentTypeLabel,
+  personaName,
+} from "@/components/broadcast";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
@@ -33,21 +41,9 @@ const calculateReadingTime = (content: string | undefined): number => {
   return Math.max(1, readingTime);
 };
 
-// "recap" / "power_rankings" -> "recap" / "power rankings"; the Badge itself
-// upper-cases via CSS so there's no need to title-case here.
-function formatStoryType(type: string): string {
-  return type.replace(/_/g, " ");
-}
-
-// aiContent.persona is stored as a slug (e.g. "mel-diaper") — normalize it to
-// a readable byline ("Mel Diaper") for the plain-text meta line.
-function personaDisplayName(persona: string): string {
-  return persona
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
+// aiContent.persona is stored as a slug (e.g. "mel-diaper"); `personaName`
+// resolves it through getPersonaDisplay so retired writers on archived stories
+// still get their real byline instead of a de-slugged guess.
 
 export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGenerator }: ArticleListProps) {
   // Use useQuery for real-time updates
@@ -136,7 +132,7 @@ export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGen
             <div className="flex min-w-0 flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2.5">
                 {isRecent && <Chip live>New</Chip>}
-                <Badge variant="secondary">{formatStoryType(article.type)}</Badge>
+                <Badge variant="secondary">{contentTypeLabel(article.type)}</Badge>
               </div>
 
               <span className="line-clamp-2 font-display text-[20px] leading-tight font-bold text-bc-ink uppercase sm:text-[22px]">
@@ -144,7 +140,7 @@ export function ArticleList({ leagueId, cursor, isCommissioner, onShowContentGen
               </span>
 
               <span className="truncate text-[14px] text-bc-text-2">
-                {personaDisplayName(article.persona)}
+                {personaName(article.persona)}
                 <span className="mx-2 text-bc-text-3">&middot;</span>
                 {publishDate.toLocaleDateString('en-US', {
                   month: 'short',

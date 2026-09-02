@@ -4,7 +4,33 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { contentTemplates } from "../src/lib/ai/content-templates";
+// Type-only: never a value import from src/lib/ai in a non-Node Convex file.
+import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
+import {
+  articleQuoteValidator,
+  commentResponseDataValidator,
+  generatedClaimValidator,
+  managerMentionValidator,
+  nonRespondentValidator,
+  reviewFlagValidator,
+  verifierStatsValidator,
+} from "./validators";
+import { leagueCurrentSeason } from "./lib/season";
+
+/**
+ * `InsufficientDataError` (src/lib/ai/prompt-builder) is thrown when a content
+ * type's core data is absent. It reaches this action through the Node runtime,
+ * where only the name and message survive, so match on both. Its message is
+ * written for a human and is stored verbatim as the article's failure reason.
+ */
+function isInsufficientDataError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "InsufficientDataError" ||
+    /^Not enough data to write a/i.test(error.message)
+  );
+}
 
 export const getByLeague = query({
   args: { 
@@ -357,6 +383,15 @@ export const createGenerationWithComments = mutation({
         articleGenerationTime: args.articleGenerationTime,
         targetUserIds: args.targetUserIds,
         requestedAt: Date.now(),
+        // Everything the deadline run needs, so aiContentWithComments.goToPrintNow
+        // can start checkAndGenerate early without re-supplying (or trusting) any
+        // of it from the client (spec §8.2). `userId` is also the requester half
+        // of that mutation's authorization check.
+        userId: identity.subject,
+        customContext: args.customContext,
+        seasonId: args.seasonId,
+        week: args.week,
+        creditsDeductedUpFront: template.creditCost,
       },
     });
 
@@ -498,6 +533,11 @@ export const generateContentAction = internalAction({
     // content, comment-triggered content, retries) keep the legacy
     // post-generation deduction below unchanged.
     creditsDeductedUpFront: v.optional(v.number()),
+    // Interview material from the comment flow (spec section 5). Built by
+    // aiContentWithComments.generateWithComments and passed straight through to
+    // the writer instead of being pasted into customContext.
+    commentResponses: v.optional(v.array(commentResponseDataValidator)),
+    nonRespondents: v.optional(v.array(nonRespondentValidator)),
   },
   handler: async (ctx, args) => {
     console.log("=== generateContentAction START (OPTIMIZED) ===");
@@ -525,6 +565,8 @@ export const generateContentAction = internalAction({
           week: args.week,
           scheduledContentId: args.scheduledContentId,
           creditsDeductedUpFront: args.creditsDeductedUpFront,
+          commentResponses: args.commentResponses,
+          nonRespondents: args.nonRespondents,
         });
         
         console.log(`${args.contentType} generation scheduled successfully`);
@@ -539,6 +581,11 @@ export const generateContentAction = internalAction({
       });
       
       console.log("League data fetched successfully");
+
+      // The trade-rumor enrichment below predates the typed context and reaches
+      // for fields LeagueDataContext does not model (espnId, standing), so it
+      // works through a deliberately widened view of the same object.
+      const legacyLeagueData = leagueData as unknown as { teams: any[] };
       
       console.log("Calling AI generation service...");
       
@@ -556,11 +603,11 @@ export const generateContentAction = internalAction({
         
         // Get the full player data for the involved players
         console.log("Processing players:", args.tradeRumorData.playersInvolved);
-        console.log("Number of teams to search:", leagueData.teams.length);
+        console.log("Number of teams to search:", legacyLeagueData.teams.length);
         
         // Debug: Log first team's roster structure
-        if (leagueData.teams.length > 0 && leagueData.teams[0].roster && leagueData.teams[0].roster.length > 0) {
-          const samplePlayer = leagueData.teams[0].roster[0];
+        if (legacyLeagueData.teams.length > 0 && legacyLeagueData.teams[0].roster?.length > 0) {
+          const samplePlayer = legacyLeagueData.teams[0].roster[0];
           console.log("Sample roster player structure:", {
             playerId: samplePlayer.playerId,
             espnId: samplePlayer.espnId,
@@ -574,7 +621,7 @@ export const generateContentAction = internalAction({
             console.log(`\n=== Looking for player with ID: "${playerId}" (type: ${typeof playerId}) ===`);
             
             // Find the player in the league data
-            for (const team of leagueData.teams) {
+            for (const team of legacyLeagueData.teams) {
               if (team.roster && Array.isArray(team.roster)) {
                 // Convert playerId to string for consistent comparison
                 const targetId = String(playerId).trim();
@@ -619,8 +666,8 @@ export const generateContentAction = internalAction({
             // If we didn't find the player, log some sample IDs from rosters to debug
             console.log(`❌ Player ${playerId} not found in any roster`);
             console.log("Sample player IDs from first team's roster:");
-            if (leagueData.teams[0]?.roster?.length > 0) {
-              const sampleIds = leagueData.teams[0].roster.slice(0, 3).map((p: any) => ({
+            if (legacyLeagueData.teams[0]?.roster?.length > 0) {
+              const sampleIds = legacyLeagueData.teams[0].roster.slice(0, 3).map((p: any) => ({
                 playerId: p.playerId,
                 espnId: p.espnId,
                 name: p.playerName || p.fullName
@@ -637,7 +684,7 @@ export const generateContentAction = internalAction({
         // Get target team information if provided
         let targetTeamInfo = null;
         if (args.tradeRumorData.targetTeamId) {
-          const targetTeam = leagueData.teams.find((t: any) => t.id === args.tradeRumorData!.targetTeamId);
+          const targetTeam = legacyLeagueData.teams.find((t: any) => t.id === args.tradeRumorData!.targetTeamId);
           if (targetTeam) {
             targetTeamInfo = {
               teamName: targetTeam.name,
@@ -685,16 +732,37 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         console.log("Final enriched context preview:", enrichedCustomContext.substring(0, 500));
       }
       
+      // The writer's standing with each manager in this league (spec section 6).
+      // Drives relationshipPosture and lets the writer answer a manager's jab.
+      const relationships = await ctx.runQuery(
+        internal.relationships.getRelationshipsForWriter,
+        { leagueId: args.leagueId, persona: args.persona }
+      );
+
+      // Receipts (spec section 8.4): what this writer has predicted in this
+      // league and how it turned out. Empty for a writer with no back catalogue.
+      const priorClaims = await ctx.runQuery(
+        internal.claims.getPriorClaimsForWriter,
+        { leagueId: args.leagueId, persona: args.persona }
+      );
+
       // Call AI generation service
       const generatedContent = await ctx.runAction(internal.aiNode.generateArticle, {
         request: {
-        leagueId: args.leagueId,
-        contentType: args.contentType,
-        persona: args.persona,
-        // Use prepared data for season_welcome; fallback to enriched
-        leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
-        customContext: enrichedCustomContext,
-        userId: args.userId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          // Use prepared data for season_welcome; fallback to enriched
+          leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
+          customContext: enrichedCustomContext,
+          userId: args.userId,
+          commentResponses: args.commentResponses,
+          nonRespondents: args.nonRespondents,
+          relationships: relationships.length > 0 ? relationships : undefined,
+          // The writer's own back catalogue of predictions and their record
+          // (spec §8.4). A writer may only claim a past call that is in here.
+          priorClaims: priorClaims.items,
+          priorRecord: priorClaims.record,
         },
       });
       
@@ -702,7 +770,9 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       console.log("Generated title:", generatedContent.title);
       console.log("Content length:", generatedContent.content.length);
 
-      // Update the article with generated content
+      // Update the article with generated content. quotes, managerMentions,
+      // reviewFlags, factsMissing and generationStats ride along on metadata and
+      // are persisted onto the row (spec section 4.2).
       await ctx.runMutation(internal.aiContent.updateGeneratedContent, {
         articleId: args.articleId,
         title: generatedContent.title,
@@ -710,6 +780,24 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
       });
+
+      // Relationship events from the stored managerMentions, and the write-back
+      // of which approved quotes actually made print. Neither may fail a
+      // generation that already succeeded.
+      try {
+        await ctx.runMutation(internal.relationships.recordArticleMentions, {
+          articleId: args.articleId,
+        });
+      } catch (e) {
+        console.error("Failed to record relationship events for article", args.articleId, e);
+      }
+      try {
+        await ctx.runMutation(internal.aiContentHelpers.markQuotesUsed, {
+          articleId: args.articleId,
+        });
+      } catch (e) {
+        console.error("Failed to mark comment responses as integrated", args.articleId, e);
+      }
 
       // Deduct credits from user for system-generated content (if userId is "system", find the league owner).
       // Skipped when the caller already deducted up front (see creditsDeductedUpFront above) -
@@ -742,12 +830,21 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         }
       }
 
-      // Optionally auto-publish based on league preferences
+      // Optionally auto-publish based on league preferences. The verifier wins:
+      // an article carrying a block or strip finding always stops in draft so a
+      // human sees the flagged sentences first (spec decision 6).
       try {
+        const blockingFlags = (generatedContent.metadata.reviewFlags ?? []).filter(
+          (flag) => flag.severity === "block" || flag.severity === "strip"
+        );
         const preferences = await ctx.runQuery(internal.contentScheduling.getLeaguePreferences, {
           leagueId: args.leagueId,
         });
-        if (preferences?.autoPublish) {
+        if (preferences?.autoPublish && blockingFlags.length > 0) {
+          console.log(
+            `Auto-publish suppressed: ${blockingFlags.length} blocking review flag(s) on article ${args.articleId}`
+          );
+        } else if (preferences?.autoPublish) {
           await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
             articleId: args.articleId,
             status: "published",
@@ -814,6 +911,11 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       console.log("=== generateContentAction SUCCESS ===");
     } catch (error) {
       console.error("=== generateContentAction ERROR ===");
+      if (isInsufficientDataError(error)) {
+        // Not a bug: the writer refused rather than inventing matchups. The
+        // message below is written for the commissioner and is stored verbatim.
+        console.error("Generation refused for lack of data:", (error as Error).message);
+      }
       console.error("Content generation failed:", error);
       console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
 
@@ -871,8 +973,13 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         console.warn("Failed to update scheduled content status to failed", e);
       }
 
-      // Schedule retry for mock drafts and weekly recaps
-      if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap') {
+      // Schedule retry for mock drafts and weekly recaps. Never for an
+      // InsufficientDataError: the data is missing, not flaky, and retrying
+      // would burn the refund path three more times.
+      if (
+        !isInsufficientDataError(error) &&
+        (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap')
+      ) {
         console.log(`Scheduling retry for failed ${args.contentType} generation`);
         await ctx.scheduler.runAfter(2000, internal.aiContentHelpers.retryFailedGeneration, {
           articleId: args.articleId,
@@ -939,13 +1046,17 @@ export const createScheduledArticle = internalMutation({
 // Internal query for getLeagueDataForGeneration
 export const getLeagueDataForGenerationInternal = internalQuery({
   args: { leagueId: v.id("leagues") },
-  handler: async (ctx, args): Promise<any> => {
+  handler: async (ctx, args): Promise<LeagueDataContext> => {
     return getLeagueDataForGenerationHandler(ctx, args);
   },
 });
 
-// Shared handler function
-async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any }): Promise<any> {
+// Shared handler function. Returns the prompt layer's LeagueDataContext: the
+// enriched payload from aiQueries.getLeagueDataForAI, reshaped for generation.
+async function getLeagueDataForGenerationHandler(
+  ctx: any,
+  args: { leagueId: any }
+): Promise<LeagueDataContext> {
     console.log("=== getLeagueDataForGeneration START ===");
     console.log("League ID:", args.leagueId);
     
@@ -1066,6 +1177,19 @@ export const updateGeneratedContent = internalMutation({
       modelUsed: v.string(),
       promptTokens: v.number(),
       completionTokens: v.number(),
+      // Broadcast Desk (spec section 4.2). Optional so a generation produced
+      // before the verifier shipped still saves.
+      quotes: v.optional(v.array(articleQuoteValidator)),
+      managerMentions: v.optional(v.array(managerMentionValidator)),
+      reviewFlags: v.optional(v.array(reviewFlagValidator)),
+      factsMissing: v.optional(v.array(v.string())),
+      // Extended in P2 with factsCount / wordCount / quotesOffered / quotesUsed
+      // (spec §8.7). All four are optional, so a generation from a prompt layer
+      // that does not report them still saves.
+      verifierStats: v.optional(verifierStatsValidator),
+      // Explicit predictions the writer made (spec §8.4). Stored with
+      // outcome "open" plus the byline, week and season below.
+      claims: v.optional(v.array(generatedClaimValidator)),
     }),
   },
   handler: async (ctx, args) => {
@@ -1126,6 +1250,21 @@ export const updateGeneratedContent = internalMutation({
       });
     }
 
+    const verifierStats = args.metadata.verifierStats;
+
+    // Receipts (spec §8.4). The model emits the prediction; who made it, in which
+    // week and season, and how it turned out are ours to stamp on. Everything
+    // starts "open" - claims.resolveOpenClaims settles them weekly.
+    const league = await ctx.db.get(article.leagueId);
+    const season = leagueCurrentSeason(league);
+    const claims = args.metadata.claims?.map((claim) => ({
+      ...claim,
+      week: claim.week ?? args.metadata.week,
+      outcome: "open" as const,
+      persona: article.persona,
+      season,
+    }));
+
     await ctx.db.patch(args.articleId, {
       title: args.title,
       content: args.content,
@@ -1135,6 +1274,21 @@ export const updateGeneratedContent = internalMutation({
         featured_teams: featuredTeamIds, // Now using actual team IDs
         credits_used: args.metadata.creditsUsed,
       },
+      // Grounding + verification, surfaced in edit-before-publish and consumed
+      // by relationships.recordArticleMentions (spec sections 4.2, 4.5, 6.3).
+      quotes: args.metadata.quotes,
+      managerMentions: args.metadata.managerMentions,
+      claims,
+      reviewFlags: args.metadata.reviewFlags,
+      factsMissing: args.metadata.factsMissing,
+      generationStats: verifierStats
+        ? {
+            ...verifierStats,
+            promptTokens: args.metadata.promptTokens,
+            completionTokens: args.metadata.completionTokens,
+            modelUsed: args.metadata.modelUsed,
+          }
+        : undefined,
       status: "draft", // Set to draft for review instead of auto-publishing
       // publishedAt will be set when actually published
     });

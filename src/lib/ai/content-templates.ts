@@ -5,6 +5,7 @@ export interface ContentTemplate {
   name: string;
   description: string;
   creditCost: number;
+  /** Ceiling, not a quota. A shorter accurate article always beats a padded one. */
   estimatedWords: number;
   requiredData: string[];
   optionalData: string[];
@@ -16,6 +17,7 @@ export interface ContentSection {
   name: string;
   description: string;
   required: boolean;
+  /** Ceiling for this section, not a quota. */
   wordCount?: number;
 }
 
@@ -55,7 +57,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
       },
       {
         name: "other_matchups", 
-        description: "Comprehensive coverage of remaining games (consolation and regular season) with detailed analysis of each matchup",
+        description: "Remaining games (consolation and regular season); cover each one only as far as its material goes",
         required: true,
         wordCount: 700
       },
@@ -79,7 +81,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
       },
       {
         name: "team_comments",
-        description: "Commentary and quotes from team managers",
+        description: "Quotes from managers with the writer's response to each",
         required: false,
         wordCount: 200
       }
@@ -127,7 +129,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
       },
       {
         name: "team_comments",
-        description: "Commentary and predictions from team managers",
+        description: "Quotes from managers with the writer's response to each",
         required: false,
         wordCount: 200
       }
@@ -203,7 +205,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
       },
       {
         name: "team_comments",
-        description: "Team manager reactions and commentary",
+        description: "Quotes from managers with the writer's response to each",
         required: false,
         wordCount: 200
       }
@@ -362,8 +364,8 @@ export const contentTemplates: Record<string, ContentTemplate> = {
   },
   "trade_rumor_mill": {
     id: "trade_rumor_mill",
-    name: "Trade Rumor Leak",
-    description: "Vinny 'The Sauce' shares mysterious insider information about potential trades",
+    name: "The Asking Price",
+    description: "What is actually on the block: real listings, completed transactions and on-record interest",
     creditCost: 8,
     estimatedWords: 700,
     requiredData: ["trade_details"],
@@ -371,19 +373,19 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     sections: [
       {
         name: "the_whispers",
-        description: "Setting up the mysterious source and rumor",
+        description: "What is on the market right now and where that is on the record",
         required: true,
         wordCount: 200
       },
       {
         name: "trade_details",
-        description: "The juicy details about who's involved",
+        description: "The listing or transaction itself: who, what, when",
         required: true,
         wordCount: 300
       },
       {
         name: "league_implications",
-        description: "How this could shake up the league",
+        description: "What the move changes in the standings, stated from the record",
         required: true,
         wordCount: 200
       }
@@ -669,14 +671,301 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     projected points for starters, and positional depth.
     Include total projected points for starters and highlight best/worst picks.
     
-    CRITICAL: For each team breakdown, weave in their manager's comments about draft strategy and specific picks. 
-    MANDATORY QUOTE FORMAT: ALWAYS include manager's full name and specific question context.
-    Structure each team analysis like this example:
-    "Malik Nabers at 10th overall was DECENT, though I had him going 8th in most mocks. But then you COMPLETELY lost your mind with Cedric Tillman at 110! WORST PICK IN THE ENTIRE DRAFT! This is why you're not winning championships! When asked about their early wide receiver strategy, John Smith said: 'I wanted to get my WR1 locked in early and felt Nabers had the highest ceiling' - Yeah right, John! That ceiling better be the Sistine Chapel because you're praying for miracles!"
-    
-    NEVER quote without names: Use "John Smith said:" not just "said:"
-    ALWAYS provide question context: "about their draft strategy", "regarding their RB picks", "about trading up"
-    Make comments an integral part of the team analysis, not an optional afterthought.`
+    Where the quote ledger has a manager's words, place them inside that team's own grade block:
+    attribute as "{MANAGER} of {TEAM}", quote verbatim, name what they were asked about, and respond
+    in voice. A team with no quote is analysed without one.`
+  },
+
+  /* --------------------------------------------------------------------------------------- *
+   * Spec section 8.5 — the seven types that had no template. Word counts are ceilings.
+   * --------------------------------------------------------------------------------------- */
+
+  "draft_strategy_guide": {
+    id: "draft_strategy_guide",
+    name: "Draft Strategy Guide",
+    description: "How to attack this league's draft from this draft slot, using this league's settings",
+    creditCost: 12,
+    estimatedWords: 1200,
+    requiredData: ["league_settings", "draft_order"],
+    optionalData: ["available_players", "player_projections", "team_rosters", "draft_results"],
+    sections: [
+      {
+        name: "the_format",
+        description: "The settings that actually change draft strategy in this league: scoring, roster slots, draft type, team count",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "the_board",
+        description: "Where the value sits by position in this player pool, with ADP where the payload has it",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "plan_by_slot",
+        description: "What each draft slot in the order should be planning for, early / middle / late",
+        required: true,
+        wordCount: 350
+      },
+      {
+        name: "position_runs",
+        description: "The runs to expect and whether to start one or wait one out",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "one_mistake",
+        description: "The single mistake this league's format punishes hardest, named once",
+        required: true,
+        wordCount: 150
+      }
+    ]
+  },
+
+  "team_name_power_rankings": {
+    id: "team_name_power_rankings",
+    name: "Team Name Power Rankings",
+    description: "Ranking the team names themselves, from the actual names in the league",
+    creditCost: 6,
+    estimatedWords: 900,
+    requiredData: ["team_rosters"],
+    optionalData: ["standings", "matchup_results"],
+    sections: [
+      {
+        name: "the_criteria",
+        description: "How names are being judged in this ranking, stated once and applied consistently",
+        required: true,
+        wordCount: 120
+      },
+      {
+        name: "the_rankings",
+        description: "Every team name ranked, using the names exactly as they appear in FACTS",
+        required: true,
+        wordCount: 450
+      },
+      {
+        name: "the_bottom",
+        description: "The names at the bottom and what would fix them",
+        required: true,
+        wordCount: 180
+      },
+      {
+        name: "team_comments",
+        description: "Quotes from managers about their own name, with the writer's response to each",
+        required: false,
+        wordCount: 150
+      }
+    ]
+  },
+
+  "trade_block_tuesday": {
+    id: "trade_block_tuesday",
+    name: "Trade Block Tuesday",
+    description: "The standing trade block: who is listed, who is buying, who is selling — on the record only",
+    creditCost: 8,
+    estimatedWords: 900,
+    requiredData: ["team_rosters", "standings"],
+    optionalData: ["trade_details", "player_scores", "injuries"],
+    sections: [
+      {
+        name: "the_board",
+        description: "What is actually listed or on the record this week; if the board is empty, say so and keep it short",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "listings_by_team",
+        description: "Team by team: what they are shopping and what their record says about why",
+        required: true,
+        wordCount: 350
+      },
+      {
+        name: "buyers_and_sellers",
+        description: "Who the standings say is buying and who is selling",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "one_read",
+        description: "Exactly one speculative paragraph, standing alone, opened \"My read, not reporting:\"",
+        required: true,
+        wordCount: 100
+      },
+      {
+        name: "team_comments",
+        description: "On-record manager statements about the block, with the writer's response to each",
+        required: false,
+        wordCount: 150
+      }
+    ]
+  },
+
+  "commissioner_corner": {
+    id: "commissioner_corner",
+    name: "Commissioner's Corner",
+    description: "One league-governance item argued out in full: the setting, the argument, the consequence",
+    creditCost: 8,
+    estimatedWords: 900,
+    requiredData: ["league_settings", "standings"],
+    optionalData: ["trade_details", "all_time_records", "matchup_results", "championship_history"],
+    sections: [
+      {
+        name: "the_item",
+        description: "The one governance item this column is about, named in the first hundred words",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "the_setting",
+        description: "The rule or setting as it actually stands, quoted from the payload before any argument about it",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "the_argument",
+        description: "The case, in the first person, owned",
+        required: true,
+        wordCount: 350
+      },
+      {
+        name: "what_changes",
+        description: "What the league would look like if it changed, stated from the record",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "team_comments",
+        description: "Quotes from managers on the item, with the writer's response to each",
+        required: false,
+        wordCount: 150
+      }
+    ]
+  },
+
+  "playoff_picture": {
+    id: "playoff_picture",
+    name: "Playoff Picture",
+    description: "Who is in, who is alive, and the math that decides it",
+    creditCost: 10,
+    estimatedWords: 1100,
+    requiredData: ["standings", "matchup_results"],
+    optionalData: ["player_scores", "injuries", "team_rosters"],
+    sections: [
+      {
+        name: "the_field",
+        description: "The current seeding as the standings have it, with the sample size named",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "in_the_hunt",
+        description: "The teams still alive and what separates them, in points and games",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "the_math",
+        description: "Elimination and clinching arithmetic, showing both inputs for every number computed",
+        required: true,
+        wordCount: 250
+      },
+      {
+        name: "schedule_ahead",
+        description: "What the remaining schedule does to the picture, only from the payload",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "team_comments",
+        description: "Quotes from managers in the race, with the writer's response to each",
+        required: false,
+        wordCount: 150
+      }
+    ]
+  },
+
+  "hall_of_shame": {
+    id: "hall_of_shame",
+    name: "Hall of Shame",
+    description: "The season's worst decisions, each one pinned to the line in the record that proves it",
+    creditCost: 12,
+    estimatedWords: 1000,
+    requiredData: ["standings", "matchup_results"],
+    optionalData: ["draft_results", "trade_details", "player_scores", "all_time_records"],
+    sections: [
+      {
+        name: "the_case_file",
+        description: "What is being inducted this time and the standard for induction",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "worst_lineup_decision",
+        description: "The worst start/sit call, with the bench impact numbers that prove it",
+        required: true,
+        wordCount: 250
+      },
+      {
+        name: "worst_transaction",
+        description: "The worst trade or waiver move, with the transaction itself quoted from the record",
+        required: true,
+        wordCount: 250
+      },
+      {
+        name: "the_score",
+        description: "The single worst score of the period and the game it lost",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "verdict",
+        description: "The induction, one paragraph, decisions only — never the person",
+        required: true,
+        wordCount: 120
+      }
+    ]
+  },
+
+  "player_glazing": {
+    id: "player_glazing",
+    name: "The Case For",
+    description: "An honest argument for one player: the problem first, then the case, the path, and one named risk",
+    creditCost: 8,
+    estimatedWords: 1000,
+    requiredData: ["player_scores", "team_rosters"],
+    optionalData: ["matchup_results", "standings", "player_projections", "injuries"],
+    sections: [
+      {
+        name: "the_problem",
+        description: "The honest case against this player first, in the numbers, before any defence of him",
+        required: true,
+        wordCount: 200
+      },
+      {
+        name: "the_case",
+        description: "The argument for him, every claim carried by a number from the payload",
+        required: true,
+        wordCount: 350
+      },
+      {
+        name: "the_path",
+        description: "What specifically has to happen for the case to come true",
+        required: true,
+        wordCount: 250
+      },
+      {
+        name: "the_risk",
+        description: "One named risk that would end the case, stated plainly and not hedged away",
+        required: true,
+        wordCount: 150
+      },
+      {
+        name: "team_comments",
+        description: "Quotes from the manager who rosters him, with the writer's response to each",
+        required: false,
+        wordCount: 150
+      }
+    ]
   }
 };
 
@@ -688,15 +977,75 @@ export function estimateGenerationTime(template: ContentTemplate): number {
   return baseTime + 5; // seconds
 }
 
+/**
+ * Which `LeagueDataContext` keys satisfy a `requiredData` entry. Every requirement key used by
+ * any template in this file must appear here, so `validateRequiredData` can answer for it — a
+ * requirement nothing maps to would silently validate as present.
+ */
+const REQUIRED_DATA_SOURCES: Record<string, string[]> = {
+  matchup_results: ["recentMatchups", "playoffBreakdown"],
+  upcoming_matchups: ["upcomingSchedule", "recentMatchups"],
+  player_scores: ["teams", "recentMatchups"],
+  player_status: ["injuryReport", "teams"],
+  player_projections: ["draftPicks", "availablePlayers"],
+  standings: ["standings"],
+  season_standings: ["standings"],
+  team_records: ["standings", "teams"],
+  current_records: ["standings", "teams"],
+  team_rosters: ["teams"],
+  target_team: ["teams"],
+  finalist_teams: ["teams", "standings"],
+  recent_results: ["recentMatchups"],
+  all_matchup_results: ["recentMatchups"],
+  point_totals: ["standings", "teams"],
+  season_stats: ["teams", "standings"],
+  season_journey: ["recentMatchups", "standings"],
+  season_mistakes: ["recentMatchups", "transactions", "trades"],
+  bad_decisions: ["transactions", "trades", "recentMatchups"],
+  key_players: ["teams"],
+  matchup_details: ["recentMatchups"],
+  available_players: ["availablePlayers"],
+  recent_performances: ["teams", "recentMatchups"],
+  roster_percentages: ["teams", "availablePlayers"],
+  trade_details: ["trades"],
+  trades: ["trades"],
+  rivalry_history: ["rivalries"],
+  breaking_news: ["transactions", "trades", "injuryReport", "recentMatchups"],
+  recent_events: ["transactions", "trades", "recentMatchups"],
+  draft_order: ["draftOrder", "draftSettings"],
+  draft_results: ["draftPicks"],
+  draft_type: ["draftType", "draftSettings"],
+  league_type: ["leagueType"],
+  scoring_type: ["scoringType"],
+  league_settings: ["scoringType", "totalTeams", "draftType", "rosterSize"],
+  playoff_tier: ["playoffBreakdown", "recentMatchups"],
+  historical_data: ["previousSeasons"],
+  all_time_records: ["leagueHistory"],
+  championship_history: ["leagueHistory"],
+  injuries: ["injuryReport"],
+};
+
+function hasValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "object") return Object.keys(value as object).length > 0;
+  return Boolean(value);
+}
+
 // Helper function to validate if we have required data
 export function validateRequiredData(
   template: ContentTemplate,
   availableData: Record<string, unknown>
 ): { valid: boolean; missing: string[] } {
-  const missing = template.requiredData.filter(
-    required => !availableData[required]
-  );
-  
+  const missing = template.requiredData.filter(required => {
+    // The requirement key itself wins when the caller passes a flat availability map.
+    if (hasValue(availableData[required])) return false;
+    const sources = REQUIRED_DATA_SOURCES[required];
+    if (!sources) return true;
+    return !sources.some(key => hasValue(availableData[key]));
+  });
+
   return {
     valid: missing.length === 0,
     missing

@@ -1,0 +1,53 @@
+{
+  "fixture": "draft-day",
+  "note": "The draft payload is complete, so draft_rankings has nothing to name but the silent manager and the empty receipts. Everything that needs games played refuses.",
+  "facts": {
+    "teams": 10,
+    "matchups": 0,
+    "matchupPlayers": 0,
+    "standings": 0,
+    "transactions": 0,
+    "trades": 0,
+    "draftPicks": 30,
+    "quotes": 2,
+    "nonRespondents": 1,
+    "relationships": 2,
+    "priorClaims": 0
+  },
+  "unresolvedTeamRefs": 0,
+  "byType": {
+    "weekly_recap": {
+      "missing": [
+        "matchup_results — no matchups in the payload",
+        "player_scores (rosters) — not available",
+        "standings — not available",
+        "quotes — Ruth Tanaka (T10) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": "InsufficientDataError"
+    },
+    "draft_rankings": {
+      "missing": [
+        "quotes — Ruth Tanaka (T10) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": null
+    },
+    "power_rankings": {
+      "missing": [
+        "standings — not available",
+        "quotes — Ruth Tanaka (T10) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": null
+    },
+    "trade_analysis": {
+      "missing": [
+        "trade_details — no trades in the payload",
+        "quotes — Ruth Tanaka (T10) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": "InsufficientDataError"
+    }
+  }
+}

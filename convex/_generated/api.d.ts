@@ -14,6 +14,7 @@ import type * as aiContentWithComments from "../aiContentWithComments.js";
 import type * as aiNode from "../aiNode.js";
 import type * as aiQueries from "../aiQueries.js";
 import type * as articleEngagement from "../articleEngagement.js";
+import type * as claims from "../claims.js";
 import type * as commentConversations from "../commentConversations.js";
 import type * as commentRequestTesting from "../commentRequestTesting.js";
 import type * as commentRequests from "../commentRequests.js";
@@ -22,6 +23,7 @@ import type * as contentSchedulingIntegration from "../contentSchedulingIntegrat
 import type * as credits from "../credits.js";
 import type * as crons from "../crons.js";
 import type * as dataProcessing from "../dataProcessing.js";
+import type * as deskMetrics from "../deskMetrics.js";
 import type * as draftRankingsHelpers from "../draftRankingsHelpers.js";
 import type * as emailService from "../emailService.js";
 import type * as espn from "../espn.js";
@@ -43,6 +45,7 @@ import type * as playerHistoricalSync from "../playerHistoricalSync.js";
 import type * as playerSync from "../playerSync.js";
 import type * as playerSyncInternal from "../playerSyncInternal.js";
 import type * as players from "../players.js";
+import type * as relationships from "../relationships.js";
 import type * as rivalries from "../rivalries.js";
 import type * as stripe from "../stripe.js";
 import type * as teamClaims from "../teamClaims.js";
@@ -50,6 +53,7 @@ import type * as teamInvitations from "../teamInvitations.js";
 import type * as teams from "../teams.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
+import type * as validators from "../validators.js";
 
 import type {
   ApiFromModules,
@@ -64,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   aiNode: typeof aiNode;
   aiQueries: typeof aiQueries;
   articleEngagement: typeof articleEngagement;
+  claims: typeof claims;
   commentConversations: typeof commentConversations;
   commentRequestTesting: typeof commentRequestTesting;
   commentRequests: typeof commentRequests;
@@ -72,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   credits: typeof credits;
   crons: typeof crons;
   dataProcessing: typeof dataProcessing;
+  deskMetrics: typeof deskMetrics;
   draftRankingsHelpers: typeof draftRankingsHelpers;
   emailService: typeof emailService;
   espn: typeof espn;
@@ -93,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   playerSync: typeof playerSync;
   playerSyncInternal: typeof playerSyncInternal;
   players: typeof players;
+  relationships: typeof relationships;
   rivalries: typeof rivalries;
   stripe: typeof stripe;
   teamClaims: typeof teamClaims;
@@ -100,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   teams: typeof teams;
   transactions: typeof transactions;
   users: typeof users;
+  validators: typeof validators;
 }>;
 
 /**

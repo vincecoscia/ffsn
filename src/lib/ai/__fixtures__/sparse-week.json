@@ -1,0 +1,36 @@
+{
+  "name": "sparse-week",
+  "description": "Week 3 of the same league before the roster and standings sync landed: five matchups in the weekly-recap shape (team NAMES in teamA/teamB), no per-player detail, no standings, no rosters, no transactions, no trades, no quotes, one declined comment request and no prediction history. The restraint case - a writer should come in short and say what is missing.",
+  "leagueData": {
+    "leagueName": "Ironclad Fantasy Conference",
+    "currentWeek": 3,
+    "season": 2025,
+    "scoringType": "PPR",
+    "totalTeams": 10,
+    "teams": [
+      { "id": "team_01", "externalId": "1", "name": "Gravel Pit Grinders", "manager": "Dana Whitlock", "record": { "wins": 3, "losses": 0, "ties": 0, "pointsFor": 352.1, "pointsAgainst": 298.4 }, "pointsFor": 352.1, "pointsAgainst": 298.4 },
+      { "id": "team_02", "externalId": "2", "name": "Cedar Falls Cormorants", "manager": "Marcus Bly", "record": { "wins": 3, "losses": 0, "ties": 0, "pointsFor": 341.8, "pointsAgainst": 289.6 }, "pointsFor": 341.8, "pointsAgainst": 289.6 },
+      { "id": "team_03", "externalId": "3", "name": "Quarry Road Quakers", "manager": "Priya Nandi", "record": { "wins": 2, "losses": 1, "ties": 0, "pointsFor": 310.4, "pointsAgainst": 301.0 }, "pointsFor": 310.4, "pointsAgainst": 301.0 },
+      { "id": "team_04", "externalId": "4", "name": "Ninth Street Nightjars", "manager": "Trevor Ashby", "record": { "wins": 2, "losses": 1, "ties": 0, "pointsFor": 318.9, "pointsAgainst": 306.7 }, "pointsFor": 318.9, "pointsAgainst": 306.7 },
+      { "id": "team_05", "externalId": "5", "name": "Halyard Bay Harriers", "manager": "Lena Okafor", "record": { "wins": 2, "losses": 1, "ties": 0, "pointsFor": 322.6, "pointsAgainst": 310.2 }, "pointsFor": 322.6, "pointsAgainst": 310.2 },
+      { "id": "team_06", "externalId": "6", "name": "Foundry District Foxes", "manager": "Sam Kestrel", "record": { "wins": 1, "losses": 2, "ties": 0, "pointsFor": 305.2, "pointsAgainst": 318.5 }, "pointsFor": 305.2, "pointsAgainst": 318.5 },
+      { "id": "team_07", "externalId": "7", "name": "Milltown Mudlarks", "manager": "Owen Radcliffe", "record": { "wins": 1, "losses": 2, "ties": 0, "pointsFor": 298.7, "pointsAgainst": 325.1 }, "pointsFor": 298.7, "pointsAgainst": 325.1 },
+      { "id": "team_08", "externalId": "8", "name": "Ashgrove Anvils", "manager": "Bea Coleridge", "record": { "wins": 1, "losses": 2, "ties": 0, "pointsFor": 301.5, "pointsAgainst": 330.8 }, "pointsFor": 301.5, "pointsAgainst": 330.8 },
+      { "id": "team_09", "externalId": "9", "name": "Pike County Pilots", "manager": "Hollis Vance", "record": { "wins": 0, "losses": 3, "ties": 0, "pointsFor": 279.3, "pointsAgainst": 341.2 }, "pointsFor": 279.3, "pointsAgainst": 341.2 },
+      { "id": "team_10", "externalId": "10", "name": "Sable Ridge Sentinels", "manager": "Ruth Tanaka", "record": { "wins": 0, "losses": 3, "ties": 0, "pointsFor": 288.0, "pointsAgainst": 297.0 }, "pointsFor": 288.0, "pointsAgainst": 297.0 }
+    ],
+    "recentMatchups": [
+      { "teamA": "Gravel Pit Grinders", "teamB": "Ashgrove Anvils", "scoreA": 118.6, "scoreB": 101.2, "week": 3 },
+      { "teamA": "Cedar Falls Cormorants", "teamB": "Pike County Pilots", "scoreA": 126.0, "scoreB": 88.4, "week": 3 },
+      { "teamA": "Quarry Road Quakers", "teamB": "Sable Ridge Sentinels", "scoreA": 97.5, "scoreB": 95.1, "week": 3 },
+      { "teamA": "Ninth Street Nightjars", "teamB": "Foundry District Foxes", "scoreA": 110.3, "scoreB": 104.7, "week": 3 },
+      { "teamA": "Halyard Bay Harriers", "teamB": "Milltown Mudlarks", "scoreA": 112.8, "scoreB": 106.4, "week": 3 }
+    ]
+  },
+  "commentResponses": [],
+  "nonRespondents": [
+    { "userId": "user_hollis", "userName": "Hollis Vance", "teamName": "Pike County Pilots", "status": "declined" }
+  ],
+  "relationships": [],
+  "priorClaims": []
+}

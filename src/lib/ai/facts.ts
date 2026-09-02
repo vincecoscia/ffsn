@@ -1,0 +1,551 @@
+// The FACTS block — the single normative source of truth for a generated article.
+//
+// `buildFactsBlock` flattens whatever `LeagueDataContext` shape the data layer produced into one
+// stable, id-bearing JSON document. The model may only state facts that appear here, and
+// `fact-verifier.ts` checks the finished article against this exact object.
+//
+// Two shape hazards this module deliberately absorbs:
+//  - Matchups: the generic query returns raw ESPN ids in `teamA`/`teamB` with the names in
+//    `teamAName`/`teamBName`; the weekly-recap query returns names in `teamA`/`teamB`. Both resolve.
+//  - Players: `fantasyTeamId` / `fantasyTeamName` / `nflTeam` are read when present. The legacy
+//    `team` key (which means "NFL team" on one path and "fantasy team" on another) is only a
+//    last-resort fallback and is never emitted as-is.
+
+import { contentTemplates } from "./content-templates";
+import type { RelationshipTier } from "./persona-prompts";
+import type { LeagueDataContext } from "./prompt-builder";
+import type {
+  CommentResponseData,
+  NonRespondent,
+  PriorRecord,
+  RelationshipEventSummary,
+  WriterRelationshipContext,
+} from "./content-generation-service";
+
+export interface FactsTeam {
+  /** `"T" + externalId` — the id the model must cite. */
+  id: string;
+  /** The Convex `Id<"teams">` as a string, for write-back. */
+  teamId: string;
+  name: string;
+  manager?: string;
+  record: string;
+  pointsFor?: number;
+  rank?: number;
+}
+
+export interface FactsPlayer {
+  id: string;
+  name: string;
+  pos: string;
+  nflTeam?: string;
+  fantasyTeamId: string;
+  points: number;
+  projected?: number;
+  lineup: "starter" | "bench";
+  benchImpact?: { wouldHaveReplaced: string; pointGain: number };
+}
+
+export interface FactsMatchup {
+  id: string;
+  week: number;
+  bracket?: string;
+  home: { teamId: string; score: number; projected?: number; benchPoints?: number };
+  away: { teamId: string; score: number; projected?: number; benchPoints?: number };
+  winnerTeamId?: string;
+  margin?: number;
+  closeness?: string;
+  isUpset?: boolean;
+  players: FactsPlayer[];
+}
+
+export interface FactsBlock {
+  schema: "ffsn.facts.v1";
+  league: { name: string; week?: number; season: number; teamCount: number; scoring?: string };
+  teams: FactsTeam[];
+  matchups: FactsMatchup[];
+  standings: Array<{ rank: number; teamId: string; record: string; pointsFor: number; streak?: string }>;
+  transactions: Array<{
+    id: string;
+    teamId: string;
+    type: string;
+    playerAdded?: string;
+    playerDropped?: string;
+    faab?: number;
+    week?: number;
+    timestamp?: number;
+  }>;
+  trades: Array<{
+    id: string;
+    week?: number;
+    timestamp?: number;
+    sides: Array<{ teamId: string; gave: string[]; received: string[] }>;
+  }>;
+  draftPicks?: Array<{
+    id: string;
+    teamId: string;
+    overall: number;
+    round: number;
+    pickInRound: number;
+    player: string;
+    pos: string;
+    adp?: number;
+    adpDelta?: number;
+    projected?: number;
+  }>;
+  quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string }>;
+  nonRespondents: Array<{ speaker: string; teamId: string; status: "no_response" | "declined" }>;
+  relationships: Array<{
+    teamId: string;
+    manager: string;
+    score: number;
+    tier: RelationshipTier;
+    recentEvents: RelationshipEventSummary[];
+  }>;
+  priorClaims: Array<{ id: string; week?: number; claim: string; outcome?: "hit" | "miss" | "open" }>;
+  /** The writer's standing record in this league (spec §8.4). Absent when nothing has resolved. */
+  priorRecord?: PriorRecord;
+  missing: string[];
+}
+
+/**
+ * The subset of a `GenerationRequest` the FACTS builder needs. A full `GenerationRequest` is
+ * assignable to this, so `buildFactsBlock(request)` is the normal call.
+ */
+export interface FactsRequest {
+  leagueId?: string;
+  contentType: string;
+  persona?: string;
+  leagueData: LeagueDataContext;
+  commentResponses?: CommentResponseData[];
+  nonRespondents?: NonRespondent[];
+  relationships?: WriterRelationshipContext[];
+  priorClaims?: Array<{ articleId?: string; week?: number; claim: string; outcome?: "hit" | "miss" | "open" }>;
+  priorRecord?: PriorRecord;
+}
+
+type Loose = Record<string, unknown>;
+
+function asLoose(value: unknown): Loose {
+  return (value && typeof value === "object" ? value : {}) as Loose;
+}
+
+function str(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
+
+function num(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return round1(value);
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+    return round1(Number(value));
+  }
+  return undefined;
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function formatRecord(record?: { wins?: number; losses?: number; ties?: number }): string {
+  if (!record) return "0-0-0";
+  return `${record.wins ?? 0}-${record.losses ?? 0}-${record.ties ?? 0}`;
+}
+
+function toTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+/**
+ * Recomputes the `requiredData` gaps for a content type. This is the same computation the old
+ * `PromptBuilder.validateRequiredData` did privately; it lives here so the result can reach the
+ * prompt as `facts.missing` instead of only reaching `console.warn`.
+ */
+export function computeMissingRequiredData(contentType: string, data: LeagueDataContext): string[] {
+  const template = contentTemplates[contentType];
+  if (!template) return [];
+  const missing: string[] = [];
+
+  for (const field of template.requiredData) {
+    switch (field) {
+      case "historical_data":
+        if (!data.previousSeasons || Object.keys(data.previousSeasons).length === 0) {
+          missing.push("historical_data (previousSeasons) — not available");
+        }
+        break;
+      case "all_time_records":
+        if (!data.leagueHistory?.allTimeRecords || Object.keys(data.leagueHistory.allTimeRecords).length === 0) {
+          missing.push("all_time_records — not available");
+        }
+        break;
+      case "championship_history":
+        if (!data.leagueHistory?.seasons || data.leagueHistory.seasons.length === 0) {
+          missing.push("championship_history — not available");
+        }
+        break;
+      case "matchup_results":
+        if (!data.recentMatchups || data.recentMatchups.length === 0) {
+          missing.push("matchup_results — no matchups in the payload");
+        }
+        break;
+      case "player_scores":
+        if (!data.teams?.some(team => team.roster && team.roster.length > 0)) {
+          missing.push("player_scores (rosters) — not available");
+        }
+        break;
+      case "standings":
+        if (!data.standings || data.standings.length === 0) {
+          missing.push("standings — not available");
+        }
+        break;
+      case "draft_order":
+        if (!data.draftOrder || data.draftOrder.length === 0) {
+          missing.push("draft_order — not available");
+        }
+        break;
+      case "available_players":
+        if (!data.availablePlayers || data.availablePlayers.length === 0) {
+          missing.push("available_players — not available");
+        }
+        break;
+      case "trade_details":
+        if (!data.trades || data.trades.length === 0) {
+          missing.push("trade_details — no trades in the payload");
+        }
+        break;
+      case "rivalry_history":
+        if (!data.rivalries || data.rivalries.length === 0) {
+          missing.push("rivalry_history — no imported rivalry records");
+        }
+        break;
+      case "draft_results":
+        if (!data.draftPicks || data.draftPicks.length === 0) {
+          missing.push("draft_results (draftPicks) — not available");
+        }
+        break;
+      case "team_rosters":
+        if (!data.teams || data.teams.length === 0) {
+          missing.push("team_rosters (teams) — not available");
+        }
+        break;
+      case "player_projections":
+        if (!data.draftPicks || !data.draftPicks.some(pick => pick.playerProjectedPoints !== null)) {
+          missing.push("player_projections — not available");
+        }
+        break;
+      case "league_settings":
+        if (!data.scoringType && !data.totalTeams && !data.draftType) {
+          missing.push("league_settings — not available");
+        }
+        break;
+      case "injuries":
+        if (!data.injuryReport || data.injuryReport.length === 0) {
+          missing.push("injuryReport — not collected for this content type");
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  return missing;
+}
+
+/** Resolves any of (FACTS id, ESPN external id, Convex id, team name) to a FACTS team id. */
+class TeamIndex {
+  private byKey = new Map<string, string>();
+  readonly teams: FactsTeam[] = [];
+
+  constructor(data: LeagueDataContext) {
+    const standingsByKey = new Map<string, { rank: number; streak?: string; pointsFor?: number }>();
+    (data.standings ?? []).forEach(row => {
+      const entry = {
+        rank: row.rank,
+        streak: row.streakType && row.streakLength ? `${row.streakType}${row.streakLength}` : undefined,
+        pointsFor: num(row.pointsFor),
+      };
+      if (row.teamId) standingsByKey.set(row.teamId.toLowerCase(), entry);
+      if (row.team) standingsByKey.set(row.team.toLowerCase(), entry);
+    });
+
+    (data.teams ?? []).forEach((team, index) => {
+      const loose = asLoose(team);
+      const external = str(team.externalId) ?? str(team.id) ?? String(index + 1);
+      const id = `T${external}`;
+      const standing =
+        (team.externalId ? standingsByKey.get(String(team.externalId).toLowerCase()) : undefined) ??
+        (team.id ? standingsByKey.get(String(team.id).toLowerCase()) : undefined) ??
+        (team.name ? standingsByKey.get(team.name.toLowerCase()) : undefined);
+
+      const factsTeam: FactsTeam = {
+        id,
+        teamId: str(team.id) ?? "",
+        name: team.name,
+        manager: str(team.manager) ?? str(loose.owner),
+        record: formatRecord(team.record),
+        pointsFor: num(team.pointsFor) ?? num(team.record?.pointsFor) ?? standing?.pointsFor,
+        rank: standing?.rank ?? team.playoffSeed,
+      };
+      this.teams.push(factsTeam);
+
+      this.register(id, id);
+      this.register(external, id);
+      this.register(str(team.id), id);
+      this.register(team.name, id);
+      this.register(str(loose.abbreviation), id);
+    });
+  }
+
+  private register(key: string | undefined, id: string) {
+    if (!key) return;
+    const normalized = key.trim().toLowerCase();
+    if (normalized.length === 0) return;
+    if (!this.byKey.has(normalized)) this.byKey.set(normalized, id);
+  }
+
+  /** Returns the FACTS team id, or `"T?"` when the value cannot be resolved. */
+  resolve(...candidates: Array<unknown>): string {
+    for (const candidate of candidates) {
+      const key = str(candidate);
+      if (!key) continue;
+      const hit = this.byKey.get(key.trim().toLowerCase());
+      if (hit) return hit;
+    }
+    return "T?";
+  }
+}
+
+function collectMatchupSources(data: LeagueDataContext): Loose[] {
+  const playoff = asLoose((data as Loose).playoffBreakdown);
+  const buckets: unknown[] = [
+    playoff.championshipGame ? [playoff.championshipGame] : [],
+    playoff.playoffMatchups,
+    playoff.consolationMatchups,
+    playoff.regularSeasonMatchups,
+  ];
+  const fromPlayoff = buckets.flatMap(bucket => (Array.isArray(bucket) ? bucket : []));
+  if (fromPlayoff.length > 0) return fromPlayoff.map(asLoose);
+  return (data.recentMatchups ?? []).map(asLoose);
+}
+
+function buildMatchupPlayers(matchup: Loose, matchupId: string, teams: TeamIndex, homeId: string, awayId: string): FactsPlayer[] {
+  const performers = Array.isArray(matchup.topPerformers) ? matchup.topPerformers : [];
+  const players: FactsPlayer[] = [];
+
+  performers.forEach((raw, index) => {
+    const p = asLoose(raw);
+    const name = str(p.playerName) ?? str(p.fullName) ?? str(p.player);
+    if (!name) return;
+
+    // `fantasyTeamId` / `fantasyTeamName` are authoritative. `nflTeam` is separate. The legacy
+    // `team` key is ambiguous and only used when nothing better exists.
+    const fantasyTeamId = teams.resolve(p.fantasyTeamId, p.fantasyTeamName, p.teamName, p.teamId, p.team);
+    const nflTeam = str(p.nflTeam) ?? str(p.proTeam) ?? str(p.proTeamAbbrev);
+
+    const gain = num(p.pointImprovementIfStarted);
+    const replaced = str(p.wouldHaveReplacedPlayer);
+
+    players.push({
+      id: `${matchupId}P${str(p.playerId) ?? index + 1}`,
+      name,
+      pos: str(p.position) ?? "FLEX",
+      nflTeam,
+      fantasyTeamId: fantasyTeamId === "T?" ? (index % 2 === 0 ? homeId : awayId) : fantasyTeamId,
+      points: num(p.points) ?? 0,
+      projected: num(p.projectedPoints) ?? num(p.projected),
+      lineup: p.isStarter === false ? "bench" : "starter",
+      benchImpact:
+        p.benchImpact && replaced && gain !== undefined
+          ? { wouldHaveReplaced: replaced, pointGain: gain }
+          : undefined,
+    });
+  });
+
+  return players;
+}
+
+function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[] {
+  return collectMatchupSources(data).map((matchup, index) => {
+    const id = `M${index + 1}`;
+    // Generic query: ids in teamA/teamB, names in teamAName/teamBName.
+    // Weekly-recap query: names in teamA/teamB.
+    const homeId = teams.resolve(matchup.teamAName, matchup.teamA, matchup.homeTeamId);
+    const awayId = teams.resolve(matchup.teamBName, matchup.teamB, matchup.awayTeamId);
+    const scoreA = num(matchup.scoreA) ?? num(matchup.homeScore) ?? 0;
+    const scoreB = num(matchup.scoreB) ?? num(matchup.awayScore) ?? 0;
+
+    let winnerTeamId: string | undefined;
+    if (scoreA > scoreB) winnerTeamId = homeId;
+    else if (scoreB > scoreA) winnerTeamId = awayId;
+
+    return {
+      id,
+      week: num(matchup.week) ?? num(matchup.matchupPeriod) ?? data.currentWeek,
+      bracket: str(matchup.playoffTier) ?? (matchup.isPlayoffGame ? "playoff" : "regular"),
+      home: {
+        teamId: homeId,
+        score: scoreA,
+        projected: num(matchup.projectedScoreA),
+        benchPoints: num(matchup.benchPointsA),
+      },
+      away: {
+        teamId: awayId,
+        score: scoreB,
+        projected: num(matchup.projectedScoreB),
+        benchPoints: num(matchup.benchPointsB),
+      },
+      winnerTeamId,
+      margin: round1(Math.abs(scoreA - scoreB)),
+      closeness: str(matchup.closeness)?.toLowerCase(),
+      isUpset: matchup.isUpset === true ? true : undefined,
+      players: buildMatchupPlayers(matchup, id, teams, homeId, awayId),
+    };
+  });
+}
+
+export function buildFactsBlock(req: FactsRequest): FactsBlock {
+  const data = req.leagueData;
+  const teams = new TeamIndex(data);
+  const looseData = data as Loose;
+
+  const matchups = buildMatchups(data, teams);
+
+  const standings = (data.standings ?? []).map(row => ({
+    rank: row.rank,
+    teamId: teams.resolve(row.teamId, row.team),
+    record: `${row.wins}-${row.losses}-${row.ties ?? 0}`,
+    pointsFor: num(row.pointsFor) ?? 0,
+    streak: row.streakType && row.streakLength ? `${row.streakType}${row.streakLength}` : undefined,
+  }));
+
+  const transactions = (data.transactions ?? []).map((transaction, index) => ({
+    id: `X${index + 1}`,
+    teamId: teams.resolve(transaction.teamId, transaction.teamName),
+    type: transaction.type,
+    playerAdded: transaction.playerAdded?.playerName,
+    playerDropped: transaction.playerDropped?.playerName,
+    faab: num(transaction.faabBid),
+    week: num(asLoose(transaction).week),
+    timestamp: toTimestamp(transaction.date),
+  }));
+
+  const trades = (data.trades ?? []).map((trade, index) => ({
+    id: `TR${index + 1}`,
+    week: num(asLoose(trade).week),
+    timestamp: toTimestamp(trade.date),
+    sides: [
+      {
+        teamId: teams.resolve(trade.teamA),
+        gave: trade.playersFromA.map(player => player.playerName),
+        received: trade.playersFromB.map(player => player.playerName),
+      },
+      {
+        teamId: teams.resolve(trade.teamB),
+        gave: trade.playersFromB.map(player => player.playerName),
+        received: trade.playersFromA.map(player => player.playerName),
+      },
+    ],
+  }));
+
+  const draftPicks = (data.draftPicks ?? []).map(pick => {
+    const adp = pick.playerADP === null ? undefined : num(pick.playerADP);
+    return {
+      id: `D${pick.pickNumber}`,
+      teamId: teams.resolve(pick.teamName, pick.teamAbbreviation),
+      overall: pick.pickNumber,
+      round: pick.roundNumber,
+      pickInRound: pick.roundPickNumber,
+      player: pick.playerName,
+      pos: pick.playerPosition,
+      adp,
+      // Positive = drafted later than ADP (value). Negative = drafted earlier than ADP (reach).
+      adpDelta: adp === undefined ? undefined : round1(pick.pickNumber - adp),
+      projected: pick.playerProjectedPoints === null ? undefined : num(pick.playerProjectedPoints),
+    };
+  });
+
+  const quotes: FactsBlock["quotes"] = [];
+  (req.commentResponses ?? []).forEach(response => {
+    const teamId = teams.resolve(response.teamId, response.teamName);
+    response.quotes.forEach(text => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return;
+      quotes.push({
+        id: `Q${quotes.length + 1}`,
+        speaker: response.userName,
+        teamId,
+        questionTopic: response.questionTopic,
+        text: trimmed,
+      });
+    });
+  });
+
+  const nonRespondents = (req.nonRespondents ?? []).map(entry => ({
+    speaker: entry.userName,
+    teamId: teams.resolve(entry.teamName),
+    status: entry.status,
+  }));
+
+  const relationships = (req.relationships ?? []).map(entry => ({
+    teamId: teams.resolve(entry.teamId, entry.teamName),
+    manager: entry.managerName,
+    score: entry.score,
+    tier: entry.tier,
+    recentEvents: entry.recentEvents ?? [],
+  }));
+
+  const priorClaims = (req.priorClaims ?? []).map((claim, index) => ({
+    id: `C${index + 1}`,
+    week: claim.week,
+    claim: claim.claim,
+    outcome: claim.outcome,
+  }));
+
+  const missing = computeMissingRequiredData(req.contentType, data);
+  if (nonRespondents.length > 0) {
+    const names = nonRespondents.map(entry => `${entry.speaker} (${entry.teamId})`).join(", ");
+    missing.push(`quotes — ${names} did not respond to the comment request`);
+  }
+  if (priorClaims.length === 0) {
+    missing.push("priorClaims — none. You have no prediction history in this league; do not claim one.");
+  }
+
+  const season =
+    num(looseData.season) ??
+    num(looseData.seasonId) ??
+    data.leagueHistory?.seasons?.[data.leagueHistory.seasons.length - 1]?.year ??
+    new Date().getFullYear();
+
+  return {
+    schema: "ffsn.facts.v1",
+    league: {
+      name: data.leagueName,
+      week: data.currentWeek,
+      season,
+      teamCount: data.teams?.length ?? 0,
+      scoring: data.scoringType,
+    },
+    teams: teams.teams,
+    matchups,
+    standings,
+    transactions,
+    trades,
+    draftPicks: draftPicks.length > 0 ? draftPicks : undefined,
+    quotes,
+    nonRespondents,
+    relationships,
+    priorClaims,
+    priorRecord: req.priorRecord,
+    missing,
+  };
+}
+
+export function serializeFacts(facts: FactsBlock): string {
+  return `<FACTS>\n${JSON.stringify(facts, null, 2)}\n</FACTS>`;
+}

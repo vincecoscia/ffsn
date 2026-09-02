@@ -1,7 +1,96 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type QueryCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
+import { commentResponseDataValidator, nonRespondentValidator } from "./validators";
+import { leagueCurrentSeason } from "./lib/season";
+import { requireCommissioner, requireLeagueMember } from "./lib/auth";
+import { INTERVIEWER_PERSONA, DEFAULT_WRITER_PERSONA } from "./commentRequests";
+
+/* -------------------------------------------------------------------------- */
+/* Quote ledger helpers (spec §5)                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A manager's team for a league season, via `teamClaims` (whose `userId` is a Clerk id).
+ * `teams.owner` is an ESPN owner string and must never be compared to a Convex user id
+ * (spec §2) - the old owner-match lookup here silently produced unattributed quotes.
+ */
+async function resolveTeamForUser(
+  ctx: QueryCtx,
+  leagueId: Id<"leagues">,
+  user: Doc<"users"> | null,
+  seasonId: number
+): Promise<Doc<"teams"> | null> {
+  if (!user?.clerkId) return null;
+  const claims = await ctx.db
+    .query("teamClaims")
+    .withIndex("by_user", q => q.eq("userId", user.clerkId))
+    .take(50);
+  const inLeague = claims.filter(c => c.leagueId === leagueId && c.status === "active");
+  if (inLeague.length === 0) return null;
+  const claim =
+    inLeague.find(c => c.seasonId === seasonId) ??
+    [...inLeague].sort((a, b) => b.seasonId - a.seasonId)[0];
+  return await ctx.db.get(claim.teamId);
+}
+
+/**
+ * What Sam actually asked about, taken from her opening question rather than invented.
+ * Prefers the interrogative sentence, drops her self-introduction, and caps the length.
+ */
+function questionTopicFrom(openingQuestion: string | undefined, fallback: string): string {
+  if (!openingQuestion) return fallback;
+  const sentences = openingQuestion
+    .split(/(?<=[.?!])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    // Drop the "Sam Ortega, FFSN." style intro and the on-the-record disclosure.
+    .filter(s => !/^sam ortega|^simone|ffsn\.$|on the record\.$/i.test(s));
+
+  const topic = sentences.find(s => s.endsWith("?")) ?? sentences[0] ?? openingQuestion;
+  const trimmed = topic.trim();
+  if (!trimmed) return fallback;
+  return trimmed.length > 160 ? `${trimmed.slice(0, 159)}…` : trimmed;
+}
+
+/**
+ * What the writer is allowed to print for one manager, in priority order (spec §8.1).
+ *
+ * 1. `quoteReview` when it exists - approved and edited entries only. An edited
+ *    entry's text is what the manager typed and is the verbatim of record;
+ *    withdrawn entries are off the record and never reach the writer.
+ * 2. `approvedQuotes`, for rows written by the older `approveQuotes` mutation.
+ * 3. The verified `extractedQuotes` ledger, only when no review exists.
+ * 4. The processed reply, so a manager who spoke is never silently dropped.
+ *
+ * An empty result means the manager withdrew everything: the caller skips them
+ * rather than handing the writer a speaker with no words.
+ */
+export function quotesForResponse(response: Doc<"commentResponses">): string[] {
+  const clean = (quotes: string[]) => quotes.filter(q => q && q.trim().length > 0);
+
+  if (response.quoteReview && response.quoteReview.length > 0) {
+    return clean(
+      response.quoteReview
+        .filter(q => q.status === "approved" || q.status === "edited")
+        .map(q => q.text)
+    );
+  }
+  if (response.approvedQuotes && response.approvedQuotes.length > 0) {
+    return clean(response.approvedQuotes);
+  }
+  const extracted = clean(response.relevanceMetadata.extractedQuotes ?? []);
+  if (extracted.length > 0) return extracted;
+  return clean([response.processedResponse]);
+}
 
 // Create comment requests and wait for responses
 export const createCommentRequestsAndWait = internalAction({
@@ -127,6 +216,9 @@ export const createCommentRequestsAndWait = internalAction({
         articleId: args.articleId,
         leagueId: args.leagueId,
         contentType: args.contentType,
+        // The article's writer. Sam Ortega conducts the interview either way, but the
+        // writer's relationship with this manager shapes which follow-up she asks.
+        writerPersona: args.persona,
         targetUserIds: validUserIds,
         articleGenerationTime: args.articleGenerationTime,
         week: args.week,
@@ -158,10 +250,20 @@ export const createCommentRequestsAndWait = internalAction({
         creditsDeductedUpFront: args.creditsDeductedUpFront,
       });
 
+      // Silence is consent (spec §8.1): whatever the manager left `pending` becomes
+      // approved the moment we go to print. Scheduled just before checkAndGenerate,
+      // and re-run inside it as a safety net for an early "Go to print now".
+      await ctx.scheduler.runAt(
+        args.articleGenerationTime,
+        internal.commentConversations.autoApprovePendingQuotes,
+        { commentRequestIds }
+      );
+
       // Also schedule periodic checks to see if all responses are collected
-      const timeUntilGeneration = args.articleGenerationTime - Date.now();
+      const now = Date.now();
+      const timeUntilGeneration = args.articleGenerationTime - now;
       for (let i = 1; i <= 4; i++) {
-        const checkTime = Date.now() + (timeUntilGeneration / 4) * i;
+        const checkTime = now + (timeUntilGeneration / 4) * i;
         await ctx.scheduler.runAt(checkTime, internal.aiContentWithComments.checkIfAllResponsesReceived, {
           articleId: args.articleId,
           leagueId: args.leagueId,
@@ -174,6 +276,27 @@ export const createCommentRequestsAndWait = internalAction({
           commentRequestIds,
           creditsDeductedUpFront: args.creditsDeductedUpFront,
         });
+      }
+
+      // Two reminders to whoever still hasn't answered (spec §5): one at the halfway
+      // mark, one 30 minutes before print. `sendCommentReminder` no-ops for requests
+      // that are already answered, declined or expired, so nobody gets chased twice.
+      const halfway = now + timeUntilGeneration / 2;
+      const lastCall = args.articleGenerationTime - 30 * 60 * 1000;
+      for (const requestId of commentRequestIds) {
+        if (halfway > now) {
+          await ctx.scheduler.runAt(halfway, internal.notifications.sendCommentReminder, {
+            commentRequestId: requestId,
+            type: "reminder",
+          });
+        }
+        // Skipped for short windows, where the halfway nudge is already the last call.
+        if (lastCall > halfway) {
+          await ctx.scheduler.runAt(lastCall, internal.notifications.sendCommentReminder, {
+            commentRequestId: requestId,
+            type: "final_reminder",
+          });
+        }
       }
 
     } catch (error) {
@@ -226,6 +349,8 @@ export const createManualCommentRequests = internalMutation({
     articleId: v.id("aiContent"),
     leagueId: v.id("leagues"),
     contentType: v.string(),
+    // The writer the quotes are destined for (spec §5); the interviewer is always Sam.
+    writerPersona: v.optional(v.string()),
     targetUserIds: v.array(v.id("users")),
     articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
     week: v.optional(v.number()),
@@ -243,18 +368,9 @@ export const createManualCommentRequests = internalMutation({
   },
   handler: async (ctx, args) => {
     const currentTime = Date.now();
-    
+
     const requestIds = await Promise.all(
       args.targetUserIds.map(async (userId) => {
-        // Get user's team for context
-        const userTeam = await ctx.db
-          .query("teams")
-          .withIndex("by_league", q => 
-            q.eq("leagueId", args.leagueId)
-          )
-          .filter(q => q.eq(q.field("owner"), userId))
-          .first();
-        
         // Build article context with draft data if applicable
         let articleContext: any = {
           week: args.week,
@@ -291,6 +407,8 @@ export const createManualCommentRequests = internalMutation({
           manualContentId: args.articleId, // Link to manual content instead of scheduled
           targetUserId: userId,
           contentType: args.contentType,
+          interviewerPersona: INTERVIEWER_PERSONA,
+          writerPersona: args.writerPersona ?? DEFAULT_WRITER_PERSONA,
           articleContext,
           status: "pending",
           scheduledSendTime: currentTime,
@@ -391,6 +509,9 @@ export const sendManualCommentRequest = internalAction({
         articleType: request.contentType,
         leagueName: context.leagueName || "your league",
         leagueId: request.leagueId,
+        writerPersona: request.writerPersona,
+        week: request.articleContext?.week ?? context.week,
+        deadline: request.articleGenerationTime,
       });
       
     } catch (error) {
@@ -431,6 +552,14 @@ export const checkIfAllResponsesReceived = internalAction({
 
     if (allResponses) {
       console.log("All comment responses received, generating content");
+
+      // Going to print early still means going to print: anything the manager left
+      // pending is approved now (spec §8.1). Without this, an article generated
+      // before the deadline would carry no quotes at all, because
+      // `getStructuredCommentResponses` only prints approved or edited entries.
+      await ctx.runMutation(internal.commentConversations.autoApprovePendingQuotes, {
+        commentRequestIds: args.commentRequestIds,
+      });
 
       // Update article status immediately to prevent other scheduled checks from running
       await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
@@ -482,6 +611,13 @@ export const checkAndGenerate = internalAction({
 
     console.log("Comment request period expired, generating content with available responses");
 
+    // Deadline reached: every quote still awaiting the manager's sign-off is
+    // approved (spec §8.1). The scheduled pass at articleGenerationTime normally
+    // does this; running it here too covers "Go to print now", which arrives early.
+    await ctx.runMutation(internal.commentConversations.autoApprovePendingQuotes, {
+      commentRequestIds: args.commentRequestIds,
+    });
+
     // First, expire all pending/active comment requests for this article
     await ctx.runMutation(internal.aiContentWithComments.expireCommentRequests, {
       commentRequestIds: args.commentRequestIds,
@@ -524,39 +660,147 @@ export const generateWithComments = internalAction({
     creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // Get comment responses
-    const commentResponses = await ctx.runQuery(internal.aiContentWithComments.getCommentResponses, {
-      commentRequestIds: args.commentRequestIds,
-    });
-    
-    // Build enhanced context with comments
-    let enhancedContext = args.customContext || "";
-    
-    if (commentResponses.length > 0) {
-      enhancedContext += "\n\n=== TEAM COMMENTS ===\n";
-      enhancedContext += "The following comments were collected from league members:\n\n";
-      
-      for (const response of commentResponses) {
-        if (response.processedResponse) {
-          enhancedContext += `Team Comment: "${response.processedResponse}"\n`;
-        }
-      }
-      
-      enhancedContext += "\nPlease incorporate these comments naturally into the article where relevant.";
-    }
-    
-    // Trigger the regular content generation with enhanced context
+    // The quote ledger: one entry per manager, carrying their name, their team, what
+    // Sam asked, and the verbatim spans they may be quoted saying.
+    //
+    // This replaces the old `Team Comment: "..."` string-mashing into customContext,
+    // which stripped every attribution and then asked the writer for a named quote -
+    // an instruction the model could only satisfy by inventing one. customContext is
+    // now left exactly as the requester wrote it (spec §5).
+    const commentResponses = await ctx.runQuery(
+      internal.aiContentWithComments.getStructuredCommentResponses,
+      { commentRequestIds: args.commentRequestIds }
+    );
+
+    const nonRespondents = await ctx.runQuery(
+      internal.aiContentWithComments.getNonRespondents,
+      { commentRequestIds: args.commentRequestIds }
+    );
+
+    console.log(
+      `Generating with ${commentResponses.length} quoted managers and ${nonRespondents.length} non-respondents`
+    );
+
     await ctx.runAction(internal.aiContent.generateContentAction, {
       articleId: args.articleId,
       leagueId: args.leagueId,
       contentType: args.contentType,
       persona: args.persona,
-      customContext: enhancedContext,
+      customContext: args.customContext,
       userId: args.userId,
       seasonId: args.seasonId,
       week: args.week,
+      commentResponses,
+      nonRespondents,
       creditsDeductedUpFront: args.creditsDeductedUpFront,
     });
+  },
+});
+
+/**
+ * `CommentResponseData[]` (spec §4.2) for the writer: joined manager name, team id and
+ * name, the question topic, and verbatim quotes. Quote selection - approved/edited
+ * review entries first, withdrawn never - is `quotesForResponse` above (spec §8.1).
+ */
+export const getStructuredCommentResponses = internalQuery({
+  args: { commentRequestIds: v.array(v.id("commentRequests")) },
+  returns: v.array(commentResponseDataValidator),
+  handler: async (ctx, args) => {
+    const results = [];
+
+    for (const requestId of args.commentRequestIds) {
+      const request = await ctx.db.get(requestId);
+      if (!request) continue;
+
+      const response = await ctx.db
+        .query("commentResponses")
+        .withIndex("by_comment_request", q => q.eq("commentRequestId", requestId))
+        .first();
+      if (!response) continue;
+
+      const league = await ctx.db.get(request.leagueId);
+      const seasonId = request.articleContext.seasonId ?? leagueCurrentSeason(league);
+
+      const user = await ctx.db.get(request.targetUserId);
+      const team = await resolveTeamForUser(ctx, request.leagueId, user, seasonId);
+
+      // What Sam opened with, so the writer can print the question when the answer
+      // is surprising rather than guessing at the premise.
+      const messages = await ctx.db
+        .query("commentConversations")
+        .withIndex("by_comment_request_order", q => q.eq("commentRequestId", requestId))
+        .collect();
+      const opener = messages.find(m => m.messageType === "ai_question");
+
+      const quotes = quotesForResponse(response);
+      // Everything withdrawn: the manager took it all back. Sending an entry with
+      // no quotes would ask the writer to attribute silence to a named speaker.
+      if (quotes.length === 0) continue;
+
+      results.push({
+        userId: request.targetUserId as string,
+        userName: user?.name ?? user?.email ?? "Unknown manager",
+        teamId: (team?._id ?? "") as string,
+        teamName: team?.name ?? "Unclaimed team",
+        questionTopic: questionTopicFrom(
+          opener?.content,
+          request.articleContext.topic ??
+            `${request.contentType.replace(/_/g, " ")}${request.articleContext.week ? `, week ${request.articleContext.week}` : ""}`
+        ),
+        quotes,
+        rawResponse: response.rawResponse,
+      });
+    }
+
+    return results;
+  },
+});
+
+/**
+ * Managers who were asked and said nothing printable (spec §4.2). The writer may report
+ * the silence with the two sanctioned phrases and may never turn it into a quote.
+ */
+export const getNonRespondents = internalQuery({
+  args: { commentRequestIds: v.array(v.id("commentRequests")) },
+  returns: v.array(nonRespondentValidator),
+  handler: async (ctx, args) => {
+    const results = [];
+
+    for (const requestId of args.commentRequestIds) {
+      const request = await ctx.db.get(requestId);
+      if (!request) continue;
+      if (
+        request.status !== "declined" &&
+        request.status !== "expired" &&
+        request.status !== "pending" &&
+        request.status !== "active"
+      ) {
+        continue;
+      }
+
+      // A response row means they spoke, whatever the request status ended up as.
+      const response = await ctx.db
+        .query("commentResponses")
+        .withIndex("by_comment_request", q => q.eq("commentRequestId", requestId))
+        .first();
+      if (response) continue;
+
+      const league = await ctx.db.get(request.leagueId);
+      const seasonId = request.articleContext.seasonId ?? leagueCurrentSeason(league);
+      const user = await ctx.db.get(request.targetUserId);
+      const team = await resolveTeamForUser(ctx, request.leagueId, user, seasonId);
+
+      results.push({
+        userId: request.targetUserId as string,
+        userName: user?.name ?? user?.email ?? "Unknown manager",
+        teamName: team?.name ?? "Unclaimed team",
+        status: (request.status === "declined" ? "declined" : "no_response") as
+          | "declined"
+          | "no_response",
+      });
+    }
+
+    return results;
   },
 });
 
@@ -663,25 +907,41 @@ export const getArticle = internalQuery({
   },
 });
 
+/**
+ * Are we done waiting? Partial responses are the normal case, not a failure.
+ *
+ * A request is resolved when the manager answered, declined, or let it expire
+ * (spec §5). Previously every request needed a response row, so one silent manager
+ * forfeited early generation for the whole league.
+ */
 export const checkAllResponsesReceived = internalQuery({
   args: { commentRequestIds: v.array(v.id("commentRequests")) },
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     for (const requestId of args.commentRequestIds) {
       const request = await ctx.db.get(requestId);
       if (!request) continue;
-      
+
+      if (
+        request.status === "declined" ||
+        request.status === "expired" ||
+        request.status === "cancelled"
+      ) {
+        continue;
+      }
+
       // Check if there's a response for this request
       const response = await ctx.db
         .query("commentResponses")
         .withIndex("by_comment_request", q => q.eq("commentRequestId", requestId))
         .first();
-      
+
       if (!response) {
-        return false; // At least one request doesn't have a response
+        return false; // Still waiting on at least one manager
       }
     }
-    
-    return true; // All requests have responses
+
+    return true; // Every request is answered or closed
   },
 });
 
@@ -702,6 +962,173 @@ export const getCommentResponses = internalQuery({
     }
     
     return responses;
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/* Requester board (spec §8.2)                                                 */
+/* -------------------------------------------------------------------------- */
+
+const boardRequestStatusValidator = v.union(
+  v.literal("answered"),
+  v.literal("waiting"),
+  v.literal("declined"),
+  v.literal("no_response")
+);
+
+/** Every comment request raised for one manually generated article. */
+async function requestsForArticle(
+  ctx: QueryCtx,
+  articleId: Id<"aiContent">
+): Promise<Array<Doc<"commentRequests">>> {
+  return await ctx.db
+    .query("commentRequests")
+    .withIndex("by_manual_content", q => q.eq("manualContentId", articleId))
+    .collect();
+}
+
+/** Resolve a Clerk subject to its `users` row. Never compare raw subjects. */
+async function userByClerkId(
+  ctx: QueryCtx,
+  clerkId: string
+): Promise<Doc<"users"> | null> {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", q => q.eq("clerkId", clerkId))
+    .unique();
+}
+
+/**
+ * "3 of 6 responded": who was asked, who answered, and when we go to print.
+ * Any member of the league may watch the board; only the commissioner or the
+ * requester may act on it (`goToPrintNow`).
+ */
+export const getCommentRequestBoard = query({
+  args: { articleId: v.id("aiContent") },
+  returns: v.object({
+    deadline: v.number(),
+    status: v.string(),
+    requests: v.array(
+      v.object({
+        commentRequestId: v.id("commentRequests"),
+        managerName: v.string(),
+        teamName: v.string(),
+        status: boardRequestStatusValidator,
+      })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article) throw new Error("Article not found");
+    await requireLeagueMember(ctx, article.leagueId);
+
+    const requests = await requestsForArticle(ctx, args.articleId);
+    const league = await ctx.db.get(article.leagueId);
+    const seasonId =
+      article.commentRequestConfig?.seasonId ?? leagueCurrentSeason(league);
+
+    const rows = [];
+    for (const request of requests) {
+      if (request.status === "cancelled") continue;
+
+      const response = await ctx.db
+        .query("commentResponses")
+        .withIndex("by_comment_request", q => q.eq("commentRequestId", request._id))
+        .first();
+
+      const user = await ctx.db.get(request.targetUserId);
+      const team = await resolveTeamForUser(ctx, article.leagueId, user, seasonId);
+
+      // A response row is the only proof they spoke, whatever the request status
+      // ended up as - expiry can land after a manager has already answered.
+      const status: "answered" | "waiting" | "declined" | "no_response" = response
+        ? "answered"
+        : request.status === "declined"
+        ? "declined"
+        : request.status === "expired"
+        ? "no_response"
+        : "waiting";
+
+      rows.push({
+        commentRequestId: request._id,
+        managerName: user?.name ?? user?.email ?? "Unknown manager",
+        teamName: team?.name ?? "Unclaimed team",
+        status,
+      });
+    }
+
+    rows.sort((a, b) => a.teamName.localeCompare(b.teamName));
+
+    return {
+      deadline:
+        article.commentRequestConfig?.articleGenerationTime ??
+        requests[0]?.articleGenerationTime ??
+        0,
+      status: article.status,
+      requests: rows,
+    };
+  },
+});
+
+/**
+ * Print early (spec §8.2). Runs the deadline now instead of waiting for it.
+ *
+ * This mutation deliberately writes nothing itself: `checkAndGenerate` owns the
+ * whole transition (auto-approve quotes, expire the open requests, flip the article
+ * to `generating`, generate), so an early print and the scheduled deadline take the
+ * exact same path. Its arguments come from what the flow stored on the article, never
+ * from the caller. Idempotent: an article that is no longer waiting schedules nothing.
+ *
+ * Auth: the league's commissioner, or the manager who requested the article -
+ * matched through `users.by_clerk_id` on both sides rather than on a raw subject.
+ */
+export const goToPrintNow = mutation({
+  args: { articleId: v.id("aiContent") },
+  returns: v.object({ scheduled: v.boolean() }),
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article) throw new Error("Article not found");
+
+    const { identity, membership } = await requireLeagueMember(ctx, article.leagueId);
+
+    const config = article.commentRequestConfig;
+    let isRequester = false;
+    if (config?.userId) {
+      const caller = await userByClerkId(ctx, identity.subject);
+      const requester = await userByClerkId(ctx, config.userId);
+      isRequester = !!caller && !!requester && caller._id === requester._id;
+    }
+    if (membership.role !== "commissioner" && !isRequester) {
+      // Throws with the standard commissioner message.
+      await requireCommissioner(ctx, article.leagueId);
+    }
+
+    if (article.status !== "waiting_for_comments") {
+      return { scheduled: false };
+    }
+
+    // Preferred over a stored id list: the index is the record of what was
+    // actually created, so it can't drift from the requests themselves.
+    const commentRequestIds = (await requestsForArticle(ctx, args.articleId)).map(
+      r => r._id
+    );
+
+    const league = await ctx.db.get(article.leagueId);
+
+    await ctx.scheduler.runAfter(0, internal.aiContentWithComments.checkAndGenerate, {
+      articleId: article._id,
+      leagueId: article.leagueId,
+      contentType: article.type,
+      persona: article.persona,
+      customContext: config?.customContext,
+      userId: config?.userId ?? league?.commissionerUserId ?? "system",
+      seasonId: config?.seasonId,
+      week: config?.week ?? article.metadata.week,
+      commentRequestIds,
+      creditsDeductedUpFront: config?.creditsDeductedUpFront,
+    });
+
+    return { scheduled: true };
   },
 });
 

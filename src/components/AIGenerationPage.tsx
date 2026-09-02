@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import DOMPurify from "dompurify";
 import { useQuery, useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
@@ -26,7 +25,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { PageHeader, Panel, Chip, EmptyState, Spinner } from "@/components/broadcast";
+import {
+  PageHeader,
+  Panel,
+  Chip,
+  EmptyState,
+  Spinner,
+  DeskReview,
+  contentTypeLabel,
+  personaName,
+} from "@/components/broadcast";
+import { MarkdownPreview, type ArticleQuote } from "@/components/MarkdownPreview";
+import { WaitingOnComment } from "@/components/WaitingOnComment";
 import { cn } from "@/lib/utils";
 
 interface AIGenerationPageProps {
@@ -48,6 +58,17 @@ interface Article {
     featured_teams: Id<"teams">[];
     credits_used: number;
   };
+  // Verifier findings and unmet data requests for this draft (spec §4.5).
+  reviewFlags?: Array<{
+    kind: string;
+    detail: string;
+    section?: string;
+    severity: "block" | "strip" | "warn";
+  }>;
+  factsMissing?: string[];
+  // Verified ledger quotes, so the preview can resolve `:::quote{id=…}` directives
+  // the same way the published page does (spec §8.3).
+  quotes?: ArticleQuote[];
   // Free-form field the generation pipeline uses for transient data; the
   // Edit form (see editArticle in convex/aiContent.ts) also persists an
   // edited summary here as `{ summary: string }` since aiContent has no
@@ -152,6 +173,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
 
   // Filter articles by status
   const generatingArticles = articles.filter(a => a.status === "generating");
+  // Holding for comment: the desk has asked, and the clock is running (spec §8.2).
+  const waitingArticles = articles.filter(a => a.status === "waiting_for_comments");
   const draftArticles = articles.filter(a => a.status === "draft" || a.status === "review");
   const publishedArticles = articles.filter(a => a.status === "published");
   const errorArticles = articles.filter(a => a.status === "error");
@@ -219,7 +242,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
               </TabsTrigger>
               <TabsTrigger value="generating" className="flex items-center gap-2 whitespace-nowrap px-3 py-2 text-sm sm:text-base">
                 <RotateCcw className="size-4" />
-                In progress ({generatingArticles.length})
+                In progress ({generatingArticles.length + waitingArticles.length})
               </TabsTrigger>
               <TabsTrigger value="review" className="flex items-center gap-2 whitespace-nowrap px-3 py-2 text-sm sm:text-base">
                 <Eye className="size-4" />
@@ -243,7 +266,17 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
 
           {/* Generating Articles Tab */}
           <TabsContent value="generating" className="mt-6 flex flex-col gap-4">
-            {generatingArticles.length === 0 ? (
+            {/* Stories holding for comment come first: they're the ones a person can
+                still act on, by running the deadline early. */}
+            {waitingArticles.map((article) => (
+              <WaitingOnComment
+                key={article._id}
+                articleId={article._id}
+                title={article.title}
+              />
+            ))}
+
+            {generatingArticles.length === 0 && waitingArticles.length === 0 ? (
               <EmptyState
                 icon={<RotateCcw className="size-6" strokeWidth={1.8} />}
                 title="No articles currently generating"
@@ -258,7 +291,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                         <StatusChip status={article.status} />
                       </div>
                       <p className="text-sm text-bc-text-2">
-                        {article.type} &middot; {article.persona} &middot; {article.metadata.credits_used} credits
+                        {contentTypeLabel(article.type)} &middot; {personaName(article.persona)} &middot;{" "}
+                        {article.metadata.credits_used} credits
                       </p>
                       <p className="text-xs text-bc-text-3">
                         Started {new Date(article.createdAt).toLocaleString()}
@@ -290,7 +324,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                           <StatusChip status={article.status} />
                         </div>
                         <p className="text-sm text-bc-text-2">
-                          {article.type} &middot; {article.persona} &middot; {article.metadata.credits_used} credits
+                          {contentTypeLabel(article.type)} &middot; {personaName(article.persona)} &middot;{" "}
+                          {article.metadata.credits_used} credits
                         </p>
                         <p className="text-xs text-bc-text-3">
                           Generated {new Date(article.createdAt).toLocaleString()}
@@ -354,6 +389,12 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                       </div>
                     </div>
 
+                    <DeskReview
+                      className="mb-4"
+                      flags={article.reviewFlags}
+                      factsMissing={article.factsMissing}
+                    />
+
                     {isEditing ? (
                       <div className="mt-4 flex flex-col gap-4 border border-bc-hairline bg-bc-panel-2 p-4">
                         <div className="flex flex-col gap-1.5">
@@ -390,9 +431,15 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                     ) : (
                       selectedArticle?._id === article._id && (
                         <Panel lifted padding="sm" className="mt-4 overflow-x-auto">
-                          <div
+                          {/* Rendered exactly as the published page renders it, so a
+                              `:::quote{id=…}` directive shows the pull quote the reader
+                              will get rather than the raw directive (spec §8.3). */}
+                          <MarkdownPreview
                             className="bc-prose"
-                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }}
+                            content={article.content}
+                            quotes={article.quotes}
+                            quoteWeek={article.metadata.week}
+                            quotePersona={article.persona}
                           />
                         </Panel>
                       )
@@ -420,7 +467,8 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                         <StatusChip status={article.status} />
                       </div>
                       <p className="text-sm text-bc-text-2">
-                        {article.type} &middot; {article.persona} &middot; {article.metadata.credits_used} credits
+                        {contentTypeLabel(article.type)} &middot; {personaName(article.persona)} &middot;{" "}
+                        {article.metadata.credits_used} credits
                       </p>
                       <p className="text-xs text-bc-text-3">
                         Published {article.publishedAt ? new Date(article.publishedAt).toLocaleString() : "Unknown"}
@@ -440,9 +488,12 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
 
                   {selectedArticle?._id === article._id && (
                     <Panel lifted padding="sm" className="mt-4 overflow-x-auto">
-                      <div
+                      <MarkdownPreview
                         className="bc-prose"
-                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content.replace(/\n/g, '<br>')) }}
+                        content={article.content}
+                        quotes={article.quotes}
+                        quoteWeek={article.metadata.week}
+                        quotePersona={article.persona}
                       />
                     </Panel>
                   )}
@@ -467,7 +518,7 @@ export default function AIGenerationPage({ leagueId }: AIGenerationPageProps) {
                   <div>
                     <p className="font-medium text-bc-red-text">{article.title}</p>
                     <p className="text-sm text-bc-text-2">
-                      {article.type} &middot; {article.persona}
+                      {contentTypeLabel(article.type)} &middot; {personaName(article.persona)}
                     </p>
                   </div>
                   <Button

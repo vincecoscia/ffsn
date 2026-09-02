@@ -1,8 +1,98 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  MutationCtx,
+  QueryCtx,
+} from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { CommentResponseData } from "../src/lib/ai/comment-integration";
-import { Id } from "./_generated/dataModel";
+// Type-only: never a value import from src/lib/ai in a non-Node Convex file.
+import type {
+  CommentResponseData,
+  NonRespondent,
+} from "../src/lib/ai/content-generation-service";
+import { Doc, Id } from "./_generated/dataModel";
+import {
+  commentResponseDataValidator,
+  nonRespondentValidator,
+} from "./validators";
+import { quotesForResponse } from "./aiContentWithComments";
+
+/* -------------------------------------------------------------------------- *
+ * Manager -> team, via teamClaims (spec section 2)
+ *
+ * `teamClaims.userId` is a Clerk id, so the join runs users -> clerkId ->
+ * teamClaims -> teams. `teams.owner` is an ESPN owner string and is never
+ * compared to a Convex user id.
+ * -------------------------------------------------------------------------- */
+async function teamForUser(
+  ctx: QueryCtx | MutationCtx,
+  leagueId: Id<"leagues">,
+  user: Doc<"users"> | null
+): Promise<Doc<"teams"> | null> {
+  if (!user?.clerkId) return null;
+  const claims = await ctx.db
+    .query("teamClaims")
+    .withIndex("by_user", (q) => q.eq("userId", user.clerkId))
+    .take(50);
+  const inLeague = claims.filter(
+    (c) => c.leagueId === leagueId && c.status === "active"
+  );
+  if (inLeague.length === 0) return null;
+  const claim = inLeague.sort((a, b) => b.seasonId - a.seasonId)[0];
+  return await ctx.db.get(claim.teamId);
+}
+
+/**
+ * What the interviewer asked this manager about, in the order the spec gives:
+ * the request's article topic, its first focus area, then the live conversation
+ * focus. Falls back to the content type so the field is never empty.
+ */
+function questionTopicFor(
+  request: Doc<"commentRequests"> | null,
+  contentType: string
+): string {
+  const topic = request?.articleContext?.topic?.trim();
+  if (topic) return topic;
+  const focus = request?.articleContext?.focusAreas?.find((f) => f && f.trim());
+  if (focus) return focus.trim();
+  const current = request?.aiContext?.currentFocus?.trim();
+  if (current) return current;
+  return contentType.replace(/_/g, " ");
+}
+
+/** Build the spec section 4.2 `CommentResponseData` for one stored response. */
+async function toCommentResponseData(
+  ctx: QueryCtx,
+  response: Doc<"commentResponses">,
+  leagueId: Id<"leagues">,
+  contentType: string
+): Promise<CommentResponseData> {
+  const user = await ctx.db.get(response.userId);
+  const team = await teamForUser(ctx, leagueId, user);
+  const request = await ctx.db.get(response.commentRequestId);
+
+  // Verbatim, post-approval: the manager's quote review wins where it exists,
+  // withdrawn quotes never leave this function, and the cleaned response is the
+  // last fallback so a reply is never dropped (spec section 8.1).
+  const quotes = quotesForResponse(response);
+
+  const contextTeamName =
+    contentType === "weekly_recap"
+      ? request?.articleContext?.userTeamInfo?.teamName
+      : undefined;
+
+  return {
+    userId: response.userId as string,
+    userName: user?.name?.trim() || "A league manager",
+    teamId: (team?._id ?? "") as string,
+    teamName: team?.name || contextTeamName || "Unclaimed team",
+    questionTopic: questionTopicFor(request, contentType),
+    quotes,
+    rawResponse: response.rawResponse,
+  };
+}
 
 // Step 1: Fetch and prepare data for AI generation
 export const prepareAIContentData = internalAction({
@@ -20,6 +110,11 @@ export const prepareAIContentData = internalAction({
     // up front. Forwarded on to generateAIContentWithData, and refunded here
     // on failure instead of being silently lost.
     creditsDeductedUpFront: v.optional(v.number()),
+    // Interview material collected by the caller (spec section 5). When present
+    // these are preferred over this module's own queries, so the quotes the
+    // article prints are exactly the ones the comment flow approved.
+    commentResponses: v.optional(v.array(commentResponseDataValidator)),
+    nonRespondents: v.optional(v.array(nonRespondentValidator)),
   },
   handler: async (ctx, args) => {
     console.log("=== prepareAIContentData START ===");
@@ -181,6 +276,8 @@ export const prepareAIContentData = internalAction({
         userId: args.userId,
         scheduledContentId: args.scheduledContentId,
         creditsDeductedUpFront: args.creditsDeductedUpFront,
+        commentResponses: args.commentResponses,
+        nonRespondents: args.nonRespondents,
       });
       
       console.log("=== prepareAIContentData SUCCESS ===");
@@ -258,6 +355,9 @@ export const generateAIContentWithData = internalAction({
     // Forwarded from prepareAIContentData; when set, refunded on failure
     // below instead of being silently lost.
     creditsDeductedUpFront: v.optional(v.number()),
+    // Preferred over this module's own comment queries when supplied.
+    commentResponses: v.optional(v.array(commentResponseDataValidator)),
+    nonRespondents: v.optional(v.array(nonRespondentValidator)),
   },
   handler: async (ctx, args) => {
     console.log("=== generateAIContentWithData START ===");
@@ -275,9 +375,14 @@ export const generateAIContentWithData = internalAction({
       
       console.log("Retrieved prepared data, generating content...");
       
-      // Get comment responses if available
-      let commentResponses: CommentResponseData[] = [];
-      if (args.scheduledContentId) {
+      // Interview material. The caller's arrays win when present (the comment
+      // flow already resolved managers, teams and approved quotes); otherwise
+      // fall back to this module's own queries.
+      let commentResponses: CommentResponseData[] = args.commentResponses ?? [];
+      const nonRespondents: NonRespondent[] = args.nonRespondents ?? [];
+      if (args.commentResponses) {
+        console.log(`Using ${commentResponses.length} comment responses supplied by the caller`);
+      } else if (args.scheduledContentId) {
         // For scheduled content
         commentResponses = await ctx.runQuery(internal.aiContentHelpers.getCommentResponsesForContent, {
           scheduledContentId: args.scheduledContentId,
@@ -296,26 +401,49 @@ export const generateAIContentWithData = internalAction({
         });
         console.log(`Found ${commentResponses.length} comment responses for manual content`);
       }
+
+      // The writer's standing with each manager (spec section 6). Fetched here
+      // too - not just in generateContentAction - because mock_draft,
+      // weekly_recap, season_welcome and draft_rankings never pass through that
+      // action's inline path.
+      const relationships = await ctx.runQuery(
+        internal.relationships.getRelationshipsForWriter,
+        { leagueId: args.leagueId, persona: args.persona }
+      );
+
+      // Receipts (spec section 8.4), fetched here for the same reason as the
+      // relationships above: the prepared path never reaches generateContentAction.
+      const priorClaims = await ctx.runQuery(
+        internal.claims.getPriorClaimsForWriter,
+        { leagueId: args.leagueId, persona: args.persona }
+      );
       
       // Generate content without timeout - similar to Season Welcome Package
       console.log(`Generating AI content for ${args.contentType} without timeout...`);
       
       const generatedContent = await ctx.runAction(internal.aiNode.generateArticle, {
         request: {
-        leagueId: args.leagueId,
-        contentType: args.contentType,
-        persona: args.persona,
-        leagueData: preparedData.leagueData,
-        customContext: args.customContext,
-        userId: args.userId,
-        commentResponses: commentResponses.length > 0 ? commentResponses : undefined,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          leagueData: preparedData.leagueData,
+          customContext: args.customContext,
+          userId: args.userId,
+          commentResponses: commentResponses.length > 0 ? commentResponses : undefined,
+          nonRespondents: nonRespondents.length > 0 ? nonRespondents : undefined,
+          relationships: relationships.length > 0 ? relationships : undefined,
+          // The writer's own back catalogue of predictions and their record
+          // (spec section 8.4).
+          priorClaims: priorClaims.items,
+          priorRecord: priorClaims.record,
         },
       });
       
       const executionTime = Date.now() - startTime;
       console.log("AI generation completed in", executionTime + "ms");
       
-      // Update article with generated content
+      // Update article with generated content (quotes, managerMentions,
+      // reviewFlags, factsMissing and generationStats ride along on metadata).
       await ctx.runMutation(internal.aiContent.updateGeneratedContent, {
         articleId: args.articleId,
         title: generatedContent.title,
@@ -323,6 +451,24 @@ export const generateAIContentWithData = internalAction({
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
       });
+
+      // Relationship events from the stored managerMentions, and the write-back
+      // of which approved quotes actually made print. Neither is allowed to fail
+      // the generation that already succeeded.
+      try {
+        await ctx.runMutation(internal.relationships.recordArticleMentions, {
+          articleId: args.articleId,
+        });
+      } catch (e) {
+        console.error("Failed to record relationship events for article", args.articleId, e);
+      }
+      try {
+        await ctx.runMutation(internal.aiContentHelpers.markQuotesUsed, {
+          articleId: args.articleId,
+        });
+      } catch (e) {
+        console.error("Failed to mark comment responses as integrated", args.articleId, e);
+      }
 
       // Clean up prepared data
       await ctx.runMutation(internal.aiContentHelpers.cleanupPreparedData, {
@@ -405,7 +551,14 @@ export const storePreparedData = internalMutation({
   },
 });
 
-// Fetch comment responses for a scheduled content
+/**
+ * Comment responses for a scheduled article, in the spec section 4.2
+ * `CommentResponseData` shape.
+ *
+ * No quality or integration-status filter: a manager who answered gets printed
+ * or gets an explicit "did not respond" line. Suppressing a real reply because a
+ * heuristic scored it 49 is exactly the failure the Broadcast Desk is fixing.
+ */
 export const getCommentResponsesForContent = internalQuery({
   args: {
     scheduledContentId: v.optional(v.id("scheduledContent")),
@@ -413,72 +566,31 @@ export const getCommentResponsesForContent = internalQuery({
     contentType: v.string(),
     week: v.optional(v.number()),
   },
+  returns: v.array(commentResponseDataValidator),
   handler: async (ctx, args): Promise<CommentResponseData[]> => {
     if (!args.scheduledContentId) {
       return [];
     }
 
-    // Get comment responses for this scheduled content
     const responses = await ctx.db
       .query("commentResponses")
-      .withIndex("by_scheduled_content", q => 
+      .withIndex("by_scheduled_content", q =>
         q.eq("scheduledContentId", args.scheduledContentId!)
-      )
-      .filter(q => 
-        q.and(
-          q.eq(q.field("integrationStatus"), "pending"),
-          q.gte(q.field("relevanceMetadata.qualityScore"), 50)
-        )
       )
       .collect();
 
-    // Enrich with user and team data
-    const enrichedResponses = await Promise.all(
-      responses.map(async (response) => {
-        const user = await ctx.db.get(response.userId);
-        const team = await ctx.db
-          .query("teams")
-          .withIndex("by_league", q => 
-            q.eq("leagueId", args.leagueId)
-          )
-          .filter(q => q.eq(q.field("owner"), response.userId))
-          .first();
-
-        // Get the comment request to access team mapping for weekly recaps
-        const commentRequest = await ctx.db.get(response.commentRequestId);
-        let teamName = team?.name;
-        
-        // For weekly recaps, use the team name from the comment request context if available
-        if (args.contentType === 'weekly_recap' && commentRequest?.articleContext?.userTeamInfo) {
-          teamName = commentRequest.articleContext.userTeamInfo.teamName || team?.name;
-        }
-
-        return {
-          userId: response.userId,
-          userName: user?.name,
-          teamName,
-          rawResponse: response.rawResponse,
-          processedResponse: response.processedResponse,
-          responseType: response.responseType,
-          relevanceMetadata: {
-            topicRelevance: response.relevanceMetadata.topicRelevance,
-            qualityScore: response.relevanceMetadata.qualityScore,
-            extractedQuotes: response.relevanceMetadata.extractedQuotes,
-            keyInsights: response.relevanceMetadata.keyInsights,
-            suggestedUsage: response.relevanceMetadata.suggestedUsage,
-          },
-        } as CommentResponseData;
-      })
+    const built = await Promise.all(
+      responses.map((response) =>
+        toCommentResponseData(ctx, response, args.leagueId, args.contentType)
+      )
     );
-
-    // Sort by quality score descending
-    return enrichedResponses.sort((a, b) => 
-      b.relevanceMetadata.qualityScore - a.relevanceMetadata.qualityScore
-    );
+    // A manager who withdrew every quote is not a speaker; sending them with an
+    // empty quote list would ask the writer to attribute silence (spec section 8.1).
+    return built.filter((entry) => entry.quotes.length > 0);
   },
 });
 
-// Fetch comment responses for manual content
+/** Same as above for manually generated "wait for comments" articles. */
 export const getCommentResponsesForManualContent = internalQuery({
   args: {
     articleId: v.id("aiContent"),
@@ -486,64 +598,136 @@ export const getCommentResponsesForManualContent = internalQuery({
     contentType: v.string(),
     week: v.optional(v.number()),
   },
+  returns: v.array(commentResponseDataValidator),
   handler: async (ctx, args): Promise<CommentResponseData[]> => {
-    // Get comment responses for this manual content
     const responses = await ctx.db
       .query("commentResponses")
-      .withIndex("by_manual_content", q => 
+      .withIndex("by_manual_content", q =>
         q.eq("manualContentId", args.articleId)
-      )
-      .filter(q => 
-        q.and(
-          q.eq(q.field("integrationStatus"), "pending"),
-          q.gte(q.field("relevanceMetadata.qualityScore"), 50)
-        )
       )
       .collect();
 
-    // Enrich with user and team data (same logic as scheduled content)
-    const enrichedResponses = await Promise.all(
-      responses.map(async (response) => {
-        const user = await ctx.db.get(response.userId);
-        const team = await ctx.db
-          .query("teams")
-          .withIndex("by_league", q => 
-            q.eq("leagueId", args.leagueId)
-          )
-          .filter(q => q.eq(q.field("owner"), response.userId))
-          .first();
-
-        // Get the comment request to access team mapping for weekly recaps
-        const commentRequest = await ctx.db.get(response.commentRequestId);
-        let teamName = team?.name;
-        
-        // For weekly recaps, use the team name from the comment request context if available
-        if (args.contentType === 'weekly_recap' && commentRequest?.articleContext?.userTeamInfo) {
-          teamName = commentRequest.articleContext.userTeamInfo.teamName || team?.name;
-        }
-
-        return {
-          userId: response.userId,
-          userName: user?.name,
-          teamName,
-          rawResponse: response.rawResponse,
-          processedResponse: response.processedResponse,
-          responseType: response.responseType,
-          relevanceMetadata: {
-            topicRelevance: response.relevanceMetadata.topicRelevance,
-            qualityScore: response.relevanceMetadata.qualityScore,
-            extractedQuotes: response.relevanceMetadata.extractedQuotes,
-            keyInsights: response.relevanceMetadata.keyInsights,
-            suggestedUsage: response.relevanceMetadata.suggestedUsage,
-          },
-        } as CommentResponseData;
-      })
+    const built = await Promise.all(
+      responses.map((response) =>
+        toCommentResponseData(ctx, response, args.leagueId, args.contentType)
+      )
     );
+    // A manager who withdrew every quote is not a speaker; sending them with an
+    // empty quote list would ask the writer to attribute silence (spec section 8.1).
+    return built.filter((entry) => entry.quotes.length > 0);
+  },
+});
 
-    // Sort by quality score descending
-    return enrichedResponses.sort((a, b) => 
-      b.relevanceMetadata.qualityScore - a.relevanceMetadata.qualityScore
-    );
+/* -------------------------------------------------------------------------- *
+ * Quote write-back (spec section 5)
+ * -------------------------------------------------------------------------- */
+
+/** Normalize curly quotes and whitespace so a substring match survives the model. */
+function normalizeQuoteText(text: string): string {
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Every commentResponse tied to this article, manual or scheduled. */
+async function responsesForArticle(
+  ctx: MutationCtx,
+  article: Doc<"aiContent">
+): Promise<Array<Doc<"commentResponses">>> {
+  const manual = await ctx.db
+    .query("commentResponses")
+    .withIndex("by_manual_content", (q) => q.eq("manualContentId", article._id))
+    .collect();
+
+  // Scheduled articles have no direct link on commentResponses: the response
+  // knows its scheduledContentId, and scheduledContent.generatedContentId points
+  // back here once generation completes.
+  const scheduled = await ctx.db
+    .query("scheduledContent")
+    .withIndex("by_league", (q) => q.eq("leagueId", article.leagueId))
+    .filter((q) => q.eq(q.field("generatedContentId"), article._id))
+    .collect();
+
+  const fromScheduled = (
+    await Promise.all(
+      scheduled.map((sc) =>
+        ctx.db
+          .query("commentResponses")
+          .withIndex("by_scheduled_content", (q) => q.eq("scheduledContentId", sc._id))
+          .collect()
+      )
+    )
+  ).flat();
+
+  const seen = new Set<string>();
+  return [...manual, ...fromScheduled].filter((r) => {
+    if (seen.has(r._id)) return false;
+    seen.add(r._id);
+    return true;
+  });
+}
+
+/**
+ * Write back which approved quotes actually made print. Reads the verified
+ * `quotes[]` saved on the article and, for each matching commentResponse
+ * (same manager, and a quote that overlaps what they said), records the section
+ * it ran in and how they were credited.
+ */
+export const markQuotesUsed = internalMutation({
+  args: { articleId: v.id("aiContent") },
+  returns: v.object({ integrated: v.number(), unmatched: v.number() }),
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article) return { integrated: 0, unmatched: 0 };
+
+    const quotes = article.quotes ?? [];
+    if (quotes.length === 0) return { integrated: 0, unmatched: 0 };
+
+    const responses = await responsesForArticle(ctx, article);
+    let integrated = 0;
+    let unmatched = 0;
+
+    for (const response of responses) {
+      const user = await ctx.db.get(response.userId);
+      const team = await teamForUser(ctx, article.leagueId, user);
+      const userName = user?.name?.trim() || "";
+      const said = normalizeQuoteText(
+        [response.rawResponse, response.processedResponse].join(" ")
+      );
+
+      const match = quotes.find((quote) => {
+        const text = normalizeQuoteText(quote.text);
+        if (text.length === 0) return false;
+        // Same manager: the printed quote is a span of what they said, or the
+        // byline names them / their team.
+        if (said.includes(text)) return true;
+        const speaker = normalizeQuoteText(quote.speaker);
+        const speakerIsUser =
+          (userName.length > 0 && speaker === normalizeQuoteText(userName)) ||
+          (team ? quote.teamId === (team._id as string) : false);
+        return speakerIsUser && text.length >= 12 && said.includes(text.slice(0, 40));
+      });
+
+      if (!match) {
+        unmatched++;
+        continue;
+      }
+
+      await ctx.db.patch(response._id, {
+        integrationStatus: "integrated" as const,
+        usedInArticle: true,
+        articleSection: match.sectionName,
+        quoteAttribution: team?.name
+          ? `${userName || match.speaker}, ${team.name}`
+          : userName || match.speaker,
+      });
+      integrated++;
+    }
+
+    return { integrated, unmatched };
   },
 });
 

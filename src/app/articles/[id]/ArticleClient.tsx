@@ -12,12 +12,17 @@ import {
   Panel,
   LowerThird,
   PersonaAvatar,
+  PullQuote,
   BannerPlaceholder,
   LoadingScreen,
+  SectionHeader,
+  contentTypeLabel,
+  personaName,
+  personaRole,
 } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { MarkdownPreview, placedQuoteIds } from "@/components/MarkdownPreview";
 import { EngagementBar } from "./EngagementBar";
 import { LockerRoom } from "./LockerRoom";
 
@@ -25,19 +30,9 @@ interface ArticleClientProps {
   articleId: string;
 }
 
-// The five FFSN on-air personas and their broadcast roles. Any other byline
-// (e.g. a commissioner-edited article) falls back to a generic credit.
-const PERSONA_ROLES: { test: RegExp; role: string }[] = [
-  { test: /mel/i, role: "The Draft Disaster" },
-  { test: /stan/i, role: "The Analytics Overlord" },
-  { test: /vinny/i, role: "Trade Rumor Mogul" },
-  { test: /chad/i, role: "The Glaze God" },
-  { test: /rick/i, role: "The Drunk Uncle" },
-];
-
-function personaRole(persona: string): string {
-  return PERSONA_ROLES.find(({ test }) => test.test(persona))?.role ?? "FFSN correspondent";
-}
+// Bylines resolve through `getPersonaDisplay` (re-exported from the broadcast kit
+// as personaName / personaRole), so an archived story by a retired writer keeps
+// the name and role it was published under.
 
 const WORDS_PER_MINUTE = 225;
 
@@ -47,10 +42,6 @@ function estimateReadMinutes(content: string): number {
     .split(/\s+/)
     .filter(Boolean).length;
   return Math.max(1, Math.round(words / WORDS_PER_MINUTE));
-}
-
-function formatStoryType(type: string): string {
-  return type.replace(/_/g, " ");
 }
 
 export function ArticleClient({ articleId }: ArticleClientProps) {
@@ -73,6 +64,12 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
   );
 
   const league = isAuthenticated ? authenticatedLeague : publicLeague;
+
+  // Only needed to put a team name on a sideline quote; league members only.
+  const leagueTeams = useQuery(
+    api.teams.getTeamsByLeague,
+    article && isAuthenticated ? { leagueId: article.leagueId } : "skip"
+  );
 
   // Loading state
   if (isAuthLoading || article === undefined || (article && league === undefined)) {
@@ -103,7 +100,7 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
     .substring(0, 160);
 
   const isMember = isAuthenticated && !!authenticatedLeague;
-  const storyType = formatStoryType(article.type);
+  const storyType = contentTypeLabel(article.type);
   const readMinutes = estimateReadMinutes(article.content);
   const week = article.metadata.week;
 
@@ -124,6 +121,21 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
     `${readMinutes} min read`,
   ].filter((item): item is string => Boolean(item));
 
+  // `quotes[].teamId` is a FACTS id ("T" + ESPN externalId) or a Convex team id,
+  // depending on how the article was built — accept either.
+  const teamNameById = new Map<string, string>();
+  for (const team of leagueTeams ?? []) {
+    teamNameById.set(team._id, team.name);
+    if (team.externalId) {
+      teamNameById.set(team.externalId, team.name);
+      teamNameById.set(`T${team.externalId}`, team.name);
+    }
+  }
+
+  const teamNameFor = (teamId: string) => teamNameById.get(teamId);
+
+  const allQuotes = article.quotes ?? [];
+
   const bodyContent = (() => {
     const lines = article.content.split('\n');
     // Skip the first line if it's a markdown header (starts with #)
@@ -132,6 +144,12 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
     }
     return article.content;
   })();
+
+  // A quote the writer placed in the body with a `:::quote{id=…}` directive (spec §8.3)
+  // is already printed in the prose, so "From the sideline" below carries only the ones
+  // that were left out — never the same words twice on one page.
+  const placedInBody = placedQuoteIds(bodyContent);
+  const sidelineQuotes = allQuotes.filter((quote) => !placedInBody.has(quote.quoteId));
 
   return (
     <div className="min-h-screen bg-bc-ground">
@@ -195,7 +213,7 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
 
           <LowerThird
             className="bc-shadow self-start"
-            name={article.persona}
+            name={personaName(article.persona)}
             role={personaRole(article.persona)}
             avatar={<PersonaAvatar persona={article.persona} size={56} variant="bust" />}
             tag={storyType}
@@ -211,17 +229,48 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
           className="w-full max-w-[880px] px-6 py-10 sm:px-14 sm:py-14 lg:px-24"
         >
           <div className="bc-prose">
-            <MarkdownPreview content={bodyContent} />
+            <MarkdownPreview
+              content={bodyContent}
+              quotes={allQuotes}
+              quoteWeek={typeof week === "number" ? week : undefined}
+              quotePersona={article.persona}
+              resolveTeamName={teamNameFor}
+            />
           </div>
         </Panel>
+
+        {sidelineQuotes.length > 0 && (
+          <div className="flex w-full max-w-[880px] flex-col gap-6">
+            <SectionHeader title="From the sideline" kicker="On the record" />
+            <div className="flex flex-col gap-8">
+              {sidelineQuotes.map((quote, index) => (
+                <PullQuote
+                  key={quote.quoteId || `${quote.speaker}-${index}`}
+                  quote={quote.text}
+                  speaker={quote.speaker}
+                  team={teamNameFor(quote.teamId)}
+                  week={typeof week === "number" ? week : undefined}
+                  writerResponse={quote.writerResponse}
+                  writerPersona={article.persona}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="w-full max-w-[880px]">
           <EngagementBar articleId={articleId} title={article.title} summary={articleSummary} />
         </div>
 
-        <div className="w-full max-w-[880px]">
-          <LockerRoom articleId={articleId} />
-        </div>
+        {/* Locker Room lists every quote the pipeline collected. When the article
+            carries verified quotes, the body and "From the sideline" above already
+            print them with the writer's reply, so showing both would repeat the
+            same lines. */}
+        {allQuotes.length === 0 && (
+          <div className="w-full max-w-[880px]">
+            <LockerRoom articleId={articleId} />
+          </div>
+        )}
 
         <div className="flex w-full max-w-[880px] flex-col gap-4 border-t-2 border-bc-hairline pt-5 sm:flex-row sm:items-center sm:justify-between">
           <span className="bc-label flex items-center gap-3 text-bc-text-2">

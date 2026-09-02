@@ -12,7 +12,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { contentTemplates } from "@/lib/ai/content-templates";
-import { contentTypePersonaMap } from "@/lib/ai/persona-prompts";
 import { SeasonSelector } from "./SeasonSelector";
 import {
   Form,
@@ -38,8 +37,24 @@ import { Separator } from "@/components/ui/separator";
 import { Sparkles, Zap, Clock, CreditCard, Users, MessageSquare } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DateTimePicker } from "@/components/ui/date-time-picker";
-import { Panel, SectionHeader, PersonaAvatar, StatBlock, Spinner } from "@/components/broadcast";
+import {
+  Panel,
+  SectionHeader,
+  PersonaAvatar,
+  StatBlock,
+  Spinner,
+  writerRoster,
+  personasForContentType,
+  defaultPersonaFor,
+  isSelectableContentType,
+  contentTypeLabel,
+} from "@/components/broadcast";
+import {
+  PrintDeadlineField,
+  MIN_LEAD_MS,
+  defaultPrintDeadline,
+  formatPrintDeadline,
+} from "@/components/PrintDeadlineField";
 import { cn } from "@/lib/utils";
 
 interface ContentGeneratorProps {
@@ -47,14 +62,7 @@ interface ContentGeneratorProps {
   isCommissioner: boolean;
 }
 
-const personas = [
-  { id: "mel-diaper", name: "Mel Diaper", tagline: "The Draft Disaster" },
-  { id: "stan-deviation", name: "Stan Deviation", tagline: "The Analytics Overlord" },
-  { id: "vinny-marinara", name: "Vinny \"The Sauce\" Marinara", tagline: "Trade Rumor Mogul" },
-  { id: "chad-thunderhype", name: "Chad Thunderhype", tagline: "The Glaze God" },
-  { id: "rick-two-beers", name: "Rick \"Two Beers\" O'Sullivan", tagline: "The Drunk Uncle" },
-  { id: "mike-harrison", name: "Mike Harrison", tagline: "The Professional Analyst" },
-];
+// Writers come from the roster (spec §3) — retired personas are never selectable.
 
 interface ContentTypeOption {
   value: string;
@@ -62,41 +70,65 @@ interface ContentTypeOption {
   credits: number;
 }
 
+/**
+ * The rundown, grouped as the desk thinks about it. Names and credit costs are never
+ * restated here: the label comes from the roster's display map and the cost from the
+ * type's own template, so a picker entry can't drift from what the mutation charges.
+ * A type with no template is dropped (spec §1.5 / §8.5) and reappears by itself the
+ * moment its template ships.
+ */
+function buildOptions(types: string[]): ContentTypeOption[] {
+  return types.filter(isSelectableContentType).map((value) => ({
+    value,
+    label: contentTypeLabel(value),
+    credits: contentTemplates[value].creditCost,
+  }));
+}
+
 const CONTENT_TYPE_GROUPS: { label: string; options: ContentTypeOption[] }[] = [
   {
     label: "Weekly content",
-    options: [
-      { value: "weekly_recap", label: "Weekly recap", credits: 10 },
-      { value: "weekly_preview", label: "Weekly preview", credits: 10 },
-      { value: "power_rankings", label: "Power rankings", credits: 8 },
-      { value: "waiver_wire_report", label: "Waiver wire report", credits: 12 },
-      { value: "mock_draft", label: "Mock draft", credits: 15 },
-      { value: "draft_rankings", label: "Post-draft rankings & grades", credits: 15 },
+    types: [
+      "weekly_recap",
+      "weekly_preview",
+      "power_rankings",
+      "waiver_wire_report",
+      "mock_draft",
+      "draft_rankings",
+      "draft_strategy_guide",
     ],
   },
   {
     label: "Special content",
-    options: [
-      { value: "trade_analysis", label: "Trade analysis", credits: 5 },
-      { value: "rivalry_week_special", label: "Rivalry week special", credits: 10 },
-      { value: "emergency_hot_takes", label: "Emergency hot takes", credits: 5 },
-      { value: "trade_rumor_mill", label: "Trade rumor leak", credits: 8 },
+    types: [
+      "trade_analysis",
+      "rivalry_week_special",
+      "emergency_hot_takes",
+      "trade_rumor_mill",
+      "trade_block_tuesday",
+      "team_name_power_rankings",
+      "player_glazing",
     ],
   },
   {
     label: "Season content",
-    options: [
-      { value: "mid_season_awards", label: "Mid-season awards", credits: 12 },
-      { value: "championship_manifesto", label: "Championship manifesto", credits: 10 },
-      { value: "season_recap", label: "Season recap", credits: 20 },
+    types: [
+      "mid_season_awards",
+      "playoff_picture",
+      "championship_manifesto",
+      "season_recap",
+      "commissioner_corner",
+      "hall_of_shame",
     ],
   },
-];
+]
+  .map((group) => ({ label: group.label, options: buildOptions(group.types) }))
+  .filter((group) => group.options.length > 0);
 
-const PREMIUM_CONTENT_TYPES: ContentTypeOption[] = [
-  { value: "custom_roast", label: "Custom roast", credits: 25 },
-  { value: "season_welcome", label: "Season welcome package", credits: 30 },
-];
+const PREMIUM_CONTENT_TYPES: ContentTypeOption[] = buildOptions([
+  "custom_roast",
+  "season_welcome",
+]);
 
 const formSchema = z.object({
   contentType: z.string().min(1, "Please select a content type"),
@@ -172,15 +204,9 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     },
   });
 
-  // Get recommended personas for selected content type
-  const getRecommendedPersonas = (selectedContentType: string) => {
-    if (!selectedContentType) return personas;
-
-    const recommended = contentTypePersonaMap[selectedContentType];
-    if (!recommended || recommended.includes("any")) return personas;
-
-    return personas.filter(p => recommended.includes(p.id));
-  };
+  // The writers this content type is written by, default first (spec §3).
+  const getRecommendedPersonas = (selectedContentType: string) =>
+    selectedContentType ? personasForContentType(selectedContentType) : writerRoster;
 
   // Watch content type changes
   const contentType = form.watch("contentType");
@@ -214,6 +240,17 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     }
   }, [contentType, completedWeeks, form]);
 
+  // The writer follows the content type: switching type selects that type's
+  // default writer unless the current pick is already one of its writers.
+  useEffect(() => {
+    if (!contentType) return;
+    const eligible = personasForContentType(contentType);
+    const current = form.getValues("persona");
+    if (!current || !eligible.some((writer) => writer.slug === current)) {
+      form.setValue("persona", defaultPersonaFor(contentType), { shouldValidate: true });
+    }
+  }, [contentType, form]);
+
   const handleGenerate = async (values: z.infer<typeof formSchema>) => {
     // If it's a trade rumor, show the dialog first
     if (values.contentType === "trade_rumor_mill") {
@@ -226,7 +263,16 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       // Check if we should request comments first
       if (values.requestComments && values.targetUserIds && values.targetUserIds.length > 0) {
         if (!values.articleGenerationTime) {
-          toast.error("Please select when the article should be generated");
+          toast.error("Pick when we go to print");
+          return;
+        }
+
+        // The 15-minute minimum is the manager's floor: a deadline inside it means
+        // nobody can realistically answer before the story runs.
+        if (values.articleGenerationTime.getTime() < Date.now() + MIN_LEAD_MS) {
+          toast.error("That deadline is too soon", {
+            description: "Give the league at least 15 minutes to answer.",
+          });
           return;
         }
 
@@ -244,8 +290,8 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
           targetUserIds: values.targetUserIds,
         });
 
-        toast.success("Comment requests sent!", {
-          description: `Gathering feedback from ${values.targetUserIds.length} team${values.targetUserIds.length > 1 ? 's' : ''}. Article will be generated on ${values.articleGenerationTime.toLocaleDateString()} at ${values.articleGenerationTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+        toast.success("Sam is reaching out for comment", {
+          description: `${values.targetUserIds.length} team${values.targetUserIds.length > 1 ? 's' : ''} asked. We go to print ${formatPrintDeadline(values.articleGenerationTime).toLowerCase()}.`,
         });
       } else {
         // Regular generation without comments
@@ -303,13 +349,13 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       await createGenerationRequest({
         leagueId,
         type: "trade_rumor_mill",
-        persona: "vinny-marinara", // Always use Vinny for trade rumors
+        persona: "dex-alvarez", // The transactions desk owns The Asking Price (spec §3)
         customContext: contextParts.join(" | "),
         tradeRumorData: rumorData, // Pass the structured data
       });
 
-      toast.success("Trade rumor leaked!", {
-        description: "Vinny is working on spreading the word...",
+      toast.success("Sent to the transactions desk", {
+        description: "Dex Alvarez is working the story.",
       });
 
       // Reset form and dialog state
@@ -317,7 +363,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
 
       setShowTradeRumorDialog(false);
     } catch (error) {
-      toast.error("Failed to leak trade rumor", {
+      toast.error("Failed to file the story", {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
@@ -497,16 +543,16 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                 <FormControl>
                   <RadioGroup
                     onValueChange={field.onChange}
-                    defaultValue={field.value}
+                    value={field.value}
                     className="grid grid-cols-1 gap-3 sm:grid-cols-2"
                   >
                     {recommendedPersonas.map((persona) => {
-                      const selected = field.value === persona.id;
+                      const selected = field.value === persona.slug;
                       return (
-                        <div key={persona.id} className="flex items-center">
-                          <RadioGroupItem value={persona.id} id={persona.id} className="sr-only" />
+                        <div key={persona.slug} className="flex items-center">
+                          <RadioGroupItem value={persona.slug} id={persona.slug} className="sr-only" />
                           <Label
-                            htmlFor={persona.id}
+                            htmlFor={persona.slug}
                             className={cn(
                               "flex w-full cursor-pointer items-center gap-3 border p-3.5 transition-colors",
                               selected
@@ -529,7 +575,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                                   selected ? "text-bc-plate-fg/70" : "text-bc-text-3"
                                 )}
                               >
-                                {persona.tagline}
+                                {persona.role}
                               </div>
                             </div>
                           </Label>
@@ -604,7 +650,14 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                         onCheckedChange={(checked) => {
                           field.onChange(checked);
                           setRequestComments(checked);
-                          if (!checked) {
+                          if (checked) {
+                            // "In 6 hours" is the house default (spec §8.2) — the
+                            // deadline is already set before the commissioner
+                            // touches anything.
+                            if (!form.getValues("articleGenerationTime")) {
+                              form.setValue("articleGenerationTime", defaultPrintDeadline());
+                            }
+                          } else {
                             form.setValue("targetUserIds", []);
                             setSelectedUserIds([]);
                           }
@@ -622,17 +675,17 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                     name="articleGenerationTime"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Article generation date &amp; time</FormLabel>
+                        <FormLabel className="text-base font-semibold">We go to print at</FormLabel>
                         <FormControl>
-                          <DateTimePicker
+                          <PrintDeadlineField
                             value={field.value}
                             onChange={field.onChange}
-                            placeholder="Select when to generate the article"
-                            minDate={new Date(Date.now() + 15 * 60 * 1000)} // Minimum 15 minutes from now
                           />
                         </FormControl>
                         <FormDescription>
-                          The article will be generated at this exact date and time, regardless of comment responses
+                          {field.value
+                            ? `${formatPrintDeadline(field.value)} — the story runs then with whatever answers are in.`
+                            : "Pick when the story runs. It goes to print at that time, answered or not."}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -715,7 +768,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                     </div>
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <span className="font-medium text-bc-text-2">Persona</span>
-                      <span className="text-bc-ink">{personas.find(p => p.id === selectedPersona)?.name}</span>
+                      <span className="text-bc-ink">{writerRoster.find(w => w.slug === selectedPersona)?.name ?? selectedPersona}</span>
                     </div>
                     {selectedContentType === "weekly_recap" && selectedSeason && selectedWeek && (
                       <div className="flex items-center justify-between gap-2 text-sm">
@@ -763,7 +816,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
             ) : form.watch("contentType") === "trade_rumor_mill" ? (
               <>
                 <Sparkles className="size-4" />
-                Configure trade rumor
+                Configure the listing
               </>
             ) : (
               <>

@@ -1,0 +1,47 @@
+{
+  "fixture": "rich-week",
+  "note": "Everything a writer needs is present, so the only gap is the two managers who never answered. draft_rankings still names the three draft gaps because this payload has no draft in it.",
+  "facts": {
+    "teams": 10,
+    "matchups": 5,
+    "matchupPlayers": 12,
+    "standings": 10,
+    "transactions": 4,
+    "trades": 1,
+    "draftPicks": 0,
+    "quotes": 4,
+    "nonRespondents": 2,
+    "relationships": 3,
+    "priorClaims": 2
+  },
+  "unresolvedTeamRefs": 0,
+  "byType": {
+    "weekly_recap": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+      ],
+      "throws": null
+    },
+    "draft_rankings": {
+      "missing": [
+        "draft_results (draftPicks) — not available",
+        "player_projections — not available",
+        "draft_order — not available",
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+      ],
+      "throws": null
+    },
+    "power_rankings": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+      ],
+      "throws": null
+    },
+    "trade_analysis": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+      ],
+      "throws": null
+    }
+  }
+}

@@ -28,8 +28,43 @@ export { TeamTile, type TeamTileProps } from "./TeamTile";
 export { WinLossPip, type WinLossPipProps } from "./WinLossPip";
 export { StatBlock, type StatBlockProps } from "./StatBlock";
 
+// Roster (display data derived from src/lib/ai/persona-prompts.ts)
+export {
+  writerRoster,
+  personasForContentType,
+  defaultPersonaFor,
+  isSelectableContentType,
+  contentTypeLabel,
+  personaName,
+  personaRole,
+  CONTENT_TYPE_LABELS,
+  UNAVAILABLE_CONTENT_TYPES,
+  type RosterWriter,
+} from "./personaRoster";
+
 // Editorial
 export { LowerThird, type LowerThirdProps } from "./LowerThird";
+export { PullQuote, type PullQuoteProps } from "./PullQuote";
+export {
+  RelationshipMeter,
+  relationshipTierLabel,
+  formatDelta,
+  type RelationshipMeterProps,
+  type RelationshipMeterEvent,
+  type RelationshipTier,
+} from "./RelationshipMeter";
+export {
+  DeskReview,
+  type DeskReviewProps,
+  type ReviewFlag,
+  type ReviewFlagSeverity,
+} from "./DeskReview";
+export {
+  QuoteApprovalCard,
+  type QuoteApprovalCardProps,
+  type QuoteReviewEntry,
+  type QuoteReviewStatus,
+} from "./QuoteApprovalCard";
 export { WriterPlate, type WriterPlateProps } from "./WriterPlate";
 export { PersonaAvatar, type PersonaAvatarProps, type PersonaAvatarVariant } from "./PersonaAvatar";
 export { BannerPlaceholder, type BannerPlaceholderProps } from "./BannerPlaceholder";

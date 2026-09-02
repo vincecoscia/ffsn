@@ -63,4 +63,24 @@ crons.interval(
   internal.espnSync.syncAllLeaguesCurrentSeason,
 );
 
+// Receipts (spec §8.4): settle last week's open claims against what actually
+// happened, Tuesday 09:30 UTC - deliberately before the relationship decay below,
+// so a writer's record is current when the week's articles are written.
+crons.cron(
+  "resolve open writer claims",
+  "30 9 * * 2",
+  internal.claims.resolveOpenClaims,
+  {},
+);
+
+// Relationship meter cooldown (spec §6.2): every non-zero manager <-> writer
+// score moves 15% toward 0 once a week, Tuesday 10:00 UTC (after Monday night
+// football has settled the week's roasts).
+crons.cron(
+  "decay writer relationships",
+  "0 10 * * 2",
+  internal.relationships.decayRelationships,
+  {},
+);
+
 export default crons;

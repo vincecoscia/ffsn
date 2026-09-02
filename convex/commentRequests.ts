@@ -12,12 +12,43 @@ function isDefensePosition(position: string): boolean {
   return pos === 'D/ST' || pos === 'DST' || pos === 'DEF';
 }
 
+/**
+ * Sam Ortega conducts every comment-request interview (spec §1.2 / §5).
+ * Unknown writer slugs fall back to Curtis Vaughn, never to Mel (spec §1.7).
+ */
+export const INTERVIEWER_PERSONA = "sam-ortega";
+export const DEFAULT_WRITER_PERSONA = "curtis-vaughn";
+
+/**
+ * Display names for the six writers. Duplicated here rather than imported from
+ * `src/lib/ai/persona-prompts.ts`: that module carries prompt copy, and Convex isolate
+ * code must not depend on it. Keep in sync when the roster changes (spec §3).
+ */
+const WRITER_NAMES: Record<string, string> = {
+  "curtis-vaughn": "Curtis Vaughn",
+  "sam-ortega": "Sam Ortega",
+  "nina-sharpe": "Nina Sharpe",
+  "dex-alvarez": "Dex Alvarez",
+  "mel-diaper": "Mel Diaper",
+  "walt-brennan": "Walt Brennan",
+};
+
+function writerDisplayName(slug: string): string {
+  return WRITER_NAMES[slug] ?? WRITER_NAMES[DEFAULT_WRITER_PERSONA];
+}
+
+/** ESPN bench lineup slot. Shared by the bench-points and lineup-decision reducers. */
+const BENCH_SLOT_ID = 20;
+
 // Create comment requests for scheduled content
 export const createRequestsForScheduledContent = internalMutation({
   args: {
     scheduledContentId: v.id("scheduledContent"),
     targetUserIds: v.array(v.id("users")),
     requestTimeBeforeGeneration: v.optional(v.number()), // milliseconds before content generation (deprecated)
+    // The writer the collected quotes are destined for (spec §5). Optional so the
+    // existing scheduler caller keeps working; unknown/absent falls back to Curtis.
+    writerPersona: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const scheduledContent = await ctx.db.get(args.scheduledContentId);
@@ -66,6 +97,9 @@ export const createRequestsForScheduledContent = internalMutation({
           scheduledContentId: args.scheduledContentId,
           targetUserId: userId,
           contentType: scheduledContent.contentType,
+          // Sam Ortega conducts every interview; the writer is who the quotes run under.
+          interviewerPersona: INTERVIEWER_PERSONA,
+          writerPersona: args.writerPersona ?? DEFAULT_WRITER_PERSONA,
           articleContext: {
             week: scheduledContent.contextData?.week,
             seasonId: scheduledContent.contextData?.seasonId,
@@ -251,12 +285,35 @@ export const buildConversationContext = internalQuery({
     let underperformers: Array<{ player: string; position: string; expectedPts: number; actualPts: number; }> = [];
     let overperformers: Array<{ player: string; position: string; expectedPts: number; actualPts: number; }> = [];
 
+    // Interview context (spec §5). The opponent's score was already computed here and
+    // thrown away; margin, bench points and lineup decisions are what make Sam's opener
+    // specific, so they are all kept now.
+    let opponentExternalId: string | undefined;
+    let opponentName: string | undefined;
+    let opponentScoreOut: number | undefined;
+    let margin: number | undefined;
+    let benchPoints: number | undefined;
+    let topBenchPlayer:
+      | { player: string; position: string; points: number; projectedPoints?: number }
+      | undefined;
+    let lineupDecisions: Array<{
+      benchedPlayer: string;
+      benchedPoints: number;
+      startedPlayer: string;
+      startedPoints: number;
+      position: string;
+      pointGain: number;
+    }> = [];
+
     if (matchup && teamExternalId) {
       const isHome = matchup.homeTeamId === teamExternalId;
       teamScore = isHome ? matchup.homeScore : matchup.awayScore;
       const opponentScore = isHome ? matchup.awayScore : matchup.homeScore;
       projectedScore = isHome ? matchup.homeProjectedScore : matchup.awayProjectedScore;
       won = teamScore > opponentScore;
+
+      opponentExternalId = isHome ? matchup.awayTeamId : matchup.homeTeamId;
+      opponentScoreOut = opponentScore;
 
       const roster = isHome ? matchup.homeRoster : matchup.awayRoster;
       const players = roster?.players || [];
@@ -273,6 +330,11 @@ export const buildConversationContext = internalQuery({
       if ((!teamScore || teamScore === 0) && roster?.appliedStatTotal) {
         teamScore = roster.appliedStatTotal;
       }
+
+      // `won` was decided before those fallbacks ran, so a recovered score could be
+      // reported as a loss while `margin` said otherwise. Recompute it from the score
+      // we actually publish - Sam states this result out loud.
+      won = teamScore > opponentScore;
 
       // Debug: Log all players to understand position formats
       console.log("All roster players:", players.map(p => ({ 
@@ -353,6 +415,68 @@ export const buildConversationContext = internalQuery({
           return diffB - diffA;
         })
         .slice(0, 3);
+
+      // Bench points and the one bench player worth asking about (spec §5). Same
+      // reducer as the article path in aiQueries.ts (~L1938), copied rather than
+      // imported so the two paths stay independently editable.
+      const benchPlayers = players.filter((p: any) => p.lineupSlotId === BENCH_SLOT_ID);
+      const starters = players.filter((p: any) => p.lineupSlotId !== BENCH_SLOT_ID);
+      benchPoints = benchPlayers.reduce((sum: number, p: any) => sum + (p.points || 0), 0);
+
+      const bestBench = [...benchPlayers].sort((a: any, b: any) => (b.points || 0) - (a.points || 0))[0];
+      if (bestBench && (bestBench.points || 0) > 0) {
+        topBenchPlayer = {
+          player: bestBench.fullName,
+          position: bestBench.position,
+          points: bestBench.points || 0,
+          projectedPoints: bestBench.projectedPoints,
+        };
+      }
+
+      // A bench player who outscored the worst starter at the same position by a
+      // meaningful margin. Mirrors `impactfulBenchPlayers` in aiQueries.ts (~L1920).
+      const worstStarterAt = (position: string) => {
+        const same = starters.filter((s: any) => s.position === position);
+        if (same.length === 0) return null;
+        return [...same].sort((a: any, b: any) => (a.points || 0) - (b.points || 0))[0];
+      };
+
+      lineupDecisions = benchPlayers
+        .filter((benchPlayer: any) => {
+          if ((benchPlayer.points || 0) < 15) return false;
+          const worst = worstStarterAt(benchPlayer.position);
+          if (!worst) return false;
+          return (benchPlayer.points || 0) - (worst.points || 0) >= 10;
+        })
+        .sort((a: any, b: any) => (b.points || 0) - (a.points || 0))
+        .slice(0, 2)
+        .map((benchPlayer: any) => {
+          const worst = worstStarterAt(benchPlayer.position)!;
+          return {
+            benchedPlayer: benchPlayer.fullName,
+            benchedPoints: benchPlayer.points || 0,
+            startedPlayer: worst.fullName,
+            startedPoints: worst.points || 0,
+            position: benchPlayer.position,
+            pointGain: Math.round(((benchPlayer.points || 0) - (worst.points || 0)) * 10) / 10,
+          };
+        });
+    }
+
+    if (teamScore > 0 && opponentScoreOut !== undefined) {
+      margin = Math.round(Math.abs(teamScore - opponentScoreOut) * 10) / 10;
+    }
+
+    if (opponentExternalId) {
+      const opponentTeam = await ctx.db
+        .query("teams")
+        .withIndex("by_external", q =>
+          q.eq("leagueId", request.leagueId)
+           .eq("externalId", opponentExternalId!)
+           .eq("seasonId", seasonIdUsed)
+        )
+        .first();
+      opponentName = opponentTeam?.name;
     }
 
     // Build standings for the given season
@@ -421,6 +545,226 @@ export const buildConversationContext = internalQuery({
       }
     }
 
+    /* ---------------------------------------------------------------------- */
+    /* League activity Sam can open on (spec §5)                               */
+    /* ---------------------------------------------------------------------- */
+
+    const teamNumericId = teamExternalId ? Number(teamExternalId) : NaN;
+
+    // Adds, drops and FAAB bids this scoring period. `bidAmount` is the number behind
+    // the waiver opener ("You spent $47 of your FAAB").
+    const transactionsThisWeek: Array<{
+      type: string;
+      playersAdded: string[];
+      playersDropped: string[];
+      bidAmount?: number;
+      timestamp?: number;
+    }> = [];
+
+    if (!Number.isNaN(teamNumericId) && week > 0) {
+      const periodTransactions = await ctx.db
+        .query("transactions")
+        .withIndex("by_scoring_period", q =>
+          q.eq("leagueId", request.leagueId)
+           .eq("seasonId", seasonIdUsed)
+           .eq("scoringPeriod", week)
+        )
+        .filter(q =>
+          q.and(
+            q.eq(q.field("teamId"), teamNumericId),
+            q.neq(q.field("type"), "DRAFT"),
+            q.neq(q.field("type"), "ROSTER")
+          )
+        )
+        .take(10);
+
+      // One lookup per distinct player across all of this team's transactions.
+      const playerNames = new Map<number, string>();
+      for (const transaction of periodTransactions) {
+        for (const item of transaction.items) {
+          if (playerNames.has(item.playerId)) continue;
+          const player = await ctx.db
+            .query("playersEnhanced")
+            .withIndex("by_espn_id_season", q =>
+              q.eq("espnId", String(item.playerId)).eq("season", seasonIdUsed)
+            )
+            .first();
+          if (player) playerNames.set(item.playerId, player.fullName);
+        }
+      }
+
+      for (const transaction of periodTransactions) {
+        const playersAdded: string[] = [];
+        const playersDropped: string[] = [];
+        for (const item of transaction.items) {
+          const name = playerNames.get(item.playerId);
+          if (!name) continue;
+          if (item.type === "ADD") playersAdded.push(name);
+          else if (item.type === "DROP") playersDropped.push(name);
+        }
+        if (playersAdded.length === 0 && playersDropped.length === 0) continue;
+        transactionsThisWeek.push({
+          type: transaction.type,
+          playersAdded,
+          playersDropped,
+          bidAmount: transaction.bidAmount > 0 ? transaction.bidAmount : undefined,
+          timestamp: transaction.proposedDate,
+        });
+      }
+    }
+
+    // Recent completed trades involving this team this season, newest first. The
+    // `trades` table carries no week, so the prompt states the counterparty and the
+    // players and never claims a week for them.
+    const tradesThisWeek: Array<{
+      withTeam: string;
+      gave: string[];
+      received: string[];
+      timestamp?: number;
+    }> = [];
+
+    if (teamExternalId) {
+      const seasonTrades = await ctx.db
+        .query("trades")
+        .withIndex("by_season", q =>
+          q.eq("leagueId", request.leagueId).eq("seasonId", seasonIdUsed)
+        )
+        .take(100);
+
+      const involving = seasonTrades
+        .filter(t =>
+          (t.status === "accepted" || t.status === "completed") &&
+          (t.teamA.teamId === teamExternalId || t.teamB.teamId === teamExternalId)
+        )
+        .sort((a, b) => b.tradeDate - a.tradeDate)
+        .slice(0, 2);
+
+      for (const trade of involving) {
+        const isTeamA = trade.teamA.teamId === teamExternalId;
+        tradesThisWeek.push({
+          withTeam: isTeamA ? trade.teamB.teamName : trade.teamA.teamName,
+          gave: (isTeamA ? trade.playersFromTeamA : trade.playersFromTeamB).map(p => p.playerName),
+          received: (isTeamA ? trade.playersFromTeamB : trade.playersFromTeamA).map(p => p.playerName),
+          timestamp: trade.tradeDate,
+        });
+      }
+    }
+
+    // All-time head-to-head against this week's opponent, when a rivalry row exists.
+    let rivalry: { opponent: string; allTimeRecord: string } | undefined;
+    if (teamExternalId && opponentExternalId && opponentName) {
+      const rivalryRow =
+        (await ctx.db
+          .query("rivalries")
+          .withIndex("by_teams", q =>
+            q.eq("leagueId", request.leagueId)
+             .eq("teamA.teamId", teamExternalId!)
+             .eq("teamB.teamId", opponentExternalId!)
+          )
+          .first()) ??
+        (await ctx.db
+          .query("rivalries")
+          .withIndex("by_teams", q =>
+            q.eq("leagueId", request.leagueId)
+             .eq("teamA.teamId", opponentExternalId!)
+             .eq("teamB.teamId", teamExternalId!)
+          )
+          .first());
+
+      if (rivalryRow) {
+        const isTeamA = rivalryRow.teamA.teamId === teamExternalId;
+        const wins = isTeamA ? rivalryRow.allTimeRecord.teamAWins : rivalryRow.allTimeRecord.teamBWins;
+        const losses = isTeamA ? rivalryRow.allTimeRecord.teamBWins : rivalryRow.allTimeRecord.teamAWins;
+        const ties = rivalryRow.allTimeRecord.ties;
+        rivalry = {
+          opponent: opponentName,
+          allTimeRecord: ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`,
+        };
+      }
+    }
+
+    // What this manager has already said on the record, so Sam doesn't re-ask and the
+    // writer can note "as he told us in Week 4".
+    const priorResponses = await ctx.db
+      .query("commentResponses")
+      .withIndex("by_user", q => q.eq("userId", request.targetUserId))
+      .order("desc")
+      .take(8);
+
+    const priorQuotes: Array<{ week?: number; text: string; askedAbout?: string }> = [];
+    for (const response of priorResponses) {
+      if (response.leagueId !== request.leagueId) continue;
+      if (response.commentRequestId === args.commentRequestId) continue;
+      const text =
+        response.approvedQuotes?.[0] ??
+        response.relevanceMetadata.extractedQuotes?.[0] ??
+        response.processedResponse;
+      if (!text) continue;
+      const priorRequest = await ctx.db.get(response.commentRequestId);
+      priorQuotes.push({
+        week: priorRequest?.articleContext.week,
+        text: text.length > 240 ? `${text.slice(0, 239)}…` : text,
+        askedAbout: response.relevanceMetadata.suggestedUsage,
+      });
+      if (priorQuotes.length >= 3) break;
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* The writer this interview feeds (spec §5 / §6)                          */
+    /* ---------------------------------------------------------------------- */
+
+    const writerPersona = request.writerPersona ?? DEFAULT_WRITER_PERSONA;
+
+    const relationshipRow = await ctx.db
+      .query("writerRelationships")
+      .withIndex("by_league_user_persona", q =>
+        q.eq("leagueId", request.leagueId)
+         .eq("userId", request.targetUserId)
+         .eq("persona", writerPersona)
+      )
+      .unique();
+
+    const writerEvents = await ctx.db
+      .query("relationshipEvents")
+      .withIndex("by_league_user_persona", q =>
+        q.eq("leagueId", request.leagueId)
+         .eq("userId", request.targetUserId)
+         .eq("persona", writerPersona)
+      )
+      .order("desc")
+      .take(20);
+
+    const recentMentions: Array<{
+      week?: number;
+      stance: "roast" | "praise";
+      evidence: string;
+      articleTitle?: string;
+    }> = [];
+
+    for (const event of writerEvents) {
+      if (event.type !== "article_roast" && event.type !== "article_praise") continue;
+      // Last 3 weeks only; week-less events (offseason pieces) are always eligible.
+      if (week > 0 && event.week !== undefined && event.week <= week - 3) continue;
+      const article = event.articleId ? await ctx.db.get(event.articleId) : null;
+      recentMentions.push({
+        week: event.week,
+        stance: event.type === "article_roast" ? "roast" : "praise",
+        evidence: event.evidence,
+        articleTitle: article?.title,
+      });
+      if (recentMentions.length >= 2) break;
+    }
+
+    const writerContext = {
+      persona: writerPersona,
+      name: writerDisplayName(writerPersona),
+      relationship: {
+        score: relationshipRow?.score ?? 0,
+        tier: relationshipRow?.tier ?? ("neutral" as const),
+      },
+      recentMentions,
+    };
+
     // Debug logging for team identification in buildConversationContext
     console.log("buildConversationContext team identification debug:", {
       userId: request.targetUserId,
@@ -441,6 +785,28 @@ export const buildConversationContext = internalQuery({
       week,
       seasonId: seasonIdUsed,
       leagueName: league?.name || "League",
+
+      // Identity (spec §5) - the interviewer is always Sam Ortega.
+      managerName: user?.name || user?.email || "Unknown manager",
+      teamName: team?.name || "Unknown Team",
+      interviewerPersona: request.interviewerPersona ?? INTERVIEWER_PERSONA,
+      writerPersona,
+
+      // The matchup, in the detail that makes an opener specific.
+      opponentName,
+      opponentScore: opponentScoreOut,
+      margin,
+      benchPoints,
+      topBenchPlayer,
+      lineupDecisions,
+
+      // League activity.
+      transactionsThisWeek,
+      tradesThisWeek,
+      rivalry,
+      priorQuotes,
+      writerContext,
+
       teamPerformance: {
         teamId: team?._id || request.targetUserId,
         teamName: team?.name || "Unknown Team",
@@ -639,6 +1005,9 @@ export const sendInitialRequests = internalAction({
           articleType: request.contentType,
           leagueName: context.leagueName || "your league",
           leagueId: request.leagueId,
+          writerPersona: request.writerPersona,
+          week: request.articleContext?.week ?? context.week,
+          deadline: request.articleGenerationTime,
         });
 
       } catch (error) {
@@ -653,8 +1022,10 @@ export const sendInitialRequests = internalAction({
     });
     
     if (scheduledContent && scheduledContent.scheduledFor) {
-      const expirationTime = scheduledContent.scheduledFor - 15 * 60 * 1000; // 15 min before
-      await ctx.scheduler.runAt(expirationTime, internal.commentRequests.expireOldRequests, {
+      // Both expiry paths use the article generation time (spec §5). The old
+      // 15-minutes-early cutoff silenced managers who answered inside the window
+      // the UI had promised them, and disagreed with the manual path.
+      await ctx.scheduler.runAt(scheduledContent.scheduledFor, internal.commentRequests.expireOldRequests, {
         scheduledContentId: args.scheduledContentId,
       });
     }
