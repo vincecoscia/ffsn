@@ -31,7 +31,8 @@
       "Bash(npx eslint:*)",
       "mcp__serena__think_about_task_adherence",
       "Bash(npx next build:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "mcp__plugin_stripe_stripe__stripe_api_write"
     ],
     "deny": []
   }
