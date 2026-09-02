@@ -46,9 +46,11 @@ export default function CommentRequestPage({ params }: CommentRequestPageProps) 
   // Get current user's Convex user ID first
   const currentUser = useQuery(api.users.getCurrentUser);
   
-  // Get comment request details and context - only if we have current user
-  const requestDetails = useQuery(api.commentConversations.getActiveRequests, 
-    currentUser ? { userId: currentUser._id } : "skip"
+  // Get comment request details and context - only if we have current user.
+  // getActiveRequests derives the target user from the caller's own
+  // identity server-side, so no userId is passed here.
+  const requestDetails = useQuery(api.commentConversations.getActiveRequests,
+    currentUser ? {} : "skip"
   );
   
   // Also fetch the request directly by ID regardless of status for view-only scenarios

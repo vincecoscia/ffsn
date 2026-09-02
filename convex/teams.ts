@@ -1,6 +1,7 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import { requireLeagueMember, requireCommissioner } from "./lib/auth";
 
 // Local types for playerStats documents and entries to avoid `any`
 type PlayerStatEntry = {
@@ -57,11 +58,17 @@ export const getByLeague = query({
 export const getTeamsByLeague = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+    await requireLeagueMember(ctx, args.leagueId);
+
     const teams = await ctx.db
       .query("teams")
       .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
       .collect();
-    
+
     return teams;
   },
 });
@@ -332,14 +339,20 @@ export const getByExternalIdAndSeason = query({
   },
 });
 export const getBySeasonAndLeague = query({
-  args: { 
-    leagueId: v.id("leagues"), 
-    seasonId: v.number() 
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number()
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+    await requireLeagueMember(ctx, args.leagueId);
+
     return await ctx.db
       .query("teams")
-      .withIndex("by_season", (q) => 
+      .withIndex("by_season", (q) =>
         q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
       )
       .collect();
@@ -363,6 +376,12 @@ export const updateTeamRoster = mutation({
     })),
   },
   handler: async (ctx, args) => {
+    const team = await ctx.db.get(args.teamId);
+    if (!team) {
+      throw new Error("Team not found");
+    }
+    await requireCommissioner(ctx, team.leagueId);
+
     await ctx.db.patch(args.teamId, {
       roster: args.roster,
       updatedAt: Date.now(),
@@ -445,6 +464,12 @@ export const getCustomLogoUrl = query({
       return null;
     }
 
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+    await requireLeagueMember(ctx, team.leagueId);
+
     return await ctx.storage.getUrl(team.customLogo);
   },
 });
@@ -495,5 +520,61 @@ export const removeCustomLogo = mutation({
     }
 
     return { success: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Internal variants for crons and sync pipelines (no identity in that context).
+// The public functions above require league membership / commissioner role;
+// these are only reachable from other Convex functions via `internal.teams.*`.
+// ---------------------------------------------------------------------------
+
+export const getTeamsByLeagueInternal = internalQuery({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("teams")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .collect();
+  },
+});
+
+export const getBySeasonAndLeagueInternal = internalQuery({
+  args: { leagueId: v.id("leagues"), seasonId: v.number() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) =>
+        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+      )
+      .collect();
+  },
+});
+
+export const updateTeamRosterInternal = internalMutation({
+  args: {
+    teamId: v.id("teams"),
+    roster: v.array(v.object({
+      playerId: v.string(),
+      playerName: v.string(),
+      position: v.string(),
+      team: v.string(),
+      acquisitionType: v.optional(v.string()),
+      lineupSlotId: v.optional(v.number()),
+      playerStats: v.optional(v.object({
+        appliedTotal: v.optional(v.number()),
+        projectedTotal: v.optional(v.number()),
+      })),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const team = await ctx.db.get(args.teamId);
+    if (!team) {
+      throw new Error("Team not found");
+    }
+    await ctx.db.patch(args.teamId, {
+      roster: args.roster,
+      updatedAt: Date.now(),
+    });
   },
 });

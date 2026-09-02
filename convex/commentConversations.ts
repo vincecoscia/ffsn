@@ -3,15 +3,27 @@ import { mutation, query, internalAction, internalMutation, internalQuery } from
 import { api, internal } from "./_generated/api";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
 import { Id } from "./_generated/dataModel";
+import { getLeagueMembership } from "./lib/auth";
 
-// Get active comment requests for a user
+// Get active comment requests for the signed-in user. The target user is
+// derived from the caller's identity rather than a client-supplied userId,
+// which previously let anyone read anyone else's comment requests.
 export const getActiveRequests = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+      .unique();
+    if (!user) return [];
+
     const requests = await ctx.db
       .query("commentRequests")
-      .withIndex("by_user_status", q => 
-        q.eq("targetUserId", args.userId)
+      .withIndex("by_user_status", q =>
+        q.eq("targetUserId", user._id)
          .eq("status", "active")
       )
       .collect();
@@ -44,13 +56,34 @@ export const getActiveRequests = query({
   },
 });
 
-// Get conversation messages for a comment request
+// Get conversation messages for a comment request. Readable by the
+// request's target user or a commissioner of its league.
 export const getConversation = query({
   args: { commentRequestId: v.id("commentRequests") },
   handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) return [];
+
+    const identity = await ctx.auth.getUserIdentity();
+    let isTargetUser = false;
+    if (identity) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+        .unique();
+      isTargetUser = !!user && user._id === request.targetUserId;
+    }
+
+    if (!isTargetUser) {
+      const membership = await getLeagueMembership(ctx, request.leagueId);
+      if (!membership || membership.membership.role !== "commissioner") {
+        return [];
+      }
+    }
+
     const messages = await ctx.db
       .query("commentConversations")
-      .withIndex("by_comment_request_order", q => 
+      .withIndex("by_comment_request_order", q =>
         q.eq("commentRequestId", args.commentRequestId)
       )
       .collect();

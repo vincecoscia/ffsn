@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
+import { internalQuery } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { 
   calculateStrengthOfSchedule, 
   calculateRecentForm,
@@ -16,7 +16,7 @@ import {
  */
 
 // Get comprehensive league data for AI content generation
-export const getLeagueDataForAI = query({
+export const getLeagueDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     currentWeek: v.optional(v.number()),
@@ -505,7 +505,7 @@ export const getLeagueDataForAI = query({
 });;
 
 // Get specific matchup data for detailed analysis
-export const getMatchupDataForAI = query({
+export const getMatchupDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     week: v.number(),
@@ -562,7 +562,7 @@ export const getMatchupDataForAI = query({
 });
 
 // Get player performance data for a specific week
-export const getWeeklyPlayerDataForAI = query({
+export const getWeeklyPlayerDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     week: v.number(),
@@ -636,7 +636,7 @@ export const getWeeklyPlayerDataForAI = query({
 });
 
 // Get mock draft data for AI content generation
-export const getMockDraftDataForAI = query({
+export const getMockDraftDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.optional(v.number()),
@@ -852,7 +852,7 @@ function createMinimalMockDraftData(
 };
 
 // Get season welcome data for AI content generation
-export const getSeasonWelcomeDataForAI = query({
+export const getSeasonWelcomeDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
   },
@@ -965,7 +965,7 @@ export const getSeasonWelcomeDataForAI = query({
       }
       
       // Get basic league data  
-      const basicLeagueData: any = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+      const basicLeagueData: any = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
         leagueId: args.leagueId,
       });
       
@@ -1372,7 +1372,7 @@ export const getSeasonWelcomeDataForAI = query({
 });
 
 // Get waiver wire data for AI content generation
-export const getWaiverWireDataForAI = query({
+export const getWaiverWireDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
   },
@@ -1388,7 +1388,7 @@ export const getWaiverWireDataForAI = query({
       const currentWeek = league.espnData?.currentScoringPeriod || 1;
       
       // Get basic league data
-      const basicLeagueData: any = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+      const basicLeagueData: any = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
         leagueId: args.leagueId,
       });
       
@@ -1578,7 +1578,7 @@ export const getWaiverWireDataForAI = query({
 });
 
 // Get trade analysis data for AI content generation
-export const getTradeAnalysisDataForAI = query({
+export const getTradeAnalysisDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     tradeId: v.optional(v.id("trades")),
@@ -1595,7 +1595,7 @@ export const getTradeAnalysisDataForAI = query({
       const currentWeek = league.espnData?.currentScoringPeriod || 1;
       
       // Get basic league data
-      const basicLeagueData: any = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+      const basicLeagueData: any = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
         leagueId: args.leagueId,
       });
       
@@ -1778,7 +1778,7 @@ export const getTradeAnalysisDataForAI = query({
 });
 
 // Get data for a specific week's recap - with roster data
-export const getWeeklyRecapDataForAI = query({
+export const getWeeklyRecapDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -1813,7 +1813,7 @@ export const getWeeklyRecapDataForAI = query({
       if (!league) throw new Error("League not found");
       
       // Get basic league data
-      const basicLeagueData = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+      const basicLeagueData = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
         leagueId: args.leagueId,
         currentWeek: args.week,
       });

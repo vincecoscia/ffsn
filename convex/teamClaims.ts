@@ -2,6 +2,7 @@
 import { internal } from "./_generated/api";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { requireCommissioner } from "./lib/auth";
 
 export const getByLeague = query({
   args: { 
@@ -161,20 +162,17 @@ export const claimTeam = mutation({
 
 export const updateTeamOwnersFromClaims = mutation({
   args: {
-    leagueId: v.optional(v.id("leagues")), // Optional - if not provided, updates all leagues
+    leagueId: v.id("leagues"),
   },
   handler: async (ctx, args) => {
-    // Get all active team claims
-    const teamClaims = args.leagueId 
-      ? await ctx.db
-          .query("teamClaims")
-          .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId!))
-          .filter((q) => q.eq(q.field("status"), "active"))
-          .collect()
-      : await ctx.db
-          .query("teamClaims")
-          .filter((q) => q.eq(q.field("status"), "active"))
-          .collect();
+    await requireCommissioner(ctx, args.leagueId);
+
+    // Get all active team claims for this league
+    const teamClaims = await ctx.db
+      .query("teamClaims")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
 
     let updatedCount = 0;
     
@@ -218,19 +216,16 @@ export const updateTeamOwnersFromClaims = mutation({
 });
 export const getTeamsWithUnknownOwners = query({
   args: {
-    leagueId: v.optional(v.id("leagues")),
+    leagueId: v.id("leagues"),
   },
   handler: async (ctx, args) => {
-    const teams = args.leagueId
-      ? await ctx.db
-          .query("teams")
-          .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId!))
-          .filter((q) => q.eq(q.field("owner"), "Unknown"))
-          .collect()
-      : await ctx.db
-          .query("teams")
-          .filter((q) => q.eq(q.field("owner"), "Unknown"))
-          .collect();
+    await requireCommissioner(ctx, args.leagueId);
+
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .filter((q) => q.eq(q.field("owner"), "Unknown"))
+      .collect();
 
     return teams.map(team => ({
       _id: team._id,
@@ -247,6 +242,8 @@ export const syncAllTeamOwners = mutation({
     seasonId: v.optional(v.number()), // Optional - if not provided, updates all seasons
   },
   handler: async (ctx, args) => {
+    await requireCommissioner(ctx, args.leagueId);
+
     // Get all teams for this league
     let teamsQuery = ctx.db
       .query("teams")

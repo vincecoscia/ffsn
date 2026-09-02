@@ -16,13 +16,14 @@ interface CommentRequestsListProps {
   userId: Id<"users">;
 }
 
-export default function CommentRequestsList({ userId }: CommentRequestsListProps) {
+export default function CommentRequestsList({ userId: _userId }: CommentRequestsListProps) {
   const [selectedRequest, setSelectedRequest] = useState<Id<"commentRequests"> | null>(null);
-  
-  // Get active comment requests
-  const activeRequests = useQuery(api.commentConversations.getActiveRequests, {
-    userId,
-  });
+
+  // Get active comment requests for the signed-in user. getActiveRequests
+  // derives the target user from the caller's own identity server-side, so
+  // no userId is passed here (the prop is kept for backwards compatibility
+  // with existing callers of this component).
+  const activeRequests = useQuery(api.commentConversations.getActiveRequests, {});
 
   if (!activeRequests) {
     return (

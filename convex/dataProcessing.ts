@@ -1,7 +1,8 @@
 import { v } from "convex/values";
-import { mutation, internalMutation, query } from "./_generated/server";
+import { mutation, internalMutation, internalQuery } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
+import { requireCommissioner } from "./lib/auth";
 import { 
   calculateStrengthOfSchedule, 
   calculateRecentForm, 
@@ -24,8 +25,10 @@ export const runDataProcessing = mutation({
     seasonId: v.number(),
   },
   async handler(ctx, args) {
+    await requireCommissioner(ctx, args.leagueId);
+
     console.log(`Triggering data processing for league ${args.leagueId}, season ${args.seasonId}`);
-    
+
     // Log available seasons for debugging
     const allSeasons = await ctx.db
       .query("teams")
@@ -33,26 +36,26 @@ export const runDataProcessing = mutation({
       .collect();
     const uniqueSeasons = [...new Set(allSeasons.map(t => t.seasonId))].sort();
     console.log(`Found ${uniqueSeasons.length} historical seasons:`, uniqueSeasons);
-    
+
     try {
       // Run the processing directly
       // In a production environment, you might want to use ctx.scheduler
       // to run this asynchronously
-      await ctx.runMutation(api.dataProcessing.calculateTeamMetrics, {
+      await ctx.runMutation(internal.dataProcessing.calculateTeamMetrics, {
         leagueId: args.leagueId,
         seasonId: args.seasonId,
       });
-      
-      await ctx.runMutation(api.dataProcessing.detectAndStoreRivalries, {
+
+      await ctx.runMutation(internal.dataProcessing.detectAndStoreRivalries, {
         leagueId: args.leagueId,
         seasonId: args.seasonId,
       });
-      
-      await ctx.runMutation(api.dataProcessing.updateManagerActivity, {
+
+      await ctx.runMutation(internal.dataProcessing.updateManagerActivity, {
         leagueId: args.leagueId,
         seasonId: args.seasonId,
       });
-      
+
       return { success: true };
     } catch (error) {
       console.error("Failed to trigger data processing:", error);
@@ -86,7 +89,7 @@ export const processLeagueDataAfterSync = internalMutation({
 });
 
 // Calculate and store team-specific metrics
-export const calculateTeamMetrics = mutation({
+export const calculateTeamMetrics = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -169,7 +172,7 @@ export const calculateTeamMetrics = mutation({
 });
 
 // Detect and store rivalries
-export const detectAndStoreRivalries = mutation({
+export const detectAndStoreRivalries = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -324,7 +327,7 @@ export const detectAndStoreRivalries = mutation({
 });
 
 // Update manager activity tracking
-export const updateManagerActivity = mutation({
+export const updateManagerActivity = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -440,7 +443,7 @@ export const updateManagerActivity = mutation({
 });
 
 // Query to get enriched league data with all calculated metrics
-export const getEnrichedLeagueData = query({
+export const getEnrichedLeagueData = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.optional(v.number()),

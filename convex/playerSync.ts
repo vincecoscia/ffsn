@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { getPositionAbbrev } from "./playerSyncInternal";
 import { transformStats } from "./espnStatsMapping";
+import { requireIdentity, requireLeagueMemberFromAction } from "./lib/auth";
 
 // Team abbreviation helper function
 const getTeamAbbreviation = (teamId: number): string => {
@@ -88,21 +89,6 @@ interface ESPNLeagueResponse {
 }
 const ESPN_PLAYERS_ENDPOINT = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/players?scoringPeriodId=0&view=players_wl&view=kona_player_info";
 
-// Re-export queries and mutations from internal file
-export { 
-  getSyncStatus, 
-  getLeagueFreeAgents, 
-  upsertPlayersBatch,
-  updateLeaguePlayerStatuses,
-  updateSyncStatus,
-  checkSyncStatus,
-  createSyncStatus,
-  getAllPlayersForSeason,
-  upsertPlayerStatsBatch,
-  getPlayersWithLeagueStats,
-  getLeagueFreeAgentsWithStats
-} from "./playerSyncInternal";
-
 // Fetch all players from ESPN (master list)
 export const syncAllPlayers = action({
   args: { 
@@ -111,6 +97,14 @@ export const syncAllPlayers = action({
     leagueId: v.optional(v.id("leagues")) // Add league ID for authentication
   },
   handler: async (ctx, { season, forceUpdate = false, leagueId }): Promise<{ status: string; message?: string; playersCount?: number }> => {
+    // leagueId is optional (this can run as a global players sync); when a league is given,
+    // require that caller to be its commissioner. Otherwise just require sign-in.
+    if (leagueId) {
+      await requireLeagueMemberFromAction(ctx, leagueId, { commissioner: true });
+    } else {
+      await requireIdentity(ctx);
+    }
+
     // Check if we need to sync
     const syncStatus = await ctx.runQuery(api.playerSyncInternal.getSyncStatus, { season, type: "all" });
     
@@ -126,7 +120,7 @@ export const syncAllPlayers = action({
     }
 
     // Create or update sync status to syncing
-    await ctx.runMutation(api.playerSyncInternal.createSyncStatus, {
+    await ctx.runMutation(internal.playerSyncInternal.createSyncStatus, {
       type: "all",
       season,
       status: "syncing",
@@ -235,7 +229,7 @@ export const syncAllPlayers = action({
       
       for (let i = 0; i < allPlayers.length; i += batchSize) {
         const batch = allPlayers.slice(i, i + batchSize);
-        await ctx.runMutation(api.playerSyncInternal.upsertPlayersBatch, {
+        await ctx.runMutation(internal.playerSyncInternal.upsertPlayersBatch, {
           season,
           players: batch.map((player: ESPNPlayer) => ({
             espnId: player.id.toString(),
@@ -270,7 +264,7 @@ export const syncAllPlayers = action({
       }
 
       // Update sync status
-      await ctx.runMutation(api.playerSyncInternal.updateSyncStatus, {
+      await ctx.runMutation(internal.playerSyncInternal.updateSyncStatus, {
         season,
         status: "completed",
         type: "all",
@@ -284,7 +278,7 @@ export const syncAllPlayers = action({
       };
     } catch (error: unknown) {
       // Update sync status with error
-      await ctx.runMutation(api.playerSyncInternal.updateSyncStatus, {
+      await ctx.runMutation(internal.playerSyncInternal.updateSyncStatus, {
         season,
         status: "failed",
         type: "all",
@@ -296,7 +290,8 @@ export const syncAllPlayers = action({
   },
 });
 // Sync only players from a specific draft
-export const syncPlayersForDraft = action({
+// Not called from src/ or anywhere else in convex/; locked down as internal-only.
+export const syncPlayersForDraft = internalAction({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -378,7 +373,7 @@ export const syncPlayersForDraft = action({
         
         if (players.length > 0) {
           // Process and store players
-          await ctx.runMutation(api.playerSyncInternal.upsertPlayersBatch, {
+          await ctx.runMutation(internal.playerSyncInternal.upsertPlayersBatch, {
             season: seasonId,
             players: players.map((playerData: ESPNLeaguePlayerData) => {
               const player = playerData.player;
@@ -435,7 +430,8 @@ export const syncPlayersForDraft = action({
 });
 
 // Sync league-specific player data (with pagination)
-export const syncLeaguePlayers = action({
+// Not called from src/; only invoked internally by syncAllLeaguePlayers below.
+export const syncLeaguePlayers = internalAction({
   args: { 
     leagueId: v.id("leagues"),
     season: v.number(),
@@ -510,7 +506,7 @@ export const syncLeaguePlayers = action({
       });
 
       // Update league player statuses
-      await ctx.runMutation(api.playerSyncInternal.updateLeaguePlayerStatuses, {
+      await ctx.runMutation(internal.playerSyncInternal.updateLeaguePlayerStatuses, {
         updates,
       });
 
@@ -537,13 +533,15 @@ export const syncAllLeaguePlayers = action({
     maxBatches: v.optional(v.number()), // Limit for safety
   },
   handler: async (ctx, { leagueId, season, maxBatches = 100 }): Promise<{ status: string; totalPlayersProcessed: number; hasMore: boolean }> => {
+    await requireLeagueMemberFromAction(ctx, leagueId, { commissioner: true });
+
     let offset = 0;
     let hasMore = true;
     let totalProcessed = 0;
     let batchCount = 0;
-    
+
     while (hasMore && batchCount < maxBatches) {
-      const result = await ctx.runAction(api.playerSync.syncLeaguePlayers, {
+      const result = await ctx.runAction(internal.playerSync.syncLeaguePlayers, {
         leagueId,
         season,
         offset,
@@ -576,10 +574,12 @@ export const completeLeagueSync = action({
     season: v.number(),
   },
   handler: async (ctx, { leagueId, season }) => {
+    await requireLeagueMemberFromAction(ctx, leagueId, { commissioner: true });
+
     let hasMore = true;
     let totalProcessed = 0;
     let batchesRun = 0;
-    
+
     console.log(`Starting complete league player sync for league ${leagueId}, season ${season}`);
     
     while (hasMore) {
@@ -612,7 +612,8 @@ export const completeLeagueSync = action({
 });
 
 // Sync default player stats from ESPN's public PPR endpoint
-export const syncPlayersDefaultStats = action({
+// Not called from src/; only invoked internally from playerHistoricalSync.ts (cron + admin flows).
+export const syncPlayersDefaultStats = internalAction({
   args: {
     season: v.number(),
     forceUpdate: v.optional(v.boolean()),
@@ -629,7 +630,7 @@ export const syncPlayersDefaultStats = action({
     }
 
     // Check if we're already syncing
-    const syncStatus = await ctx.runQuery(api.playerSyncInternal.checkSyncStatus, {
+    const syncStatus = await ctx.runQuery(internal.playerSyncInternal.checkSyncStatus, {
       type: "default",
       season,
     });
@@ -642,7 +643,7 @@ export const syncPlayersDefaultStats = action({
     }
 
     // Create or update sync status
-    await ctx.runMutation(api.playerSyncInternal.createSyncStatus, {
+    await ctx.runMutation(internal.playerSyncInternal.createSyncStatus, {
       type: "default",
       season,
       status: "syncing",
@@ -747,7 +748,7 @@ export const syncPlayersDefaultStats = action({
           });
         
         if (validPlayers.length > 0) {
-          await ctx.runMutation(api.playerSyncInternal.upsertPlayersBatch, {
+          await ctx.runMutation(internal.playerSyncInternal.upsertPlayersBatch, {
             season,
             players: validPlayers,
           });
@@ -755,7 +756,7 @@ export const syncPlayersDefaultStats = action({
       }
 
       // Update sync status
-      await ctx.runMutation(api.playerSyncInternal.updateSyncStatus, {
+      await ctx.runMutation(internal.playerSyncInternal.updateSyncStatus, {
         season,
         status: "completed",
         type: "default",
@@ -769,7 +770,7 @@ export const syncPlayersDefaultStats = action({
       };
     } catch (error: unknown) {
       // Update sync status with error
-      await ctx.runMutation(api.playerSyncInternal.updateSyncStatus, {
+      await ctx.runMutation(internal.playerSyncInternal.updateSyncStatus, {
         season,
         status: "failed",
         type: "default",
@@ -782,7 +783,8 @@ export const syncPlayersDefaultStats = action({
 });
 
 // Sync league-specific player stats (stores in playerStats table)
-export const syncLeaguePlayerStats = action({
+// Not called from src/; only invoked internally by syncAllLeaguePlayerStats below.
+export const syncLeaguePlayerStats = internalAction({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),
@@ -857,7 +859,7 @@ export const syncLeaguePlayerStats = action({
 
       // Batch update player stats
       if (playerStats.length > 0) {
-        await ctx.runMutation(api.playerSyncInternal.upsertPlayerStatsBatch, { playerStats });
+        await ctx.runMutation(internal.playerSyncInternal.upsertPlayerStatsBatch, { playerStats });
       }
 
       // Check if there are more players to fetch
@@ -876,7 +878,9 @@ export const syncLeaguePlayerStats = action({
 });
 
 // Sync ALL league player stats (handles pagination automatically)
-export const syncAllLeaguePlayerStats = action({
+// Not called from src/; only invoked internally from espnSync.ts and playerHistoricalSync.ts
+// (including cron-triggered daily syncs), so this is internal-only.
+export const syncAllLeaguePlayerStats = internalAction({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),
@@ -887,7 +891,7 @@ export const syncAllLeaguePlayerStats = action({
     let totalProcessed = 0;
     
     while (hasMore) {
-      const result = await ctx.runAction(api.playerSync.syncLeaguePlayerStats, {
+      const result = await ctx.runAction(internal.playerSync.syncLeaguePlayerStats, {
         leagueId,
         season,
         offset,
@@ -908,7 +912,7 @@ export const syncAllLeaguePlayerStats = action({
     const currentSeason = new Date().getFullYear();
     if (season === currentSeason) {
       try {
-        await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+        await ctx.runMutation(internal.playerSyncInternal.computeLeagueTopPerformers, {
           leagueId,
           season,
           limitPerPosition: 20,

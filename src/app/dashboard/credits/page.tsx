@@ -68,7 +68,6 @@ export default function CreditsPage() {
 
     try {
       const result = await createCreditsCheckout({
-        userId: user.id,
         userEmail: user.primaryEmailAddress.emailAddress,
         creditsAmount: creditPackage.credits,
       });

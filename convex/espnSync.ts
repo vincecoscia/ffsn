@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action, mutation, internalMutation, internalAction } from "./_generated/server";
-import { v } from "convex/values";
+import { action, internalMutation, internalAction, type ActionCtx } from "./_generated/server";
+import { v, type ObjectType } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { transformStats } from "./espnStatsMapping";
+import { requireLeagueMemberFromAction } from "./lib/auth";
 
 // Helper functions for ESPN data mapping
 const getPositionName = (positionId: number): string => {
@@ -93,6 +94,8 @@ export const syncLeagueData = action({
     leagueId: v.id("leagues"),
   },
   handler: async (ctx, args) => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+
     // Get the league with ESPN auth data using internal query
     const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
@@ -235,7 +238,7 @@ export const syncLeagueData = action({
           inProgress: draftDetail.inProgress,
         } : undefined;
 
-        await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+        await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
           leagueId: args.leagueId,
           seasonId: currentYear,
           seasonData,
@@ -323,7 +326,7 @@ export const syncLeagueData = action({
 
 
       // Update teams with comprehensive data
-      await ctx.runMutation(api.espnSync.updateTeams, {
+      await ctx.runMutation(internal.espnSync.updateTeams, {
         leagueId: args.leagueId,
         seasonId: currentYear,
         teamsData: teams.map((team: any) => {
@@ -358,7 +361,7 @@ export const syncLeagueData = action({
 
       // Sync players data if available
       if (players.length > 0) {
-        await ctx.runMutation(api.espnSync.updatePlayers, {
+        await ctx.runMutation(internal.espnSync.updatePlayers, {
           playersData: players.map((player: any) => ({
             externalId: player.id?.toString() || '',
             fullName: player.fullName || 'Unknown Player',
@@ -387,7 +390,7 @@ export const syncLeagueData = action({
         // Sync player transactions if available
         console.log('Processing player transactions...');
         try {
-          const transactionResult = await ctx.runAction(api.espnSync.syncPlayerTransactions, {
+          const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
             leagueId: args.leagueId,
             seasonId: currentYear,
             players: players,
@@ -407,7 +410,7 @@ export const syncLeagueData = action({
 
       // Sync matchups data
       if (schedule.length > 0) {
-        await ctx.runMutation(api.espnSync.updateMatchups, {
+        await ctx.runMutation(internal.espnSync.updateMatchups, {
           leagueId: args.leagueId,
           seasonId: currentYear,
           matchupsData: schedule.map((matchup: any) => ({
@@ -450,7 +453,7 @@ export const syncLeagueData = action({
       });
 
       // Update league's ESPN data with new sync timestamp
-      await ctx.runMutation(api.espnSync.updateLeagueSync, {
+      await ctx.runMutation(internal.espnSync.updateLeagueSync, {
         leagueId: args.leagueId,
         currentScoringPeriod: currentScoringPeriod,
         seasonId: currentYear,
@@ -459,7 +462,7 @@ export const syncLeagueData = action({
       // Fetch rosters using the dedicated roster endpoint
       console.log('Fetching current season rosters...');
       try {
-        const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+        const rosterResult = await ctx.runAction(internal.espnSync.fetchHistoricalRostersInternal, {
           leagueId: args.leagueId,
           seasonId: currentYear,
         });
@@ -477,7 +480,7 @@ export const syncLeagueData = action({
       // Fetch matchup rosters for all scoring periods
       console.log('Fetching matchup rosters for all scoring periods...');
       try {
-        const matchupRosterResult = await ctx.runAction(api.matchupRosters.fetchMatchupRosters, {
+        const matchupRosterResult = await ctx.runAction(internal.matchupRosters.fetchMatchupRosters, {
           leagueId: args.leagueId,
           seasonId: currentYear,
         });
@@ -516,7 +519,7 @@ export const syncLeagueData = action({
   },
 });
 
-export const updateTeams = mutation({
+export const updateTeams = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -643,7 +646,7 @@ export const updateTeams = mutation({
   },
 });;
 
-export const updatePlayers = mutation({
+export const updatePlayers = internalMutation({
   args: {
     playersData: v.array(v.object({
       externalId: v.string(),
@@ -716,7 +719,7 @@ export const updatePlayers = mutation({
   },
 });
 
-export const updateMatchups = mutation({
+export const updateMatchups = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -818,6 +821,8 @@ export const syncHistoricalData = action({
     years: v.optional(v.array(v.number())), // If not provided, will sync last 10 seasons
   },
   handler: async (ctx, args) => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+
     const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
     
     if (!league) {
@@ -1062,7 +1067,7 @@ export const syncHistoricalData = action({
           })[0];
 
         // Create league season record
-        await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+        await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
           leagueId: args.leagueId,
           seasonId: year,
           seasonData: {
@@ -1130,7 +1135,7 @@ export const syncHistoricalData = action({
         });
 
         // Sync teams for this historical season
-        await ctx.runMutation(api.espnSync.updateTeams, {
+        await ctx.runMutation(internal.espnSync.updateTeams, {
           leagueId: args.leagueId,
           seasonId: year,
           teamsData: teams.map((team: any) => {
@@ -1167,7 +1172,7 @@ export const syncHistoricalData = action({
 
         // Sync matchups for historical season if available
         if (schedule.length > 0) {
-          await ctx.runMutation(api.espnSync.updateMatchups, {
+          await ctx.runMutation(internal.espnSync.updateMatchups, {
             leagueId: args.leagueId,
             seasonId: year,
             matchupsData: schedule.map((matchup: any) => ({
@@ -1207,7 +1212,7 @@ export const syncHistoricalData = action({
   },
 });
 
-export const updateLeagueSeason = mutation({
+export const updateLeagueSeason = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -1334,7 +1339,7 @@ export const updateLeagueSeason = mutation({
     }
   },
 });
-export const updateSeasonDraftData = mutation({
+export const updateSeasonDraftData = internalMutation({
   args: {
     seasonId: v.id("leagueSeasons"),
     draftSettings: v.optional(v.any()),
@@ -1454,8 +1459,10 @@ export const syncAllLeagueData = action({
     message: string;
     syncedAt: number;
   }> => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+
     const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
-    
+
     console.log('League ESPN data check:', {
       hasEspnData: !!league?.espnData,
       isPrivate: league?.espnData?.isPrivate,
@@ -1819,7 +1826,7 @@ export const syncAllLeagueData = action({
             seasonData.draft = draftDetail.picks;
           }
 
-          await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+          await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
             leagueId: args.leagueId,
             seasonId: year,
             seasonData,
@@ -1906,7 +1913,7 @@ export const syncAllLeagueData = action({
         };
 
         // Sync teams for this season
-        await ctx.runMutation(api.espnSync.updateTeams, {
+        await ctx.runMutation(internal.espnSync.updateTeams, {
           leagueId: args.leagueId,
           seasonId: year,
           teamsData: teams.map((team: any) => {
@@ -1954,7 +1961,7 @@ export const syncAllLeagueData = action({
 
         // Sync players data for all seasons (historical and current)
         if (players.length > 0) {
-          await ctx.runMutation(api.espnSync.updatePlayers, {
+          await ctx.runMutation(internal.espnSync.updatePlayers, {
             playersData: players.map((player: any) => ({
               externalId: player.id?.toString() || '',
               fullName: player.fullName || 'Unknown Player',
@@ -1984,7 +1991,7 @@ export const syncAllLeagueData = action({
           console.log(`Processing player transactions for year ${year}...`);
           let transactionsSynced = 0;
           try {
-            const transactionResult = await ctx.runAction(api.espnSync.syncPlayerTransactions, {
+            const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
               leagueId: args.leagueId,
               seasonId: year,
               players: players,
@@ -2005,7 +2012,7 @@ export const syncAllLeagueData = action({
 
         // Sync matchups data
         if (schedule.length > 0) {
-          await ctx.runMutation(api.espnSync.updateMatchups, {
+          await ctx.runMutation(internal.espnSync.updateMatchups, {
             leagueId: args.leagueId,
             seasonId: year,
             matchupsData: schedule.map((matchup: any) => ({
@@ -2039,7 +2046,7 @@ export const syncAllLeagueData = action({
                                       settings?.scoringSettings?.currentScoringPeriod || 
                                       league.espnData.currentScoringPeriod;
 
-          await ctx.runMutation(api.espnSync.updateLeagueSync, {
+          await ctx.runMutation(internal.espnSync.updateLeagueSync, {
             leagueId: args.leagueId,
             currentScoringPeriod: currentScoringPeriod,
             seasonId: currentYear,
@@ -2050,7 +2057,7 @@ export const syncAllLeagueData = action({
         console.log(`Fetching rosters for year ${year}...`);
         let rostersFetched = 0;
         try {
-          const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+          const rosterResult = await ctx.runAction(internal.espnSync.fetchHistoricalRostersInternal, {
             leagueId: args.leagueId,
             seasonId: year,
           });
@@ -2070,7 +2077,7 @@ export const syncAllLeagueData = action({
         console.log(`Fetching matchup rosters for year ${year}...`);
         let matchupRostersFetched = 0;
         try {
-          const matchupRosterResult = await ctx.runAction(api.matchupRosters.fetchMatchupRosters, {
+          const matchupRosterResult = await ctx.runAction(internal.matchupRosters.fetchMatchupRosters, {
             leagueId: args.leagueId,
             seasonId: year,
           });
@@ -2091,7 +2098,7 @@ export const syncAllLeagueData = action({
         let playerStatsSynced = 0;
         const transactionsSynced = 0;
         try {
-          const statsResult = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
+          const statsResult = await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, {
             leagueId: args.leagueId,
             season: year,
           });
@@ -2149,7 +2156,7 @@ export const syncAllLeagueData = action({
 });
 
 // Sync all historical player stats for all leagues
-export const syncAllHistoricalPlayerStats = action({
+export const syncAllHistoricalPlayerStats = internalAction({
   args: {},
   handler: async (ctx): Promise<{
     status: string;
@@ -2168,18 +2175,18 @@ export const syncAllHistoricalPlayerStats = action({
     console.log("Starting comprehensive historical player stats sync for all leagues");
     
     // This delegates to the playerHistoricalSync module
-    return await ctx.runAction(api.playerHistoricalSync.syncAllLeaguesHistoricalPlayerStats, {});
+    return await ctx.runAction(internal.playerHistoricalSync.syncAllLeaguesHistoricalPlayerStats, {});
   }
 });
 
 // Historical roster fetching action
-export const fetchHistoricalRosters = action({
-  args: {
+const fetchHistoricalRostersArgs = {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
     teamIds: v.optional(v.array(v.string())), // If not provided, fetches for all teams
-  },
-  handler: async (ctx, args): Promise<{
+};
+
+type FetchHistoricalRostersResult = {
     success: boolean;
     totalTeams: number;
     totalRostersFetched: number;
@@ -2193,9 +2200,17 @@ export const fetchHistoricalRosters = action({
     }>;
     message: string;
     fetchedAt: number;
-  }> => {
+  };
+
+// Shared implementation. Reached via the commissioner-gated public action below (UI) or the
+// internal action (crons / other sync actions, which have no identity).
+async function fetchHistoricalRostersImpl(
+  ctx: ActionCtx,
+  args: ObjectType<typeof fetchHistoricalRostersArgs>
+): Promise<FetchHistoricalRostersResult> {
+
     const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
-    
+
     if (!league) {
       throw new Error("League not found");
     }
@@ -2218,9 +2233,9 @@ export const fetchHistoricalRosters = action({
     }
 
     // Get teams for the specified season using a query
-    const teams = await ctx.runQuery(api.teams.getBySeasonAndLeague, { 
-      leagueId: args.leagueId, 
-      seasonId: args.seasonId 
+    const teams = await ctx.runQuery(internal.teams.getBySeasonAndLeagueInternal, {
+      leagueId: args.leagueId,
+      seasonId: args.seasonId
     });
 
     if (teams.length === 0) {
@@ -2350,7 +2365,7 @@ export const fetchHistoricalRosters = action({
         }));
 
         // Update the team's roster for this season using a mutation
-        await ctx.runMutation(api.teams.updateTeamRoster, {
+        await ctx.runMutation(internal.teams.updateTeamRosterInternal, {
           teamId: team._id,
           roster: historicalRoster,
         });
@@ -2389,7 +2404,19 @@ export const fetchHistoricalRosters = action({
       message: `Historical rosters fetch completed: ${totalRostersFetched}/${teamsToFetch.length} teams fetched successfully`,
       fetchedAt: Date.now(),
     };
+}
+
+export const fetchHistoricalRosters = action({
+  args: fetchHistoricalRostersArgs,
+  handler: async (ctx, args): Promise<FetchHistoricalRostersResult> => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+    return fetchHistoricalRostersImpl(ctx, args);
   },
+});
+
+export const fetchHistoricalRostersInternal = internalAction({
+  args: fetchHistoricalRostersArgs,
+  handler: async (ctx, args): Promise<FetchHistoricalRostersResult> => fetchHistoricalRostersImpl(ctx, args),
 });
 // Action to fetch draft data for a specific season
 export const fetchDraftDataForSeason = action({
@@ -2403,8 +2430,10 @@ export const fetchDraftDataForSeason = action({
     error?: string;
     picksCount?: number;
   }> => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+
     const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
-    
+
     if (!league) {
       throw new Error("League not found");
     }
@@ -2525,7 +2554,7 @@ export const fetchDraftDataForSeason = action({
           seasonData.draft = draftDetail.picks;
         }
 
-        await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+        await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
           leagueId: args.leagueId,
           seasonId: args.seasonId,
           seasonData,
@@ -2552,7 +2581,7 @@ export const fetchDraftDataForSeason = action({
           updateData.draft = draftDetail.picks;
         }
 
-        await ctx.runMutation(api.espnSync.updateSeasonDraftData, {
+        await ctx.runMutation(internal.espnSync.updateSeasonDraftData, {
           seasonId: existingSeason._id,
           ...updateData,
         });
@@ -2601,6 +2630,8 @@ export const syncAllDataWithRosters = action({
     message: string;
     syncedAt: number;
   }> => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+
     // First run the regular sync
     const regularSyncResult = await ctx.runAction(api.espnSync.syncAllLeagueData, {
       leagueId: args.leagueId,
@@ -2620,7 +2651,7 @@ export const syncAllDataWithRosters = action({
         try {
           console.log(`Fetching rosters for year ${result.year}...`);
           
-          const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+          const rosterResult = await ctx.runAction(internal.espnSync.fetchHistoricalRostersInternal, {
             leagueId: args.leagueId,
             seasonId: result.year,
           });
@@ -2659,7 +2690,7 @@ export const syncAllDataWithRosters = action({
   },
 });
 
-export const updateLeagueSync = mutation({
+export const updateLeagueSync = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     currentScoringPeriod: v.number(),
@@ -2883,7 +2914,7 @@ async function processTransactionMessage(message: any, teamMap: Map<string, any>
 }
 
 // Store trades in database
-export const storeTrades = mutation({
+export const storeTrades = internalMutation({
   args: {
     trades: v.array(v.object({
       leagueId: v.id("leagues"),
@@ -3022,7 +3053,7 @@ export const storeTrades = mutation({
 // });
 
 // Sync player transactions from ESPN data
-export const syncPlayerTransactions = action({
+export const syncPlayerTransactions = internalAction({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
@@ -3072,7 +3103,7 @@ export const syncPlayerTransactions = action({
     }
     
     // Store unique transactions
-    const result = await ctx.runMutation(api.espnSync.storePlayerTransactions, {
+    const result = await ctx.runMutation(internal.espnSync.storePlayerTransactions, {
       transactions: allTransactions,
     });
     
@@ -3086,7 +3117,7 @@ export const syncPlayerTransactions = action({
 });
 
 // Store player transactions in database
-export const storePlayerTransactions = mutation({
+export const storePlayerTransactions = internalMutation({
   args: {
     transactions: v.array(v.object({
       leagueId: v.id("leagues"),
@@ -3418,7 +3449,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
             seasonData.draft = draftDetail.picks;
           }
 
-          await ctx.runMutation(api.espnSync.updateLeagueSeason, {
+          await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
             leagueId: league._id,
             seasonId: currentYear,
             seasonData,
@@ -3452,7 +3483,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         console.log(`Captured roster data for ${teamRosters.size} out of ${teams.length} teams for league ${league.name}`);
 
         // Update teams with current data including rosters
-        await ctx.runMutation(api.espnSync.updateTeams, {
+        await ctx.runMutation(internal.espnSync.updateTeams, {
           leagueId: league._id,
           seasonId: currentYear,
           teamsData: teams.map((team: any) => {
@@ -3488,7 +3519,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         // Sync players data if available
         let transactionsSynced = 0;
         if (players.length > 0) {
-          await ctx.runMutation(api.espnSync.updatePlayers, {
+          await ctx.runMutation(internal.espnSync.updatePlayers, {
             playersData: players.map((player: any) => ({
               externalId: player.id?.toString() || '',
               fullName: player.fullName || 'Unknown Player',
@@ -3516,7 +3547,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
 
           // Sync player transactions for current season
           try {
-            const transactionResult = await ctx.runAction(api.espnSync.syncPlayerTransactions, {
+            const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
               leagueId: league._id,
               seasonId: currentYear,
               players: players,
@@ -3533,7 +3564,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
 
         // Sync matchups data
         if (schedule.length > 0) {
-          await ctx.runMutation(api.espnSync.updateMatchups, {
+          await ctx.runMutation(internal.espnSync.updateMatchups, {
             leagueId: league._id,
             seasonId: currentYear,
             matchupsData: schedule.map((matchup: any) => ({
@@ -3576,7 +3607,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         });
 
         // Update league sync timestamp
-        await ctx.runMutation(api.espnSync.updateLeagueSync, {
+        await ctx.runMutation(internal.espnSync.updateLeagueSync, {
           leagueId: league._id,
           currentScoringPeriod: currentScoringPeriod,
           seasonId: currentYear,
@@ -3588,7 +3619,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         // If we didn't get roster data from the main API call, fetch it separately
         if (teamRosters.size === 0) {
           try {
-            const rosterResult = await ctx.runAction(api.espnSync.fetchHistoricalRosters, {
+            const rosterResult = await ctx.runAction(internal.espnSync.fetchHistoricalRostersInternal, {
               leagueId: league._id,
               seasonId: currentYear,
             });
@@ -3604,7 +3635,7 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         // Fetch matchup rosters for current season
         let matchupRostersFetched = 0;
         try {
-          const matchupRosterResult = await ctx.runAction(api.matchupRosters.fetchMatchupRosters, {
+          const matchupRosterResult = await ctx.runAction(internal.matchupRosters.fetchMatchupRosters, {
             leagueId: league._id,
             seasonId: currentYear,
           });

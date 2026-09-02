@@ -16,6 +16,10 @@ export const prepareAIContentData = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     scheduledContentId: v.optional(v.id("scheduledContent")),
+    // Set when the caller (generateContentAction) already deducted credits
+    // up front. Forwarded on to generateAIContentWithData, and refunded here
+    // on failure instead of being silently lost.
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== prepareAIContentData START ===");
@@ -28,7 +32,7 @@ export const prepareAIContentData = internalAction({
       if (args.contentType === 'mock_draft') {
         console.log("Fetching mock draft data...");
         
-        const mockDraftData = await ctx.runQuery(api.aiQueries.getMockDraftDataForAI, {
+        const mockDraftData = await ctx.runQuery(internal.aiQueries.getMockDraftDataForAI, {
           leagueId: args.leagueId,
         });
         
@@ -58,7 +62,7 @@ export const prepareAIContentData = internalAction({
       } else if (args.contentType === 'season_welcome') {
         console.log("Fetching season welcome data...");
         
-        const seasonWelcomeData = await ctx.runQuery(api.aiQueries.getSeasonWelcomeDataForAI, {
+        const seasonWelcomeData = await ctx.runQuery(internal.aiQueries.getSeasonWelcomeDataForAI, {
           leagueId: args.leagueId,
         });
         
@@ -66,7 +70,7 @@ export const prepareAIContentData = internalAction({
       } else if (args.contentType === 'waiver_wire_report') {
         console.log("Fetching waiver wire data...");
         
-        const waiverWireData = await ctx.runQuery(api.aiQueries.getWaiverWireDataForAI, {
+        const waiverWireData = await ctx.runQuery(internal.aiQueries.getWaiverWireDataForAI, {
           leagueId: args.leagueId,
         });
         
@@ -74,7 +78,7 @@ export const prepareAIContentData = internalAction({
       } else if (args.contentType === 'trade_analysis') {
         console.log("Fetching trade analysis data...");
         
-        const tradeAnalysisData = await ctx.runQuery(api.aiQueries.getTradeAnalysisDataForAI, {
+        const tradeAnalysisData = await ctx.runQuery(internal.aiQueries.getTradeAnalysisDataForAI, {
           leagueId: args.leagueId,
         });
         
@@ -86,7 +90,7 @@ export const prepareAIContentData = internalAction({
           throw new Error("seasonId and week are required for weekly_recap content");
         }
         
-        const weeklyRecapData = await ctx.runQuery(api.aiQueries.getWeeklyRecapDataForAI, {
+        const weeklyRecapData = await ctx.runQuery(internal.aiQueries.getWeeklyRecapDataForAI, {
           leagueId: args.leagueId,
           seasonId: args.seasonId,
           week: args.week,
@@ -152,7 +156,7 @@ export const prepareAIContentData = internalAction({
         };
       } else {
         // Regular content generation
-        leagueData = await ctx.runQuery(api.aiContent.getLeagueDataForGeneration, {
+        leagueData = await ctx.runQuery(internal.aiContent.getLeagueDataForGenerationInternal, {
           leagueId: args.leagueId,
         });
       }
@@ -176,6 +180,7 @@ export const prepareAIContentData = internalAction({
         customContext: args.customContext,
         userId: args.userId,
         scheduledContentId: args.scheduledContentId,
+        creditsDeductedUpFront: args.creditsDeductedUpFront,
       });
       
       console.log("=== prepareAIContentData SUCCESS ===");
@@ -184,14 +189,57 @@ export const prepareAIContentData = internalAction({
     } catch (error) {
       console.error("=== prepareAIContentData ERROR ===");
       console.error("Error:", error);
-      
+
+      // If a caller deducted credits up front (generateContentAction,
+      // forwarding what its own caller charged), refund them now - the user
+      // paid for content that never got generated. Captured rather than
+      // swallowed: if the refund itself fails, that's surfaced via a thrown
+      // error below instead of being logged and ignored.
+      let refundError: unknown = null;
+      if (args.creditsDeductedUpFront) {
+        try {
+          let creditUserId = args.userId;
+          if (creditUserId === "system") {
+            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+              leagueId: args.leagueId,
+            });
+            if (league?.commissionerUserId) {
+              creditUserId = league.commissionerUserId;
+            }
+          }
+
+          if (creditUserId !== "system") {
+            await ctx.runMutation(internal.credits.refundCredits, {
+              userId: creditUserId,
+              amount: args.creditsDeductedUpFront,
+              description: `Refund: failed AI content generation (${args.contentType})`,
+              leagueId: args.leagueId,
+              relatedContentId: args.articleId,
+            });
+          }
+        } catch (e) {
+          console.error("Failed to refund credits after data preparation failure:", e);
+          refundError = e;
+        }
+      }
+
       // Update article status to failed
-      await ctx.runMutation(api.aiContent.updateContentStatus, {
+      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
         status: "failed",
         error: error instanceof Error ? error.message : "Data preparation failed",
       });
-      
+
+      if (refundError) {
+        // Surface loudly instead of swallowing: the refund did not happen
+        // and the user's balance needs manual reconciliation.
+        throw new Error(
+          `Data preparation failed for article ${args.articleId} and the credit refund also failed: ${
+            refundError instanceof Error ? refundError.message : String(refundError)
+          }`
+        );
+      }
+
       return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
     }
   },
@@ -207,6 +255,9 @@ export const generateAIContentWithData = internalAction({
     customContext: v.optional(v.string()),
     userId: v.string(),
     scheduledContentId: v.optional(v.id("scheduledContent")),
+    // Forwarded from prepareAIContentData; when set, refunded on failure
+    // below instead of being silently lost.
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== generateAIContentWithData START ===");
@@ -265,33 +316,71 @@ export const generateAIContentWithData = internalAction({
       console.log("AI generation completed in", executionTime + "ms");
       
       // Update article with generated content
-      await ctx.runMutation(api.aiContent.updateGeneratedContent, {
+      await ctx.runMutation(internal.aiContent.updateGeneratedContent, {
         articleId: args.articleId,
         title: generatedContent.title,
         content: generatedContent.content,
         summary: generatedContent.summary,
         metadata: generatedContent.metadata,
       });
-      
+
       // Clean up prepared data
       await ctx.runMutation(internal.aiContentHelpers.cleanupPreparedData, {
         articleId: args.articleId,
       });
-      
+
       console.log("=== generateAIContentWithData SUCCESS ===");
       return { success: true, executionTime };
-      
+
     } catch (error) {
       console.error("=== generateAIContentWithData ERROR ===");
       console.error("Error:", error);
-      
+
+      // Same refund-on-failure handling as prepareAIContentData's catch
+      // above - see the comment there for why this isn't swallowed.
+      let refundError: unknown = null;
+      if (args.creditsDeductedUpFront) {
+        try {
+          let creditUserId = args.userId;
+          if (creditUserId === "system") {
+            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+              leagueId: args.leagueId,
+            });
+            if (league?.commissionerUserId) {
+              creditUserId = league.commissionerUserId;
+            }
+          }
+
+          if (creditUserId !== "system") {
+            await ctx.runMutation(internal.credits.refundCredits, {
+              userId: creditUserId,
+              amount: args.creditsDeductedUpFront,
+              description: `Refund: failed AI content generation (${args.contentType})`,
+              leagueId: args.leagueId,
+              relatedContentId: args.articleId,
+            });
+          }
+        } catch (e) {
+          console.error("Failed to refund credits after AI generation failure:", e);
+          refundError = e;
+        }
+      }
+
       // Update article status to failed
-      await ctx.runMutation(api.aiContent.updateContentStatus, {
+      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
         status: "failed",
         error: error instanceof Error ? error.message : "AI generation failed",
       });
-      
+
+      if (refundError) {
+        throw new Error(
+          `AI generation failed for article ${args.articleId} and the credit refund also failed: ${
+            refundError instanceof Error ? refundError.message : String(refundError)
+          }`
+        );
+      }
+
       return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
     }
   },
@@ -498,7 +587,7 @@ export const retryFailedGeneration = internalAction({
     
     if (args.retryCount > 3) {
       console.error("Max retry attempts exceeded");
-      await ctx.runMutation(api.aiContent.updateContentStatus, {
+      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
         status: "failed",
         error: "Max retry attempts exceeded",

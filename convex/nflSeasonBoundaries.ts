@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { internalQuery, internalMutation } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
 
@@ -39,7 +39,7 @@ export interface NFLSeasonBoundaries {
  * Get NFL season boundaries for a specific year
  * This query returns all season phase dates and week boundaries
  */
-export const getNFLSeasonBoundaries = query({
+export const getNFLSeasonBoundaries = internalQuery({
   args: { year: v.number() },
   handler: async (ctx, { year }): Promise<NFLSeasonBoundaries | null> => {
     const season = await ctx.db
@@ -65,7 +65,7 @@ export const getNFLSeasonBoundaries = query({
  * Get current NFL season phase for a given date (or current date if not provided)
  * This is the core function for determining what phase the NFL season is in
  */
-export const getNFLSeasonPhase = query({
+export const getNFLSeasonPhase = internalQuery({
   args: { date: v.optional(v.number()) },
   handler: async (ctx, { date }): Promise<{ phase: NFLSeasonPhase; year: number; week?: number } | null> => {
     const targetDate = date ?? Date.now();
@@ -117,7 +117,7 @@ export const getNFLSeasonPhase = query({
  * Get current NFL week (replacement for the crude implementation)
  * Returns accurate week number based on NFL season boundaries
  */
-export const getCurrentNFLWeek = query({
+export const getCurrentNFLWeek = internalQuery({
   args: { date: v.optional(v.number()) },
   handler: async (ctx, { date }): Promise<number> => {
     const targetDate = date ?? Date.now();
@@ -196,7 +196,7 @@ export const getCurrentNFLWeek = query({
  * Check if content generation is allowed for a specific content type and league
  * This is the core validation function for content scheduling
  */
-export const isContentGenerationAllowed = query({
+export const isContentGenerationAllowed = internalQuery({
   args: { 
     contentType: v.string(),
     leagueId: v.id("leagues"),
@@ -428,7 +428,7 @@ function getWeekFromDate(date: number, weekBoundaries: Array<{ week: number; sta
  * Initialize NFL season data for a given year
  * This mutation creates the season boundaries and week structure
  */
-export const initializeNFLSeason = mutation({
+export const initializeNFLSeason = internalMutation({
   args: { 
     year: v.number(),
     seasonData: v.optional(v.any()) // Allow custom season data, otherwise use defaults
@@ -466,7 +466,7 @@ export const initializeNFLSeason = mutation({
 /**
  * Update NFL season boundaries
  */
-export const updateNFLSeasonBoundaries = mutation({
+export const updateNFLSeasonBoundaries = internalMutation({
   args: {
     year: v.number(),
     phases: v.optional(v.any()),

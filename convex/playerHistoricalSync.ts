@@ -2,9 +2,10 @@
 import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { requireLeagueMemberFromAction } from "./lib/auth";
 
 // Sync all players for the last 10 seasons
-export const syncHistoricalPlayers = action({
+export const syncHistoricalPlayers = internalAction({
   args: {
     startYear: v.optional(v.number()),
     endYear: v.optional(v.number()),
@@ -31,7 +32,7 @@ export const syncHistoricalPlayers = action({
     console.log(`Starting historical player sync from ${start} to ${end}`);
     
     // Check if we have any players in the database
-    const existingPlayers = await ctx.runQuery(api.playerSyncInternal.getAllPlayersForSeason, {
+    const existingPlayers = await ctx.runQuery(internal.playerSyncInternal.getAllPlayersForSeason, {
       season: currentYear
     });
     
@@ -51,7 +52,7 @@ export const syncHistoricalPlayers = action({
       
       try {
         // Use the syncPlayersDefaultStats for each season
-        const result = await ctx.runAction(api.playerSync.syncPlayersDefaultStats, {
+        const result = await ctx.runAction(internal.playerSync.syncPlayersDefaultStats, {
           season,
           forceUpdate: true // Force update for historical sync
         });
@@ -86,7 +87,7 @@ export const syncHistoricalPlayers = action({
 });
 
 // Check if historical sync is needed
-export const checkHistoricalSyncNeeded = action({
+export const checkHistoricalSyncNeeded = internalAction({
   args: {},
   handler: async (ctx): Promise<{
     needsSync: boolean;
@@ -105,7 +106,7 @@ export const checkHistoricalSyncNeeded = action({
     // Check seasons from 2018 onwards (or last 10 years, whichever is more recent)
     const startSeason = Math.max(MIN_SEASON, currentYear - 9);
     for (let season = startSeason; season <= currentYear; season++) {
-      const players = await ctx.runQuery(api.playerSyncInternal.getAllPlayersForSeason, {
+      const players = await ctx.runQuery(internal.playerSyncInternal.getAllPlayersForSeason, {
         season
       });
       
@@ -131,7 +132,7 @@ export const checkHistoricalSyncNeeded = action({
 });
 
 // Daily sync for current season (both default and league stats)
-export const dailyPlayerSync = action({
+export const dailyPlayerSync = internalAction({
   args: {
     leagueId: v.optional(v.id("leagues")),
   },
@@ -156,7 +157,7 @@ export const dailyPlayerSync = action({
     try {
       // 1. Sync default PPR stats from public API
       console.log("Syncing default PPR stats...");
-      results.defaultStats = await ctx.runAction(api.playerSync.syncPlayersDefaultStats, {
+      results.defaultStats = await ctx.runAction(internal.playerSync.syncPlayersDefaultStats, {
         season: currentSeason,
         forceUpdate: false // Only sync if not recently synced
       });
@@ -168,7 +169,7 @@ export const dailyPlayerSync = action({
         // Small delay between API calls
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        results.leagueStats = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
+        results.leagueStats = await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, {
           leagueId,
           season: currentSeason
         });
@@ -194,7 +195,7 @@ export const dailyPlayerSync = action({
 });
 
 // Sync all leagues' player stats for current season
-export const dailyAllLeaguesPlayerStatsSync = action({
+export const dailyAllLeaguesPlayerStatsSync = internalAction({
   args: {},
   handler: async (ctx): Promise<{
     status: string;
@@ -232,7 +233,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
       console.log(`Syncing stats for league: ${league.name} (${league._id})`);
       
       try {
-        const result = await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, {
+        const result = await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, {
           leagueId: league._id,
           season: currentSeason
         });
@@ -247,26 +248,26 @@ export const dailyAllLeaguesPlayerStatsSync = action({
         
         // Backfill: limit to at most 1 older season per run to avoid timeouts (and add small delay between heavy ops)
         // Note: Only sync player stats for past seasons, but skip leagueTopPerformers cache (only current season matters)
-        const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId: league._id });
+        const teams = await ctx.runQuery(internal.teams.getTeamsByLeagueInternal, { leagueId: league._id });
         const uniqueSeasons = [...new Set(teams.map((t: any) => t.seasonId))] as number[];
         let backfilled = 0;
         for (const season of uniqueSeasons) {
           if (season === currentSeason) continue; // already handled above
           
           // Only sync player stats for past seasons, don't worry about leagueTopPerformers cache
-          const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
+          const hasStats = await ctx.runQuery(internal.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
             leagueId: league._id,
             season,
           });
           if (!hasStats) {
-            await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
+            await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, { leagueId: league._id, season });
             await new Promise(resolve => setTimeout(resolve, 500));
             backfilled++;
             if (backfilled >= 1) break; // throttle to 1 season per league per run
           } else {
             // Just ensure denormalized stats exist for past seasons (for queries)
             try {
-              await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
+              await ctx.runMutation(internal.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
                 leagueId: league._id,
                 season,
               });
@@ -302,7 +303,7 @@ export const dailyAllLeaguesPlayerStatsSync = action({
 });
 
 // Initialize player data if empty
-export const initializePlayerData = action({
+export const initializePlayerData = internalAction({
   args: {},
   handler: async (ctx): Promise<{
     status: string;
@@ -313,7 +314,7 @@ export const initializePlayerData = action({
     console.log("Checking if player data initialization is needed...");
     
     // Check if we need historical sync
-    const syncCheck = await ctx.runAction(api.playerHistoricalSync.checkHistoricalSyncNeeded, {});
+    const syncCheck = await ctx.runAction(internal.playerHistoricalSync.checkHistoricalSyncNeeded, {});
     
     if (!syncCheck.needsSync) {
       return {
@@ -325,7 +326,7 @@ export const initializePlayerData = action({
     console.log(`Need to sync ${syncCheck.missingSeasonsCount} seasons`);
     
     // Run historical sync
-    const historicalResult = await ctx.runAction(api.playerHistoricalSync.syncHistoricalPlayers, {
+    const historicalResult = await ctx.runAction(internal.playerHistoricalSync.syncHistoricalPlayers, {
       forceUpdate: false
     });
     
@@ -344,7 +345,7 @@ export const scheduledDailyPlayerSync = internalAction({
     console.log("Running scheduled daily player sync...");
     
     // Run the daily sync without a specific league
-    return await ctx.runAction(api.playerHistoricalSync.dailyPlayerSync, {});
+    return await ctx.runAction(internal.playerHistoricalSync.dailyPlayerSync, {});
   }
 });
 
@@ -366,8 +367,10 @@ export const syncHistoricalLeaguePlayerStats = action({
     }>;
     timestamp: number;
   }> => {
+    await requireLeagueMemberFromAction(ctx, leagueId, { commissioner: true });
+
     console.log(`Starting historical player stats sync for league ${leagueId}`);
-    
+
     // Get league info (internal query, no identity required)
     const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: leagueId });
     if (!league) {
@@ -378,7 +381,7 @@ export const syncHistoricalLeaguePlayerStats = action({
     let seasonsToSync = seasons;
     if (!seasonsToSync) {
       // Get all seasons for this league from teams (no identity required)
-      const teams = await ctx.runQuery(api.teams.getTeamsByLeague, { leagueId });
+      const teams = await ctx.runQuery(internal.teams.getTeamsByLeagueInternal, { leagueId });
       const uniqueSeasons = [...new Set(teams.map((team: any) => team.seasonId))].sort((a, b) => Number(a) - Number(b)) as number[];
       seasonsToSync = uniqueSeasons;
     }
@@ -414,7 +417,7 @@ export const syncHistoricalLeaguePlayerStats = action({
           if (existingCache) {
             // If cache exists but stats may be missing denormalized fields, run a lightweight recompute path
             try {
-              await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+              await ctx.runMutation(internal.playerSyncInternal.computeLeagueTopPerformers, {
                 leagueId,
                 season,
                 limitPerPosition: 20,
@@ -432,19 +435,19 @@ export const syncHistoricalLeaguePlayerStats = action({
         }
 
         // If no playerStats for this season, perform sync; otherwise skip sync and just compute cache
-        const hasStats = await ctx.runQuery(api.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
+        const hasStats = await ctx.runQuery(internal.playerSyncInternal.hasPlayerStatsForLeagueSeason, {
           leagueId,
           season,
         });
         if (!hasStats) {
-          await ctx.runAction(api.playerSync.syncAllLeaguePlayerStats, { leagueId, season });
+          await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, { leagueId, season });
         } else {
           try {
             // Run backfill in small chunks until no more missing docs are found
             let hasMore = true;
             let iterations = 0;
             while (hasMore && iterations < 5) { // hard stop to keep within cron budget
-              const res = await ctx.runMutation(api.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
+              const res = await ctx.runMutation(internal.playerSyncInternal.backfillLeagueSeasonPlayerStatsDenorm, {
                 leagueId,
                 season,
                 limit: 200,
@@ -459,7 +462,7 @@ export const syncHistoricalLeaguePlayerStats = action({
         }
 
         // Compute top performers cache for this season
-        await ctx.runMutation(api.playerSyncInternal.computeLeagueTopPerformers, {
+        await ctx.runMutation(internal.playerSyncInternal.computeLeagueTopPerformers, {
           leagueId,
           season,
           limitPerPosition: 20,
@@ -497,7 +500,7 @@ export const syncHistoricalLeaguePlayerStats = action({
 });
 
 // Sync player stats for all leagues and all their historical seasons
-export const syncAllLeaguesHistoricalPlayerStats = action({
+export const syncAllLeaguesHistoricalPlayerStats = internalAction({
   args: {},
   handler: async (ctx): Promise<{
     status: string;
@@ -583,6 +586,6 @@ export const scheduledDailyAllLeaguesSync = internalAction({
   handler: async (ctx): Promise<any> => {
     console.log("Running scheduled daily all leagues sync...");
     
-    return await ctx.runAction(api.playerHistoricalSync.dailyAllLeaguesPlayerStatsSync, {});
+    return await ctx.runAction(internal.playerHistoricalSync.dailyAllLeaguesPlayerStatsSync, {});
   }
 });

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action, internalAction } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
-import { internal, api } from "./_generated/api";
+import { internal } from "./_generated/api";
 
 // ESPN News API endpoint
 const ESPN_NEWS_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news";
@@ -71,25 +71,36 @@ function processLinks(links: any) {
   };
 }
 
-export const fetchESPNNews = action({
+// Not called from src/; only invoked internally by the ESPN news sync pipeline in this file.
+export const fetchESPNNews = internalAction({
   args: {
     limit: v.optional(v.number()),
     teamId: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
     try {
       const limit = args.limit || 50;
       const url = new URL(ESPN_NEWS_URL);
       url.searchParams.set("limit", limit.toString());
-      
+
       if (args.teamId) {
         url.searchParams.set("team", args.teamId.toString());
       }
 
       const response = await fetch(url.toString(), {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
+          // Browser-like headers (mirrors the lm-api-reads headers used in espnSync.ts) -
+          // ESPN's public news API started rejecting the bare fetch with 403s.
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://www.espn.com/',
+          'Origin': 'https://www.espn.com',
+        },
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -134,19 +145,23 @@ export const fetchESPNNews = action({
         count: processedArticles.length,
       };
     } catch (error) {
-      console.error("Failed to fetch ESPN news:", error);
+      const message = error instanceof Error ? error.message : "Failed to fetch ESPN news";
+      console.warn(`Failed to fetch ESPN news: ${message}`);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to fetch ESPN news",
+        error: message,
         articles: [],
         count: 0,
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
   },
 });
 
 // Fetch news with pagination support
-export const fetchESPNNewsPaginated = action({
+// Not called from src/; kept for future pagination use by the internal news sync pipeline.
+export const fetchESPNNewsPaginated = internalAction({
   args: {
     limit: v.optional(v.number()),
     offset: v.optional(v.number()),
@@ -157,7 +172,7 @@ export const fetchESPNNewsPaginated = action({
     // We'll fetch more items and slice them client-side if needed
     const totalLimit = (args.limit || 50) + (args.offset || 0);
     
-    const result: any = await ctx.runAction(api.espnNews.fetchESPNNews, {
+    const result: any = await ctx.runAction(internal.espnNews.fetchESPNNews, {
       limit: Math.min(totalLimit, 1000), // Cap at 1000 to avoid huge requests
       teamId: args.teamId,
     });
@@ -181,7 +196,8 @@ export const fetchESPNNewsPaginated = action({
 });
 
 // Sync news - fetch and store in one action
-export const syncESPNNews = action({
+// Not called from src/; only invoked internally by scheduledNewsSync (cron) below.
+export const syncESPNNews = internalAction({
   args: {
     limit: v.optional(v.number()),
     teamId: v.optional(v.number()),
@@ -189,7 +205,7 @@ export const syncESPNNews = action({
   handler: async (ctx, args) => {
     try {
       // Fetch news from ESPN
-      const fetchResult: any = await ctx.runAction(api.espnNews.fetchESPNNews, {
+      const fetchResult: any = await ctx.runAction(internal.espnNews.fetchESPNNews, {
         limit: args.limit,
         teamId: args.teamId,
       });
@@ -203,7 +219,7 @@ export const syncESPNNews = action({
       }
 
       // Store the articles in the database
-      const storeResult: any = await ctx.runMutation(api.news.storeNewsArticles, {
+      const storeResult: any = await ctx.runMutation(internal.news.storeNewsArticles, {
         articles: fetchResult.articles,
       });
 
@@ -239,7 +255,7 @@ export const scheduledNewsSync = internalAction({
     
     try {
       // Sync general NFL news
-      const result = await ctx.runAction(api.espnNews.syncESPNNews, {
+      const result = await ctx.runAction(internal.espnNews.syncESPNNews, {
         limit: 100, // Fetch more articles during scheduled sync
       });
 
@@ -250,7 +266,7 @@ export const scheduledNewsSync = internalAction({
       }
 
       // Optional: Clean up old articles (keep last 30 days)
-      const cleanupResult = await ctx.runMutation(api.news.deleteOldArticles, {
+      const cleanupResult = await ctx.runMutation(internal.news.deleteOldArticles, {
         daysToKeep: 30,
       });
 

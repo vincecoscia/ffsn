@@ -28,6 +28,7 @@ import type * as espnNews from "../espnNews.js";
 import type * as espnStatsMapping from "../espnStatsMapping.js";
 import type * as espnSync from "../espnSync.js";
 import type * as leagues from "../leagues.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as lib_season from "../lib/season.js";
 import type * as matchupRosters from "../matchupRosters.js";
 import type * as matchups from "../matchups.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   espnStatsMapping: typeof espnStatsMapping;
   espnSync: typeof espnSync;
   leagues: typeof leagues;
+  "lib/auth": typeof lib_auth;
   "lib/season": typeof lib_season;
   matchupRosters: typeof matchupRosters;
   matchups: typeof matchups;

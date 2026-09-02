@@ -28,10 +28,9 @@ export default function CommentConversation({ commentRequestId, onClose }: Comme
     commentRequestId,
   });
 
-  // Get request details
-  const requests = useQuery(api.commentConversations.getActiveRequests, {
-    userId: "" as Id<"users">, // This will be fixed by the component that uses this
-  });
+  // Get request details for the signed-in user. getActiveRequests derives
+  // the target user from the caller's own identity server-side.
+  const requests = useQuery(api.commentConversations.getActiveRequests, {});
 
   const currentRequest = requests?.find(r => r._id === commentRequestId);
 

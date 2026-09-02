@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action, internalMutation } from "./_generated/server";
+import { internalAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { transformStats } from "./espnStatsMapping";
@@ -65,7 +65,10 @@ const transformRosterData = (rosterData: any) => {
 };
 
 // Fetch matchup rosters for specific scoring periods
-export const fetchMatchupRosters = action({
+// Not called from src/; only invoked internally as part of the ESPN sync pipeline
+// (espnSync.ts), so this is internal-only. See convex/lib/auth.ts for the
+// authorization model applied to the public entry points that trigger it.
+export const fetchMatchupRosters = internalAction({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),

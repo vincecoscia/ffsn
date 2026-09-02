@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { action, internalMutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import Stripe from "stripe";
+import { requireIdentity } from "./lib/auth";
 
 // Initialize Stripe with the secret key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -14,9 +15,11 @@ export const createLeagueCheckoutSession = action({
     leagueId: v.string(),
     leagueName: v.string(),
     userEmail: v.string(),
-    userId: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const userId = identity.subject;
+
     try {
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -37,7 +40,7 @@ export const createLeagueCheckoutSession = action({
         ],
         customer_email: args.userEmail,
         metadata: {
-          userId: args.userId,
+          userId,
           leagueId: args.leagueId,
           leagueName: args.leagueName,
           paymentType: "league_creation",
@@ -70,12 +73,14 @@ export const createLeagueCheckoutSession = action({
 // Credits purchase checkout session - $9.99 for 100 credits
 export const createCreditsCheckoutSession = action({
   args: {
-    userId: v.string(),
     userEmail: v.string(),
     creditsAmount: v.number(), // Number of credits to purchase (e.g., 100)
     leagueId: v.optional(v.id("leagues")),
   },
   handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const userId = identity.subject;
+
     try {
       const pricePerCredit = 0.0999; // $9.99 for 100 credits = $0.0999 per credit
       const totalAmount = Math.round(args.creditsAmount * pricePerCredit * 100); // Convert to cents
@@ -98,7 +103,7 @@ export const createCreditsCheckoutSession = action({
         ],
         customer_email: args.userEmail,
         metadata: {
-          userId: args.userId,
+          userId,
           paymentType: "credits_purchase",
           amount: totalAmount.toString(), // Amount in cents for webhook processing
           creditsPurchased: args.creditsAmount.toString(),

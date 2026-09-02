@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { requireIdentity } from "./lib/auth";
 
 // Grant credits to a user (internal function)
 export const grantCredits = internalMutation({
@@ -457,6 +458,8 @@ export const calculateContentCost = query({
     wordCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
     // Define credit costs for different content types
     const baseCosts: Record<string, number> = {
       "weekly_recap": 15,

@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { internal, api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
+import { requireLeagueMember, requireCommissioner } from "./lib/auth";
 
 // Default content schedule configurations
 const DEFAULT_SCHEDULES = {
@@ -177,6 +178,12 @@ export const createDefaultContentSchedules = internalMutation({
 export const getContentSchedules = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { schedules: [], preferences: null };
+    }
+    await requireLeagueMember(ctx, args.leagueId);
+
     const schedules = await ctx.db
       .query("contentSchedules")
       .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
@@ -203,6 +210,12 @@ export const updateContentSchedule = mutation({
   },
   handler: async (ctx, args) => {
     const { scheduleId, ...updates } = args;
+
+    const schedule = await ctx.db.get(scheduleId);
+    if (!schedule) {
+      throw new Error("Content schedule not found");
+    }
+    await requireCommissioner(ctx, schedule.leagueId);
 
     await ctx.db.patch(scheduleId, {
       ...updates,
@@ -233,6 +246,8 @@ export const updateLeagueContentPreferences = mutation({
     requireApproval: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    await requireCommissioner(ctx, args.leagueId);
+
     const { leagueId, ...updates } = args;
 
     const existing = await ctx.db
@@ -401,7 +416,7 @@ export const processScheduledContent = internalAction({
 
       // Validate content generation is allowed based on NFL season boundaries
       try {
-        const validationResult = await ctx.runQuery(api.nflSeasonBoundaries.isContentGenerationAllowed, {
+        const validationResult = await ctx.runQuery(internal.nflSeasonBoundaries.isContentGenerationAllowed, {
           contentType: scheduledContent.contentType,
           leagueId: scheduledContent.leagueId,
           date: Date.now(),
@@ -699,7 +714,7 @@ export const scheduleWeeklyContentCron = internalAction({
     // Get current NFL season phase for smart scheduling decisions
     let currentSeasonPhase: string = "UNKNOWN";
     try {
-      const seasonPhaseInfo = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonPhase, {});
+      const seasonPhaseInfo = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonPhase, {});
       currentSeasonPhase = seasonPhaseInfo?.phase || "UNKNOWN";
       console.log(`Current NFL season phase: ${currentSeasonPhase}`);
     } catch (error) {
@@ -904,7 +919,7 @@ function calculateNextWeeklyOccurrence(schedule: any): number {
 // Helper function to get current NFL week using the robust season boundary system
 async function getCurrentNFLWeek(ctx: any): Promise<number> {
   try {
-    return await ctx.runQuery(api.nflSeasonBoundaries.getCurrentNFLWeek, {});
+    return await ctx.runQuery(internal.nflSeasonBoundaries.getCurrentNFLWeek, {});
   } catch (error) {
     console.error("Error getting current NFL week, falling back to default:", error);
 
@@ -914,7 +929,7 @@ async function getCurrentNFLWeek(ctx: any): Promise<number> {
     try {
       const nowMs = Date.now();
       const year = nflSeasonYearFor(new Date(nowMs));
-      const boundaries = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonBoundaries, { year });
+      const boundaries = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonBoundaries, { year });
       if (boundaries) {
         const match = boundaries.weekBoundaries.find(
           (b: { week: number; start: number; end: number }) => nowMs >= b.start && nowMs <= b.end
@@ -1031,7 +1046,7 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
     // Get current NFL season phase for intelligent filtering
     let currentSeasonPhase: string = "UNKNOWN";
     try {
-      const seasonPhaseInfo = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonPhase, {});
+      const seasonPhaseInfo = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonPhase, {});
       currentSeasonPhase = seasonPhaseInfo?.phase || "UNKNOWN";
       console.log(`Current NFL season phase: ${currentSeasonPhase}`);
     } catch (error) {
@@ -1099,7 +1114,7 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
           leagueId: s.leagueId,
         });
         const seasonId = leagueSeason?.seasonId || new Date().getFullYear();
-        const seasonData = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonBoundaries, { year: seasonId });
+        const seasonData = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonBoundaries, { year: seasonId });
         if (!seasonData) continue;
 
         if (s.schedule.type === "relative" && s.schedule.relativeTo === "draft_date") {
@@ -1133,7 +1148,7 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
           leagueId: s.leagueId,
         });
         const seasonId = leagueSeason?.seasonId || new Date().getFullYear();
-        const seasonData = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonBoundaries, { year: seasonId });
+        const seasonData = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonBoundaries, { year: seasonId });
         if (!seasonData) { skipped += 1; continue; }
         const tz = s.timezone || "America/New_York";
 

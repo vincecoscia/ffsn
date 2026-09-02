@@ -3,6 +3,7 @@ import { mutation, query, internalAction, internalMutation, internalQuery } from
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
+import { getLeagueMembership, requireCommissioner } from "./lib/auth";
 
 // Helper function to identify defense positions
 function isDefensePosition(position: string): boolean {
@@ -660,15 +661,15 @@ export const sendInitialRequests = internalAction({
   },
 });
 
-// Internal queries and mutations
-export const getRequestsForLeague = query({
+// No src/ caller - internal only.
+export const getRequestsForLeague = internalQuery({
   args: {
     scheduledContentId: v.id("scheduledContent"),
   },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("commentRequests")
-      .withIndex("by_scheduled_content", q => 
+      .withIndex("by_scheduled_content", q =>
         q.eq("scheduledContentId", args.scheduledContentId)
       )
       .filter(q => q.eq(q.field("status"), "pending"))
@@ -676,7 +677,8 @@ export const getRequestsForLeague = query({
   },
 });
 
-export const getConversationContext = query({
+// No src/ caller - internal only.
+export const getConversationContext = internalQuery({
   args: {
     commentRequestId: v.id("commentRequests"),
   },
@@ -990,14 +992,15 @@ export const expireOldRequests = internalAction({
   },
 });
 
-export const getActiveRequests = query({
+// No src/ caller - internal only. (Distinct from commentConversations.getActiveRequests.)
+export const getActiveRequests = internalQuery({
   args: {
     scheduledContentId: v.id("scheduledContent"),
   },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("commentRequests")
-      .withIndex("by_scheduled_content", q => 
+      .withIndex("by_scheduled_content", q =>
         q.eq("scheduledContentId", args.scheduledContentId)
       )
       .filter(q => q.eq(q.field("status"), "active"))
@@ -1005,12 +1008,31 @@ export const getActiveRequests = query({
   },
 });
 
-// Get a specific comment request by ID (any status) with light enrichment
+// Get a specific comment request by ID (any status) with light enrichment.
+// Used by the comment-request response page, so readable only by the
+// request's target user or a commissioner of its league.
 export const getRequestById = query({
   args: { commentRequestId: v.id("commentRequests") },
   handler: async (ctx, args) => {
     const request = await ctx.db.get(args.commentRequestId);
     if (!request) return null;
+
+    const identity = await ctx.auth.getUserIdentity();
+    let isTargetUser = false;
+    if (identity) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+        .unique();
+      isTargetUser = !!user && user._id === request.targetUserId;
+    }
+
+    if (!isTargetUser) {
+      const membership = await getLeagueMembership(ctx, request.leagueId);
+      if (!membership || membership.membership.role !== "commissioner") {
+        return null;
+      }
+    }
 
     const scheduledContent = request.scheduledContentId ? await ctx.db.get(request.scheduledContentId) : null;
     const league = await ctx.db.get(request.leagueId);
@@ -1057,8 +1079,8 @@ export const expireRequest = internalMutation({
   },
 });
 
-// Get comment requests for a league
-export const getLeagueCommentRequests = query({
+// Get comment requests for a league. No src/ caller - internal only.
+export const getLeagueCommentRequests = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     status: v.optional(v.union(
@@ -1111,6 +1133,8 @@ export const triggerCommentRequests = mutation({
   handler: async (ctx, args) => {
     const scheduledContent = await ctx.db.get(args.scheduledContentId);
     if (!scheduledContent) throw new Error("Scheduled content not found");
+
+    await requireCommissioner(ctx, scheduledContent.leagueId);
 
     // Get target users if not specified
     let targetUserIds = args.userIds;

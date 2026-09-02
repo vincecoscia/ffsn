@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { mutation, action, internalMutation, internalAction } from "./_generated/server";
-import { internal, api } from "./_generated/api";
+import { internalMutation, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
 import type { MutationCtx } from "./_generated/server";
@@ -277,7 +277,7 @@ async function insertSeasonIfMissing(
  * Setup NFL season data for 2025
  * This function initializes the 2025 NFL season with accurate dates
  */
-export const setup2025Season = mutation({
+export const setup2025Season = internalMutation({
   args: {},
   handler: async (ctx): Promise<{ success: boolean; seasonId?: Id<"nflSeasons">; year?: number; message: string }> => {
     return await insertSeasonIfMissing(ctx, 2025, KNOWN_SEASONS[2025]);
@@ -287,7 +287,7 @@ export const setup2025Season = mutation({
 /**
  * Setup NFL season data for 2024 (for testing with historical data)
  */
-export const setup2024Season = mutation({
+export const setup2024Season = internalMutation({
   args: {},
   handler: async (ctx): Promise<{ success: boolean; seasonId?: Id<"nflSeasons">; year?: number; message: string }> => {
     return await insertSeasonIfMissing(ctx, 2024, KNOWN_SEASONS[2024]);
@@ -299,7 +299,7 @@ export const setup2024Season = mutation({
  * Week boundaries are confirmed against ESPN's real 2026 schedule; playoff
  * and Super Bowl dates are the actual published 2026-27 postseason dates.
  */
-export const setup2026Season = mutation({
+export const setup2026Season = internalMutation({
   args: {},
   handler: async (ctx): Promise<{ success: boolean; seasonId?: Id<"nflSeasons">; year?: number; message: string }> => {
     return await insertSeasonIfMissing(ctx, 2026, KNOWN_SEASONS[2026]);
@@ -339,8 +339,12 @@ export const ensureCurrentSeason = internalMutation({
     const now = new Date();
     const currentYear = nflSeasonYearFor(now);
     const yearsToCheck = [currentYear];
-    // From July onward, also seed next season so it's ready well before kickoff.
-    if (now.getMonth() >= 6) {
+    // Between May and July we are in the offseason of `currentYear` and the upcoming
+    // season is `currentYear + 1`; ESPN publishes that schedule in May, so this is the
+    // only window where deriving it can succeed. Outside it, attempting next year just
+    // produces a daily 404 (e.g. 2027 in September 2026).
+    const month = now.getMonth();
+    if (month >= 4 && month <= 6) {
       yearsToCheck.push(currentYear + 1);
     }
 
@@ -565,20 +569,20 @@ export const deriveSeasonFromEspn = internalAction({
 /**
  * Initialize both 2024 and 2025 seasons
  */
-export const initializeBothSeasons = action({
+export const initializeBothSeasons = internalAction({
   args: {},
   handler: async (ctx): Promise<{ results: Array<{ year: number; success: boolean; seasonId?: Id<"nflSeasons">; message?: string; error?: string }> }> => {
     const results = [];
 
     try {
-      const result2024 = await ctx.runMutation(api.nflSeasonSetup.setup2024Season, {});
+      const result2024 = await ctx.runMutation(internal.nflSeasonSetup.setup2024Season, {});
       results.push({ year: 2024, ...result2024 });
     } catch (error) {
       results.push({ year: 2024, success: false, error: (error as Error).message });
     }
 
     try {
-      const result2025 = await ctx.runMutation(api.nflSeasonSetup.setup2025Season, {});
+      const result2025 = await ctx.runMutation(internal.nflSeasonSetup.setup2025Season, {});
       results.push({ year: 2025, ...result2025 });
     } catch (error) {
       results.push({ year: 2025, success: false, error: (error as Error).message });
@@ -591,14 +595,14 @@ export const initializeBothSeasons = action({
 /**
  * Get current season info (for debugging/admin purposes)
  */
-export const getCurrentSeasonInfo = action({
+export const getCurrentSeasonInfo = internalAction({
   args: {},
   handler: async (ctx): Promise<{ success: boolean; date: string; seasonPhase?: any; currentWeek?: number; error?: string }> => {
     const now = Date.now();
 
     try {
-      const seasonPhase = await ctx.runQuery(api.nflSeasonBoundaries.getNFLSeasonPhase, { date: now });
-      const currentWeek = await ctx.runQuery(api.nflSeasonBoundaries.getCurrentNFLWeek, { date: now });
+      const seasonPhase = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonPhase, { date: now });
+      const currentWeek = await ctx.runQuery(internal.nflSeasonBoundaries.getCurrentNFLWeek, { date: now });
 
       return {
         success: true,
@@ -619,7 +623,7 @@ export const getCurrentSeasonInfo = action({
 /**
  * Test content generation validation for different scenarios
  */
-export const testContentValidation = action({
+export const testContentValidation = internalAction({
   args: {
     leagueId: v.id("leagues"),
     testDates: v.optional(v.array(v.number())),
@@ -653,7 +657,7 @@ export const testContentValidation = action({
 
       for (const contentType of contentTypes) {
         try {
-          const validation = await ctx.runQuery(api.nflSeasonBoundaries.isContentGenerationAllowed, {
+          const validation = await ctx.runQuery(internal.nflSeasonBoundaries.isContentGenerationAllowed, {
             contentType,
             leagueId,
             date,

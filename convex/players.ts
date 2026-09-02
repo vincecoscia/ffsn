@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
+import { requireLeagueMember } from "./lib/auth";
 
 // Helper function to extract actual stats from playerStats.stats array
 function extractActualStats(playerStatsRecord: any, seasonId: number) {
@@ -54,7 +55,11 @@ export const getPlayersByTeam = query({
     // Get the team directly
     const team = await ctx.db.get(args.teamId);
     if (!team || !team.roster) return [];
-    
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, team.leagueId);
+
     // Get the current season (you might want to make this dynamic)
     const currentSeason = new Date().getFullYear();
     
@@ -130,11 +135,15 @@ export const getPlayersByTeam = query({
 });
 
 export const getPlayersWithLeagueStats = query({
-  args: { 
-    leagueId: v.id("leagues"), 
-    seasonId: v.number() 
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number()
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, args.leagueId);
+
     // Get all players enhanced for the given season
     const playersEnhanced = await ctx.db
       .query("playersEnhanced")
@@ -206,11 +215,15 @@ export const getPlayersWithLeagueStats = query({
 
 // Get all league players with their ownership and stats for depth charts
 export const getLeaguePlayersWithStats = query({
-  args: { 
-    leagueId: v.id("leagues"), 
-    seasonId: v.number() 
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number()
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, args.leagueId);
+
     // Get all teams for this league and season
     const teams = await ctx.db
       .query("teams")
@@ -322,12 +335,16 @@ export const getLeaguePlayersWithStats = query({
 
 // Get top performers by position for a league
 export const getTopPerformersByPosition = query({
-  args: { 
-    leagueId: v.id("leagues"), 
+  args: {
+    leagueId: v.id("leagues"),
     seasonId: v.number(),
     limit: v.optional(v.number()) // Default to 1 per position
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return {} as any;
+    await requireLeagueMember(ctx, args.leagueId);
+
     // Read-only query: serve from cache only
     const cached = await ctx.db
       .query("leagueTopPerformers")
@@ -359,17 +376,23 @@ export const getTopPerformersByPosition = query({
 
 // Get players by position with pagination - optimized version
 export const getPlayersByPosition = query({
-  args: { 
-    leagueId: v.id("leagues"), 
+  args: {
+    leagueId: v.id("leagues"),
     seasonId: v.number(),
     position: v.optional(v.string()), // If not provided, returns all
     limit: v.optional(v.number()),
     offset: v.optional(v.number())
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { players: [], total: 0, hasMore: false };
+    }
+    await requireLeagueMember(ctx, args.leagueId);
+
     const limit = args.limit || 50;
     const offset = args.offset || 0;
-    
+
     // Since we can't use ctx.runQuery here, let's create a simplified version
     // that reuses the logic but with limits to prevent massive queries
     
@@ -476,13 +499,17 @@ export const getPlayersByPosition = query({
 
 // Get free agents (players not on any roster) with stats
 export const getFreeAgentsWithStats = query({
-  args: { 
-    leagueId: v.id("leagues"), 
+  args: {
+    leagueId: v.id("leagues"),
     seasonId: v.number(),
     position: v.optional(v.string()),
     limit: v.optional(v.number())
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, args.leagueId);
+
     const limit = args.limit || 100;
     const candidateCap = Math.min(500, limit * 15);
 

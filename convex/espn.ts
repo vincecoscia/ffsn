@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { action } from "./_generated/server";
 import { v } from "convex/values";
+import { requireIdentity } from "./lib/auth";
 
 // Helper function to fetch draft data for a specific season
 async function fetchDraftData(leagueId: string, season: number, headers: HeadersInit): Promise<any> {
@@ -101,6 +102,20 @@ export const fetchLeagueData = action({
     swid: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Called during league setup before a league (and therefore a membership row) exists,
+    // so we can only require that the caller is signed in.
+    await requireIdentity(ctx);
+
+    // args.leagueId is the ESPN external league id and is interpolated directly into the
+    // ESPN request URLs below (here and in fetchDraftData/fetchHistoricalData). Reject
+    // anything that isn't a plain numeric id before it ever reaches a fetch() call.
+    if (!/^\d+$/.test(args.leagueId)) {
+      return {
+        success: false,
+        error: "Invalid League ID. ESPN league IDs are numeric.",
+      };
+    }
+
     try {
       // Use fetch API to call ESPN directly in the Convex runtime
       const currentYear = new Date().getFullYear();

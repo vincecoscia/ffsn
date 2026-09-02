@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 // Create comment requests and wait for responses
@@ -16,6 +16,11 @@ export const createCommentRequestsAndWait = internalAction({
     week: v.optional(v.number()),
     targetUserIds: v.array(v.string()),
     articleGenerationTime: v.number(), // Unix timestamp of when to generate the article
+    // Set by createGenerationWithComments when it already deducted credits
+    // up front. Forwarded through checkAndGenerate/checkIfAllResponsesReceived
+    // -> generateWithComments -> generateContentAction, and refunded here on
+    // failure instead of being silently lost.
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     console.log("=== Creating comment requests for content generation ===");
@@ -42,6 +47,7 @@ export const createCommentRequestsAndWait = internalAction({
           userId: args.userId,
           seasonId: args.seasonId,
           week: args.week,
+          creditsDeductedUpFront: args.creditsDeductedUpFront,
         });
         return;
       }
@@ -149,8 +155,9 @@ export const createCommentRequestsAndWait = internalAction({
         seasonId: args.seasonId,
         week: args.week,
         commentRequestIds,
+        creditsDeductedUpFront: args.creditsDeductedUpFront,
       });
-      
+
       // Also schedule periodic checks to see if all responses are collected
       const timeUntilGeneration = args.articleGenerationTime - Date.now();
       for (let i = 1; i <= 4; i++) {
@@ -165,14 +172,46 @@ export const createCommentRequestsAndWait = internalAction({
           seasonId: args.seasonId,
           week: args.week,
           commentRequestIds,
+          creditsDeductedUpFront: args.creditsDeductedUpFront,
         });
       }
-      
+
     } catch (error) {
       console.error("Error in createCommentRequestsAndWait:", error);
-      
+
+      // If credits were deducted up front (createGenerationWithComments),
+      // refund them now - the user paid for content that was never even
+      // queued for generation. Captured rather than swallowed: a refund
+      // failure is logged loudly rather than dropped, matching
+      // generateContentAction's refund-on-failure handling.
+      if (args.creditsDeductedUpFront) {
+        try {
+          let creditUserId = args.userId;
+          if (creditUserId === "system") {
+            const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+              leagueId: args.leagueId,
+            });
+            if (league?.commissionerUserId) {
+              creditUserId = league.commissionerUserId;
+            }
+          }
+
+          if (creditUserId !== "system") {
+            await ctx.runMutation(internal.credits.refundCredits, {
+              userId: creditUserId,
+              amount: args.creditsDeductedUpFront,
+              description: `Refund: failed AI content generation (${args.contentType})`,
+              leagueId: args.leagueId,
+              relatedContentId: args.articleId,
+            });
+          }
+        } catch (e) {
+          console.error("Failed to refund credits after comment-request creation failure:", e);
+        }
+      }
+
       // Update article status to failed
-      await ctx.runMutation(api.aiContent.updateContentStatus, {
+      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
         status: "failed",
         error: error instanceof Error ? error.message : "Failed to create comment requests",
@@ -372,32 +411,33 @@ export const checkIfAllResponsesReceived = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     commentRequestIds: v.array(v.id("commentRequests")),
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Check if article is still waiting
     const article = await ctx.runQuery(internal.aiContentWithComments.getArticle, {
       articleId: args.articleId,
     });
-    
+
     if (!article || article.status !== "waiting_for_comments") {
       // Don't log anything - this is expected behavior when article completes early
       return;
     }
-    
+
     // Check if all comment requests have responses
     const allResponses = await ctx.runQuery(internal.aiContentWithComments.checkAllResponsesReceived, {
       commentRequestIds: args.commentRequestIds,
     });
-    
+
     if (allResponses) {
       console.log("All comment responses received, generating content");
-      
+
       // Update article status immediately to prevent other scheduled checks from running
-      await ctx.runMutation(api.aiContent.updateContentStatus, {
+      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
         status: "generating",
       });
-      
+
       // Generate content with comments
       await ctx.runAction(internal.aiContentWithComments.generateWithComments, {
         articleId: args.articleId,
@@ -409,6 +449,7 @@ export const checkIfAllResponsesReceived = internalAction({
         seasonId: args.seasonId,
         week: args.week,
         commentRequestIds: args.commentRequestIds,
+        creditsDeductedUpFront: args.creditsDeductedUpFront,
       });
     }
   },
@@ -426,31 +467,32 @@ export const checkAndGenerate = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     commentRequestIds: v.array(v.id("commentRequests")),
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Check if article is still waiting
     const article = await ctx.runQuery(internal.aiContentWithComments.getArticle, {
       articleId: args.articleId,
     });
-    
+
     if (!article || article.status !== "waiting_for_comments") {
       // Don't log anything - this is expected behavior when article completes early
       return;
     }
-    
+
     console.log("Comment request period expired, generating content with available responses");
-    
+
     // First, expire all pending/active comment requests for this article
     await ctx.runMutation(internal.aiContentWithComments.expireCommentRequests, {
       commentRequestIds: args.commentRequestIds,
     });
-    
+
     // Update article status immediately to prevent other scheduled checks from running
-    await ctx.runMutation(api.aiContent.updateContentStatus, {
+    await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
       articleId: args.articleId,
       status: "generating",
     });
-    
+
     // Generate content with whatever comments we have
     await ctx.runAction(internal.aiContentWithComments.generateWithComments, {
       articleId: args.articleId,
@@ -462,6 +504,7 @@ export const checkAndGenerate = internalAction({
       seasonId: args.seasonId,
       week: args.week,
       commentRequestIds: args.commentRequestIds,
+      creditsDeductedUpFront: args.creditsDeductedUpFront,
     });
   },
 });
@@ -478,6 +521,7 @@ export const generateWithComments = internalAction({
     seasonId: v.optional(v.number()),
     week: v.optional(v.number()),
     commentRequestIds: v.array(v.id("commentRequests")),
+    creditsDeductedUpFront: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Get comment responses
@@ -511,6 +555,7 @@ export const generateWithComments = internalAction({
       userId: args.userId,
       seasonId: args.seasonId,
       week: args.week,
+      creditsDeductedUpFront: args.creditsDeductedUpFront,
     });
   },
 });

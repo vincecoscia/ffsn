@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { Doc } from "./_generated/dataModel";
+import { requireLeagueMember } from "./lib/auth";
 
 export const getTransactionsBySeason = query({
   args: {
@@ -8,6 +9,12 @@ export const getTransactionsBySeason = query({
     seasonId: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { transactions: [], groupedBySeasons: {}, seasons: [] };
+    }
+    await requireLeagueMember(ctx, args.leagueId);
+
     const { leagueId, seasonId } = args;
 
     // Get all transactions for the league
@@ -159,6 +166,12 @@ export const getTransactionsByWeek = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { transactions: [], hasMore: false, nextCursor: null };
+    }
+    await requireLeagueMember(ctx, args.leagueId);
+
     const { leagueId, seasonId, scoringPeriod, limit = 50 } = args;
 
     // Get transactions for specific week, excluding draft and roster types
@@ -285,12 +298,16 @@ export const getAvailableWeeks = query({
     seasonId: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, args.leagueId);
+
     const { leagueId, seasonId } = args;
 
     // Get all transactions for the season
     const transactions = await ctx.db
       .query("transactions")
-      .withIndex("by_season", (q) => 
+      .withIndex("by_season", (q) =>
         q.eq("leagueId", leagueId).eq("seasonId", seasonId)
       )
       .collect();
@@ -334,6 +351,10 @@ export const getDraftTransactions = query({
     seasonId: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, args.leagueId);
+
     const { leagueId, seasonId } = args;
 
     // Get all DRAFT transactions
@@ -446,6 +467,10 @@ export const getTradeTransactions = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    await requireLeagueMember(ctx, args.leagueId);
+
     const { leagueId, seasonId, limit = 50 } = args;
 
     // Get TRADE_ACCEPT transactions for the specific season

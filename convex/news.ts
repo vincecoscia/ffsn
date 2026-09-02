@@ -1,8 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
+import { requireIdentity } from "./lib/auth";
 
 // Store news articles (upsert based on espnId)
-export const storeNewsArticles = mutation({
+// Internal: only the ESPN news sync (cron) writes news.
+export const storeNewsArticles = internalMutation({
   args: {
     articles: v.array(v.object({
       espnId: v.string(),
@@ -93,6 +95,8 @@ export const getLatestNews = query({
     type: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
     const limit = args.limit || 20;
     const offset = args.offset || 0;
 
@@ -144,6 +148,8 @@ export const getNewsArticle = query({
     espnId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
     const article = await ctx.db
       .query("espnNews")
       .withIndex("by_espn_id", q => q.eq("espnId", args.espnId))
@@ -160,6 +166,8 @@ export const getNewsByTeam = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
     const limit = args.limit || 10;
 
     // Get all news and filter by team
@@ -186,6 +194,8 @@ export const getNewsByAthlete = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
     const limit = args.limit || 10;
 
     // Get all news and filter by athlete
@@ -208,6 +218,8 @@ export const getNewsByAthlete = query({
 // Get news stats
 export const getNewsStats = query({
   handler: async (ctx) => {
+    await requireIdentity(ctx);
+
     const allNews = await ctx.db.query("espnNews").collect();
     
     const totalArticles = allNews.length;
@@ -244,7 +256,8 @@ export const getNewsStats = query({
 });
 
 // Delete old articles (cleanup)
-export const deleteOldArticles = mutation({
+// Internal: only the ESPN news sync (cron) writes news.
+export const deleteOldArticles = internalMutation({
   args: {
     daysToKeep: v.number(),
   },

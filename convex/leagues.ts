@@ -546,3 +546,17 @@ export const clearAllLeagueData = mutation({
     return { cleared: true };
   },
 });
+// Membership role lookup for action-side auth checks (see convex/lib/auth.ts
+// requireLeagueMemberFromAction). Internal only: takes the userId as an argument.
+export const getMembershipRoleInternal = internalQuery({
+  args: { leagueId: v.id("leagues"), userId: v.string() },
+  handler: async (ctx, args): Promise<"commissioner" | "member" | null> => {
+    const membership = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_league_user", (q) =>
+        q.eq("leagueId", args.leagueId).eq("userId", args.userId)
+      )
+      .first();
+    return membership?.role ?? null;
+  },
+});

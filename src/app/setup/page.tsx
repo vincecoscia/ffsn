@@ -193,7 +193,6 @@ export default function SetupPage() {
         leagueId: leagueId,
         leagueName: formData.leagueName,
         userEmail: user.primaryEmailAddress.emailAddress,
-        userId: user.id,
       });
 
       if (result.success && result.url) {

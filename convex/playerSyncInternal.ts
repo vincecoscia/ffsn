@@ -1,7 +1,8 @@
-import { mutation, query } from "./_generated/server";
+import { query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { transformStats } from "./espnStatsMapping";
 import { leagueCurrentSeason } from "./lib/season";
+import { requireIdentity, requireLeagueMember } from "./lib/auth";
 
 // Helper function to process and transform player stats
 const processPlayerStats = (stats: any[] | undefined, scoringPeriodId: number = 0) => {
@@ -23,7 +24,7 @@ const processPlayerStats = (stats: any[] | undefined, scoringPeriodId: number = 
 };
 
 // Mutations
-export const upsertPlayersBatch = mutation({
+export const upsertPlayersBatch = internalMutation({
   args: {
     season: v.number(),
     players: v.array(v.object({
@@ -96,7 +97,7 @@ export const upsertPlayersBatch = mutation({
   },
 });
 
-export const updateLeaguePlayerStatuses = mutation({
+export const updateLeaguePlayerStatuses = internalMutation({
   args: {
     updates: v.array(v.object({
       leagueId: v.id("leagues"),
@@ -153,7 +154,7 @@ export const updateLeaguePlayerStatuses = mutation({
   },
 });
 
-export const updateSyncStatus = mutation({
+export const updateSyncStatus = internalMutation({
   args: {
     season: v.number(),
     status: v.union(v.literal("syncing"), v.literal("completed"), v.literal("failed")),
@@ -176,7 +177,7 @@ export const updateSyncStatus = mutation({
   },
 });
 
-export const createSyncStatus = mutation({
+export const createSyncStatus = internalMutation({
   args: {
     type: v.string(),
     season: v.number(),
@@ -213,6 +214,9 @@ export const getSyncStatus = query({
     type: v.optional(v.string()),
   },
   handler: async (ctx, { season, type = "all" }) => {
+    // Global (non-league-scoped) sync status; just require sign-in.
+    await requireIdentity(ctx);
+
     return await ctx.db
       .query("playerSyncStatus")
       .withIndex("by_type_season", (q) => q.eq("type", type).eq("season", season))
@@ -220,7 +224,7 @@ export const getSyncStatus = query({
   },
 });
 
-export const checkSyncStatus = query({
+export const checkSyncStatus = internalQuery({
   args: {
     type: v.string(),
     season: v.number(),
@@ -240,6 +244,8 @@ export const getLeagueFreeAgents = query({
     position: v.optional(v.string()),
   },
   handler: async (ctx, { leagueId, limit = 50, position }) => {
+    await requireLeagueMember(ctx, leagueId);
+
     const league = await ctx.db.get(leagueId);
     const season = leagueCurrentSeason(league);
 
@@ -283,7 +289,7 @@ export const getLeagueFreeAgents = query({
 });
 
 // Get all players for a season
-export const getAllPlayersForSeason = query({
+export const getAllPlayersForSeason = internalQuery({
   args: {
     season: v.number(),
   },
@@ -297,7 +303,7 @@ export const getAllPlayersForSeason = query({
 });
 
 // Upsert batch of player stats
-export const upsertPlayerStatsBatch = mutation({
+export const upsertPlayerStatsBatch = internalMutation({
   args: {
     playerStats: v.array(v.object({
       leagueId: v.id("leagues"),
@@ -401,6 +407,8 @@ export const getPlayersWithLeagueStats = query({
     season: v.number(),
   },
   handler: async (ctx, { leagueId, playerIds, season }) => {
+    await requireLeagueMember(ctx, leagueId);
+
     // Get base player info
     const players = await Promise.all(
       playerIds.map(async (playerId) => {
@@ -443,10 +451,12 @@ export const getLeagueFreeAgentsWithStats = query({
     season: v.number(),
   },
   handler: async (ctx, { leagueId, limit = 50, position, season }) => {
+    await requireLeagueMember(ctx, leagueId);
+
     // Get free agent statuses
     const query = ctx.db
       .query("leaguePlayerStatus")
-      .withIndex("by_league_status", (q) => 
+      .withIndex("by_league_status", (q) =>
         q.eq("leagueId", leagueId).eq("status", "free_agent")
       );
     
@@ -499,7 +509,7 @@ export const getLeagueFreeAgentsWithStats = query({
 });
 
 // Mutation to refresh cached top performers (called by cron or manually)
-export const refreshLeagueTopPerformers = mutation({
+export const refreshLeagueTopPerformers = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),
@@ -540,7 +550,7 @@ export const refreshLeagueTopPerformers = mutation({
 });
 
 // Compute and upsert leagueTopPerformers from denormalized playerStats using indexes
-export const computeLeagueTopPerformers = mutation({
+export const computeLeagueTopPerformers = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),
@@ -637,6 +647,8 @@ export const getTopPerformersCache = query({
     season: v.number(),
   },
   handler: async (ctx, { leagueId, season }) => {
+    await requireLeagueMember(ctx, leagueId);
+
     return await ctx.db
       .query("leagueTopPerformers")
       .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("season", season))
@@ -645,7 +657,7 @@ export const getTopPerformersCache = query({
 });
 
 // Query: do we have any playerStats for league+season
-export const hasPlayerStatsForLeagueSeason = query({
+export const hasPlayerStatsForLeagueSeason = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),
@@ -660,7 +672,7 @@ export const hasPlayerStatsForLeagueSeason = query({
 });
 
 // Backfill denormalized fields (position, actualAppliedTotal, actualAppliedAverage) for a league/season
-export const backfillLeagueSeasonPlayerStatsDenorm = mutation({
+export const backfillLeagueSeasonPlayerStatsDenorm = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     season: v.number(),

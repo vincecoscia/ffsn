@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { query, mutation, action, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { v } from "convex/values";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { contentTemplates } from "../src/lib/ai/content-templates";
+import { getLeagueMembership, requireCommissioner } from "./lib/auth";
 
 export const getByLeague = query({
   args: { 
@@ -103,13 +104,24 @@ export const getById = query({
   handler: async (ctx, args) => {
     const article = await ctx.db.get(args.articleId);
     if (!article) return null;
-    
+
+    // /articles/[id] is a public page (no login) for published articles, same
+    // reason leagues.getPublicInfo exists, so a published article is readable
+    // by anyone. Anything else (draft, generating, waiting_for_comments,
+    // failed, etc.) is only visible to members of the owning league.
+    if (article.status !== "published") {
+      const membership = await getLeagueMembership(ctx, article.leagueId);
+      if (!membership) {
+        return null;
+      }
+    }
+
     // Add banner image URL if available
     let bannerImageUrl = null;
     if (article.bannerImageId) {
       bannerImageUrl = await ctx.storage.getUrl(article.bannerImageId);
     }
-    
+
     return {
       ...article,
       bannerImageUrl,
@@ -305,6 +317,27 @@ export const createGenerationWithComments = mutation({
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
     }
 
+    // Check if user has sufficient credits before scheduling any generation
+    // work (mirrors createGenerationRequest above).
+    const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
+      userId: identity.subject,
+      requiredAmount: template.creditCost,
+    });
+
+    if (!userCredits.hasSufficientCredits) {
+      throw new Error(`Insufficient credits. Required: ${template.creditCost}, Available: ${userCredits.currentBalance}`);
+    }
+
+    // Deduct credits up front, before scheduling comment collection /
+    // generation, so concurrent requests can't spend more than the user's
+    // balance allows.
+    await ctx.runMutation(internal.credits.deductCredits, {
+      userId: identity.subject,
+      amount: template.creditCost,
+      description: `AI content generation with comments: ${args.type}`,
+      leagueId: args.leagueId,
+    });
+
     // Create a generation request in "waiting_for_comments" status
     const articleId = await ctx.db.insert("aiContent", {
       leagueId: args.leagueId,
@@ -327,7 +360,11 @@ export const createGenerationWithComments = mutation({
       },
     });
 
-    // Schedule comment request creation and waiting logic
+    // Schedule comment request creation and waiting logic.
+    // creditsDeductedUpFront tells the chain (createCommentRequestsAndWait ->
+    // checkAndGenerate/checkIfAllResponsesReceived -> generateWithComments ->
+    // generateContentAction) the cost was already taken above, so a failure
+    // anywhere along the way refunds instead of deducting again.
     await ctx.scheduler.runAfter(0, internal.aiContentWithComments.createCommentRequestsAndWait, {
       articleId,
       leagueId: args.leagueId,
@@ -339,6 +376,7 @@ export const createGenerationWithComments = mutation({
       week: args.week,
       targetUserIds: args.targetUserIds,
       articleGenerationTime: args.articleGenerationTime,
+      creditsDeductedUpFront: template.creditCost,
     });
 
     return articleId;
@@ -471,7 +509,11 @@ export const generateContentAction = internalAction({
       if (args.contentType === 'mock_draft' || args.contentType === 'weekly_recap' || args.contentType === 'season_welcome' || args.contentType === 'draft_rankings') {
         console.log(`Using scheduled approach for ${args.contentType} generation`);
         
-        // Schedule data preparation step (which will chain the generation step)
+        // Schedule data preparation step (which will chain the generation step).
+        // creditsDeductedUpFront is forwarded so a failure anywhere in the
+        // prepareAIContentData -> generateAIContentWithData chain refunds the
+        // amount this action's caller already deducted, instead of losing
+        // track of it.
         await ctx.scheduler.runAfter(0, internal.aiContentHelpers.prepareAIContentData, {
           articleId: args.articleId,
           leagueId: args.leagueId,
@@ -482,6 +524,7 @@ export const generateContentAction = internalAction({
           seasonId: args.seasonId,
           week: args.week,
           scheduledContentId: args.scheduledContentId,
+          creditsDeductedUpFront: args.creditsDeductedUpFront,
         });
         
         console.log(`${args.contentType} generation scheduled successfully`);
@@ -491,7 +534,7 @@ export const generateContentAction = internalAction({
       // For other content types, use the existing approach
       console.log("Using standard approach for content type:", args.contentType);
       
-      const leagueData = await ctx.runQuery(api.aiContent.getLeagueDataForGeneration, {
+      const leagueData = await ctx.runQuery(internal.aiContent.getLeagueDataForGenerationInternal, {
         leagueId: args.leagueId,
       });
       
@@ -660,7 +703,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       console.log("Content length:", generatedContent.content.length);
 
       // Update the article with generated content
-      await ctx.runMutation(api.aiContent.updateGeneratedContent, {
+      await ctx.runMutation(internal.aiContent.updateGeneratedContent, {
         articleId: args.articleId,
         title: generatedContent.title,
         content: generatedContent.content,
@@ -705,7 +748,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           leagueId: args.leagueId,
         });
         if (preferences?.autoPublish) {
-          await ctx.runMutation(api.aiContent.updateContentStatus, {
+          await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
             articleId: args.articleId,
             status: "published",
           });
@@ -728,7 +771,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           },
         });
         if (storageId) {
-          await ctx.runMutation(api.aiContent.storeBannerImage, {
+          await ctx.runMutation(internal.aiContent.storeBannerImage, {
             articleId: args.articleId,
             storageId,
           });
@@ -809,7 +852,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
       }
 
       // Update article to failed status
-      await ctx.runMutation(api.aiContent.updateContentStatus, {
+      await ctx.runMutation(internal.aiContent.updateContentStatusInternal, {
         articleId: args.articleId,
         status: "failed",
         error: error instanceof Error ? error.message : "Unknown error",
@@ -901,21 +944,13 @@ export const getLeagueDataForGenerationInternal = internalQuery({
   },
 });
 
-// Query to get league data for generation - using enhanced data
-export const getLeagueDataForGeneration = query({
-  args: { leagueId: v.id("leagues") },
-  handler: async (ctx, args): Promise<any> => {
-    return getLeagueDataForGenerationHandler(ctx, args);
-  },
-});
-
 // Shared handler function
 async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any }): Promise<any> {
     console.log("=== getLeagueDataForGeneration START ===");
     console.log("League ID:", args.leagueId);
     
       // Use our enhanced query to get all enriched data
-    const enrichedData = await ctx.runQuery(api.aiQueries.getLeagueDataForAI, {
+    const enrichedData = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
       leagueId: args.leagueId,
     });
     
@@ -1012,8 +1047,10 @@ async function getLeagueDataForGenerationHandler(ctx: any, args: { leagueId: any
     return result;
 }
 
-// Mutation to update generated content
-export const updateGeneratedContent = mutation({
+// Internal mutation to update generated content. Only ever called from
+// Convex (generateContentAction / generateAIContentWithData) once generation
+// finishes, so it does not need its own auth check.
+export const updateGeneratedContent = internalMutation({
   args: {
     articleId: v.id("aiContent"),
     title: v.string(),
@@ -1104,8 +1141,9 @@ export const updateGeneratedContent = mutation({
   },
 });
 
-// Mutation to store banner image
-export const storeBannerImage = mutation({
+// Internal mutation to store banner image. Only ever called from Convex
+// (generateContentAction) once the banner image has been generated.
+export const storeBannerImage = internalMutation({
   args: {
     articleId: v.id("aiContent"),
     storageId: v.id("_storage"),
@@ -1117,7 +1155,22 @@ export const storeBannerImage = mutation({
   },
 });
 
-// Mutation to update content status
+async function updateContentStatusHandler(
+  ctx: { db: { patch: (id: Id<"aiContent">, update: Record<string, unknown>) => Promise<void> } },
+  args: { articleId: Id<"aiContent">; status: string; error?: string }
+) {
+  // Update the status and set publishedAt if publishing
+  const update: Record<string, unknown> = { status: args.status };
+  if (args.status === "published") {
+    update.publishedAt = Date.now();
+  }
+  await ctx.db.patch(args.articleId, update);
+}
+
+// Mutation to update content status. This is the publish button in
+// AIGenerationPage.tsx — public, but gated to the article's league
+// commissioner. All internal (system-generated) status transitions go
+// through updateContentStatusInternal below instead.
 export const updateContentStatus = mutation({
   args: {
     articleId: v.id("aiContent"),
@@ -1125,12 +1178,28 @@ export const updateContentStatus = mutation({
     error: v.optional(v.string()), // We'll ignore this since it's not in schema
   },
   handler: async (ctx, args) => {
-    // Update the status and set publishedAt if publishing
-    const update: any = { status: args.status };
-    if (args.status === "published") {
-      update.publishedAt = Date.now();
+    const article = await ctx.db.get(args.articleId);
+    if (!article) {
+      throw new Error("Article not found");
     }
-    await ctx.db.patch(args.articleId, update);
+    await requireCommissioner(ctx, article.leagueId);
+
+    await updateContentStatusHandler(ctx, args);
+  },
+});
+
+// Internal mutation to update content status. Used by the generation
+// pipeline (generateContentAction, prepareAIContentData,
+// generateAIContentWithData, aiContentWithComments) to mark articles
+// generating/failed/published without requiring a signed-in caller.
+export const updateContentStatusInternal = internalMutation({
+  args: {
+    articleId: v.id("aiContent"),
+    status: v.string(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await updateContentStatusHandler(ctx, args);
   },
 });
 
