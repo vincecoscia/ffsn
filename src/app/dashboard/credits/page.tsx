@@ -7,6 +7,7 @@ import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { PageHeader, Panel, SectionHeader, StatBlock, Chip, Spinner } from "@/components/broadcast";
 import { CreditTopUpButton } from "@/components/CreditTopUpButton";
+import { creditCostFor } from "@/lib/ai/content-templates";
 import { cn } from "@/lib/utils";
 
 import { CreditCard, History, Plus, AlertCircle, ArrowLeft } from "lucide-react";
@@ -53,11 +54,13 @@ const LIFETIME_STATS = [
   { label: "Purchased", key: "totalPurchased" as const },
 ];
 
+// Straight from `creditCostFor`, the same source of truth ContentGenerator
+// uses — no hardcoded prices to drift out of sync (spec §10.2).
 const CONTENT_COSTS = [
-  { label: "Weekly recap", cost: 15 },
-  { label: "Trade analysis", cost: 20 },
-  { label: "Power rankings", cost: 18 },
-  { label: "Custom roast", cost: 8 },
+  { label: "Weekly recap", cost: creditCostFor("weekly_recap") },
+  { label: "Trade analysis", cost: creditCostFor("trade_analysis") },
+  { label: "Power rankings", cost: creditCostFor("power_rankings") },
+  { label: "Custom roast", cost: creditCostFor("custom_roast") },
 ];
 
 export default function CreditsPage() {

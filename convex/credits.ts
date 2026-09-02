@@ -8,7 +8,6 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireIdentity } from "./lib/auth";
 import { nflSeasonYearFor } from "./lib/season";
 // Plain data modules (no runtime deps), safe in the Convex V8 isolate.
 import {
@@ -469,17 +468,42 @@ export const grantJoinCredits = internalMutation({
     userId: v.string(),
     leagueId: v.id("leagues"),
   },
-  handler: async (ctx, args): Promise<{ alreadyGranted: boolean; newBalance?: number; creditsGranted?: number }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    alreadyGranted: boolean;
+    granted: boolean;
+    skippedReason?: "no_active_pass" | "seat_credits_already_granted";
+    newBalance?: number;
+    creditsGranted?: number;
+  }> => {
     const league = await ctx.db.get(args.leagueId);
+
+    // Credits exist only because someone paid for them (spec §10.1). A league
+    // without a live pass mints nothing, however the manager arrived - this
+    // is the gate that used to be missing, and it let anyone farm 100 credits
+    // per claimed team on an unpaid league.
+    if (!hasActivePass(league)) {
+      console.log(`League ${args.leagueId} has no active pass; no join credits for ${args.userId}`);
+      return { alreadyGranted: false, granted: false, skippedReason: "no_active_pass" };
+    }
+
     const seasonId = passSeasonId(league);
     const reason = `${GRANT_REASONS.leaguePass}:${seasonId}`;
+
+    // A manager the commissioner bought a $10 seat for already holds that
+    // seat's 100 credits; the pass share is not owed on top of it.
+    if (await grantAlreadyMade(ctx, args.leagueId, args.userId, `${GRANT_REASONS.seat}:${seasonId}`)) {
+      return { alreadyGranted: true, granted: false, skippedReason: "seat_credits_already_granted" };
+    }
 
     // Idempotency, two ways. The reason index covers everything granted since
     // the League Pass shipped; the description match below still covers the
     // join bonuses that predate it, so a returning manager is not paid twice.
     if (await grantAlreadyMade(ctx, args.leagueId, args.userId, reason)) {
       console.log(`User ${args.userId} already has ${seasonId} pass credits for league ${args.leagueId}`);
-      return { alreadyGranted: true };
+      return { alreadyGranted: true, granted: false };
     }
 
     const legacyCredit = await ctx.db
@@ -492,7 +516,7 @@ export const grantJoinCredits = internalMutation({
 
     if (legacyCredit) {
       console.log(`User ${args.userId} already received join credits for league ${args.leagueId}`);
-      return { alreadyGranted: true };
+      return { alreadyGranted: true, granted: false };
     }
 
     // The manager's share of the League Pass (spec §10.1). Same reason and
@@ -510,6 +534,7 @@ export const grantJoinCredits = internalMutation({
 
     return {
       alreadyGranted: false,
+      granted: true,
       newBalance: result.newBalance,
       creditsGranted: CREDITS_PER_MANAGER,
     };
@@ -564,45 +589,6 @@ export const getLeagueCreditStats = internalQuery({
   },
 });
 
-// Calculate AI content generation cost based on content type
-export const calculateContentCost = query({
-  args: {
-    contentType: v.string(),
-    wordCount: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await requireIdentity(ctx);
-
-    // Define credit costs for different content types
-    const baseCosts: Record<string, number> = {
-      "weekly_recap": 15,
-      "weekly_preview": 12,
-      "trade_analysis": 20,
-      "power_rankings": 18,
-      "waiver_wire_report": 10,
-      "rivalry_week_special": 25,
-      "season_recap": 30,
-      "custom_roast": 8,
-      "mock_draft": 22,
-    };
-
-    const baseCost = baseCosts[args.contentType] || 15;
-    
-    // Adjust for word count if provided
-    let finalCost = baseCost;
-    if (args.wordCount) {
-      const wordMultiplier = Math.max(0.5, Math.min(2.0, args.wordCount / 500));
-      finalCost = Math.round(baseCost * wordMultiplier);
-    }
-
-    return {
-      baseCost,
-      finalCost,
-      contentType: args.contentType,
-      wordCount: args.wordCount,
-    };
-  },
-});
 /* ========================================================================== *
  * League Pass grants (spec §10.1)
  *
@@ -874,5 +860,60 @@ export const expireSeasonCredits = internalMutation({
     }
 
     return { swept: batch.length, expired, creditsCleared, more };
+  },
+});
+
+/**
+ * One-off repair for balances minted before credits carried an expiry - the
+ * pre-League-Pass "join bonus" grants. Stamps `creditsExpireAt` for the given
+ * season onto every balance that has none, so `expireSeasonCredits` can sweep
+ * them. Every grant made since the pass shipped carries an expiry, so a row
+ * without one is legacy by construction. `dryRun` defaults to true: run it
+ * once to see who is affected, then again with `dryRun: false`.
+ */
+export const backfillLegacyCreditExpiry = internalMutation({
+  args: {
+    /** The season those legacy credits belonged to (2025 for the join bonuses). */
+    seasonId: v.number(),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    stamped: v.number(),
+    credits: v.number(),
+    expiresAt: v.number(),
+    dryRun: v.boolean(),
+    userIds: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true;
+    const expiresAt = seasonCreditsExpireAt(args.seasonId);
+    const now = Date.now();
+
+    // No index can find "field absent", and this table holds one row per
+    // manager who ever held credits - small enough to scan outright.
+    const rows = await ctx.db.query("userCredits").take(1000);
+    const legacy = rows.filter((row) => row.creditsExpireAt === undefined && row.balance > 0);
+
+    let credits = 0;
+    for (const row of legacy) {
+      credits += row.balance;
+      if (!dryRun) {
+        await ctx.db.patch(row._id, { creditsExpireAt: expiresAt, updatedAt: now });
+      }
+    }
+
+    console.log(
+      `backfillLegacyCreditExpiry(${args.seasonId}${dryRun ? ", dry run" : ""}): ${legacy.length} of ${rows.length} balances (${credits} credits) expire at ${new Date(expiresAt).toISOString()}`
+    );
+
+    return {
+      scanned: rows.length,
+      stamped: legacy.length,
+      credits,
+      expiresAt,
+      dryRun,
+      userIds: legacy.map((row) => row.userId),
+    };
   },
 });

@@ -1,14 +1,20 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { ArrowLeft, CreditCard, XCircle } from "lucide-react";
 
-import { TopBar, ThemeToggle, Panel } from "@/components/broadcast";
+import { TopBar, ThemeToggle, Panel, LoadingScreen } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
 
-export default function PaymentCancelledPage() {
-  const router = useRouter();
+function PaymentCancelledContent() {
+  const searchParams = useSearchParams();
+  // Only a Convex document id is ever put here (by the checkout cancel URL);
+  // anything else is dropped rather than turned into a link.
+  const rawLeague = searchParams?.get("league");
+  const league = rawLeague && /^[a-z0-9]+$/i.test(rawLeague) ? rawLeague : null;
 
   return (
     <div className="min-h-screen bg-bc-ground">
@@ -33,48 +39,45 @@ export default function PaymentCancelledPage() {
         <Panel padding="lg" className="flex flex-col gap-6">
           <div className="flex flex-col gap-4">
             <p className="text-center text-[15px] leading-relaxed text-bc-text-2">
-              You cancelled the payment process. Your league setup has not been completed and no
-              charges were made.
+              {league
+                ? "Your league was created and is waiting on its League Pass. Buy the pass from league settings whenever you're ready — there's no need to set the league up again."
+                : "You cancelled the payment process. No charges were made to your account."}
             </p>
             <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
               <h3 className="bc-label text-bc-signal">What you&apos;re missing</h3>
               <ul className="mt-2.5 flex flex-col gap-1.5 text-[14px] leading-relaxed text-bc-text-2">
-                <li>Full season fantasy league access</li>
-                <li>1,000 AI content generation credits</li>
+                <li>Every automated story for the season</li>
                 <li>Weekly recaps, previews, and analysis</li>
                 <li>Custom team roasts and power rankings</li>
-                <li>100 bonus credits for each league member</li>
+                <li>100 bonus credits for each included manager</li>
               </ul>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 border-t border-bc-hairline pt-6">
-            <Button
-              onClick={() => router.push("/setup")}
-              variant="glow"
-              size="lg"
-              className="w-full"
-            >
-              <CreditCard className="size-5" strokeWidth={1.8} />
-              Continue with payment ($99.99)
-            </Button>
-            <Button
-              onClick={() => router.back()}
-              variant="outline"
-              size="lg"
-              className="w-full"
-            >
-              <ArrowLeft className="size-4" strokeWidth={1.8} />
-              Back to league setup
-            </Button>
-            <Button
-              onClick={() => router.push("/dashboard")}
-              variant="ghost"
-              size="lg"
-              className="w-full"
-            >
-              Skip for now and go to dashboard
-            </Button>
+            {league ? (
+              <>
+                <Button asChild variant="glow" size="lg" className="w-full">
+                  <Link href={`/leagues/${league}/settings`}>
+                    <CreditCard className="size-5" strokeWidth={1.8} />
+                    Buy the League Pass from league settings
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg" className="w-full">
+                  <Link href="/dashboard">
+                    <ArrowLeft className="size-4" strokeWidth={1.8} />
+                    Back to dashboard
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <Button asChild variant="glow" size="lg" className="w-full">
+                <Link href="/dashboard">
+                  <ArrowLeft className="size-4" strokeWidth={1.8} />
+                  Back to dashboard
+                </Link>
+              </Button>
+            )}
           </div>
 
           <p className="border-t border-bc-hairline pt-5 text-center text-[13px] text-bc-text-3">
@@ -83,5 +86,19 @@ export default function PaymentCancelledPage() {
         </Panel>
       </main>
     </div>
+  );
+}
+
+export default function PaymentCancelledPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-bc-ground">
+          <LoadingScreen message="Loading" />
+        </div>
+      }
+    >
+      <PaymentCancelledContent />
+    </Suspense>
   );
 }

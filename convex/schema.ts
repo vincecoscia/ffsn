@@ -1640,7 +1640,10 @@ export default defineSchema({
   // Stripe payment tracking - all Stripe transactions
   stripePayments: defineTable({
     // Stripe identifiers
-    paymentIntentId: v.string(),
+    // Absent for a checkout session paid entirely with a promotion code -
+    // Stripe creates no PaymentIntent for a $0 session. `checkoutSessionId`
+    // is the key fulfillment uses.
+    paymentIntentId: v.optional(v.string()),
     checkoutSessionId: v.optional(v.string()),
     stripeCustomerId: v.optional(v.string()),
     

@@ -32,7 +32,10 @@ interface LeagueCardProps {
 export function LeagueCard({ league }: LeagueCardProps) {
   const [isRefetching, setIsRefetching] = useState(false);
   const refreshLeagueData = useAction(api.espnSync.syncAllLeagueData);
-  const isActive = league.subscription.status === "paid";
+  // The two values `credits.hasActivePass` treats as active ("active" is the
+  // current value, "paid" is the legacy alias written by pre-Broadcast-Desk
+  // purchases).
+  const isActive = league.subscription.status === "active" || league.subscription.status === "paid";
 
   const handleRefetch = async () => {
     if (isRefetching) return;
@@ -80,7 +83,7 @@ export function LeagueCard({ league }: LeagueCardProps) {
           value={<span className="capitalize">{league.subscription.tier}</span>}
         />
         <Badge variant={isActive ? "win" : "outline"}>
-          {isActive ? "Active" : league.subscription.paymentStatus || "Pending"}
+          {isActive ? "Active" : "Pass not active"}
         </Badge>
       </div>
 

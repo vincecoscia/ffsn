@@ -129,6 +129,42 @@ export const create = mutation({
       throw new Error("Not authenticated");
     }
 
+    // A commissioner who abandons Checkout and comes back through the wizard
+    // must land on the league they already created, not a second copy of it:
+    // the pass is bought per league, and the duplicate would sit unpaid
+    // forever. Same platform + ESPN id + commissioner is the same league, so
+    // refresh what the wizard just fetched and hand back the existing id.
+    const existing = await ctx.db
+      .query("leagues")
+      .withIndex("by_external_id", (q) =>
+        q.eq("platform", args.platform).eq("externalId", args.externalId)
+      )
+      .filter((q) => q.eq(q.field("commissionerUserId"), identity.subject))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        name: args.name,
+        settings: args.settings,
+        ...(args.espnData
+          ? {
+              espnData: {
+                ...existing.espnData,
+                ...args.espnData,
+                // Keep the stored ESPN cookies when the wizard didn't send new ones.
+                espnS2: args.espnData.espnS2 ?? existing.espnData?.espnS2,
+                swid: args.espnData.swid ?? existing.espnData?.swid,
+              },
+            }
+          : {}),
+        ...(args.history ? { history: args.history } : {}),
+      });
+      console.log(
+        `leagues.create: ${identity.subject} re-imported ${args.platform}:${args.externalId}; returning existing league ${existing._id}`
+      );
+      return existing._id;
+    }
+
     const leagueId = await ctx.db.insert("leagues", {
       name: args.name,
       platform: args.platform,
@@ -484,6 +520,18 @@ export const joinLeague = mutation({
       role: "member",
       joinedAt: Date.now(),
     });
+
+    // The manager's share of the League Pass, when the league has one. The
+    // grant refuses on an unpaid league and is idempotent per season, so a
+    // manager who joins after the pass was bought gets their 100 exactly once.
+    try {
+      await ctx.runMutation(internal.credits.grantJoinCredits, {
+        userId: identity.subject,
+        leagueId: args.leagueId,
+      });
+    } catch (error) {
+      console.error("Failed to grant League Pass credits on join:", error);
+    }
 
     return args.leagueId;
   },

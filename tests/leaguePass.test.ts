@@ -202,7 +202,7 @@ describe("pass grants (spec §10.1)", () => {
       userId: latecomer,
       leagueId,
     });
-    expect(second).toEqual({ alreadyGranted: true });
+    expect(second).toEqual({ alreadyGranted: true, granted: false });
     expect((await balanceOf(t, latecomer))?.balance).toBe(CREDITS_PER_MANAGER);
 
     // A pass grant re-run afterwards does not top them up a second time either.

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import Stripe from "stripe";
 import { requireIdentity, requireLeagueMemberFromAction } from "./lib/auth";
+import { nflSeasonYearFor } from "./lib/season";
 
 // Initialize Stripe with the secret key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -124,11 +125,28 @@ export const createLeagueCheckoutSession = action({
     leagueId: v.string(),
     leagueName: v.string(),
     userEmail: v.string(),
+    // Where to land after Checkout when the pass is bought from inside the
+    // app (league settings) rather than from the setup wizard. Same-origin
+    // relative path only; the result params mirror the seat flow.
+    returnPath: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const userId = identity.subject;
-    const seasonYear = new Date().getFullYear();
+    // The NFL season the pass covers - a pass bought in January still belongs
+    // to the season that is finishing, not the calendar year.
+    const seasonYear = nflSeasonYearFor();
+
+    const returnPath = args.returnPath ? safeReturnPath(args.returnPath, "/dashboard") : null;
+    const successUrl = returnPath
+      ? withQuery(returnPath, { pass: "success", session_id: "{CHECKOUT_SESSION_ID}" })
+      : `${siteUrl()}/setup/payment-success?session_id={CHECKOUT_SESSION_ID}`;
+    // The league already exists when Checkout is abandoned; the cancel page
+    // needs its id to send the commissioner back to buy the pass rather than
+    // through the wizard again (which would create a second league).
+    const cancelUrl = returnPath
+      ? withQuery(returnPath, { pass: "cancelled" })
+      : withQuery("/setup/payment-cancelled", { league: args.leagueId });
 
     try {
       const session = await stripe.checkout.sessions.create({
@@ -156,8 +174,8 @@ export const createLeagueCheckoutSession = action({
           seasonYear: seasonYear.toString(),
         },
         allow_promotion_codes: true,
-        success_url: `${siteUrl()}/setup/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${siteUrl()}/setup/payment-cancelled`,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
         expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS,
       });
 
@@ -346,18 +364,20 @@ export const verifyPaymentCompleted = action({
 
     // processCheckoutSessionCompleted is idempotent (paid gate + already-
     // fulfilled guard), so it's safe to call here even if the webhook has
-    // already processed (or will process) this same session.
-    if (paymentIntent?.id) {
+    // already processed (or will process) this same session. A session paid
+    // entirely with a promotion code never gets a PaymentIntent, so "paid"
+    // is the condition - not the presence of an intent.
+    if (session.payment_status === "paid" || paymentIntent?.id) {
       await ctx.runMutation(internal.stripe.processCheckoutSessionCompleted, {
         sessionId: session.id,
-        paymentIntentId: paymentIntent.id,
+        paymentIntentId: paymentIntent?.id,
         paymentStatus: session.payment_status,
         amountTotal: session.amount_total ?? undefined,
         metadata: session.metadata || {},
       });
     }
 
-    const fulfilled = session.payment_status === "paid" && !!paymentIntent?.id;
+    const fulfilled = session.payment_status === "paid";
 
     return {
       status: session.payment_status,
@@ -382,9 +402,15 @@ export const handleStripeWebhook = action({
     // Verify webhook signature. A bad signature can never be "retried into
     // success", so this is reported back as a failure response rather than
     // thrown (which would surface as a 500 and cause Stripe to keep retrying).
+    //
+    // This action runs in Convex's default (V8) runtime, which has WebCrypto
+    // but no synchronous Node crypto. The synchronous `constructEvent` throws
+    // "SubtleCryptoProvider cannot be used in a synchronous context" here on
+    // EVERY delivery - it silently rejected all production webhooks until
+    // 2026-09-02. Only the async verifier works in this runtime.
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(args.body, args.signature, webhookSecret);
+      event = await stripe.webhooks.constructEventAsync(args.body, args.signature, webhookSecret);
     } catch (error) {
       console.error("Stripe webhook signature verification failed:", error);
       return {
@@ -414,7 +440,11 @@ export const handleStripeWebhook = action({
           const session = event.data.object as Stripe.Checkout.Session;
           await ctx.runMutation(internal.stripe.processCheckoutSessionCompleted, {
             sessionId: session.id,
-            paymentIntentId: session.payment_intent as string,
+            // Null when a promotion code covered the whole amount.
+            paymentIntentId:
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : session.payment_intent?.id,
             paymentStatus: session.payment_status,
             // What Stripe actually collected, after any promotion code. Trusted
             // over the amount we predicted in metadata.
@@ -607,7 +637,8 @@ function storedPaymentType(kind: PurchaseKind): "league_creation" | "credits_pur
 export const processCheckoutSessionCompleted = internalMutation({
   args: {
     sessionId: v.string(),
-    paymentIntentId: v.string(),
+    // Absent for a session paid entirely with a promotion code.
+    paymentIntentId: v.optional(v.string()),
     paymentStatus: v.string(),
     amountTotal: v.optional(v.number()),
     metadata: v.record(v.string(), v.string()),
@@ -626,15 +657,25 @@ export const processCheckoutSessionCompleted = internalMutation({
 
     const quantity = clampQuantity(kind, Number(args.metadata.quantity || "1"));
 
-    // Check if payment record exists
+    // The checkout session is the stable key: every session has one, while a
+    // session paid entirely with a promotion code never gets a PaymentIntent.
     let payment = await ctx.db
       .query("stripePayments")
-      .withIndex("by_payment_intent", (q) => q.eq("paymentIntentId", args.paymentIntentId))
+      .withIndex("by_checkout_session", (q) => q.eq("checkoutSessionId", args.sessionId))
       .first();
 
+    if (!payment && args.paymentIntentId) {
+      const intentId = args.paymentIntentId;
+      payment = await ctx.db
+        .query("stripePayments")
+        .withIndex("by_payment_intent", (q) => q.eq("paymentIntentId", intentId))
+        .first();
+    }
+
     if (!payment) {
-      // Create the payment record now that we have the payment intent ID
-      console.log(`Creating payment record for payment intent: ${args.paymentIntentId}`);
+      console.log(
+        `Creating payment record for checkout session ${args.sessionId} (payment intent: ${args.paymentIntentId ?? "none"})`
+      );
 
       // Prefer what Stripe says it collected (promotion codes, catalog price
       // changes) over the amount predicted when the session was created.
@@ -715,6 +756,7 @@ export const processCheckoutSessionCompleted = internalMutation({
       // happens atomically with the credit/seat/league grant below.
       await ctx.db.patch(payment._id, {
         status: isPaid ? payment.status : "pending",
+        paymentIntentId: payment.paymentIntentId ?? args.paymentIntentId,
         webhookProcessed: true,
         webhookProcessedAt: now,
         updatedAt: now,
@@ -732,7 +774,7 @@ export const processCheckoutSessionCompleted = internalMutation({
     }
 
     if (!payment) {
-      console.error(`Payment record missing after upsert for payment intent ${args.paymentIntentId}`);
+      console.error(`Payment record missing after upsert for checkout session ${args.sessionId}`);
       return;
     }
 

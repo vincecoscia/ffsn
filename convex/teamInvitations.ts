@@ -343,30 +343,16 @@ export const claimInvitation = mutation({
     
     console.log("✅ Team claim verified:", verifyTeamClaim._id);
 
-    // Grant join bonus credits (100) for members
+    // The manager's share of the League Pass, if the league has one (spec
+    // §10.1). `grantJoinCredits` refuses when no pass is active and is
+    // idempotent per (league, user, season): an invitation into an unpaid
+    // league mints nothing, and a returning manager is never paid twice.
     try {
-      // Avoid double-grant by checking if a credit transaction already exists
-      const existingJoinCredit = await ctx.db
-        .query("creditTransactions")
-        .withIndex("by_league", (q) => q.eq("leagueId", invitation.leagueId))
-        .filter((q) => q.eq(q.field("userId"), identity.subject))
-        .filter((q) => q.eq(q.field("type"), "earned"))
-        .filter((q) => q.eq(q.field("description"), "League join bonus - 100 credits"))
-        .first();
-
-      if (!existingJoinCredit) {
-        // Grant 100 credits to the joining user
-        await ctx.runMutation(internal.credits.grantCredits, {
-          userId: identity.subject,
-          amount: 100,
-          type: "earned",
-          description: "League join bonus - 100 credits",
-          leagueId: invitation.leagueId,
-        });
-        console.log("✅ Granted 100 join bonus credits to:", identity.subject);
-      } else {
-        console.log("ℹ️ Join bonus already granted for user in this league");
-      }
+      const grant = await ctx.runMutation(internal.credits.grantJoinCredits, {
+        userId: identity.subject,
+        leagueId: invitation.leagueId,
+      });
+      console.log("League Pass credits on invitation claim:", grant);
     } catch (e) {
       console.error("Failed to grant join credits:", e);
     }
