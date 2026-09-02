@@ -6,12 +6,14 @@ import {
   internalMutation,
   internalQuery,
   type ActionCtx,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
 import { requireLeagueMember, requireCommissioner } from "./lib/auth";
+import { espnConnectionBlocked, FRESHNESS_EXEMPT_CONTENT } from "./lib/espnConnection";
 // Both of these are plain data modules (no runtime deps), so they are safe to
 // import into the Convex V8 isolate - payments.ts already imports the templates.
 import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
@@ -158,14 +160,6 @@ const MATCHUP_DEPENDENT_CONTENT = new Set([
   "waiver_wire_report",
   "playoff_picture",
   "mid_season_awards",
-]);
-
-/** Types that do not read live ESPN league data, so freshness never blocks them. */
-const FRESHNESS_EXEMPT_CONTENT = new Set([
-  "season_welcome",
-  "mock_draft",
-  "custom_roast",
-  "commissioner_corner",
 ]);
 
 /* -------------------------------------------------------------------------- *
@@ -661,6 +655,17 @@ export const processScheduledContent = internalAction({
         return { success: false, message: "League not found" };
       }
 
+      // ESPN connection gate (owner directive, Sept 2026): "with no valid
+      // private token we should pause all content generation and file a
+      // backlog." A private league whose stored cookies ESPN rejects cannot
+      // have its data refreshed, so writing about it now would be a
+      // confidently wrong article - hold the row instead, before it spends an
+      // attempt or a credit. Freshness-exempt types never read live league
+      // data, so they are unaffected and generate on schedule.
+      if (!FRESHNESS_EXEMPT_CONTENT.has(contentType) && espnConnectionBlocked(league)) {
+        return await backlogForBlockedConnection(ctx, args.scheduledContentId, leagueId, contentType);
+      }
+
       // (a) Re-stamp week/season at execution time so the article is about the
       //     period that is actually current, not the one the cron guessed a day
       //     earlier, and so the idempotency index reflects reality.
@@ -697,6 +702,15 @@ export const processScheduledContent = internalAction({
             syncedThisPass = true;
           } catch (error) {
             console.warn("ESPN sync failed before scheduled generation:", error);
+            // The sync itself may have just flipped credentialStatus to
+            // "invalid" (that is how a rejected cookie is normally
+            // discovered) - re-read the league before deciding whether this
+            // is an ordinary transient failure (defer) or a now-confirmed
+            // bad connection (backlog, so this row stops burning deferrals).
+            const refreshedLeague = await ctx.runQuery(internal.contentScheduling.getLeagueById, { leagueId });
+            if (espnConnectionBlocked(refreshedLeague)) {
+              return await backlogForBlockedConnection(ctx, args.scheduledContentId, leagueId, contentType);
+            }
             return await deferForData(ctx, args.scheduledContentId, scheduledContent, "espn_sync_failed");
           }
         }
@@ -769,6 +783,12 @@ export const processScheduledContent = internalAction({
           });
         } catch (error) {
           console.warn("ESPN sync failed while chasing missing core data:", error);
+          // Same reasoning as the freshness sync above: this sync may be the
+          // thing that just discovered the cookies are rejected.
+          const refreshedLeague = await ctx.runQuery(internal.contentScheduling.getLeagueById, { leagueId });
+          if (espnConnectionBlocked(refreshedLeague)) {
+            return await backlogForBlockedConnection(ctx, args.scheduledContentId, leagueId, contentType);
+          }
         }
       }
 
@@ -1059,6 +1079,55 @@ async function deferForData(
   };
 }
 
+/**
+ * Hold a row for a broken ESPN connection instead of failing or deferring it
+ * (owner directive, Sept 2026). Unlike `deferForData`, this does not spend a
+ * deferral or an attempt - the row is not stuck waiting on data that will show
+ * up on its own, it is waiting on the commissioner to fix the connection, and
+ * `resumeBacklog` is what brings it back once that happens.
+ */
+async function backlogForBlockedConnection(
+  ctx: ActionCtx,
+  scheduledContentId: Id<"scheduledContent">,
+  leagueId: Id<"leagues">,
+  contentType: string,
+): Promise<{ success: boolean; message: string }> {
+  const message =
+    "ESPN rejected this league's cookies, so the desk can't read fresh data. " +
+    "This story is on hold and will generate automatically once the commissioner fixes the ESPN connection.";
+
+  await ctx.runMutation(internal.contentScheduling.backlogScheduledContent, {
+    scheduledContentId,
+    errorMessage: message,
+  });
+
+  console.log(
+    `Backlogging scheduled content ${scheduledContentId} (${contentType}) for league ${leagueId}: ESPN connection blocked`,
+  );
+
+  return { success: false, message };
+}
+
+/** Move one row to `backlogged` (see `backlogForBlockedConnection`). */
+export const backlogScheduledContent = internalMutation({
+  args: {
+    scheduledContentId: v.id("scheduledContent"),
+    errorMessage: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.scheduledContentId);
+    if (!row) return;
+
+    await ctx.db.patch(args.scheduledContentId, {
+      status: "backlogged",
+      backlogReason: "espn_credentials_invalid",
+      backloggedAt: Date.now(),
+      errorMessage: args.errorMessage,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 /** Stamp the execution-time period on the row and mirror it into contextData. */
 export const stampExecutionPeriod = internalMutation({
   args: {
@@ -1155,6 +1224,158 @@ export const reclaimStuckGenerations = internalMutation({
     }
 
     return { reclaimed, failed };
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * ESPN connection lifecycle (owner directive, Sept 2026): pause automated
+ * content while a private league's cookies are rejected, file a backlog
+ * instead of failing it, and resume in order once the connection is fixed.
+ * Called by the credential-status transition (`leagues.setEspnCredentialStatus`
+ * and friends) with `{ leagueId }` - not by anything in this file.
+ * -------------------------------------------------------------------------- */
+
+/** A resumed row is staggered this far apart so the spend cap and rate limits see a trickle, not a burst. */
+const RESUME_STAGGER_MS = 3 * 60 * 1000;
+/** A resumed row this old skips its interview window - the week it would have covered has already passed. */
+const SKIP_COMMENT_REQUESTS_AFTER_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Move every `backlogged` row for a league back to `pending`, oldest original
+ * `scheduledFor` first, staggered `RESUME_STAGGER_MS` apart. A row whose
+ * original print time is more than 48h in the past resumes with
+ * `skipCommentRequests: true` - reaching out for comment on a week-old story
+ * is exactly what the owner's directive rules out.
+ *
+ * Shared by `resumeBacklog` and `onEspnCredentialsRestored` as a plain helper
+ * (not a nested `ctx.runMutation`) so both run as one transaction with
+ * whatever else the caller patches (e.g. clearing `contentPausedAt`).
+ */
+async function resumeBacklogForLeague(
+  ctx: MutationCtx,
+  leagueId: Id<"leagues">,
+): Promise<{ resumed: number; withoutInterviews: number }> {
+  const rows = await ctx.db
+    .query("scheduledContent")
+    .withIndex("by_league_status", (q) => q.eq("leagueId", leagueId).eq("status", "backlogged"))
+    .take(500);
+
+  rows.sort((a, b) => a.scheduledFor - b.scheduledFor);
+
+  const now = Date.now();
+  let withoutInterviews = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const skipCommentRequests = now - row.scheduledFor > SKIP_COMMENT_REQUESTS_AFTER_MS;
+    if (skipCommentRequests) withoutInterviews += 1;
+
+    await ctx.db.patch(row._id, {
+      status: "pending",
+      resumedAt: now,
+      nextRetryAt: undefined,
+      scheduledFor: now + i * RESUME_STAGGER_MS,
+      skipCommentRequests,
+      updatedAt: now,
+    });
+  }
+
+  return { resumed: rows.length, withoutInterviews };
+}
+
+/**
+ * Called when a league's ESPN credentials transition to invalid. Stamps
+ * `espnData.contentPausedAt` (once - a second call while already paused is a
+ * no-op on that field) and tells the commissioner. Does not itself touch any
+ * `scheduledContent` row: the scheduler gate in `processScheduledContent`
+ * backlogs each one the moment it is next due, so a row already `pending`
+ * simply becomes `backlogged` on its own next pass.
+ */
+export const onEspnCredentialsInvalid = internalMutation({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args): Promise<{ pausedNow: boolean; waiting: number }> => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) return { pausedNow: false, waiting: 0 };
+
+    const pausedNow = !league.espnData?.contentPausedAt;
+    if (pausedNow && league.espnData) {
+      await ctx.db.patch(args.leagueId, {
+        espnData: {
+          ...league.espnData,
+          contentPausedAt: Date.now(),
+        },
+      });
+    }
+
+    const [pending, backlogged] = await Promise.all([
+      ctx.db
+        .query("scheduledContent")
+        .withIndex("by_league_status", (q) => q.eq("leagueId", args.leagueId).eq("status", "pending"))
+        .take(500),
+      ctx.db
+        .query("scheduledContent")
+        .withIndex("by_league_status", (q) => q.eq("leagueId", args.leagueId).eq("status", "backlogged"))
+        .take(500),
+    ]);
+    const waiting = pending.length + backlogged.length;
+
+    await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
+      leagueId: args.leagueId,
+      outcome: "espn_paused",
+      contentType: "espn_connection",
+      waiting,
+    });
+
+    return { pausedNow, waiting };
+  },
+});
+
+/**
+ * Called when a league's ESPN credentials transition back to valid. Clears
+ * `espnData.contentPausedAt`, resumes every backlogged row (see
+ * `resumeBacklogForLeague`), and tells the commissioner - all in one
+ * transaction.
+ */
+export const onEspnCredentialsRestored = internalMutation({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args): Promise<{ resumed: number; withoutInterviews: number }> => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) return { resumed: 0, withoutInterviews: 0 };
+
+    if (league.espnData?.contentPausedAt) {
+      await ctx.db.patch(args.leagueId, {
+        espnData: {
+          ...league.espnData,
+          contentPausedAt: undefined,
+        },
+      });
+    }
+
+    const { resumed, withoutInterviews } = await resumeBacklogForLeague(ctx, args.leagueId);
+
+    if (resumed > 0) {
+      await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
+        leagueId: args.leagueId,
+        outcome: "espn_restored",
+        contentType: "espn_connection",
+        resumed,
+        withoutInterviews,
+      });
+    }
+
+    return { resumed, withoutInterviews };
+  },
+});
+
+/**
+ * Public wrapper around `resumeBacklogForLeague` for callers that only need
+ * the resume (e.g. a manual "retry now" from an operator tool) without the
+ * pause/restore bookkeeping `onEspnCredentialsRestored` also does.
+ */
+export const resumeBacklog = internalMutation({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args): Promise<{ resumed: number; withoutInterviews: number }> => {
+    return await resumeBacklogForLeague(ctx, args.leagueId);
   },
 });
 
@@ -1503,6 +1724,9 @@ export const notifyScheduleOutcome = internalMutation({
       // League Pass outcomes (spec §10.1).
       v.literal("no_pass"),
       v.literal("spend_cap"),
+      // ESPN connection outcomes (owner directive, Sept 2026).
+      v.literal("espn_paused"),
+      v.literal("espn_restored"),
     ),
     contentType: v.string(),
     week: v.optional(v.number()),
@@ -1513,6 +1737,11 @@ export const notifyScheduleOutcome = internalMutation({
     /** Measured automated spend this season, for the spend_cap notice. */
     spentUsd: v.optional(v.number()),
     capUsd: v.optional(v.number()),
+    /** Rows waiting (pending + backlogged), for the espn_paused notice. */
+    waiting: v.optional(v.number()),
+    /** Rows brought back, for the espn_restored notice. */
+    resumed: v.optional(v.number()),
+    withoutInterviews: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ notified: boolean; reason?: string }> => {
     const preferences = await ctx.db
@@ -1543,6 +1772,10 @@ export const notifyScheduleOutcome = internalMutation({
     // Dedupe windows differ by outcome: a credit shortfall is a weekly nag,
     // but "your pass lapsed" and "you hit the season cap" are each worth
     // saying once per league (per season, for the cap) and no more.
+    // espn_paused dedupes once per calendar day (owner directive: the desk
+    // should say this at most once a day, not on every scheduler pass while
+    // the connection stays broken); espn_restored has no dedupe key - it is a
+    // one-time event per restore, like "completed"/"failed".
     const dedupeKey =
       args.outcome === "low_credits"
         ? `low_credits:${args.leagueId}:${args.week ?? "na"}`
@@ -1550,7 +1783,9 @@ export const notifyScheduleOutcome = internalMutation({
           ? `no_pass:${args.leagueId}`
           : args.outcome === "spend_cap"
             ? `spend_cap:${args.leagueId}:${passSeasonId(league)}`
-            : undefined;
+            : args.outcome === "espn_paused"
+              ? `espn_paused:${args.leagueId}:${Math.floor(Date.now() / (24 * 60 * 60 * 1000))}`
+              : undefined;
 
     if (dedupeKey) {
       const existing = await ctx.db
@@ -1587,7 +1822,30 @@ export const notifyScheduleOutcome = internalMutation({
         message: `Automated stories for ${league.name} have used $${(args.spentUsd ?? 0).toFixed(2)} of this season's $${(args.capUsd ?? 0).toFixed(2)} safety limit, so the desk paused the calendar and flagged it to us. Your credits and manual generation are unaffected.`,
         priority: "high" as const,
       },
+      espn_paused: {
+        title: "Automated content is paused",
+        message: `ESPN rejected ${league.name}'s cookies, so the desk can't read fresh data for this league. ${args.waiting ?? 0} ${(args.waiting ?? 0) === 1 ? "story is" : "stories are"} waiting and will generate automatically once the connection is fixed.`,
+        priority: "high" as const,
+      },
+      espn_restored: {
+        title: "ESPN connection restored",
+        message: `${args.resumed ?? 0} ${(args.resumed ?? 0) === 1 ? "story is" : "stories are"} being generated now${(args.withoutInterviews ?? 0) > 0 ? `; ${args.withoutInterviews} of them skip interviews because their week has passed` : ""}.`,
+        priority: "medium" as const,
+      },
     }[args.outcome];
+
+    const actionUrl =
+      args.outcome === "espn_paused" || args.outcome === "espn_restored"
+        ? `/leagues/${args.leagueId}/settings`
+        : args.articleId
+          ? `/articles/${args.articleId}`
+          : `/leagues/${args.leagueId}`;
+    const actionText =
+      args.outcome === "espn_paused"
+        ? "Fix ESPN connection"
+        : args.outcome === "completed"
+          ? "Review article"
+          : "Open league";
 
     await ctx.runMutation(internal.notifications.createNotification, {
       userId: commissioner._id,
@@ -1595,8 +1853,8 @@ export const notifyScheduleOutcome = internalMutation({
       type: args.outcome === "completed" ? "article_generated" : "system_announcement",
       title: content.title,
       message: content.message,
-      actionUrl: args.articleId ? `/articles/${args.articleId}` : `/leagues/${args.leagueId}`,
-      actionText: args.outcome === "completed" ? "Review article" : "Open league",
+      actionUrl,
+      actionText,
       relatedEntityType: args.articleId ? ("ai_content" as const) : ("league" as const),
       relatedEntityId: dedupeKey ?? (args.articleId ?? args.leagueId),
       priority: content.priority,
@@ -2413,7 +2671,10 @@ export const findExistingJobWithinWindow = internalQuery({
           q.lte(q.field("scheduledFor"), args.endTime),
           q.or(
             q.eq(q.field("status"), "pending"),
-            q.eq(q.field("status"), "generating")
+            q.eq(q.field("status"), "generating"),
+            // A backlogged row already exists for this period/window - don't
+            // schedule a second one behind it (owner directive, Sept 2026).
+            q.eq(q.field("status"), "backlogged")
           )
         )
       )
@@ -2819,7 +3080,10 @@ export const findExistingWeeklyJob = internalQuery({
           q.lte(q.field("scheduledFor"), args.endTime),
           q.or(
             q.eq(q.field("status"), "pending"),
-            q.eq(q.field("status"), "generating")
+            q.eq(q.field("status"), "generating"),
+            // A backlogged row already exists for this period/window - don't
+            // schedule a second one behind it (owner directive, Sept 2026).
+            q.eq(q.field("status"), "backlogged")
           )
         )
       )
@@ -2877,7 +3141,10 @@ export const checkExistingContent = internalQuery({
           q.eq(q.field("contentType"), args.contentType),
           q.or(
             q.eq(q.field("status"), "pending"),
-            q.eq(q.field("status"), "generating")
+            q.eq(q.field("status"), "generating"),
+            // A backlogged row already exists for this period/window - don't
+            // schedule a second one behind it (owner directive, Sept 2026).
+            q.eq(q.field("status"), "backlogged")
           ),
           // Check if contextData contains this season
           q.gte(q.field("createdAt"), seasonWindowStart),

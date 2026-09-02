@@ -12,6 +12,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { commentResponseDataValidator, nonRespondentValidator } from "./validators";
 import { leagueCurrentSeason } from "./lib/season";
 import { requireCommissioner, requireLeagueMember } from "./lib/auth";
+import { espnConnectionBlocked } from "./lib/espnConnection";
 import { INTERVIEWER_PERSONA, DEFAULT_WRITER_PERSONA } from "./commentRequests";
 
 /* -------------------------------------------------------------------------- */
@@ -113,8 +114,33 @@ export const createCommentRequestsAndWait = internalAction({
   },
   handler: async (ctx, args) => {
     console.log("=== Creating comment requests for content generation ===");
-    
+
     try {
+      // ESPN connection gate (owner directive, Sept 2026): a blocked private
+      // league can't have its data refreshed, so don't open interviews for an
+      // article that may sit unresolved for days - skip outreach and continue
+      // straight to generation without quotes instead.
+      const gatingLeague = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+        leagueId: args.leagueId,
+      });
+      if (espnConnectionBlocked(gatingLeague)) {
+        console.log(
+          `Skipping comment outreach for article ${args.articleId}: ESPN connection blocked for league ${args.leagueId}`,
+        );
+        await ctx.scheduler.runAfter(0, internal.aiContent.generateContentAction, {
+          articleId: args.articleId,
+          leagueId: args.leagueId,
+          contentType: args.contentType,
+          persona: args.persona,
+          customContext: args.customContext,
+          userId: args.userId,
+          seasonId: args.seasonId,
+          week: args.week,
+          creditsDeductedUpFront: args.creditsDeductedUpFront,
+        });
+        return;
+      }
+
       // Get users from teamClaims based on selected team IDs
       // args.targetUserIds contains team IDs selected in the UI
       const userIdsFromClaims = await ctx.runQuery(internal.aiContentWithComments.getUsersFromTeamClaims, {

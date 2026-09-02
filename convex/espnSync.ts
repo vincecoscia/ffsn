@@ -1410,6 +1410,52 @@ const validateEspnCredentials = async (leagueId: string, espnS2?: string, swid?:
     };
   }
 };
+
+/**
+ * Probe a private league's STORED espn_s2/SWID pair and persist the outcome
+ * via `leagues.setEspnCredentialStatus`. Used by `leagues.updateEspnCredentials`
+ * right after the commissioner saves a fresh pair (so a fixed connection
+ * flips to "valid" -> `espnCredentialLifecycle.onRestored` -> the backlog
+ * resumes without anyone running a manual sync) and by
+ * `espnCredentialLifecycle.dailyCredentialReminders` to catch a token that
+ * silently expired between sync attempts.
+ *
+ * A no-op for a league with no ESPN data or that isn't private - credential
+ * health tracking only applies to private leagues.
+ */
+export const validateStoredCredentials = internalAction({
+  args: { leagueId: v.id("leagues") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
+    if (!league || !league.espnData?.isPrivate) return null;
+
+    const credentialsCheck = await validateEspnCredentials(
+      league.externalId,
+      league.espnData.espnS2,
+      league.espnData.swid
+    );
+
+    if (credentialsCheck.isValid) {
+      await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+        leagueId: args.leagueId,
+        status: "valid",
+      });
+    } else if (credentialsCheck.classification === "auth") {
+      // Only a genuine auth rejection (or missing credentials) should flip
+      // the stored status - a rate limit or ESPN outage isn't a credentials
+      // problem (mirrors syncAllLeaguesCurrentSeason's own guard below).
+      await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+        leagueId: args.leagueId,
+        status: "invalid",
+        error: credentialsCheck.error,
+      });
+    }
+
+    return null;
+  },
+});
+
 export const syncAllLeagueData = action({
   args: {
     leagueId: v.id("leagues"),

@@ -5,6 +5,7 @@ import { Id } from "./_generated/dataModel";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
 import { leagueCurrentSeason } from "./lib/season";
+import { espnConnectionBlocked } from "./lib/espnConnection";
 
 // Helper function to identify defense positions
 function isDefensePosition(position: string): boolean {
@@ -57,6 +58,22 @@ export const createRequestsForScheduledContent = internalMutation({
 
     const league = await ctx.db.get(scheduledContent.leagueId);
     if (!league) throw new Error("League not found");
+
+    // Same gate as `contentSchedulingIntegration.onContentScheduled` - this
+    // mutation also fires from a delayed `ctx.scheduler.runAt`, so the league
+    // or the row's own flags may have changed since it was queued (owner
+    // directive, Sept 2026: never reach out for comment on a blocked or
+    // weeks-old row).
+    if (espnConnectionBlocked(league)) {
+      console.log(`Skipping comment requests for ${args.scheduledContentId}: ESPN connection blocked for league ${scheduledContent.leagueId}`);
+      return { created: false, reason: "espn_connection_blocked" as const };
+    }
+    if (scheduledContent.skipCommentRequests) {
+      return { created: false, reason: "skip_comment_requests" as const };
+    }
+    if (scheduledContent.status !== "pending" && scheduledContent.status !== "generating") {
+      return { created: false, reason: "row_not_pending" as const };
+    }
 
     const scheduledSendTime = Date.now(); // Send immediately
     const currentTime = Date.now();
@@ -1533,23 +1550,31 @@ export const triggerCommentRequests = mutation({
     // Get target users if not specified
     let targetUserIds = args.userIds;
     if (!targetUserIds) {
-      // Get all active users in the league
-      const teams = await ctx.db
-        .query("teams")
-        .withIndex("by_season", q => 
-          q.eq("leagueId", scheduledContent.leagueId)
-           .eq("seasonId", scheduledContent.contextData?.seasonId || 0)
-        )
+      // Manager identity lives in `teamClaims`, never `teams.owner` -
+      // `teams.owner` is always an ESPN owner display name (e.g. "Gabe
+      // Coscia"), not a Clerk id (same bug/fix as
+      // `contentSchedulingIntegration.onContentScheduled`). Resolve through
+      // this league's active claims for the article's season instead.
+      const league = await ctx.db.get(scheduledContent.leagueId);
+      const articleSeason =
+        scheduledContent.contextData?.seasonId ??
+        scheduledContent.seasonId ??
+        leagueCurrentSeason(league);
+
+      const claims = await ctx.db
+        .query("teamClaims")
+        .withIndex("by_league", (q) => q.eq("leagueId", scheduledContent.leagueId))
         .collect();
-      
-      // Convert owner clerkIds to user IDs
-      const ownerClerkIds = teams
-        .filter(t => t.owner)
-        .map(t => t.owner)
-        .slice(0, 5); // Limit to 5 users for testing
-        
+      const activeClaimClerkIds = Array.from(
+        new Set(
+          claims
+            .filter((c) => c.seasonId === articleSeason && c.status === "active")
+            .map((c) => c.userId)
+        )
+      ).slice(0, 5); // Limit to 5 users for testing
+
       const users = await Promise.all(
-        ownerClerkIds.map(async (clerkId) => {
+        activeClaimClerkIds.map(async (clerkId) => {
           const user = await ctx.db
             .query("users")
             .withIndex("by_clerk_id", q => q.eq("clerkId", clerkId))
@@ -1557,7 +1582,7 @@ export const triggerCommentRequests = mutation({
           return user?._id;
         })
       );
-      
+
       targetUserIds = users.filter(id => id !== undefined) as Id<"users">[];
     }
 

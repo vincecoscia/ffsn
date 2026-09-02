@@ -377,6 +377,207 @@ export function renderTeamInvitationEmail(data: TeamInvitationEmailData): Render
 }
 
 /* -------------------------------------------------------------------------- */
+/* ESPN connection lifecycle (broken / expiring / restored)                   */
+/*                                                                             */
+/* Commissioner-only, private leagues only. `espn_connection_broken` fires    */
+/* the moment ESPN starts rejecting the stored cookies (and again every few   */
+/* days while it stays broken); `espn_connection_expiring` fires up to 14     */
+/* days ahead of a commissioner-entered expiry date; `espn_connection_        */
+/* restored` fires once the connection works again. See                      */
+/* convex/espnCredentialLifecycle.ts for the triggers.                       */
+/* -------------------------------------------------------------------------- */
+
+/** How to find a fresh espn_s2/SWID pair, shared by the broken and expiring emails. */
+const ESPN_COOKIE_STEPS = [
+  "Open your league on ESPN.com and make sure you're signed in.",
+  "Right-click anywhere on the page and choose Inspect (or press F12), then open the Application tab (Storage in Firefox).",
+  "Under Cookies, click fantasy.espn.com.",
+  "Copy the values for espn_s2 and SWID — SWID includes the curly braces.",
+  "In FFSN, open League Settings → ESPN Connection and paste both in.",
+];
+
+function stepsHtml(steps: string[]): string {
+  return steps.map((s, i) => `${i + 1}. ${escapeHtml(s)}`).join("<br>");
+}
+
+function stepsText(steps: string[]): string {
+  return steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+}
+
+export interface EspnConnectionBrokenEmailData {
+  leagueName: string;
+  /** What ESPN said when it rejected the stored cookies (`credentialError`), shown verbatim if present. */
+  errorDetail?: string;
+  /** Stories currently on hold until the connection is fixed. */
+  waitingCount: number;
+  /** True for the cron's follow-up resend (every few days); false for the first notice. */
+  isReminder?: boolean;
+  fixUrl: string;
+  preferencesUrl: string;
+  siteUrl: string;
+}
+
+export function renderEspnConnectionBrokenEmail(data: EspnConnectionBrokenEmailData): RenderedEmail {
+  const siteUrl = trimTrailingSlash(data.siteUrl);
+  const subject = data.isReminder
+    ? `Still can't reach your ESPN league — ${data.leagueName}`
+    : "Action needed: FFSN can't reach your ESPN league";
+  const headlineText = data.isReminder
+    ? "Still can't reach your ESPN league."
+    : "FFSN can't reach your ESPN league.";
+  const waitingLine =
+    data.waitingCount > 0
+      ? `${data.waitingCount} ${data.waitingCount === 1 ? "story is" : "stories are"} on hold until it's fixed.`
+      : "New stories are on hold until it's fixed.";
+  const body = `ESPN stopped accepting the login connected to ${data.leagueName}. Until you reconnect, FFSN can't pull scores, rosters, or matchups. ${waitingLine}`;
+  const preheader = data.isReminder
+    ? `Still waiting on a fix for ${data.leagueName}. ${waitingLine}`
+    : `ESPN rejected the login for ${data.leagueName}. ${waitingLine}`;
+
+  const content = [
+    slate(data.isReminder ? "Still needs attention" : "Action needed", data.leagueName),
+    headline(headlineText),
+    paragraph(escapeHtml(body)),
+    statsRow([
+      { label: "Stories on hold", value: String(data.waitingCount) },
+      { label: "What ESPN said", value: data.errorDetail?.trim() || "Login rejected" },
+    ]),
+    button("Fix the connection", data.fixUrl),
+    kicker("How to find your ESPN cookies"),
+    paragraph(stepsHtml(ESPN_COOKIE_STEPS), { size: 14 }),
+    finePrint(`If the button doesn't work, paste this link into your browser: ${escapeHtml(data.fixUrl)}`, { last: true }),
+  ].join("\n");
+
+  const reason = `You're getting this because you're the commissioner of ${data.leagueName} on FFSN.`;
+
+  const html = renderShell({
+    title: subject,
+    preheader,
+    siteUrl,
+    preferencesUrl: data.preferencesUrl,
+    mastheadLabel: data.leagueName,
+    reason,
+    content,
+  });
+
+  const text = textDocument([
+    `FFSN · ${(data.isReminder ? "STILL NEEDS ATTENTION" : "ACTION NEEDED")} · ${data.leagueName.toUpperCase()}`,
+    headlineText,
+    body,
+    `Stories on hold: ${data.waitingCount}\nWhat ESPN said: ${data.errorDetail?.trim() || "Login rejected"}`,
+    `Fix the connection: ${data.fixUrl}`,
+    `How to find your ESPN cookies:\n${stepsText(ESPN_COOKIE_STEPS)}`,
+    textFooter({ siteUrl, preferencesUrl: data.preferencesUrl, reason }),
+  ]);
+
+  return { subject, preheader, html, text, fromName: "FFSN" };
+}
+
+export interface EspnConnectionExpiringEmailData {
+  leagueName: string;
+  /** Days left until the commissioner-entered expiry, already rounded (minimum 1). */
+  daysLeft: number;
+  fixUrl: string;
+  preferencesUrl: string;
+  siteUrl: string;
+}
+
+export function renderEspnConnectionExpiringEmail(data: EspnConnectionExpiringEmailData): RenderedEmail {
+  const siteUrl = trimTrailingSlash(data.siteUrl);
+  const days = Math.max(1, Math.round(data.daysLeft));
+  const dayWord = days === 1 ? "day" : "days";
+  const subject = `Your ESPN login for FFSN expires in ${days} ${dayWord}`;
+  const body = `The ESPN login connected to ${data.leagueName} is set to expire in ${days} ${dayWord}. When it does, FFSN will stop being able to pull scores, rosters, and matchups until you reconnect.`;
+  const preheader = `${data.leagueName}'s ESPN login expires in ${days} ${dayWord}. Reconnect before it lapses.`;
+
+  const content = [
+    slate("Expiring soon", data.leagueName),
+    headline(`Your ESPN login expires in ${days} ${dayWord}.`),
+    paragraph(escapeHtml(body)),
+    button("Reconnect now", data.fixUrl),
+    kicker("How to find fresh ESPN cookies"),
+    paragraph(stepsHtml(ESPN_COOKIE_STEPS), { size: 14 }),
+    finePrint(`If the button doesn't work, paste this link into your browser: ${escapeHtml(data.fixUrl)}`, { last: true }),
+  ].join("\n");
+
+  const reason = `You're getting this because you're the commissioner of ${data.leagueName} on FFSN.`;
+
+  const html = renderShell({
+    title: subject,
+    preheader,
+    siteUrl,
+    preferencesUrl: data.preferencesUrl,
+    mastheadLabel: data.leagueName,
+    reason,
+    content,
+  });
+
+  const text = textDocument([
+    `FFSN · EXPIRING SOON · ${data.leagueName.toUpperCase()}`,
+    `Your ESPN login expires in ${days} ${dayWord}.`,
+    body,
+    `Reconnect now: ${data.fixUrl}`,
+    `How to find fresh ESPN cookies:\n${stepsText(ESPN_COOKIE_STEPS)}`,
+    textFooter({ siteUrl, preferencesUrl: data.preferencesUrl, reason }),
+  ]);
+
+  return { subject, preheader, html, text, fromName: "FFSN" };
+}
+
+export interface EspnConnectionRestoredEmailData {
+  leagueName: string;
+  /** Backlogged stories now back in the generation queue. */
+  resumedCount: number;
+  /** Of those, how many are old enough to generate without opening a comment window. */
+  withoutInterviewsCount: number;
+  leagueUrl: string;
+  preferencesUrl: string;
+  siteUrl: string;
+}
+
+export function renderEspnConnectionRestoredEmail(data: EspnConnectionRestoredEmailData): RenderedEmail {
+  const siteUrl = trimTrailingSlash(data.siteUrl);
+  const subject = "FFSN is back on your league";
+  const body = `The ESPN connection for ${data.leagueName} is working again. FFSN picked up right where it left off.`;
+  const preheader = `${data.leagueName}'s ESPN connection is fixed. FFSN is syncing again.`;
+
+  const content = [
+    slate("Back on the air", data.leagueName),
+    headline("FFSN is back on your league."),
+    paragraph(escapeHtml(body)),
+    statsRow([
+      { label: "Stories resuming", value: String(data.resumedCount) },
+      { label: "Skipping interviews", value: String(data.withoutInterviewsCount) },
+    ]),
+    button("Open your league", data.leagueUrl),
+    finePrint(`If the button doesn't work, paste this link into your browser: ${escapeHtml(data.leagueUrl)}`, { last: true }),
+  ].join("\n");
+
+  const reason = `You're getting this because you're the commissioner of ${data.leagueName} on FFSN.`;
+
+  const html = renderShell({
+    title: subject,
+    preheader,
+    siteUrl,
+    preferencesUrl: data.preferencesUrl,
+    mastheadLabel: data.leagueName,
+    reason,
+    content,
+  });
+
+  const text = textDocument([
+    `FFSN · BACK ON THE AIR · ${data.leagueName.toUpperCase()}`,
+    "FFSN is back on your league.",
+    body,
+    `Stories resuming: ${data.resumedCount}\nSkipping interviews (stale): ${data.withoutInterviewsCount}`,
+    `Open your league: ${data.leagueUrl}`,
+    textFooter({ siteUrl, preferencesUrl: data.preferencesUrl, reason }),
+  ]);
+
+  return { subject, preheader, html, text, fromName: "FFSN" };
+}
+
+/* -------------------------------------------------------------------------- */
 /* System notice (test sends, announcements)                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -435,7 +636,10 @@ export type EmailTemplateKey =
   | "comment_reminder"
   | "article_published"
   | "system_notice"
-  | "team_invitation";
+  | "team_invitation"
+  | "espn_connection_broken"
+  | "espn_connection_expiring"
+  | "espn_connection_restored";
 
 export interface EmailTemplateDataMap {
   comment_request: CommentRequestEmailData;
@@ -443,6 +647,9 @@ export interface EmailTemplateDataMap {
   article_published: ArticlePublishedEmailData;
   system_notice: SystemNoticeEmailData;
   team_invitation: TeamInvitationEmailData;
+  espn_connection_broken: EspnConnectionBrokenEmailData;
+  espn_connection_expiring: EspnConnectionExpiringEmailData;
+  espn_connection_restored: EspnConnectionRestoredEmailData;
 }
 
 export function localTemplateId(key: EmailTemplateKey): string {
@@ -467,6 +674,12 @@ export function renderEmail<K extends EmailTemplateKey>(key: K, data: EmailTempl
       return renderSystemNoticeEmail(data as SystemNoticeEmailData);
     case "team_invitation":
       return renderTeamInvitationEmail(data as TeamInvitationEmailData);
+    case "espn_connection_broken":
+      return renderEspnConnectionBrokenEmail(data as EspnConnectionBrokenEmailData);
+    case "espn_connection_expiring":
+      return renderEspnConnectionExpiringEmail(data as EspnConnectionExpiringEmailData);
+    case "espn_connection_restored":
+      return renderEspnConnectionRestoredEmail(data as EspnConnectionRestoredEmailData);
     default: {
       const never: never = key;
       throw new Error(`Unknown email template: ${String(never)}`);
@@ -483,7 +696,16 @@ export function renderLocalTemplate(templateId: string, data: unknown): Rendered
   if (!isLocalTemplateId(templateId)) return null;
   const key = templateId.slice(LOCAL_TEMPLATE_PREFIX.length) as EmailTemplateKey;
   if (
-    !["comment_request", "comment_reminder", "article_published", "system_notice", "team_invitation"].includes(key)
+    ![
+      "comment_request",
+      "comment_reminder",
+      "article_published",
+      "system_notice",
+      "team_invitation",
+      "espn_connection_broken",
+      "espn_connection_expiring",
+      "espn_connection_restored",
+    ].includes(key)
   ) {
     throw new Error(`Unknown local email template: ${templateId}`);
   }

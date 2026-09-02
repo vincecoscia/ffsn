@@ -26,6 +26,26 @@ export const LEAGUE_AT_CAPACITY = "LEAGUE_AT_CAPACITY";
 const MAX_MEMBERSHIPS_SCANNED = 200;
 
 /**
+ * How many `scheduledContent` rows one backlog count reads. A league only
+ * accumulates a "backlogged" row per scheduled/event piece of content that
+ * would have generated while its ESPN connection was broken, so this is
+ * generous headroom rather than a real limit in practice.
+ */
+const MAX_BACKLOG_SCANNED = 500;
+
+/** Stories currently held for a league because its ESPN credentials are invalid. */
+async function countBackloggedContent(
+  ctx: QueryCtx | MutationCtx,
+  leagueId: Id<"leagues">
+): Promise<number> {
+  const rows = await ctx.db
+    .query("scheduledContent")
+    .withIndex("by_league_status", (q) => q.eq("leagueId", leagueId).eq("status", "backlogged"))
+    .take(MAX_BACKLOG_SCANNED);
+  return rows.length;
+}
+
+/**
  * Seats used and seats left in a league.
  *
  * The League Pass covers `includedManagers` (12 by default); each $10 seat the
@@ -376,6 +396,8 @@ export const setEspnCredentialStatus = internalMutation({
     const league = await ctx.db.get(args.leagueId);
     if (!league || !league.espnData) return null;
 
+    const previousStatus = league.espnData.credentialStatus ?? "unknown";
+
     await ctx.db.patch(args.leagueId, {
       espnData: {
         ...league.espnData,
@@ -386,8 +408,84 @@ export const setEspnCredentialStatus = internalMutation({
         ...(args.alertedAt !== undefined ? { credentialAlertedAt: args.alertedAt } : {}),
       },
     });
+
+    // Commissioner-facing credential lifecycle (audit: 2-week-expiry /
+    // rejected-cookie emails). Fires only on the actual transition, not on
+    // every re-confirmation of the same status, so a league that stays
+    // invalid across many sync attempts doesn't re-trigger this on each one -
+    // `espnCredentialLifecycle.dailyCredentialReminders` owns the "still
+    // broken" nudge on its own cadence.
+    if (previousStatus !== "invalid" && args.status === "invalid" && league.espnData.isPrivate) {
+      await ctx.scheduler.runAfter(0, internal.espnCredentialLifecycle.onInvalid, {
+        leagueId: args.leagueId,
+      });
+    } else if (previousStatus === "invalid" && args.status === "valid") {
+      await ctx.scheduler.runAfter(0, internal.espnCredentialLifecycle.onRestored, {
+        leagueId: args.leagueId,
+      });
+    }
+
     return null;
   },
+});
+
+/**
+ * Stamp (or clear) `credentialInvalidNotifiedAt` on a private league's ESPN
+ * data. Called by `espnCredentialLifecycle.onInvalid`/`dailyCredentialReminders`
+ * right after sending (or attempting to send) the commissioner's
+ * "connection broken" email, and by `onRestored` to clear it once the
+ * connection is fixed again. Omit `notifiedAt` to clear.
+ */
+export const markCredentialNotified = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    notifiedAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league || !league.espnData) return null;
+
+    await ctx.db.patch(args.leagueId, {
+      espnData: {
+        ...league.espnData,
+        credentialInvalidNotifiedAt: args.notifiedAt,
+      },
+    });
+    return null;
+  },
+});
+
+/**
+ * Stamp the `credentialExpiresAt` value the 14-day expiry reminder was just
+ * sent for, so `dailyCredentialReminders` doesn't send it again for the same
+ * expiry date every day it stays inside the 14-day window.
+ */
+export const markExpiryReminderSent = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    expiresAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league || !league.espnData) return null;
+
+    await ctx.db.patch(args.leagueId, {
+      espnData: {
+        ...league.espnData,
+        expiryReminderSentFor: args.expiresAt,
+      },
+    });
+    return null;
+  },
+});
+
+/** Backlog count for a league, for the daily reminder cron (no auth - internal only). */
+export const getBackloggedContentCountInternal = internalQuery({
+  args: { leagueId: v.id("leagues") },
+  returns: v.number(),
+  handler: async (ctx, args) => countBackloggedContent(ctx, args.leagueId),
 });
 
 /**
@@ -405,6 +503,12 @@ export const getEspnConnection = query({
     credentialCheckedAt: v.optional(v.number()),
     credentialError: v.optional(v.string()),
     lastSyncedAt: v.optional(v.number()),
+    // --- Credential lifecycle (commissioner-facing) ---
+    credentialSavedAt: v.optional(v.number()),
+    credentialExpiresAt: v.optional(v.number()),
+    contentPausedAt: v.optional(v.number()),
+    // Scheduled content rows held back while credentials were invalid.
+    backloggedCount: v.number(),
   }),
   handler: async (ctx, args) => {
     await requireLeagueMember(ctx, args.leagueId);
@@ -412,6 +516,8 @@ export const getEspnConnection = query({
     if (!league) throw new Error("League not found");
 
     const espnData = league.espnData;
+    const backloggedCount = await countBackloggedContent(ctx, args.leagueId);
+
     return {
       hasCredentials: !!(espnData?.espnS2 && espnData?.swid),
       isPrivate: !!espnData?.isPrivate,
@@ -419,6 +525,10 @@ export const getEspnConnection = query({
       credentialCheckedAt: espnData?.credentialCheckedAt,
       credentialError: espnData?.credentialError,
       lastSyncedAt: espnData?.lastSyncedAt,
+      credentialSavedAt: espnData?.credentialSavedAt,
+      credentialExpiresAt: espnData?.credentialExpiresAt,
+      contentPausedAt: espnData?.contentPausedAt,
+      backloggedCount,
     };
   },
 });
@@ -439,6 +549,10 @@ export const updateEspnCredentials = mutation({
     leagueId: v.id("leagues"),
     espnS2: v.string(),
     swid: v.string(),
+    // As read by the commissioner from the browser's cookie panel (ESPN
+    // doesn't publish a lifetime for espn_s2). Optional; omit/undefined
+    // clears any previously-entered expiry. Drives the 14-day reminder.
+    expiresAt: v.optional(v.number()),
   },
   returns: v.object({ ok: v.literal(true) }),
   handler: async (ctx, args) => {
@@ -459,6 +573,8 @@ export const updateEspnCredentials = mutation({
       isPrivate: true,
     };
 
+    const now = Date.now();
+
     await ctx.db.patch(args.leagueId, {
       espnData: {
         ...existingEspnData,
@@ -468,7 +584,20 @@ export const updateEspnCredentials = mutation({
         credentialStatus: "unknown" as const,
         credentialCheckedAt: undefined,
         credentialError: undefined,
+        credentialSavedAt: now,
+        credentialExpiresAt: args.expiresAt,
+        // A fresh pair invalidates whatever expiry reminder was already sent.
+        expiryReminderSentFor: undefined,
       },
+    });
+
+    // Probe the freshly-saved pair right away. A successful probe writes
+    // "valid" through setEspnCredentialStatus, which - if the connection was
+    // previously invalid - schedules espnCredentialLifecycle.onRestored on
+    // its own, so a fixed connection resumes the backlog without the
+    // commissioner doing anything else.
+    await ctx.scheduler.runAfter(0, internal.espnSync.validateStoredCredentials, {
+      leagueId: args.leagueId,
     });
 
     return { ok: true as const };
