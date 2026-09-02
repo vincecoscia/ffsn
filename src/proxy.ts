@@ -12,6 +12,14 @@ const isPublicRoute = createRouteMatcher([
   '/invite(.*)',
   '/articles(.*)',
   '/api/stripe/webhook(.*)',
+  // Legal, contact, and crawler-facing pages must be readable without an
+  // account (Stripe's business-website review, search engines, PWA install).
+  '/terms',
+  '/privacy',
+  '/contact',
+  '/robots.txt',
+  '/manifest.json',
+  '/sitemap.xml',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
