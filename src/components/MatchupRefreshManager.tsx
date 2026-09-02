@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useAction, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { formatDistanceToNow } from "date-fns";
 import { Id } from "../../convex/_generated/dataModel";
+import { api } from "../../convex/_generated/api";
 import { RefreshCw, Calendar, AlertTriangle } from "lucide-react";
-import { triggerHistoricalSync, getCurrentLeagueSync } from "../app/sync/actions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,60 +17,86 @@ interface MatchupRefreshManagerProps {
   leagueId: Id<"leagues">;
 }
 
+interface SyncSummary {
+  totalSynced: number;
+  issues: Array<{ year: number; error: string }>;
+}
+
+/**
+ * Translates a thrown/returned sync error into copy a commissioner can act on.
+ * The two specific cases below are what the backend actually surfaces when the
+ * commissioner's Convex identity is missing or ESPN rejects the saved cookies;
+ * everything else falls back to the raw message.
+ */
+function describeSyncError(message: string): string {
+  if (message.includes("Not authenticated")) {
+    return "Your session expired. Sign in again and retry.";
+  }
+  if (/401|403|credentials|re-authenticate/i.test(message)) {
+    return "ESPN rejected the saved cookies. Update them in the ESPN connection card above.";
+  }
+  return message;
+}
+
 export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshType, setRefreshType] = useState<"current" | "all">("current");
   const [historicalYears, setHistoricalYears] = useState(10);
+  const [lastResult, setLastResult] = useState<SyncSummary | null>(null);
+
+  // Both actions carry the browser's Clerk -> Convex JWT, unlike the deleted
+  // `src/app/sync/actions.ts` server actions they replace.
+  const syncCurrentSeason = useAction(api.espnSync.syncAllLeagueData);
+  const syncWithHistory = useAction(api.espnSync.syncAllDataWithRosters);
+  const connection = useQuery(api.leagues.getEspnConnection, { leagueId });
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setLastResult(null);
 
     try {
-      let result;
-
-      if (refreshType === "current") {
-        // Only refresh current season
-        result = await getCurrentLeagueSync(leagueId);
-
-        if (result.success) {
-          toast.success("Current season data synced!", {
-            description: "All league data for the current season has been updated (teams, owners, logos, rosters, matchups)."
-          });
-        } else {
-          throw new Error(result.error);
-        }
-      } else {
-        // Refresh all historical data
-        result = await triggerHistoricalSync(leagueId, historicalYears, true);
-
-        if (result.success && result.data) {
-          const { totalSynced, totalErrors, results } = result.data;
-
-          if (totalSynced > 0) {
-            toast.success(`Successfully synced ${totalSynced} season${totalSynced > 1 ? 's' : ''}!`, {
-              description: totalErrors > 0
-                ? `${totalErrors} season${totalErrors > 1 ? 's' : ''} had errors. Check console for details.`
-                : "All league data has been updated across all seasons."
+      const result =
+        refreshType === "current"
+          ? await syncCurrentSeason({ leagueId, includeCurrentSeason: true, historicalYears: 0 })
+          : await syncWithHistory({
+              leagueId,
+              includeCurrentSeason: true,
+              historicalYears,
+              includeHistoricalRosters: true,
             });
 
-            // Log detailed results for debugging
-            console.log("Sync results:", results);
-          } else {
-            throw new Error("No seasons were synced successfully");
-          }
-        } else {
-          throw new Error(result.error);
-        }
+      if (!result.success) {
+        throw new Error(result.message || "No seasons were synced successfully");
       }
-    } catch (error) {
-      toast.error("Failed to sync league data", {
-        description: error instanceof Error ? error.message : "Please try again or contact support."
+
+      const issues = result.results
+        .filter((yearResult) => !yearResult.success || (yearResult.stepErrors?.length ?? 0) > 0)
+        .map((yearResult) => ({
+          year: yearResult.year,
+          error: yearResult.error ?? yearResult.stepErrors?.[0] ?? "Unknown error",
+        }));
+
+      const hasWarnings = (result.warnings ?? 0) > 0 || issues.length > 0;
+
+      setLastResult({ totalSynced: result.totalSynced, issues });
+
+      toast.success(`Synced ${result.totalSynced} season${result.totalSynced === 1 ? "" : "s"}`, {
+        description: hasWarnings
+          ? `${issues.length} season${issues.length === 1 ? "" : "s"} had issues — see details below.`
+          : "All league data has been updated (teams, owners, logos, rosters, matchups).",
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again or contact support.";
+      toast.error("Failed to sync league data", { description: describeSyncError(message) });
       console.error("Refresh error:", error);
     } finally {
       setIsRefreshing(false);
     }
   };
+
+  const lastSyncedLabel = connection?.lastSyncedAt
+    ? `Last synced ${formatDistanceToNow(new Date(connection.lastSyncedAt), { addSuffix: true })}`
+    : "Never synced";
 
   return (
     <div className="flex flex-col gap-5">
@@ -150,9 +178,18 @@ export function MatchupRefreshManager({ leagueId }: MatchupRefreshManagerProps) 
           : `Sync ${refreshType === "current" ? "current season" : "all"} league data`}
       </Button>
 
-      <p className="text-center text-xs text-bc-text-3">
-        Last sync information is not currently tracked. Consider running a sync if league data seems outdated.
-      </p>
+      {lastResult && lastResult.issues.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-l-2 border-l-bc-signal pl-3">
+          <span className="bc-label-sm text-bc-text-3">Seasons with issues</span>
+          {lastResult.issues.map(({ year, error }) => (
+            <p key={year} className="text-sm text-bc-text-2">
+              <span className="font-semibold text-bc-ink">{year}</span> &mdash; {error}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <p className="text-center text-xs text-bc-text-3">{lastSyncedLabel}</p>
     </div>
   );
 }

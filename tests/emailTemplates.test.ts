@@ -13,10 +13,12 @@ import {
   renderCommentRequestEmail,
   renderLocalTemplate,
   renderSystemNoticeEmail,
+  renderTeamInvitationEmail,
   SENDGRID_UNSUBSCRIBE_TAG,
   shortName,
   writerDisplay,
   type CommentRequestEmailData,
+  type TeamInvitationEmailData,
 } from "../src/lib/email";
 
 const siteUrl = "https://ffsn.ai";
@@ -171,6 +173,70 @@ describe("article published email", () => {
     expect(email.subject).toBe("You're quoted · The Highest-Scoring Team in This League Is 1-2");
     expect(email.html).toContain("You&#39;re quoted");
     expect(email.text).toContain("You're quoted");
+  });
+});
+
+describe("team invitation email", () => {
+  const deadline2027 = Date.UTC(2027, 8, 3, 23, 30); // Fri, Sep 3 2027, 7:30 PM EDT
+
+  const base: TeamInvitationEmailData = {
+    leagueName: "The Sunday Scaries",
+    teamName: "Kittle Me This",
+    teamAbbreviation: "KMT",
+    invitedByName: "Dana Whitlock",
+    inviteUrl: `${siteUrl}/invite/sample-token`,
+    expiresAt: deadline2027,
+    preferencesUrl,
+    siteUrl,
+  };
+
+  it("names the league, team, inviter, and links the claim button, with a plain-text fallback", () => {
+    const email = renderTeamInvitationEmail(base);
+    expect(email.fromName).toBe("FFSN");
+    expect(email.subject).toBe("You're invited to claim Kittle Me This in The Sunday Scaries on FFSN");
+    expect(email.html).toContain("The Sunday Scaries");
+    expect(email.html).toContain("Kittle Me This");
+    expect(email.html).toContain("Dana Whitlock");
+    expect(email.html).toContain("Claim your team");
+    expect(email.html).toContain(base.inviteUrl);
+    expect(email.html).toMatch(/expires.*Sep 3, 7:30 PM E[DS]T/i);
+    expect(email.text).toContain("Claim your team: " + base.inviteUrl);
+    expect(email.text).toContain(base.inviteUrl); // plain-text URL fallback
+  });
+
+  it("shows the team logo when present, and omits it otherwise", () => {
+    const withLogo = renderTeamInvitationEmail({ ...base, teamLogo: `${siteUrl}/logos/kmt.png` });
+    expect(withLogo.html).toContain(`src="${siteUrl}/logos/kmt.png"`);
+    // The masthead always has its own <img> (the FFSN wordmark); a team logo adds a second.
+    expect(withLogo.html.match(/<img/g)?.length).toBe(2);
+
+    const withoutLogo = renderTeamInvitationEmail(base);
+    expect(withoutLogo.html.match(/<img/g)?.length).toBe(1);
+  });
+
+  it("still works without a known inviter", () => {
+    const email = renderTeamInvitationEmail({ ...base, invitedByName: undefined });
+    expect(email.html).toContain("The commissioner of The Sunday Scaries");
+    expect(email.html).not.toContain("undefined");
+  });
+
+  it("escapes user-controlled text", () => {
+    const email = renderTeamInvitationEmail({
+      ...base,
+      teamName: '<script>alert(1)</script>',
+      leagueName: 'Bob\'s "League" & Co',
+    });
+    expect(email.html).not.toContain("<script>alert(1)</script>");
+    expect(email.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(email.html).toContain("Bob&#39;s &quot;League&quot; &amp; Co");
+  });
+
+  it("round-trips through the local template registry", () => {
+    const id = localTemplateId("team_invitation");
+    expect(id).toBe("ffsn:team_invitation");
+    expect(isLocalTemplateId(id)).toBe(true);
+    const rendered = renderLocalTemplate(id, base);
+    expect(rendered?.subject).toContain("You're invited to claim Kittle Me This");
   });
 });
 

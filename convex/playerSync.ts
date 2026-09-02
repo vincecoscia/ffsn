@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import { getPositionAbbrev } from "./playerSyncInternal";
 import { transformStats } from "./espnStatsMapping";
 import { requireIdentity, requireLeagueMemberFromAction } from "./lib/auth";
+import { buildEspnHeaders, normalizeEspnCredentials } from "./lib/espnClient";
 
 // Team abbreviation helper function
 const getTeamAbbreviation = (teamId: number): string => {
@@ -131,20 +132,23 @@ export const syncAllPlayers = action({
       
       // If we have a league ID, use the authenticated league endpoint approach
       if (leagueId) {
-        // Get league details for authentication
-        const league = await ctx.runQuery(api.leagues.getById, { id: leagueId });
+        // Get league details for authentication. Internal-only lookup: the
+        // public `leagues.getById` redacts espnS2/swid, which used to make
+        // this silently 401 for every private league (and cron runs have no
+        // identity for it to check anyway).
+        const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: leagueId });
         if (league && league.espnData) {
           const externalId = league.externalId;
-          const { espnS2, swid } = league.espnData;
-          
+          const creds = normalizeEspnCredentials(league.espnData);
+
           let offset = 0;
           const limit = 1000;
           let hasMore = true;
 
           while (hasMore) {
             const url = ESPN_LEAGUE_PLAYERS_ENDPOINT.replace("{season}", season.toString()).replace("{leagueId}", externalId);
-            
-            const headers: HeadersInit = {
+
+            const headers = buildEspnHeaders(creds, {
               'Content-Type': 'application/json',
               'x-fantasy-filter': JSON.stringify({
                 "players": {
@@ -160,11 +164,7 @@ export const syncAllPlayers = action({
                   "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [`00${season}`, `10${season}`, `00${season-1}`, `1120${season}1`, `02${season}`]}
                 }
               })
-            };
-            
-            if (espnS2 && swid) {
-              headers.Cookie = `espn_s2=${espnS2}; SWID=${swid}`;
-            }
+            });
 
             const response = await fetch(url, { headers });
             
@@ -193,8 +193,8 @@ export const syncAllPlayers = action({
 
         while (hasMore) {
           const url = ESPN_PLAYERS_ENDPOINT.replace("{season}", season.toString());
-          
-          const headers: HeadersInit = {
+
+          const headers = buildEspnHeaders(undefined, {
             'Content-Type': 'application/json',
             'x-fantasy-filter': JSON.stringify({
               "players": {
@@ -204,8 +204,8 @@ export const syncAllPlayers = action({
                 "sortDraftRanks": {"sortPriority": 100, "sortAsc": true, "value": "STANDARD"}
               }
             })
-          };
-          
+          });
+
           const response = await fetch(url, { headers });
           
           if (!response.ok) {
@@ -323,30 +323,32 @@ export const syncPlayersForDraft = internalAction({
       };
     }
 
-    // Get league details for authentication
-    const league = await ctx.runQuery(api.leagues.getById, { id: leagueId });
+    // Get league details for authentication. Internal-only: the public
+    // `leagues.getById` redacts espnS2/swid, and this is only ever invoked
+    // from other Convex functions (no request identity to check against).
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: leagueId });
     if (!league || !league.espnData) {
       throw new Error("League not found or ESPN data missing");
     }
 
     const externalId = league.externalId;
-    const { espnS2, swid } = league.espnData;
-    
+    const creds = normalizeEspnCredentials(league.espnData);
+
     try {
       // Extract unique player IDs
       const uniquePlayerIds = [...new Set(draftPicks.map(pick => pick.playerId))];
-      
+
       // Process in batches
       const batchSize = 50;
       let processedCount = 0;
-      
+
       for (let i = 0; i < uniquePlayerIds.length; i += batchSize) {
         const batchIds = uniquePlayerIds.slice(i, i + batchSize);
-        
+
         // Construct URL with player filter
         const url = ESPN_LEAGUE_PLAYERS_ENDPOINT.replace("{season}", seasonId.toString()).replace("{leagueId}", externalId);
-        
-        const headers: HeadersInit = {
+
+        const headers = buildEspnHeaders(creds, {
           'Content-Type': 'application/json',
           'x-fantasy-filter': JSON.stringify({
             "players": {
@@ -355,11 +357,7 @@ export const syncPlayersForDraft = internalAction({
               "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [`00${seasonId}`, `10${seasonId}`, `00${seasonId-1}`, `1120${seasonId}1`, `02${seasonId}`]}
             }
           })
-        };
-        
-        if (espnS2 && swid) {
-          headers.Cookie = `espn_s2=${espnS2}; SWID=${swid}`;
-        }
+        });
 
         const response = await fetch(url, { headers });
         
@@ -439,19 +437,22 @@ export const syncLeaguePlayers = internalAction({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { leagueId, season, offset = 0, limit = 50 }): Promise<{ status: string; playersProcessed: number; hasMore: boolean; nextOffset: number | null }> => {
-    // Get league details
-    const league = await ctx.runQuery(api.leagues.getById, { id: leagueId });
+    // Get league details. Internal-only lookup: the public `leagues.getById`
+    // redacts espnS2/swid, which used to make this silently 401 (and, called
+    // from a cron with no identity, return `null` and be reported as
+    // "success" with 0 players processed).
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: leagueId });
     if (!league || !league.espnData) {
       throw new Error("League not found or ESPN data missing");
     }
 
     const externalId = league.externalId;
-    const { espnS2, swid } = league.espnData;
-    
+    const creds = normalizeEspnCredentials(league.espnData);
+
     // Construct URL - note: we don't add offset/limit to URL as they go in the header
     const url = ESPN_LEAGUE_PLAYERS_ENDPOINT.replace("{season}", season.toString()).replace("{leagueId}", externalId);
-    
-    const headers: HeadersInit = {
+
+    const headers = buildEspnHeaders(creds, {
       'Content-Type': 'application/json',
       'x-fantasy-filter': JSON.stringify({
         "players": {
@@ -467,15 +468,11 @@ export const syncLeaguePlayers = internalAction({
           "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [`00${season}`, `10${season}`, `00${season-1}`, `1120${season}1`, `02${season}`]}
         }
       })
-    };
-    
-    if (espnS2 && swid) {
-      headers.Cookie = `espn_s2=${espnS2}; SWID=${swid}`;
-    }
+    });
 
     try {
       const response = await fetch(url, { headers });
-      
+
       if (!response.ok) {
         throw new Error(`ESPN API error: ${response.status}`);
       }
@@ -658,8 +655,8 @@ export const syncPlayersDefaultStats = internalAction({
       // Fetch players from the public endpoint
       while (hasMore) {
         const url = ESPN_DEFAULT_PLAYERS_ENDPOINT.replace("{season}", season.toString());
-        
-        const headers: HeadersInit = {
+
+        const headers = buildEspnHeaders(undefined, {
           'Content-Type': 'application/json',
           'x-fantasy-filter': JSON.stringify({
             "players": {
@@ -674,7 +671,7 @@ export const syncPlayersDefaultStats = internalAction({
               "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [`00${season}`, `10${season}`, `00${season-1}`, `1120${season}1`, `02${season}`]}
             }
           })
-        };
+        });
 
         const response = await fetch(url, { headers });
         
@@ -800,12 +797,12 @@ export const syncLeaguePlayerStats = internalAction({
 
     const scoringType = league.settings?.scoringType || "PPR";
     const externalId = league.externalId;
-    const { espnS2, swid } = league.espnData;
-    
+    const creds = normalizeEspnCredentials(league.espnData);
+
     // Get ALL players (not just free agents) to get stats
     const url = ESPN_LEAGUE_PLAYERS_ENDPOINT.replace("{season}", season.toString()).replace("{leagueId}", externalId);
-    
-    const headers: HeadersInit = {
+
+    const headers = buildEspnHeaders(creds, {
       'Content-Type': 'application/json',
       'x-fantasy-filter': JSON.stringify({
         "players": {
@@ -821,15 +818,11 @@ export const syncLeaguePlayerStats = internalAction({
           "filterStatsForTopScoringPeriodIds": {"value": 2, "additionalValue": [`00${season}`, `10${season}`, `00${season-1}`, `1120${season}1`, `02${season}`]}
         }
       })
-    };
-    
-    if (espnS2 && swid) {
-      headers.Cookie = `espn_s2=${espnS2}; SWID=${swid}`;
-    }
+    });
 
     try {
       const response = await fetch(url, { headers });
-      
+
       if (!response.ok) {
         throw new Error(`ESPN API error: ${response.status}`);
       }

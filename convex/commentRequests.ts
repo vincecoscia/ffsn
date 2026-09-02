@@ -4,6 +4,7 @@ import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
+import { leagueCurrentSeason } from "./lib/season";
 
 // Helper function to identify defense positions
 function isDefensePosition(position: string): boolean {
@@ -60,6 +61,14 @@ export const createRequestsForScheduledContent = internalMutation({
     const scheduledSendTime = Date.now(); // Send immediately
     const currentTime = Date.now();
 
+    // The season this article is about (teams/claims are per-season - see the
+    // note on `userTeam` below), falling back to the league's current season
+    // for rows written before this field was stamped.
+    const articleSeason =
+      scheduledContent.contextData?.seasonId ??
+      scheduledContent.seasonId ??
+      leagueCurrentSeason(league);
+
     // Create a request for each target user
     const requestIds = await Promise.all(
       args.targetUserIds.map(async (userId) => {
@@ -77,14 +86,28 @@ export const createRequestsForScheduledContent = internalMutation({
           return existing._id;
         }
 
-        // Get user's team for context  
-        const userTeam = await ctx.db
-          .query("teams")
-          .withIndex("by_league", q => 
-            q.eq("leagueId", scheduledContent.leagueId)
-          )
-          .filter(q => q.eq(q.field("owner"), userId))
-          .first();
+        // Get user's team for context. `userId` here is `Id<"users">`, never a
+        // Clerk id, and `teams.owner` is always an ESPN owner display name
+        // (e.g. "Gabe Coscia") - never compare the two directly. The real link
+        // is `teamClaims`: users doc -> its Clerk id -> that league's active
+        // claim for this article's season -> the claimed team.
+        let userTeam = null;
+        const targetUser = await ctx.db.get(userId);
+        if (targetUser) {
+          const userClaims = await ctx.db
+            .query("teamClaims")
+            .withIndex("by_user", q => q.eq("userId", targetUser.clerkId))
+            .collect();
+          const claim = userClaims.find(
+            c =>
+              c.leagueId === scheduledContent.leagueId &&
+              c.seasonId === articleSeason &&
+              c.status === "active"
+          );
+          if (claim) {
+            userTeam = await ctx.db.get(claim.teamId);
+          }
+        }
 
         // Determine priority based on user activity
         let priority: "high" | "medium" | "low" = "medium";

@@ -150,6 +150,9 @@ export default function SetupPage() {
   const [espnData, setEspnData] = useState<EspnData | null>(null);
   const [isLoadingEspnData, setIsLoadingEspnData] = useState(false);
   const [espnError, setEspnError] = useState<string | null>(null);
+  // Set from `result.requiresAuth` on a failed fetch, defensively read since
+  // the backend may not always carry the flag (older leagues, network errors).
+  const [espnRequiresAuth, setEspnRequiresAuth] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
@@ -174,12 +177,13 @@ export default function SetupPage() {
 
     setIsLoadingEspnData(true);
     setEspnError(null);
+    setEspnRequiresAuth(false);
 
     try {
       const result = await fetchEspnData({
         leagueId: formData.externalId,
-        espnS2: authData.espnS2 || undefined,
-        swid: authData.swid || undefined,
+        espnS2: authData.espnS2.trim() || undefined,
+        swid: authData.swid.trim() || undefined,
       });
 
       if (result.success && result.data) {
@@ -196,6 +200,7 @@ export default function SetupPage() {
         }));
       } else {
         setEspnError(result.error || "Failed to load ESPN data");
+        setEspnRequiresAuth(result.requiresAuth === true);
       }
     } catch {
       setEspnError("Failed to connect to ESPN. Please check your League ID.");
@@ -203,6 +208,13 @@ export default function SetupPage() {
       setIsLoadingEspnData(false);
     }
   };
+
+  // True when ESPN's response indicates the league needs auth cookies — a 401,
+  // a 403, or the backend's explicit `requiresAuth` flag (some rejections come
+  // back as 403s or without a status code in the message at all).
+  const espnAuthRequired = Boolean(
+    espnError?.includes("401") || espnError?.includes("403") || espnRequiresAuth
+  );
 
   const handleNext = async () => {
     if (step === 2 && formData.externalId && !espnData) {
@@ -248,8 +260,8 @@ export default function SetupPage() {
               size: espnData.size,
               lastSyncedAt: Date.now(),
               isPrivate: espnData.isPrivate || false,
-              espnS2: authData.espnS2 || undefined,
-              swid: authData.swid || undefined,
+              espnS2: authData.espnS2.trim() || undefined,
+              swid: authData.swid.trim() || undefined,
             }
           : undefined,
         history: espnData?.history,
@@ -382,7 +394,7 @@ export default function SetupPage() {
                 {espnError && (
                   <div className="border border-bc-red bg-bc-red/10 p-4">
                     <p className="text-[14px] text-bc-red-text">{espnError}</p>
-                    {espnError.includes("401") && (
+                    {espnAuthRequired && (
                       <div className="mt-3 border-t border-bc-red/30 pt-3">
                         <p className="bc-label text-bc-red-text">Private league detected</p>
                         <p className="mt-1 text-[13px] text-bc-red-text/80">
@@ -394,7 +406,7 @@ export default function SetupPage() {
                   </div>
                 )}
 
-                {(espnError?.includes("401") || authData.espnS2 || authData.swid) && (
+                {(espnAuthRequired || authData.espnS2 || authData.swid) && (
                   <div className="border border-bc-signal/40 bg-bc-signal/10 p-4">
                     <h3 className="bc-label flex items-center gap-2 text-bc-signal">
                       <KeyRound className="size-4" strokeWidth={1.8} />
@@ -425,13 +437,16 @@ export default function SetupPage() {
                           className="mt-1.5"
                           placeholder="{...}"
                         />
+                        <p className="mt-1 text-[12px] text-bc-text-3">
+                          Include the curly braces, e.g. {"{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"}.
+                        </p>
                       </div>
                       <Button
                         onClick={loadEspnData}
                         disabled={
                           !formData.externalId ||
-                          !authData.espnS2 ||
-                          !authData.swid ||
+                          !authData.espnS2.trim() ||
+                          !authData.swid.trim() ||
                           isLoadingEspnData
                         }
                         variant="signal"
@@ -512,7 +527,7 @@ export default function SetupPage() {
                   </ol>
                 </div>
 
-                {(espnError?.includes("401") || authData.espnS2 || authData.swid) && (
+                {(espnAuthRequired || authData.espnS2 || authData.swid) && (
                   <div className="border border-bc-hairline bg-bc-panel-2 p-4">
                     <h3 className="bc-label text-bc-ink">How to find your ESPN cookies</h3>
                     <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[14px] text-bc-text-2">

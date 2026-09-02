@@ -37,6 +37,13 @@ export const getByLeague = query({
   },
 });
 
+// Mirrors `credits.hasActivePass` (convex/credits.ts) without importing it: importing a
+// value from credits.ts recurses the generated api/internal types into `any` across the
+// app (see CLAUDE.md's Convex gotcha). Keep this in sync if the pass-active statuses change.
+function leagueHasActivePass(league: { subscription?: { status?: string } } | null | undefined): boolean {
+  return league?.subscription?.status === "active" || league?.subscription?.status === "paid";
+}
+
 // Helper function to get user display name for team ownership
 async function getUserDisplayName(ctx: any, userId: string): Promise<string> {
   const user = await ctx.db
@@ -137,10 +144,13 @@ export const claimTeam = mutation({
     // idempotent per (league, user, season), so claiming a team on an unpaid
     // league mints nothing and claiming twice never mints twice.
     try {
-      await ctx.runMutation(internal.credits.grantJoinCredits, {
-        userId: identity.subject,
-        leagueId: args.leagueId,
-      });
+      const league = await ctx.db.get(args.leagueId);
+      if (leagueHasActivePass(league)) {
+        await ctx.runMutation(internal.credits.grantJoinCredits, {
+          userId: identity.subject,
+          leagueId: args.leagueId,
+        });
+      }
     } catch (e) {
       console.error("Failed to grant join credits on claim:", e);
     }

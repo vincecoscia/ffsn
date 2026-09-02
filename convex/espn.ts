@@ -2,18 +2,19 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireIdentity } from "./lib/auth";
+import { fetchEspn, normalizeEspnCredentials, type EspnCredentials } from "./lib/espnClient";
 
 // Helper function to fetch draft data for a specific season
-async function fetchDraftData(leagueId: string, season: number, headers: HeadersInit): Promise<any> {
+async function fetchDraftData(leagueId: string, season: number, creds: EspnCredentials): Promise<any> {
   try {
     const draftUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${leagueId}?view=mDraftDetail&view=mSettings&view=mTeam&view=modular&view=mNav`;
-    const response = await fetch(draftUrl, { headers });
-    
+    const { response } = await fetchEspn(draftUrl, { creds });
+
     if (!response.ok) {
       console.warn(`Failed to fetch draft data for season ${season}: ${response.status}`);
       return null;
     }
-    
+
     const data = await response.json();
     return data.draftDetail?.picks || null;
   } catch (error) {
@@ -23,37 +24,37 @@ async function fetchDraftData(leagueId: string, season: number, headers: Headers
 }
 
 // Helper function to fetch historical league data
-async function fetchHistoricalData(leagueId: string, headers: HeadersInit): Promise<any[]> {
+async function fetchHistoricalData(leagueId: string, creds: EspnCredentials): Promise<any[]> {
   const currentYear = new Date().getFullYear();
   const history = [];
-  
+
   // Try to fetch last 8 years of historical data
   for (let i = 1; i <= 8; i++) {
     const year = currentYear - i;
     try {
       const historicalUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mSettings&view=mTeams`;
-      const response = await fetch(historicalUrl, { headers });
-      
+      const { response } = await fetchEspn(historicalUrl, { creds });
+
       if (!response.ok) {
         console.warn(`Failed to fetch historical data for year ${year}: ${response.status}`);
         continue;
       }
-      
+
       const data = await response.json();
       const teams = data.teams || [];
-      
+
       if (teams.length === 0) continue;
-      
+
       // Find champion (first seed in playoffs)
       const champion = teams
         .filter((team: any) => team.playoffSeed)
         .sort((a: any, b: any) => a.playoffSeed - b.playoffSeed)[0];
-      
+
       // Find runner-up (second seed in playoffs)
       const runnerUp = teams
         .filter((team: any) => team.playoffSeed)
         .sort((a: any, b: any) => a.playoffSeed - b.playoffSeed)[1];
-      
+
       // Find regular season champion (best record)
       const regularSeasonChamp = teams.sort((a: any, b: any) => {
         const aWinPct = a.record?.overall?.wins / (a.record?.overall?.wins + a.record?.overall?.losses || 1);
@@ -61,7 +62,7 @@ async function fetchHistoricalData(leagueId: string, headers: HeadersInit): Prom
         if (aWinPct !== bWinPct) return bWinPct - aWinPct;
         return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
       })[0];
-      
+
       if (champion) {
         history.push({
           seasonId: year,
@@ -82,16 +83,16 @@ async function fetchHistoricalData(leagueId: string, headers: HeadersInit): Prom
           } : undefined,
         });
       }
-      
+
       // Add small delay to prevent rate limiting
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
     } catch (error) {
       console.warn(`Error fetching historical data for year ${year}:`, error);
       continue;
     }
   }
-  
+
   return history.sort((a, b) => b.seasonId - a.seasonId); // Sort newest first
 }
 
@@ -101,7 +102,13 @@ export const fetchLeagueData = action({
     espnS2: v.optional(v.string()),
     swid: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+    requiresAuth?: boolean;
+    status?: number;
+  }> => {
     // Called during league setup before a league (and therefore a membership row) exists,
     // so we can only require that the caller is signed in.
     await requireIdentity(ctx);
@@ -120,50 +127,78 @@ export const fetchLeagueData = action({
       // Use fetch API to call ESPN directly in the Convex runtime
       const currentYear = new Date().getFullYear();
       const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${args.leagueId}`;
-      
-      const headers: HeadersInit = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-      };
-      
-      if (args.espnS2 && args.swid) {
-        // Decode URL-encoded espnS2 if needed  
-        const espnS2 = decodeURIComponent(args.espnS2);
-        headers['Cookie'] = `espn_s2=${espnS2}; SWID=${args.swid}`;
-        console.log('Using ESPN authentication:', {
-          hasEspnS2: !!args.espnS2,
-          espnS2Length: args.espnS2.length,
-          hasSwid: !!args.swid,
-          swidFormat: args.swid.startsWith('{') && args.swid.endsWith('}')
-        });
-      }
+      const viewParams = '?view=mSettings&view=mTeams&view=mNav&view=modular';
 
-      // Get basic league info with draft settings
-      const leagueResponse = await fetch(`${baseUrl}?view=mSettings&view=mTeams&view=mNav&view=modular`, {
-        headers
+      const suppliedCreds = normalizeEspnCredentials({ espnS2: args.espnS2, swid: args.swid });
+
+      // Determine privacy from ESPN's actual behavior rather than trusting
+      // "the caller passed cookies" - probe without cookies first. If ESPN
+      // serves it anonymously, the league is public regardless of what was
+      // typed into the cookie fields.
+      let { response: leagueResponse, classification } = await fetchEspn(`${baseUrl}${viewParams}`, {
+        creds: {},
       });
 
-      if (!leagueResponse.ok) {
+      let isPrivate = false;
+      let creds: EspnCredentials = { hasCredentials: false };
+
+      if (classification === "auth") {
+        if (suppliedCreds.hasCredentials) {
+          // Public probe was rejected and we have cookies to try - retry with
+          // them before giving up.
+          const authRetry = await fetchEspn(`${baseUrl}${viewParams}`, { creds: suppliedCreds });
+          leagueResponse = authRetry.response;
+          classification = authRetry.classification;
+          if (classification === "ok") {
+            isPrivate = true;
+            creds = suppliedCreds;
+          }
+        }
+
+        if (classification !== "ok") {
+          const status = leagueResponse.status;
+          console.error(`ESPN API Error Details:`, {
+            status,
+            url: `${baseUrl}${viewParams}`,
+            hasAuth: suppliedCreds.hasCredentials,
+          });
+          // 401 OR 403 both mean "this league needs cookies (or the cookies
+          // given were rejected)" - the setup page shows the cookie inputs
+          // on either, not just 401.
+          return {
+            success: false,
+            error: suppliedCreds.hasCredentials
+              ? `ESPN rejected the provided espn_s2/SWID cookies (${status}). Double-check they were copied correctly and are still fresh.`
+              : `This league requires ESPN authentication (${status}). Paste your espn_s2 and SWID cookies and try again.`,
+            requiresAuth: true,
+            status,
+          };
+        }
+      } else if (classification !== "ok") {
+        const status = leagueResponse.status;
         const responseText = await leagueResponse.text();
         console.error(`ESPN API Error Details:`, {
-          status: leagueResponse.status,
+          status,
           statusText: leagueResponse.statusText,
-          url: `${baseUrl}?view=mSettings&view=mTeams`,
-          hasAuth: !!(args.espnS2 && args.swid),
-          responseText: responseText.slice(0, 500) // First 500 chars for debugging
+          classification,
+          url: `${baseUrl}${viewParams}`,
+          responseText: responseText.slice(0, 500),
         });
-        throw new Error(`ESPN API returned ${leagueResponse.status}: ${leagueResponse.statusText}. This may indicate: 1) League is private and requires ESPN S2/SWID cookies, 2) League ID is invalid, or 3) ESPN API is temporarily unavailable.`);
+        throw new Error(
+          `ESPN API returned ${status}: ${leagueResponse.statusText}. This may indicate the League ID is invalid or ESPN's API is temporarily unavailable.`
+        );
       }
 
       const leagueData = await leagueResponse.json();
-      
+
       // Parse the ESPN response
       const settings = leagueData.settings;
       const teams = leagueData.teams || [];
-      
+
       // Map scoring type
       const scoringTypeMap: { [key: number]: string } = {
         0: 'standard',
-        1: 'ppr', 
+        1: 'ppr',
         2: 'half-ppr'
       };
 
@@ -172,7 +207,7 @@ export const fetchLeagueData = action({
       if (settings?.rosterSettings?.lineupSlotCounts) {
         const slotMap: { [key: number]: string } = {
           0: 'QB',
-          2: 'RB', 
+          2: 'RB',
           4: 'WR',
           6: 'TE',
           23: 'FLEX',
@@ -189,11 +224,10 @@ export const fetchLeagueData = action({
         });
       }
 
-      const isPrivate = !!(args.espnS2 && args.swid);
-      
-      // Fetch draft data for current season
-      const draftPicks = await fetchDraftData(args.leagueId, currentYear, headers);
-      
+      // Fetch draft data for current season, using whichever credentials
+      // (none, or the supplied ones) actually got the main fetch through.
+      const draftPicks = await fetchDraftData(args.leagueId, currentYear, creds);
+
       const processedData = {
         id: args.leagueId,
         name: settings?.name || 'ESPN League',
@@ -204,8 +238,10 @@ export const fetchLeagueData = action({
         seasonId: currentYear,
         currentScoringPeriod: leagueData.scoringPeriodId || leagueData.status?.currentMatchupPeriod || leagueData.status?.latestScoringPeriod || settings?.scoringSettings?.currentScoringPeriod || 1,
         isPrivate,
-        espnS2: args.espnS2,
-        swid: args.swid,
+        // Normalized, not the raw args - so whatever calls `leagues.create`
+        // with this payload stores a clean espn_s2/SWID pair.
+        espnS2: creds.espnS2,
+        swid: creds.swid,
         teams: teams.map((team: any) => ({
           id: team.id?.toString(),
           name: team.name || team.location + ' ' + team.nickname,
@@ -226,9 +262,9 @@ export const fetchLeagueData = action({
         },
         draftSettings: settings?.draftSettings || null,
         draftPicks: draftPicks,
-        history: await fetchHistoricalData(args.leagueId, headers)
+        history: await fetchHistoricalData(args.leagueId, creds)
       };
-      
+
       return {
         success: true,
         data: processedData,

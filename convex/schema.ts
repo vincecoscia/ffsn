@@ -105,6 +105,19 @@ export default defineSchema({
       isPrivate: v.boolean(),
       espnS2: v.optional(v.string()),
       swid: v.optional(v.string()),
+      // --- ESPN credential health (audit: cron alerting on invalid cookies) ---
+      // Set by `espnSync.testEspnConnection` (when testing stored credentials)
+      // and by the `syncAllLeaguesCurrentSeason` / `syncAllLeagueData` crons
+      // and syncs via `leagues.setEspnCredentialStatus`. "unknown" until the
+      // first probe. Never written to `credentialError` on success.
+      credentialStatus: v.optional(
+        v.union(v.literal("valid"), v.literal("invalid"), v.literal("unknown"))
+      ),
+      credentialCheckedAt: v.optional(v.number()),
+      credentialError: v.optional(v.string()),
+      // Last time an operator/commissioner alert was sent for invalid
+      // credentials on this league. Used to cap alerts to once per 24h.
+      credentialAlertedAt: v.optional(v.number()),
     })),
     history: v.optional(v.array(v.object({
       seasonId: v.number(),
@@ -524,6 +537,13 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("pending")),
     credits: v.number(), // User's credit balance
     createdAt: v.number(),
+    // Set by convex/claimRollover.ts when this claim was carried forward from
+    // a prior season's claim on the matching ESPN team (same `externalId`)
+    // rather than created by the manager claiming their team directly.
+    // Optional so every pre-existing claim (and every claim inserted by
+    // teamClaims.claimTeam) is still valid without either field.
+    source: v.optional(v.literal("rollover")),
+    rolledOverFromClaimId: v.optional(v.id("teamClaims")),
   })
     .index("by_league", ["leagueId"])
     .index("by_user", ["userId"])

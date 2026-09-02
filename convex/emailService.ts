@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import {
   contentTypeLabel,
   interviewerDisplay,
@@ -11,6 +11,7 @@ import {
   renderSystemNoticeEmail,
   writerDisplay,
   type CommentRequestEmailData,
+  type TeamInvitationEmailData,
 } from "../src/lib/email";
 
 // SendGrid email service for FFSN using fetch-based approach
@@ -350,6 +351,114 @@ export const queueEmailInternal = internalMutation({
     // Schedule immediate sending
     await ctx.scheduler.runAfter(0, internal.emailService.sendNow, { id });
     return id;
+  },
+});
+
+// ===============================
+// TEAM INVITATION EMAIL FUNCTIONS
+// ===============================
+
+/** Everything `sendTeamInvitationEmail` needs, loaded in one internal query since actions have no `ctx.db`. */
+type InvitationEmailContext = {
+  invitation: Doc<"teamInvitations">;
+  league: Doc<"leagues"> | null;
+  team: Doc<"teams"> | null;
+} | null;
+
+export const getInvitationEmailContext = internalQuery({
+  args: { invitationId: v.id("teamInvitations") },
+  handler: async (ctx, { invitationId }): Promise<InvitationEmailContext> => {
+    const invitation = await ctx.db.get(invitationId);
+    if (!invitation) return null;
+
+    const [league, team] = await Promise.all([
+      ctx.db.get(invitation.leagueId),
+      ctx.db.get(invitation.teamId),
+    ]);
+
+    return { invitation, league, team };
+  },
+});
+
+// Send the "claim your team" email for a pending team invitation, rendered
+// locally from src/lib/email's Broadcast templates (mirrors
+// sendCommentRequestEmail's queue -> render -> send pipeline above).
+// `invitedByName` is passed in from the caller (teamInvitations.ts), which
+// resolves it server-side from the commissioner's own user record - never
+// trust a display name supplied by the client.
+export const sendTeamInvitationEmail = internalAction({
+  args: {
+    invitationId: v.id("teamInvitations"),
+    invitedByName: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EmailResult> => {
+    try {
+      const context: InvitationEmailContext = await ctx.runQuery(
+        internal.emailService.getInvitationEmailContext,
+        { invitationId: args.invitationId }
+      );
+
+      if (!context) {
+        console.error(`Invitation not found: ${args.invitationId}`);
+        return { success: false, error: "Invitation not found" };
+      }
+
+      const { invitation, league, team } = context;
+
+      if (invitation.status !== "pending") {
+        console.log(`Invitation ${args.invitationId} is no longer pending (${invitation.status}); not sending`);
+        return { success: false, error: "Invitation is not pending" };
+      }
+
+      if (!invitation.email) {
+        console.log(`Invitation ${args.invitationId} has no email address`);
+        return { success: false, error: "No email address" };
+      }
+
+      if (!league) {
+        console.error(`League not found for invitation ${args.invitationId}`);
+        return { success: false, error: "League not found" };
+      }
+
+      const apiKey = process.env.SENDGRID_API_KEY;
+      if (!apiKey) {
+        console.error("SENDGRID_API_KEY environment variable not set");
+        return { success: false, error: "SendGrid not configured" };
+      }
+
+      const siteUrl = (process.env.SITE_URL || "https://ffsn.ai").replace(/\/+$/, "");
+      const templateId = localTemplateId("team_invitation");
+
+      // Prefer the live team record (name/logo may have changed since the
+      // invitation was created); fall back to the invitation's own snapshot
+      // if the team was since deleted.
+      const emailData: TeamInvitationEmailData = {
+        leagueName: league.name,
+        teamName: team?.name ?? invitation.teamName,
+        teamAbbreviation: team?.abbreviation ?? invitation.teamAbbreviation,
+        teamLogo: team?.logo ?? invitation.teamLogo,
+        invitedByName: args.invitedByName,
+        inviteUrl: `${siteUrl}/invite/${invitation.inviteToken}`,
+        expiresAt: invitation.expiresAt,
+        preferencesUrl: `${siteUrl}/dashboard/settings/notifications`,
+        siteUrl,
+      };
+
+      const emailId = await ctx.runMutation(internal.emailService.queueEmailInternal, {
+        to: invitation.email,
+        templateId,
+        data: emailData,
+        relatedEntityType: "team_invitation",
+        relatedEntityId: args.invitationId,
+      });
+
+      console.log(`Queued team invitation email for invitation ${args.invitationId}, email ID: ${emailId}`);
+
+      return { success: true, messageId: emailId };
+    } catch (error: any) {
+      console.error("Error queuing team invitation email:", error);
+      return { success: false, error: error.message || "Unknown error" };
+    }
   },
 });
 

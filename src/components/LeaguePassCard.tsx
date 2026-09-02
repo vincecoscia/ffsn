@@ -9,6 +9,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Panel, SectionHeader, StatBlock, Chip, Spinner } from "@/components/broadcast";
+import { useLeagueSeason } from "@/hooks/use-league-season";
 
 /** Managers the League Pass covers before a seat has to be bought (spec §10.1). */
 const INCLUDED_MANAGERS = 12;
@@ -29,13 +30,24 @@ export interface LeaguePassCardProps {
   className?: string;
 }
 
+function scrollToInvitations() {
+  const el = document.getElementById("invitations");
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  el.focus({ preventScroll: true });
+}
+
 /**
  * The commissioner's view of the League Pass (spec §10.1): whether the pass is
  * active, which season it covers, how many of the 12 included manager slots
- * are used, and a way to buy $10 seats for anyone past that.
+ * are used, how many ESPN teams have actually claimed an account, and a way
+ * to buy $10 seats for anyone past the included allowance.
  */
 export function LeaguePassCard({ leagueId, canManage, className }: LeaguePassCardProps) {
-  const [quantity, setQuantity] = useState(1);
+  // `null` until the commissioner picks a quantity by hand; until then the
+  // control shows the shortfall as its default (spec §10.1).
+  const [manualQuantity, setManualQuantity] = useState<number | null>(null);
+  const [seatsRevealed, setSeatsRevealed] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [isBuyingPass, setIsBuyingPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +59,15 @@ export function LeaguePassCard({ leagueId, canManage, className }: LeaguePassCar
   const { user } = useUser();
   const league = useQuery(api.leagues.getById, { id: leagueId });
   const capacity = useQuery(api.leagues.getLeagueCapacity, { leagueId });
+  const { currentSeason, isLoading: seasonIsLoading } = useLeagueSeason(leagueId);
+  const teamsThisSeason = useQuery(api.teams.getByLeagueAndSeason, {
+    leagueId,
+    seasonId: currentSeason,
+  });
+  const teamClaimsThisSeason = useQuery(api.teamClaims.getByLeague, {
+    leagueId,
+    seasonId: currentSeason,
+  });
   const buySeats = useAction(api.stripe.createExtraSeatCheckoutSession);
   const buyPass = useAction(api.stripe.createLeagueCheckoutSession);
   const verifyPayment = useAction(api.stripe.verifyPaymentCompleted);
@@ -84,7 +105,13 @@ export function LeaguePassCard({ leagueId, canManage, className }: LeaguePassCar
       .finally(clearParams);
   }, [verifyPayment]);
 
-  const isLoading = league === undefined || capacity === undefined;
+  const isLoading =
+    league === undefined ||
+    capacity === undefined ||
+    seasonIsLoading ||
+    teamsThisSeason === undefined ||
+    teamClaimsThisSeason === undefined;
+
   const subscription = league?.subscription;
   // The two values `credits.hasActivePass` treats as active ("paid" is the
   // legacy alias written by pre-Broadcast-Desk purchases).
@@ -95,6 +122,33 @@ export function LeaguePassCard({ leagueId, canManage, className }: LeaguePassCar
   const managers = capacity?.managers ?? 0;
   const extraSeats = capacity?.extraSeats ?? 0;
   const remaining = capacity?.remaining ?? Math.max(included + extraSeats - managers, 0);
+  const allowance = included + extraSeats;
+
+  // ESPN teams this season vs. accounts that have actually claimed one
+  // (spec: seats are about league ACCOUNTS, claims are a separate concept).
+  const teamsCount = teamsThisSeason?.length ?? 0;
+  const claimedCount = (teamClaimsThisSeason ?? []).filter((claim) => claim.status === "active").length;
+  const unclaimed = Math.max(teamsCount - claimedCount, 0);
+
+  // Seats only matter once the ESPN league outgrows the allowance, or the
+  // allowance is already fully spoken for.
+  const shortfall = Math.max(teamsCount - allowance, 0);
+  const isBlocked = shortfall === 0 && remaining === 0;
+  const needsSeats = shortfall > 0 || isBlocked;
+  const showBuyControl = !isLoading && (needsSeats || seatsRevealed);
+
+  // Default the quantity to the shortfall, clamped to the purchase range,
+  // unless the commissioner has already changed it by hand.
+  const defaultQuantity = Math.min(MAX_SEATS_PER_PURCHASE, Math.max(1, shortfall > 0 ? shortfall : 1));
+  const quantity = manualQuantity ?? defaultQuantity;
+
+  const stat = (value: string | number) => (isLoading ? "—" : value);
+
+  const statusLine = isLoading
+    ? null
+    : unclaimed > 0
+      ? `${claimedCount} of ${teamsCount} team${teamsCount === 1 ? "" : "s"} ${claimedCount === 1 ? "has" : "have"} an account; ${unclaimed} ${unclaimed === 1 ? "hasn't" : "haven't"} claimed ${unclaimed === 1 ? "its" : "their"} team for ${currentSeason}.`
+      : `All ${teamsCount} team${teamsCount === 1 ? "" : "s"} have an account for ${currentSeason}.`;
 
   const handleBuyPass = async () => {
     setIsBuyingPass(true);
@@ -157,20 +211,35 @@ export function LeaguePassCard({ leagueId, canManage, className }: LeaguePassCar
         }
       />
 
-      <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
         <StatBlock label="Season" value={season ?? "—"} />
-        <StatBlock label="Managers" value={`${managers}/${included + extraSeats}`} />
-        <StatBlock label="Extra seats" value={extraSeats} />
-        <StatBlock label="Slots left" value={remaining} />
+        <StatBlock label="ESPN teams" value={stat(teamsCount)} />
+        <StatBlock label="Claimed" value={stat(`${claimedCount}/${teamsCount}`)} />
+        <StatBlock label="Accounts" value={stat(`${managers}/${allowance}`)} />
+        <StatBlock label="Slots left" value={stat(remaining)} />
       </div>
 
-      <p className="mt-5 text-[14px] leading-relaxed text-bc-text-2">
+      {statusLine && <p className="mt-4 text-[14px] leading-relaxed text-bc-text-2">{statusLine}</p>}
+
+      <p className="mt-3 text-[14px] leading-relaxed text-bc-text-2">
         The pass covers every automated story all season and gives {included} managers 100 credits
         each. Managers past that are ${SEAT_PRICE} a seat.
       </p>
 
       {canManage && (
         <div className="mt-6 flex flex-col gap-5 border-t border-bc-hairline pt-6">
+          {!isLoading && unclaimed > 0 && (
+            <div className="flex flex-col gap-3">
+              <Button variant="glow" size="lg" onClick={scrollToInvitations}>
+                <UserPlus className="size-5" strokeWidth={1.8} />
+                Invite managers
+              </Button>
+              <p className="text-[14px] leading-relaxed text-bc-text-2">
+                Invites are covered by the pass. Managers past the included {included} need a seat.
+              </p>
+            </div>
+          )}
+
           {!isActive && (
             <div className="flex flex-col gap-3">
               <Button variant="glow" size="lg" onClick={handleBuyPass} disabled={isBuyingPass}>
@@ -202,47 +271,71 @@ export function LeaguePassCard({ leagueId, canManage, className }: LeaguePassCar
                 </ul>
               </div>
 
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="flex flex-col gap-2">
-                  <span className="bc-label-sm text-bc-text-3" id="seat-quantity-label">
-                    Seats
-                  </span>
-                  <div
-                    className="flex items-center gap-1 border border-bc-hairline bg-bc-ground"
-                    role="group"
-                    aria-labelledby="seat-quantity-label"
-                  >
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="One fewer seat"
-                      disabled={quantity <= 1 || isRedirecting}
-                      onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    >
-                      <Minus className="size-4" />
-                    </Button>
-                    <span className="bc-num min-w-8 text-center text-[18px] font-bold text-bc-ink">
-                      {quantity}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="One more seat"
-                      disabled={quantity >= MAX_SEATS_PER_PURCHASE || isRedirecting}
-                      onClick={() => setQuantity((q) => Math.min(MAX_SEATS_PER_PURCHASE, q + 1))}
-                    >
-                      <Plus className="size-4" />
+              {showBuyControl ? (
+                <>
+                  {!isLoading && (
+                    <p className="text-[14px] leading-relaxed text-bc-text-2">
+                      {shortfall > 0
+                        ? `Your ESPN league has ${teamsCount} teams; the pass covers ${allowance}. ${shortfall} more seat${shortfall === 1 ? "" : "s"} let everyone in.`
+                        : `All ${allowance} seats are spoken for. Buy more if another manager needs to join.`}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div className="flex flex-col gap-2">
+                      <span className="bc-label-sm text-bc-text-3" id="seat-quantity-label">
+                        Seats
+                      </span>
+                      <div
+                        className="flex items-center gap-1 border border-bc-hairline bg-bc-ground"
+                        role="group"
+                        aria-labelledby="seat-quantity-label"
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="One fewer seat"
+                          disabled={quantity <= 1 || isRedirecting}
+                          onClick={() => setManualQuantity(Math.max(1, quantity - 1))}
+                        >
+                          <Minus className="size-4" />
+                        </Button>
+                        <span className="bc-num min-w-8 text-center text-[18px] font-bold text-bc-ink">
+                          {quantity}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="One more seat"
+                          disabled={quantity >= MAX_SEATS_PER_PURCHASE || isRedirecting}
+                          onClick={() => setManualQuantity(Math.min(MAX_SEATS_PER_PURCHASE, quantity + 1))}
+                        >
+                          <Plus className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <Button variant="glow" size="lg" onClick={handleBuySeats} disabled={isRedirecting}>
+                      <Ticket className="size-5" strokeWidth={1.8} />
+                      {isRedirecting
+                        ? "Opening checkout..."
+                        : `Buy ${quantity === 1 ? "a seat" : `${quantity} seats`} · $${quantity * SEAT_PRICE}`}
                     </Button>
                   </div>
-                </div>
-
-                <Button variant="glow" size="lg" onClick={handleBuySeats} disabled={isRedirecting}>
-                  <Ticket className="size-5" strokeWidth={1.8} />
-                  {isRedirecting
-                    ? "Opening checkout..."
-                    : `Buy ${quantity === 1 ? "a seat" : `${quantity} seats`} · $${quantity * SEAT_PRICE}`}
-                </Button>
-              </div>
+                </>
+              ) : (
+                !isLoading && (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[14px] leading-relaxed text-bc-text-2">
+                      Your pass covers up to {allowance} managers and this league has {teamsCount}{" "}
+                      teams, so you don&apos;t need extra seats.
+                    </p>
+                    <Button variant="ghost" size="sm" onClick={() => setSeatsRevealed(true)}>
+                      Add seats anyway
+                    </Button>
+                  </div>
+                )
+              )}
 
               {justPurchased && (
                 <p className="flex items-center gap-2 text-[14px] text-bc-win">
