@@ -6,8 +6,29 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { INCLUDED_MANAGERS_DEFAULT } from "./credits";
 import { leagueCurrentSeason } from "./lib/season";
+
+// Mirrors `credits.INCLUDED_MANAGERS_DEFAULT`. Declared locally on purpose: a value import between
+// two Convex modules that both reference `internal` makes the generated api type mutually
+// recursive and silently degrades dozens of files to `any` (see convex/lib/generationFailure.ts).
+const INCLUDED_MANAGERS_DEFAULT = 12;
+
+interface CompSubscription {
+  changed: boolean;
+  status: string;
+  seasonId: number;
+}
+interface PassGrant {
+  granted: number;
+  skipped: number;
+  amountPerManager: number;
+  seasonId: number;
+  expiresAt: number;
+}
+interface CompResult {
+  subscription: CompSubscription;
+  credits: { granted: number; skipped: number; amountPerManager: number };
+}
 
 /**
  * Marks a league's League Pass active without a Stripe payment - the operator's own league, a
@@ -69,13 +90,15 @@ export const compLeaguePass = internalAction({
     subscription: v.object({ changed: v.boolean(), status: v.string(), seasonId: v.number() }),
     credits: v.object({ granted: v.number(), skipped: v.number(), amountPerManager: v.number() }),
   }),
-  handler: async (ctx, args) => {
-    const subscription = await ctx.runMutation(internal.adminTools.setLeaguePassComped, {
+  // Explicit types throughout: this action references `internal.adminTools.*`, and without them
+  // TypeScript sees the handler's return type in its own initializer (TS7022) and gives up.
+  handler: async (ctx, args): Promise<CompResult> => {
+    const subscription: CompSubscription = await ctx.runMutation(internal.adminTools.setLeaguePassComped, {
       leagueId: args.leagueId,
       seasonId: args.seasonId,
       reason: args.reason,
     });
-    const grant = await ctx.runMutation(internal.credits.grantPassCredits, {
+    const grant: PassGrant = await ctx.runMutation(internal.credits.grantPassCredits, {
       leagueId: args.leagueId,
       seasonId: subscription.seasonId,
     });
