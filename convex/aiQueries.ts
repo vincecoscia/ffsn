@@ -380,7 +380,7 @@ export async function buildWaiverLedger(
   ctx: QueryCtx,
   league: Doc<"leagues">,
   seasonId: number,
-  opts: { throughScoringPeriod: number }
+  opts: { throughScoringPeriod: number; useTeamCounters?: boolean }
 ): Promise<WaiverLedger> {
   const leagueFormat = await buildLeagueFormat(ctx, league, seasonId);
   const waiverType = leagueFormat.waiverType;
@@ -524,12 +524,19 @@ export async function buildWaiverLedger(
   // ESPN's own running totals (`transactionCounter`) are authoritative for the whole season and are
   // preferred whenever every team on the roster carries one; the bounded scan above is only the
   // fallback for a league the sync migration has not reached yet.
+  // ESPN's counters are season-to-date totals as of the last sync. For a past week (a season
+  // backfill, or a recap of a completed season) they are END-of-season numbers and would leak
+  // "finished with nothing left of his budget" into a week-1 piece, so callers writing about a
+  // past week turn them off and the through-week scan is used instead.
+  const useTeamCounters = opts.useTeamCounters !== false;
   const teamsHaveCounters =
-    teams.length > 0 && teams.every(team => team.transactionCounter?.acquisitionBudgetSpent !== undefined);
+    useTeamCounters &&
+    teams.length > 0 &&
+    teams.every(team => team.transactionCounter?.acquisitionBudgetSpent !== undefined);
 
   const budgets: WaiverLedgerBudget[] = teams.map(team => {
     const externalId = Number(team.externalId);
-    const counter = team.transactionCounter;
+    const counter = useTeamCounters ? team.transactionCounter : undefined;
     const spent = counter?.acquisitionBudgetSpent ?? spentByTeam.get(externalId) ?? 0;
     const acquisitions = counter?.acquisitions ?? countByTeam.get(externalId);
     return {
@@ -582,11 +589,16 @@ export const getWaiverLedgerForAI = internalQuery({
     leagueId: v.id("leagues"),
     seasonId: v.number(),
     throughScoringPeriod: v.number(),
+    /** False when the article is about a past week (see buildWaiverLedger). */
+    useTeamCounters: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const league = await ctx.db.get(args.leagueId);
     if (!league) throw new Error("League not found");
-    return buildWaiverLedger(ctx, league, args.seasonId, { throughScoringPeriod: args.throughScoringPeriod });
+    return buildWaiverLedger(ctx, league, args.seasonId, {
+      throughScoringPeriod: args.throughScoringPeriod,
+      useTeamCounters: args.useTeamCounters,
+    });
   },
 });
 
@@ -716,11 +728,13 @@ export const getLeagueDataForAI = internalQuery({
         .withIndex("by_year", q => q.eq("year", currentSeason))
         .first();
       const weekEnd = seasonBoundary?.weekBoundaries.find(w => w.week === currentWeek)?.end;
-      if (weekEnd !== undefined) {
-        scopedTrades = trades.filter(t => t.tradeDate <= weekEnd).slice(0, 20);
-      } else {
-        scopedTrades = trades.slice(0, 20);
-      }
+      // Without a boundary row, scope by the trade's own scoring period (stamped by tradesSync);
+      // a trade with neither is left out rather than leaked into an earlier week's article.
+      scopedTrades = trades
+        .filter(t =>
+          weekEnd !== undefined ? t.tradeDate <= weekEnd : t.week !== undefined && t.week <= currentWeek
+        )
+        .slice(0, 20);
     }
 
     // Transactions through currentWeek, sliced back to the live path's normal 50-row shape.
@@ -1490,8 +1504,23 @@ export const getLeagueDataForAI = internalQuery({
     );
     
     // Format trades with analysis
+    // The prompt layer (LeagueDataContext.trades) reads team NAMES and `playersFromA/B` with a
+    // `date` string; the table stores `teamA/teamB` objects and `playersFromTeamA/B`. Both shapes
+    // are carried: the raw fields for readers that already use them, the context shape for FACTS.
+    // (Before the trades table was populated this mismatch was invisible; the first derived trade
+    // crashed every generic article on `playersFromA.map`.)
     const enrichedTrades = scopedTrades.map(trade => ({
       ...trade,
+      teamA: trade.teamA.teamName,
+      teamB: trade.teamB.teamName,
+      teamAId: trade.teamA.teamId,
+      teamBId: trade.teamB.teamId,
+      teamAManager: trade.teamA.manager,
+      teamBManager: trade.teamB.manager,
+      playersFromA: trade.playersFromTeamA.map(p => ({ playerId: p.playerId, playerName: p.playerName, position: p.position })),
+      playersFromB: trade.playersFromTeamB.map(p => ({ playerId: p.playerId, playerName: p.playerName, position: p.position })),
+      date: new Date(trade.tradeDate).toISOString(),
+      analysis: trade.analysis?.summary,
       daysAgo: Math.floor((Date.now() - trade.tradeDate) / (1000 * 60 * 60 * 24)),
     }));
     

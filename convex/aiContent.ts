@@ -1102,6 +1102,8 @@ async function getLeagueDataForGenerationHandler(
       leagueId: args.leagueId,
       seasonId: enrichedData.currentSeason,
       throughScoringPeriod: enrichedData.currentWeek,
+      // A backfilled (asOf) article is about a past week; ESPN's counters would be end-of-season.
+      useTeamCounters: args.asOf === undefined,
     });
 
     // Transform enriched data to match the expected format for AI generation

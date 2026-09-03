@@ -349,6 +349,24 @@ export function buildPlayoffContext(input: BuildPlayoffContextInput): PlayoffCon
   const isProjected = input.throughWeek < regularSeasonMatchupPeriods;
 
   if (isProjected) {
+    // Before a single game has been played every record is 0-0 and "if the season ended today"
+    // would just be the team list in an arbitrary order: no seeds, no picture.
+    if (input.throughWeek < 1) {
+      return {
+        mode: "projected",
+        playoffTeamCount,
+        rounds,
+        byes,
+        playoffStartWeek,
+        championshipWeek,
+        seeds: [],
+        bubble: [],
+        bracket: [],
+        consolation: [],
+        alive: [],
+        eliminated: [],
+      };
+    }
     const games = roundOneSlate(playoffStartWeek);
 
     const bubble: BracketTeam[] = ordered.slice(playoffTeamCount, playoffTeamCount + 2).map((row, i) => ({

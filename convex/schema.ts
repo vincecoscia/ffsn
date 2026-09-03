@@ -875,6 +875,8 @@ export default defineSchema({
     tradeDate: v.number(),
     /** ESPN transaction id of the TRADE_ACCEPT row this trade was derived from (dedupe key). */
     espnTransactionId: v.optional(v.string()),
+    /** Scoring period the trade executed in (from the TRADE_ACCEPT row); scopes it to a week. */
+    week: v.optional(v.number()),
     status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("rejected"), v.literal("completed")),
     
     // Teams involved

@@ -17,7 +17,7 @@ import { espnConnectionBlocked, FRESHNESS_EXEMPT_CONTENT } from "./lib/espnConne
 import { resolveSeasonEndWeek, weeklyTargetWeekInSeason } from "./lib/seasonWindow";
 // Both of these are plain data modules (no runtime deps), so they are safe to
 // import into the Convex V8 isolate - payments.ts already imports the templates.
-import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
+import { contentTypePersonaMap, DEFAULT_PERSONA, personaPrompts } from "../src/lib/ai/persona-prompts";
 import { contentTemplates } from "../src/lib/ai/content-templates";
 // `facts.ts` is a plain module too: its only value imports are the templates
 // and the persona roster, and everything else it pulls in is `import type`.
@@ -35,6 +35,20 @@ import { isByeMatchup } from "./lib/playoffs";
 /** The roster default writer for a content type (spec section 9.2.3). */
 export function defaultPersonaFor(contentType: string): string {
   return contentTypePersonaMap[contentType]?.[0] ?? DEFAULT_PERSONA;
+}
+
+/** True only for a persona that can write today; retired desks and unknown slugs are not writers. */
+export function isWriterSlug(slug: string | undefined | null): slug is string {
+  return typeof slug === "string" && personaPrompts[slug]?.isWriter === true;
+}
+
+/**
+ * The writer a calendar row actually gets: its preferred persona when that persona can still
+ * write, else the roster default. Prod calendar rows still carried retired slugs (mike-harrison,
+ * chad-thunderhype), and every article for those types failed with "Failed to generate content".
+ */
+export function resolveWriterPersona(preferred: string | undefined | null, contentType: string): string {
+  return isWriterSlug(preferred) ? preferred : defaultPersonaFor(contentType);
 }
 
 /** One entry of `nflSeasons.weekBoundaries`. */
@@ -392,7 +406,9 @@ export const applyAutomaticDefaults = internalMutation({
         .collect();
 
       for (const schedule of schedules) {
-        if (schedule.preferredPersona && schedule.preferredPersona !== "analyst") continue;
+        // Any persona that cannot write today (the retired "analyst", chad-thunderhype,
+        // mike-harrison, ...) moves to the roster default; a live writer the commissioner chose stays.
+        if (isWriterSlug(schedule.preferredPersona)) continue;
         const persona = defaultPersonaFor(schedule.contentType);
         if (!args.dryRun) {
           await ctx.db.patch(schedule._id, { preferredPersona: persona, updatedAt: now });
@@ -1114,7 +1130,7 @@ export const processScheduledContent = internalAction({
       }
 
       // (d) Persona: the schedule's writer, else the roster default. Never "analyst".
-      const persona = contentSchedule.preferredPersona || defaultPersonaFor(contentType);
+      const persona = resolveWriterPersona(contentSchedule.preferredPersona, contentType);
 
       // (e) Batch API (spec §10.3.5). When print is still comfortably ahead,
       //     hand this article to the Message Batches API at print - 3h instead

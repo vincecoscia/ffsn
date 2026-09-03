@@ -1207,13 +1207,13 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     sides: [
       {
         teamId: teams.resolve(trade.teamA),
-        gave: trade.playersFromA.map(player => player.playerName),
-        received: trade.playersFromB.map(player => player.playerName),
+        gave: (trade.playersFromA ?? []).map(player => player.playerName),
+        received: (trade.playersFromB ?? []).map(player => player.playerName),
       },
       {
         teamId: teams.resolve(trade.teamB),
-        gave: trade.playersFromB.map(player => player.playerName),
-        received: trade.playersFromA.map(player => player.playerName),
+        gave: (trade.playersFromB ?? []).map(player => player.playerName),
+        received: (trade.playersFromA ?? []).map(player => player.playerName),
       },
     ],
   }));
@@ -1323,7 +1323,10 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     }
   }
 
+  // The season the article is about comes first: a backfilled (asOf) payload carries it as
+  // `currentSeason`, and falling through to the wall clock printed "the 2026 season" on 2025 pieces.
   const season =
+    num(looseData.currentSeason) ??
     num(looseData.season) ??
     num(looseData.seasonId) ??
     data.leagueHistory?.seasons?.[data.leagueHistory.seasons.length - 1]?.year ??
