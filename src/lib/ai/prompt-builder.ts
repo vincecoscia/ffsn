@@ -1,6 +1,20 @@
 import { getPersona, type PersonaPrompt } from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
-import { adpLooksLikePlaceholder, buildFactsBlock, serializeFacts, type FactsBlock } from './facts';
+import {
+  adpLooksLikePlaceholder,
+  buildFactsBlock,
+  isRestRow,
+  payloadKnowsByes,
+  playoffTierLabel,
+  serializeFacts,
+  type FactsBlock,
+  type FactsBracketGame,
+  type FactsConsolationGame,
+  type FactsPlayoffs,
+  type FactsUpcoming,
+} from './facts';
+// Types only (the module has no Convex imports), so this is safe from the prompt layer.
+import type { PlayoffContext } from '../../../convex/lib/playoffTypes';
 import type {
   CommentResponseData,
   NonRespondent,
@@ -63,7 +77,7 @@ a section has thin material, say so briefly and move on.
 Broadcast register. Readers never see <FACTS>, so never mention it. Do not name data fields,
 files, feeds, ledgers, sheets, math, or JSON ("benchImpact", "available_players", "the bench file",
 "the depth sheet", "the benching math", "the comment ledger", "what came through"), and never print
-an internal id (T3, M1, Q1, TR1, U1, D19) in a headline or a sentence. Say what a person would say
+an internal id (T3, M1, Q1, TR1, U1, D19, B1, K1) in a headline or a sentence. Say what a person would say
 on air: "left 24 points on the bench", "the free-agent list didn't come through this week", "his
 manager went on the record", "the only trade on the books".
 Write dates and times in plain English ("Thursday night", "Oct. 9, 6:30 p.m. ET") and never print a
@@ -210,6 +224,45 @@ export interface WaiverLedger {
   budget?: number;
 }
 
+/** One unplayed game on the look-ahead slate. */
+export interface UpcomingMatchup {
+  week: number;
+  /** Team names, as in the weekly-recap shape. */
+  teamA: string;
+  teamB: string;
+  /** ESPN external ids, so FACTS can resolve a side even when a name is missing. */
+  teamAId: string;
+  teamBId: string;
+  teamAOwner?: string;
+  teamBOwner?: string;
+  /** "w-l-t", the same form `facts.teams[].record` uses. */
+  teamARecord?: string;
+  teamBRecord?: string;
+  teamAPointsFor?: number;
+  teamBPointsFor?: number;
+  projectedScoreA?: number;
+  projectedScoreB?: number;
+  isPlayoff?: boolean;
+  /** Meetings already played, from the same matchups table. */
+  headToHead?: { teamAWins: number; teamBWins: number };
+  /** Plain-English round name for a bracket game ("Semifinals"), when the data layer knows it. */
+  round?: string;
+  /** ESPN's raw playoff tier. FACTS turns it into plain English; the prose never prints it. */
+  tier?: string;
+}
+
+/** A top seed's round-one rest on the slate: no opponent, no game, the team advances. */
+export interface UpcomingBye {
+  week: number;
+  bye: { teamId: string; name: string; seed: number };
+  round?: string;
+  tier?: string;
+}
+
+export function isUpcomingBye(row: UpcomingMatchup | UpcomingBye): row is UpcomingBye {
+  return 'bye' in row && row.bye !== undefined;
+}
+
 export interface PromptBuilderOptions {
   leagueId: string;
   contentType: string;
@@ -325,29 +378,10 @@ export interface LeagueDataContext {
    * Games that have NOT been played yet, for the look-ahead week (spec 4.3). Populated by
    * `aiQueries.getLeagueDataForAI` from the ESPN season schedule, which carries every future
    * matchup with zero scores and no winner. This is the only forward-looking matchup data in the
-   * payload; `recentMatchups` is always history.
+   * payload; `recentMatchups` is always history. In the playoffs a top seed's rest arrives as an
+   * `UpcomingBye` row, never as a game with an empty side.
    */
-  upcomingMatchups?: Array<{
-    week: number;
-    /** Team names, as in the weekly-recap shape. */
-    teamA: string;
-    teamB: string;
-    /** ESPN external ids, so FACTS can resolve a side even when a name is missing. */
-    teamAId: string;
-    teamBId: string;
-    teamAOwner?: string;
-    teamBOwner?: string;
-    /** "w-l-t", the same form `facts.teams[].record` uses. */
-    teamARecord?: string;
-    teamBRecord?: string;
-    teamAPointsFor?: number;
-    teamBPointsFor?: number;
-    projectedScoreA?: number;
-    projectedScoreB?: number;
-    isPlayoff?: boolean;
-    /** Meetings already played, from the same matchups table. */
-    headToHead?: { teamAWins: number; teamBWins: number };
-  }>;
+  upcomingMatchups?: Array<UpcomingMatchup | UpcomingBye>;
   trades?: Array<{
     teamA: string;
     teamB: string;
@@ -424,6 +458,12 @@ export interface LeagueDataContext {
    * `this.facts.waivers` inside the prompt builder — this raw field exists so `buildWaivers` in
    * `facts.ts` has something to read. */
   waivers?: WaiverLedger;
+  /** The playoff picture and bracket (owner ask, Sept 2026). Built by
+   * `convex/lib/playoffs.ts#buildPlayoffContext`; read through `this.facts.playoffs` inside the
+   * prompt builder — this raw field exists so `buildPlayoffs` in `facts.ts` has something to read. */
+  playoffs?: PlayoffContext;
+  /** Weekly-recap payloads: the top seeds that rested this week instead of playing. */
+  byes?: Array<{ teamId: string; teamName: string; seed: number }>;
   leagueHistory?: {
     foundedYear: number;
     totalSeasons: number;
@@ -671,6 +711,16 @@ How a quote is placed in the body — this is the only way to print one:
 - Every id you place must exist in facts.quotes. There is no directive for a manager who did not
   respond.`);
 
+    // No interviews at all (a season backfill, or a row with skipCommentRequests): the writers
+    // still invented outreach ("we reached out around the league and did not hear back"). That
+    // is a fabricated fact, so the absence is stated outright.
+    if (this.facts.quotes.length === 0 && this.facts.nonRespondents.length === 0) {
+      parts.push(`NO INTERVIEWS FOR THIS PIECE
+No comment requests were sent for this piece. Do not say the desk reached out, asked, or heard back
+from anyone, and do not describe managers as silent or unresponsive. Skip the team_comments section
+entirely; there is no quote to place and no silence to report.`);
+    }
+
     if (this.facts.relationships.length > 0) {
       const lines = this.facts.relationships.map(relationship => {
         const team = this.facts.teams.find(candidate => candidate.id === relationship.teamId);
@@ -826,18 +876,37 @@ past coverage is available to you.`];
   private templateSections() {
     const playoffData = (this.options.leagueData as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown })
       .playoffBreakdown;
+    // The bracket in FACTS decides the three playoff flags when the payload carries it; the legacy
+    // breakdown (which counts a bye row as a game) is only the fallback.
+    const bracket = this.bracketWeekFlags();
+    const isChampionshipWeek = bracket?.isChampionshipWeek ?? playoffData?.isChampionshipWeek ?? false;
+    const hasPlayoffGames = bracket?.hasBracketGames ?? (playoffData?.playoffGameCount || 0) > 0;
+    const isPlayoffWeek = bracket?.isPlayoffWeek ?? playoffData?.isPlayoffWeek ?? false;
 
     return this.template.sections.filter(section => {
       // A quotes section exists only when there are quotes — for every content type.
       if (section.name === 'team_comments') return this.facts.quotes.length > 0;
       if (this.options.contentType !== 'weekly_recap') return section.required;
-      if (section.name === 'championship_game') return playoffData?.isChampionshipWeek || false;
-      if (section.name === 'playoff_games') {
-        return (playoffData?.playoffGameCount || 0) > 0 && !playoffData?.isChampionshipWeek;
-      }
-      if (section.name === 'playoff_implications') return playoffData?.isPlayoffWeek || false;
+      if (section.name === 'championship_game') return isChampionshipWeek;
+      if (section.name === 'playoff_games') return hasPlayoffGames && !isChampionshipWeek;
+      if (section.name === 'playoff_implications') return isPlayoffWeek;
       return section.required;
     });
+  }
+
+  /** What the week being written about is, by the bracket in FACTS; undefined without one. */
+  private bracketWeekFlags():
+    | { isPlayoffWeek: boolean; isChampionshipWeek: boolean; hasBracketGames: boolean }
+    | undefined {
+    const playoffs = this.facts.playoffs;
+    const week = this.facts.league.week;
+    if (!playoffs || playoffs.mode === 'projected' || week === undefined) return undefined;
+    const round = playoffs.bracket.find(candidate => candidate.week === week);
+    return {
+      isPlayoffWeek: week >= playoffs.playoffStartWeek,
+      isChampionshipWeek: week === playoffs.championshipWeek,
+      hasBracketGames: (round?.games ?? []).some(game => !game.bye),
+    };
   }
 
   private buildUserPrompt(): string {
@@ -929,6 +998,11 @@ where the two ever disagree, <FACTS> wins.
       case 'playoff_picture':
         contextData = this.buildPlayoffPictureData(data);
         break;
+      // The season's last word: the bracket in FACTS crowns the champion (the stored season
+      // champion has been wrong before), on top of the ordinary overview.
+      case 'season_recap':
+        contextData = this.buildGenericData(data) + this.playoffFinalLines('HOW THE TITLE WAS DECIDED');
+        break;
       case 'commissioner_corner':
       case 'hall_of_shame':
       case 'player_glazing':
@@ -951,9 +1025,10 @@ where the two ever disagree, <FACTS> wins.
       details += `\n  Projected: ${matchup.projectedScoreA.toFixed(1)} - ${matchup.projectedScoreB.toFixed(1)}`;
     }
     
-    // Add playoff tier information
-    if (matchup.playoffTier) {
-      details += ` [${matchup.playoffTier}]`;
+    // Plain English for the bracket, never ESPN's enum (register rule).
+    const tier = playoffTierLabel(matchup.playoffTier);
+    if (tier && tier !== 'regular') {
+      details += ` [${tier}]`;
     }
     
     // Determine closeness and upsets with enhanced messaging
@@ -1017,13 +1092,385 @@ where the two ever disagree, <FACTS> wins.
     return details;
   }
 
+  /* ------------------------------------------------------------------------ *
+   * Playoffs (owner ask, Sept 2026): the playoffs and the championship have to read as something
+   * different and special, and the pieces have to be centred on the teams still in contention.
+   * Everything below is a readable rendering of `this.facts.playoffs`; the FACTS block stays
+   * normative. Broadcast register throughout: names, seeds and scores, never an id or an ESPN enum.
+   * ------------------------------------------------------------------------ */
+
+  /** The team's name for prose, never an id. */
+  private teamName(id: string | undefined): string {
+    if (!id || id === 'T?') return 'TBD';
+    return this.facts.teams.find(team => team.id === id)?.name ?? 'TBD';
+  }
+
+  /**
+   * "No. 3 GLORY ASSHOLE" for a team in the field, the bare name otherwise: a consolation-ladder
+   * side may carry a standings position as its seed, and "No. 10" is not a playoff seed.
+   */
+  private seededName(playoffs: FactsPlayoffs, id: string | undefined): string {
+    const seed = playoffs.seeds.find(entry => entry.teamId === id)?.seed;
+    return seed !== undefined ? `No. ${seed} ${this.teamName(id)}` : this.teamName(id);
+  }
+
+  /** "10-4-0" from the field, so a ranking line never shows a record the bracket changed. */
+  private seedRecord(playoffs: FactsPlayoffs, id: string): string | undefined {
+    return playoffs.seeds.find(entry => entry.teamId === id)?.record;
+  }
+
+  /** One bracket or consolation game as a broadcaster would read it out. */
+  private gameLine(playoffs: FactsPlayoffs, game: FactsBracketGame | FactsConsolationGame): string {
+    if ('bye' in game && game.bye) {
+      return `${this.seededName(playoffs, game.bye)} rests this round and advances automatically`;
+    }
+    if (!game.home && !game.away) return 'to be decided by the earlier games';
+    const home = game.home ? this.seededName(playoffs, game.home) : 'the winner of an earlier game';
+    const away = game.away ? this.seededName(playoffs, game.away) : 'the winner of an earlier game';
+    const pairing = `${home} vs ${away}`;
+    if (game.status === 'final' && game.homeScore !== undefined && game.awayScore !== undefined) {
+      const winner = this.teamName(game.winner ?? (game.homeScore > game.awayScore ? game.home : game.away));
+      const high = Math.max(game.homeScore, game.awayScore).toFixed(1);
+      const low = Math.min(game.homeScore, game.awayScore).toFixed(1);
+      return `${pairing}: ${winner} won ${high}-${low}`;
+    }
+    if (game.status === 'live') return `${pairing}: in progress, no result yet`;
+    if (game.status === 'tbd') return `${pairing}: waits on an earlier game`;
+    return `${pairing}: not played yet`;
+  }
+
+  /** "beat No. 5 Moisty Loins 187.3-171.9 in the Semifinals", from one team's point of view. */
+  private pathStep(
+    playoffs: FactsPlayoffs,
+    teamId: string,
+    game: FactsBracketGame | FactsConsolationGame,
+    round: string
+  ): string | undefined {
+    if ('bye' in game && game.bye === teamId) return `rested in the ${round}`;
+    if (game.home !== teamId && game.away !== teamId) return undefined;
+    const opponent = game.home === teamId ? game.away : game.home;
+    const opponentName = opponent ? this.seededName(playoffs, opponent) : 'an opponent still to be decided';
+    if (game.status !== 'final' || game.homeScore === undefined || game.awayScore === undefined) {
+      return `plays ${opponentName} in the ${round}`;
+    }
+    const own = game.home === teamId ? game.homeScore : game.awayScore;
+    const other = game.home === teamId ? game.awayScore : game.homeScore;
+    const won = game.winner ? game.winner === teamId : own > other;
+    return `${won ? 'beat' : 'lost to'} ${opponentName} ${own.toFixed(1)}-${other.toFixed(1)} in the ${round}`;
+  }
+
+  /** Every bracket step for one team, round one first, optionally only through a week. */
+  private pathSteps(playoffs: FactsPlayoffs, teamId: string, throughWeek?: number): string[] {
+    return playoffs.bracket
+      .filter(round => throughWeek === undefined || round.week <= throughWeek)
+      .flatMap(round => round.games.map(game => this.pathStep(playoffs, teamId, game, round.round)))
+      .filter((step): step is string => step !== undefined);
+  }
+
+  /** "Chodie mcgruber's path: rested in the Quarterfinals; beat No. 5 Moisty Loins 187.3-171.9 in the Semifinals". */
+  private pathLine(playoffs: FactsPlayoffs, teamId: string, throughWeek?: number): string {
+    const steps = this.pathSteps(playoffs, teamId, throughWeek);
+    return `${this.teamName(teamId)}'s path: ${steps.length > 0 ? steps.join('; ') : 'no bracket game on record yet'}`;
+  }
+
+  /** The field in seed order with the round-one rests marked, then the bubble. */
+  private fieldLines(playoffs: FactsPlayoffs): string {
+    const rests = playoffs.byes === 1 ? '1 first-round rest' : `${playoffs.byes} first-round rests`;
+    let lines = `The field: ${playoffs.fieldSize} teams, ${rests}. Playoffs start week ${playoffs.playoffStartWeek}; the final is week ${playoffs.championshipWeek}.\n`;
+    for (const entry of playoffs.seeds) {
+      const rest = entry.seed <= playoffs.byes ? ' [rests round one]' : '';
+      lines += `- No. ${entry.seed} ${this.teamName(entry.teamId)} (${entry.record}, ${entry.pointsFor.toFixed(1)} PF)${rest}\n`;
+    }
+    if (playoffs.bubble.length > 0) {
+      const bubble = playoffs.bubble.map(
+        entry => `${this.teamName(entry.teamId)} (${entry.record}, ${entry.pointsFor.toFixed(1)} PF)`
+      );
+      lines += `Next in line (out as of today): ${bubble.join(', ')}\n`;
+    }
+    return lines;
+  }
+
+  /** Every round of the bracket, round one first. */
+  private bracketLines(playoffs: FactsPlayoffs): string {
+    return playoffs.bracket
+      .map(round => `Week ${round.week}, ${round.round}:\n${round.games.map(game => `- ${this.gameLine(playoffs, game)}`).join('\n')}`)
+      .join('\n');
+  }
+
+  /** Consolation games for one week (or every week), one line each, tier in plain English. */
+  private consolationLines(playoffs: FactsPlayoffs, week?: number): string {
+    const games = playoffs.consolation.filter(game => week === undefined || game.week === week);
+    if (games.length === 0) return '';
+    return games
+      .map(game => `- ${this.gameLine(playoffs, game)} (${game.tier}${week === undefined ? `, week ${game.week}` : ''})`)
+      .join('\n');
+  }
+
+  /** Who can still win it and who cannot, or the champion once decided. */
+  private contentionLines(playoffs: FactsPlayoffs): string {
+    const names = (ids: string[]) => ids.map(id => this.teamName(id)).join(', ');
+    let lines = '';
+    if (playoffs.mode === 'final' && playoffs.champion) {
+      lines += `CHAMPION: ${this.teamName(playoffs.champion)}.`;
+      if (playoffs.runnerUp) lines += ` Runner-up: ${this.teamName(playoffs.runnerUp)}.`;
+      lines += '\n';
+    } else if (playoffs.alive.length > 0) {
+      lines += `Still in the title chase: ${names(playoffs.alive)}.\n`;
+    }
+    if (playoffs.eliminated.length > 0) {
+      lines += `Out of the title race (consolation only): ${names(playoffs.eliminated)}.\n`;
+    }
+    return lines;
+  }
+
+  /** Found in the baseline dev articles: a title win added to a record, and a knocked-out team previewed. */
+  private recordRule(): string {
+    return `- Records are regular-season records; playoff results never change them. Say "won the title" or "went 3-0 in the bracket", never "12-4".\n`;
+  }
+
+  private contenderRule(): string {
+    return `- Never call an eliminated team a contender, alive, in the hunt or in the title chase. Do not preview eliminated teams as contenders.\n`;
+  }
+
+  /** The teams resting in a week, from the bracket and from any bye rows on the slate. */
+  private restIds(playoffs: FactsPlayoffs, week: number, slateByes: UpcomingBye[]): string[] {
+    const fromBracket = (playoffs.bracket.find(round => round.week === week)?.games ?? [])
+      .map(game => game.bye)
+      .filter((id): id is string => id !== undefined);
+    const fromSlate = slateByes
+      .map(row => this.facts.teams.find(team => team.id === `T${row.bye.teamId}` || team.name === row.bye.name)?.id)
+      .filter((id): id is string => id !== undefined);
+    return [...new Set([...fromBracket, ...fromSlate])];
+  }
+
+  /** Preview framing: the picture in the regular season, the bracket once it starts, the final on championship week. */
+  private previewPlayoffLines(slateWeek: number, slateByes: UpcomingBye[]): string {
+    const playoffs = this.facts.playoffs;
+    if (!playoffs) return '';
+
+    if (slateWeek < playoffs.playoffStartWeek) {
+      return `\nPLAYOFF PICTURE - IF THE SEASON ENDED TODAY (a projection; nothing is clinched):\n${this.fieldLines(playoffs)}Use this as context for week_overview and sleepers_and_starts: what a game means for a seed or a spot, said as "if the season ended today". Records stay the story.\n`;
+    }
+
+    const round = playoffs.bracket.find(candidate => candidate.week === slateWeek);
+    const nextRound = playoffs.bracket.find(candidate => candidate.week > slateWeek);
+    const roundName = round?.round ?? playoffs.round ?? 'Playoffs';
+    const bracketGames = (round?.games ?? []).filter(game => !game.bye);
+    const rests = this.restIds(playoffs, slateWeek, slateByes);
+    const consolation = this.consolationLines(playoffs, slateWeek);
+
+    if (slateWeek === playoffs.championshipWeek) {
+      const final = bracketGames[0];
+      let lines = `\nCHAMPIONSHIP WEEK - THE WHOLE PIECE IS THE FINAL.\n`;
+      if (final) {
+        lines += `The final: ${this.gameLine(playoffs, final)}.\n`;
+        for (const side of [final.home, final.away]) {
+          if (side) lines += `${this.pathLine(playoffs, side, slateWeek - 1)}\n`;
+        }
+      } else {
+        lines += `The final's pairing is not in the facts; say so rather than guess it.\n`;
+      }
+      if (consolation) lines += `Consolation this week, a footnote at most, one line each:\n${consolation}\n`;
+      lines += this.contentionLines(playoffs);
+      lines += this.recordRule() + this.contenderRule();
+      return lines;
+    }
+
+    let lines = `\nPLAYOFFS - ${roundName.toUpperCase()} (WEEK ${slateWeek}). THE BRACKET IS THE STORY.\n`;
+    if (bracketGames.length > 0) {
+      lines += `Marquee first, the winners-bracket game${bracketGames.length === 1 ? '' : 's'}, in this order:\n`;
+      lines += `${bracketGames.map((game, index) => `${index + 1}. ${this.gameLine(playoffs, game)}`).join('\n')}\n`;
+    }
+    if (rests.length > 0) {
+      const next = nextRound ? ` and plays in the ${nextRound.round} next week` : '';
+      lines += `Resting this round (no game, no opponent, advances automatically): ${rests.map(id => this.seededName(playoffs, id)).join(', ')}. Each rests this week${next}. Never describe a rest as a blank game.\n`;
+    }
+    if (consolation) lines += `Consolation games, one line each, last:\n${consolation}\n`;
+    lines += this.contentionLines(playoffs);
+    lines += this.recordRule() + this.contenderRule();
+    return lines;
+  }
+
+  /** Bracket exit plus consolation results, for the eliminated group of a power ranking. */
+  private consolationSummary(playoffs: FactsPlayoffs, teamId: string): string {
+    const parts: string[] = [];
+    const exit = this.pathSteps(playoffs, teamId).filter(step => step.startsWith('lost to')).pop();
+    if (exit) parts.push(exit);
+    if (playoffs.runnerUp === teamId) parts.push('runner-up');
+    for (const game of playoffs.consolation) {
+      const step = this.pathStep(playoffs, teamId, game, `${game.tier}, week ${game.week}`);
+      if (step) parts.push(step);
+    }
+    return parts.length > 0 ? parts.join('; ') : 'no playoff or consolation game on record';
+  }
+
+  /** Power-rankings framing: the alive first, in title-chance order, then the eliminated, both labelled. */
+  private powerRankingsPlayoffLines(): string {
+    const playoffs = this.facts.playoffs;
+    if (!playoffs) return '';
+
+    if (playoffs.mode === 'projected') {
+      const bubbleIds = new Set(playoffs.bubble.map(entry => entry.teamId));
+      let lines = `\nPLAYOFF POSITION - IF THE SEASON ENDED TODAY (records and points stay the basis of the ranking; one line per team on its position is enough, and nothing is clinched):\n`;
+      for (const team of this.facts.teams) {
+        const seed = playoffs.seeds.find(entry => entry.teamId === team.id);
+        const position = seed
+          ? `in, No. ${seed.seed} seed${seed.seed <= playoffs.byes ? ', would rest round one' : ''}`
+          : bubbleIds.has(team.id)
+            ? 'on the bubble, next in line'
+            : 'out as of today';
+        lines += `- ${team.name}: ${position}\n`;
+      }
+      return lines;
+    }
+
+    // Who went out in which round, so the eliminated group reads runner-up first, then the
+    // semifinal losers, and so on down to the teams that missed the playoffs.
+    const exitRound = new Map<string, number>();
+    playoffs.bracket.forEach((round, index) => {
+      for (const game of round.games) {
+        if (game.status !== 'final' || !game.winner) continue;
+        const loser = game.home === game.winner ? game.away : game.home;
+        if (loser) exitRound.set(loser, index);
+      }
+    });
+    const titleGroup = playoffs.mode === 'final' && playoffs.champion ? [playoffs.champion] : playoffs.alive;
+    const bracketOut = [...playoffs.eliminated].sort((a, b) => (exitRound.get(b) ?? -1) - (exitRound.get(a) ?? -1));
+    const inField = new Set([...playoffs.seeds.map(entry => entry.teamId), ...titleGroup, ...bracketOut]);
+    const missedPlayoffs = this.facts.teams
+      .filter(team => !inField.has(team.id))
+      .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
+
+    let lines = `\nPLAYOFFS - RANK IN TWO LABELLED GROUPS.\n`;
+    lines += playoffs.mode === 'final'
+      ? `Group 1, "Champion", first:\n`
+      : `Group 1, "Still in the title chase", first, in order of title chance, each with its path so far:\n`;
+    for (const id of titleGroup) {
+      const record = this.seedRecord(playoffs, id);
+      const steps = this.pathSteps(playoffs, id);
+      lines += `- ${this.seededName(playoffs, id)}${record ? ` (${record})` : ''}: ${steps.length > 0 ? steps.join('; ') : 'no bracket game yet'}\n`;
+    }
+    lines += `Group 2, "Eliminated", after group 1, by consolation standing (runner-up first, then the rest):\n`;
+    for (const id of bracketOut) {
+      const record = this.seedRecord(playoffs, id);
+      lines += `- ${this.seededName(playoffs, id)}${record ? ` (${record})` : ''}: ${this.consolationSummary(playoffs, id)}\n`;
+    }
+    for (const team of missedPlayoffs) {
+      lines += `- ${team.name} (${team.record}): missed the playoffs; ${this.consolationSummary(playoffs, team.id)}\n`;
+    }
+    lines += this.recordRule() + this.contenderRule();
+    return lines;
+  }
+
+  /** Recap framing: who rested, who advanced, who is out, and the champion once decided. */
+  private recapPlayoffLines(data: LeagueDataContext): string {
+    const playoffs = this.facts.playoffs;
+    if (!playoffs) return '';
+    const week = data.currentWeek;
+
+    if (playoffs.mode === 'projected' || week < playoffs.playoffStartWeek) {
+      return `\nPLAYOFF PICTURE AFTER WEEK ${week} - IF THE SEASON ENDED TODAY (a projection; nothing is clinched):\n${this.fieldLines(playoffs)}`;
+    }
+
+    const round = playoffs.bracket.find(candidate => candidate.week === week);
+    const roundName = round?.round ?? playoffs.round ?? 'Playoffs';
+    const games = (round?.games ?? []).filter(game => !game.bye);
+    const slateByes: UpcomingBye[] = (data.byes ?? []).map(bye => ({
+      week,
+      bye: { teamId: bye.teamId, name: bye.teamName, seed: bye.seed },
+    }));
+    const rests = this.restIds(playoffs, week, slateByes);
+    const decided = playoffs.mode === 'final' && week === playoffs.championshipWeek && playoffs.champion !== undefined;
+
+    let lines = `\nPLAYOFFS - ${roundName.toUpperCase()} (WEEK ${week}):\n`;
+    if (decided) {
+      const final = games.find(game => game.winner === playoffs.champion) ?? games[0];
+      lines += `CHAMPION: ${this.teamName(playoffs.champion)}.${final ? ` The final: ${this.gameLine(playoffs, final)}.` : ''} Crown them explicitly; this is the season's last word.`;
+      if (playoffs.runnerUp) lines += ` Runner-up: ${this.teamName(playoffs.runnerUp)}.`;
+      lines += '\n';
+      for (const side of [final?.home, final?.away]) {
+        if (side) lines += `${this.pathLine(playoffs, side, week - 1)}\n`;
+      }
+    } else if (games.length > 0) {
+      lines += `Bracket games this week:\n${games.map(game => `- ${this.gameLine(playoffs, game)}`).join('\n')}\n`;
+    }
+    if (rests.length > 0) {
+      lines += `Rested this week (no game; advanced automatically): ${rests.map(id => this.seededName(playoffs, id)).join(', ')}. Say they rested; never write up a blank game.\n`;
+    }
+    const consolation = this.consolationLines(playoffs, week);
+    if (consolation) lines += `Consolation this week:\n${consolation}\n`;
+
+    // playoff_implications: who moved on and who is done, from this week's results.
+    if (!decided) {
+      const advanced = [...rests, ...games.map(game => game.winner).filter((id): id is string => id !== undefined)];
+      const knockedOut = games
+        .map(game => (game.winner ? (game.home === game.winner ? game.away : game.home) : undefined))
+        .filter((id): id is string => id !== undefined);
+      if (advanced.length > 0) lines += `Advanced: ${advanced.map(id => this.teamName(id)).join(', ')}.\n`;
+      if (knockedOut.length > 0) lines += `Knocked out of the title race this week: ${knockedOut.map(id => this.teamName(id)).join(', ')}.\n`;
+    }
+    lines += this.contentionLines(playoffs);
+    lines += this.recordRule() + this.contenderRule();
+    return lines;
+  }
+
+  /** Playoff-picture framing: the projected bracket in the regular season, the real one once it starts. */
+  private playoffPictureLines(): string {
+    const playoffs = this.facts.playoffs;
+    if (!playoffs) return '';
+
+    if (playoffs.mode === 'projected') {
+      let lines = `\nPROJECTED BRACKET - IF THE SEASON ENDED TODAY (the core of this piece; a projection, nothing clinched):\n${this.fieldLines(playoffs)}`;
+      const roundOne = playoffs.bracket[0];
+      if (roundOne) {
+        lines += `Round one as it would stand:\n${roundOne.games.map(game => `- ${this.gameLine(playoffs, game)}`).join('\n')}\n`;
+      }
+      lines += `- Say "if the season ended today" for every seed. No magic numbers: none are in the facts.\n`;
+      return lines;
+    }
+
+    let lines = `\nTHE BRACKET - REAL, AS IT STANDS${playoffs.round ? ` (${playoffs.round})` : ''}:\n${this.fieldLines(playoffs)}${this.bracketLines(playoffs)}\n`;
+    const consolation = this.consolationLines(playoffs);
+    if (consolation) lines += `Consolation ladders:\n${consolation}\n`;
+    lines += this.contentionLines(playoffs);
+    lines += this.recordRule() + this.contenderRule();
+    return lines;
+  }
+
+  /** Champion, runner-up and each finalist's path, once the bracket has decided the title. */
+  private playoffFinalLines(heading: string): string {
+    const playoffs = this.facts.playoffs;
+    if (!playoffs || playoffs.mode !== 'final' || !playoffs.champion) return '';
+    const champion = playoffs.champion;
+    const lastRound = playoffs.bracket[playoffs.bracket.length - 1];
+    const final = lastRound?.games.find(game => game.winner === champion);
+    const record = this.seedRecord(playoffs, champion);
+
+    let lines = `\n${heading}:\n- Champion: ${this.seededName(playoffs, champion)}${record ? ` (${record})` : ''}`;
+    const finalStep = final ? this.pathStep(playoffs, champion, final, `week ${playoffs.championshipWeek} final`) : undefined;
+    if (finalStep) lines += `, ${finalStep}`;
+    lines += '\n';
+    if (playoffs.runnerUp) lines += `- Runner-up: ${this.seededName(playoffs, playoffs.runnerUp)}\n`;
+    const topSeed = playoffs.seeds.find(entry => entry.seed === 1);
+    if (topSeed) lines += `- Regular-season No. 1 seed: ${this.teamName(topSeed.teamId)} (${topSeed.record})\n`;
+    for (const side of [final?.home, final?.away]) {
+      if (side) lines += `- ${this.pathLine(playoffs, side)}\n`;
+    }
+    lines += this.recordRule();
+    return lines;
+  }
+
   private buildWeeklyRecapData(data: LeagueDataContext): string {
     if (!data.recentMatchups || data.recentMatchups.length === 0) {
       throw new InsufficientDataError('weekly_recap', ['matchup_results']);
     }
 
     let recap = '';
-    
+    // ESPN's bye rows (one side empty) are rests, not games: once the payload names them (see
+    // `payloadKnowsByes`) they are read out by `recapPlayoffLines`, never as a blank matchup.
+    const knowsByes = payloadKnowsByes(data);
+    const games = (matchups: Matchup[] | undefined) => (matchups ?? []).filter(matchup => !isRestRow(matchup, knowsByes));
+
     // Check if we have playoff breakdown data
     const hasPlayoffData = (data as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown }).playoffBreakdown;
     if (hasPlayoffData) {
@@ -1046,9 +1493,10 @@ where the two ever disagree, <FACTS> wins.
       }
       
       // PLAYOFF GAMES (WINNERS_BRACKET)
-      if (playoffData?.playoffMatchups && playoffData.playoffMatchups.length > 0 && !playoffData?.isChampionshipWeek) {
+      const bracketGames = games(playoffData?.playoffMatchups);
+      if (bracketGames.length > 0 && !playoffData?.isChampionshipWeek) {
         recap += '🏈 PLAYOFF GAMES (Winners Bracket):\n';
-        playoffData?.playoffMatchups?.forEach((matchup) => {
+        bracketGames.forEach((matchup) => {
           recap += this.formatMatchupDetails(matchup, false, true);
         });
         recap += '\n';
@@ -1056,8 +1504,8 @@ where the two ever disagree, <FACTS> wins.
       
       // CONSOLATION GAMES
       if (playoffData?.consolationMatchups && playoffData.consolationMatchups.length > 0) {
-        const bracketType = playoffData?.consolationMatchups?.[0]?.playoffTier === 'WINNERS_CONSOLATION_LADDER' 
-          ? 'Consolation Playoff' : 'Consolation';
+        const bracketType = playoffData?.consolationMatchups?.[0]?.playoffTier === 'WINNERS_CONSOLATION_LADDER'
+          ? 'Third-place ladder' : 'Consolation ladder';
         recap += `📊 ${bracketType.toUpperCase()} GAMES:\n`;
         playoffData?.consolationMatchups?.forEach((matchup) => {
           recap += this.formatMatchupDetails(matchup);
@@ -1076,10 +1524,12 @@ where the two ever disagree, <FACTS> wins.
     } else {
       // Fallback to original format if no playoff data
       recap += 'THIS WEEK\'S MATCHUPS:\n';
-      data.recentMatchups.forEach(matchup => {
+      games(data.recentMatchups).forEach(matchup => {
         recap += this.formatMatchupDetails(matchup);
       });
     }
+
+    recap += this.recapPlayoffLines(data);
 
     // Add injury report with impact analysis
     if (data.injuryReport && data.injuryReport.length > 0) {
@@ -1174,7 +1624,11 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
    * failure this refuses: the pipeline surfaces the gap and refunds instead.
    */
   private buildWeeklyPreviewData(data: LeagueDataContext): string {
-    const upcoming = data.upcomingMatchups ?? [];
+    // The same rows FACTS keeps, in the same order, so `this.facts.upcoming[index]` is this game.
+    const rows = data.upcomingMatchups ?? [];
+    const knowsByes = payloadKnowsByes(data);
+    const upcoming = rows.filter((row): row is UpcomingMatchup => !isRestRow(row, knowsByes));
+    const slateByes = rows.filter(isUpcomingBye);
     if (upcoming.length === 0) {
       throw new InsufficientDataError('weekly_preview', ['upcoming_matchups']);
     }
@@ -1190,7 +1644,7 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
       const homeForm = this.formatPreviewForm(game.teamARecord, game.teamAPointsFor);
       const awayForm = this.formatPreviewForm(game.teamBRecord, game.teamBPointsFor);
 
-      preview += `\nGAME ${index + 1}${game.isPlayoff ? ' [PLAYOFF]' : ''}: ${home}${homeForm} vs ${away}${awayForm}`;
+      preview += `\nGAME ${index + 1}${this.previewGameTag(this.facts.upcoming[index], game)}: ${home}${homeForm} vs ${away}${awayForm}`;
 
       if (game.projectedScoreA !== undefined && game.projectedScoreB !== undefined) {
         preview += `\n  Projected: ${game.projectedScoreA.toFixed(1)} - ${game.projectedScoreB.toFixed(1)} (a projection, not a result)`;
@@ -1237,6 +1691,8 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
       });
     }
 
+    preview += this.previewPlayoffLines(week, slateByes);
+
     preview += `\nWEEKLY PREVIEW RULES:
 - Every game above is unplayed. Write about it in the future tense only. No result, no winner, no
   margin, no "held on", no "survived" — none of that exists yet for these games.
@@ -1248,6 +1704,15 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
   Anything else about them has not happened.`;
 
     return preview;
+  }
+
+  /** " [PLAYOFF - Semifinals]", " [third-place ladder]", " [PLAYOFF]" or nothing. Never ESPN's enum. */
+  private previewGameTag(fact: FactsUpcoming | undefined, game: UpcomingMatchup): string {
+    if (fact?.round) return ` [PLAYOFF - ${fact.round}]`;
+    if (fact?.bracket && fact.bracket !== 'regular') {
+      return fact.bracket === 'winners bracket' ? ' [PLAYOFF]' : ` [${fact.bracket}]`;
+    }
+    return (fact?.isPlayoff ?? game.isPlayoff) ? ' [PLAYOFF]' : '';
   }
 
   /** " [5-2-0, 733.5 PF]" — the season-to-date form printed beside a team in the preview. */
@@ -1375,6 +1840,8 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
 block above has each team's B… line. If a team's waiver spend is relevant to its ranking, you may
 cite it; keep it to a line, never the focus.\n`;
     }
+
+    rankings += this.powerRankingsPlayoffLines();
 
     return rankings;
   }
@@ -1873,6 +2340,8 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
         picture += '\n';
       });
     }
+
+    picture += this.playoffPictureLines();
 
     picture += `\nPLAYOFF PICTURE RULES:
 - Seeding comes from the standings above and nowhere else.
@@ -2401,6 +2870,11 @@ column is about — the player and team names, positions, and stats. Use those n
       welcomeData += `- League Type: ${data.leagueType}\n`;
     }
 
+    // The decided bracket outranks the stored season summary (the stored 2025 champion was a
+    // rolled-over 0-0 team): when the payload carries last season's final bracket, it names the
+    // champion and the runner-up, and the stored entry for that year is not printed.
+    const decidedLastSeason = this.playoffFinalLines(`LAST SEASON (${currentSeason - 1})`);
+
     if (data.leagueHistory) {
       welcomeData += `- League Founded: ${data.leagueHistory.foundedYear}\n`;
       welcomeData += `- Total Seasons Played: ${data.leagueHistory.totalSeasons}\n\n`;
@@ -2410,7 +2884,7 @@ column is about — the player and team names, positions, and stats. Use those n
         console.log("League history seasons:", data.leagueHistory.seasons.length);
         welcomeData += `RECENT CHAMPIONS:\n`;
         data.leagueHistory.seasons
-          .filter(s => s.champion)
+          .filter(s => s.champion && !(decidedLastSeason && s.year === currentSeason - 1))
           .slice(-3)
           .forEach(season => {
             console.log("Champion data for", season.year, ":", season.champion);
@@ -2427,7 +2901,7 @@ column is about — the player and team names, positions, and stats. Use those n
       // almost always wants to open with "last year..." (Broadcast register:
       // this stays prose, no field names or ids).
       const lastSeason = data.leagueHistory.seasons?.find(s => s.year === currentSeason - 1);
-      if (lastSeason) {
+      if (lastSeason && !decidedLastSeason) {
         welcomeData += `LAST SEASON (${lastSeason.year}):\n`;
         if (lastSeason.champion) {
           welcomeData += `- Champion: ${lastSeason.champion.teamName} (${lastSeason.champion.owner})\n`;
@@ -2441,6 +2915,7 @@ column is about — the player and team names, positions, and stats. Use those n
         welcomeData += '\n';
       }
     }
+    if (decidedLastSeason) welcomeData += `${decidedLastSeason}\n`;
 
     // Current season teams and managers
     welcomeData += `\n${currentSeason} SEASON TEAMS:\n`;

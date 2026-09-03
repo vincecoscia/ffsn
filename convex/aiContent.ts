@@ -1152,6 +1152,8 @@ async function getLeagueDataForGenerationHandler(
       
       // Playoff probabilities
       playoffProbabilities: enrichedData.playoffProbabilities,
+      // The bracket / playoff picture (convex/lib/playoffs.ts) - the writers' FACTS block reads it.
+      playoffs: enrichedData.playoffs,
       
       // ENHANCED: Historical data for season welcome packages
       previousSeasons: enrichedData.previousSeasons || {},

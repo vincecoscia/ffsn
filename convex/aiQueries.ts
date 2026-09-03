@@ -33,6 +33,17 @@ import {
 // `convex/lib/standingsThroughWeek.ts` is likewise a deliberately pure module (see its file
 // header) - season backfill's historical-mode standings computation (brief A deliverable 1).
 import { computeStandingsThroughWeek } from "./lib/standingsThroughWeek";
+// `convex/lib/playoffs.ts` is likewise deliberately pure (see its file header) - the bracket-truth
+// source for the writers, never `leagueSeasons.champion` (which a rolled-over sync can corrupt).
+import {
+  buildPlayoffContext,
+  deriveSeasonResults,
+  highestFinishedMatchupPeriod,
+  isByeMatchup,
+  isCorruptedSeasonResult,
+  playoffRoundName,
+} from "./lib/playoffs";
+import type { PlayoffContext } from "./lib/playoffTypes";
 
 /**
  * Enhanced query functions for AI content generation
@@ -604,8 +615,8 @@ export const getLeagueDataForAI = internalQuery({
     // Fetch all data in parallel
     const [
       teams,
-      matchups,
-      recentMatchups,
+      allMatchupsRaw,
+      recentMatchupsRaw,
       trades,
       transactions,
       rivalries,
@@ -679,6 +690,14 @@ export const getLeagueDataForAI = internalQuery({
         .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
         .collect(),
     ]);
+
+    // A round-one bye (`isByeMatchup`) is a real `matchups` row but not a game - no opponent ever
+    // takes the field. Stripped here, once, so every downstream calculation (strength of schedule,
+    // standings, recent/upcoming matchups, rivalries) sees the same real-games-only list; without
+    // this the week-15 preview literally described a bye as "a blank space where an opponent should
+    // be" (see `convex/lib/playoffs.ts`'s header comment for the finding).
+    const matchups = allMatchupsRaw.filter(m => !isByeMatchup(m));
+    const recentMatchups = recentMatchupsRaw.filter(m => !isByeMatchup(m));
 
     // "Played" (spec: brief A deliverable 1) = matchupPeriod <= currentWeek. In live mode this is
     // every matchup (currentWeek is the live week, and future weeks are still 0-0 rows anyway); in
@@ -776,6 +795,53 @@ export const getLeagueDataForAI = internalQuery({
         )
       : undefined;
     const standingsByExternalId = new Map((standingsThroughWeek ?? []).map(row => [row.externalId, row]));
+
+    // Playoff picture / bracket (owner ask, Sept 2026): a bracket at playoff time, an "if the
+    // season ended today" bracket during the regular season, articles centred on who's still alive.
+    // `buildPlayoffContext` recognises byes itself (`isByeMatchup`), so it needs the RAW matchups
+    // (`allMatchupsRaw`) - every other calculation in this handler uses the bye-filtered `matchups`.
+    // Live `throughWeek` is the last week with a finished game, NOT `currentWeek` (which in live
+    // mode is `currentScoringPeriod` - ESPN's notion of "now", which can be a week ahead of the last
+    // completed one, e.g. right after a bye-only week sets nothing final).
+    const playoffs: PlayoffContext = buildPlayoffContext({
+      teams: teams.map(team => ({
+        externalId: team.externalId,
+        name: team.name,
+        record: {
+          wins: team.record.wins,
+          losses: team.record.losses,
+          ties: team.record.ties,
+          pointsFor: team.record.pointsFor,
+          playoffSeed: team.record.playoffSeed,
+        },
+      })),
+      matchups: allMatchupsRaw.map(m => ({
+        matchupPeriod: m.matchupPeriod,
+        homeTeamId: m.homeTeamId,
+        awayTeamId: m.awayTeamId,
+        homeScore: m.homeScore,
+        awayScore: m.awayScore,
+        winner: m.winner,
+        playoffTier: m.playoffTier,
+      })),
+      format: {
+        playoffTeamCount: leagueFormat.playoffTeamCount,
+        regularSeasonMatchupPeriods: leagueFormat.regularSeasonMatchupPeriods,
+        playoffMatchupPeriodLength: leagueFormat.playoffMatchupPeriodLength,
+        playoffSeedingRule: leagueFormat.playoffSeedingRule,
+      },
+      throughWeek: historicalMode ? currentWeek : highestFinishedMatchupPeriod(matchups),
+      standings: historicalMode
+        ? (standingsThroughWeek ?? []).map(row => ({
+            externalId: row.externalId,
+            wins: row.wins,
+            losses: row.losses,
+            ties: row.ties,
+            pointsFor: row.pointsFor,
+            rank: row.rank,
+          }))
+        : undefined,
+    });
 
     const standings = historicalMode
       ? (standingsThroughWeek ?? []).map(row => ({
@@ -1346,6 +1412,23 @@ export const getLeagueDataForAI = internalQuery({
       return teamAWins + teamBWins > 0 ? { teamAWins, teamBWins } : undefined;
     };
 
+    // When the preview week falls inside the playoffs, every entry gets the round it belongs to
+    // (spec: articles centred on the playoffs) - the same arithmetic `buildPlayoffContext` uses for
+    // `currentRound`, since a preview week and a "current round" are the same kind of lookup.
+    const previewIsPlayoffWeek = previewWeek >= playoffs.playoffStartWeek && previewWeek <= playoffs.championshipWeek;
+    const previewRoundName = previewIsPlayoffWeek
+      ? playoffRoundName(
+          Math.min(
+            Math.max(
+              0,
+              Math.floor((previewWeek - playoffs.playoffStartWeek) / (leagueFormat.playoffMatchupPeriodLength ?? 1))
+            ),
+            playoffs.rounds - 1
+          ),
+          playoffs.rounds
+        )
+      : undefined;
+
     const upcomingMatchups = matchups
       .filter(game => game.matchupPeriod === previewWeek)
       .sort((a, b) => (Number(a.homeTeamId) || 0) - (Number(b.homeTeamId) || 0))
@@ -1371,9 +1454,25 @@ export const getLeagueDataForAI = internalQuery({
           projectedScoreA: game.homeProjectedScore,
           projectedScoreB: game.awayProjectedScore,
           isPlayoff: game.playoffTier && game.playoffTier !== "NONE" ? true : undefined,
+          // Round name/tier (spec: playoffs round) - only meaningful inside the playoffs.
+          round: previewRoundName,
+          tier: game.playoffTier && game.playoffTier !== "NONE" ? game.playoffTier : undefined,
           headToHead: headToHeadFor(game.homeTeamId, game.awayTeamId),
         };
       });
+
+    // Byes for the preview week (spec: "seed 1 rests") - excluded from `matchups` above (they're
+    // not games), sourced from the raw rows so they can still be recognised and named.
+    const upcomingByes = previewIsPlayoffWeek
+      ? allMatchupsRaw
+          .filter(m => m.matchupPeriod === previewWeek && isByeMatchup(m))
+          .map(m => {
+            const teamId = m.homeTeamId !== "" ? m.homeTeamId : m.awayTeamId;
+            const team = teamByExternalId.get(teamId);
+            const seed = playoffs.seeds.find(s => s.teamId === teamId)?.seed;
+            return { week: previewWeek, bye: { teamId, name: team?.name ?? teamId, seed: seed ?? 0 } };
+          })
+      : [];
 
     // Analyze transaction trends
     const transactionTrends = analyzeTransactionTrends(
@@ -1437,15 +1536,20 @@ export const getLeagueDataForAI = internalQuery({
       // stay for back-compat with prompt code that reads the flat fields.
       leagueFormat,
       recentMatchups: enrichedMatchups,
-      // Unplayed games for the look-ahead week (spec 4.3). Empty once the
-      // schedule runs out, which is what makes weekly_preview refuse.
-      upcomingMatchups,
+      // Unplayed games for the look-ahead week (spec 4.3), plus any byes that week (spec: playoffs
+      // round - "seed 1 rests"). Empty once the schedule runs out, which is what makes
+      // weekly_preview refuse.
+      upcomingMatchups: [...upcomingMatchups, ...upcomingByes],
       trades: enrichedTrades,
       transactions: scopedTransactions.slice(0, 20), // Most recent 20
       rivalries: enrichedRivalries,
       managerActivity,
       transactionTrends,
       playoffProbabilities,
+      // The playoff picture / bracket (owner ask, Sept 2026 - see this handler's `playoffs` build
+      // above). Carried through `aiContent.ts`'s reshape (orchestrator: add `playoffs:
+      // enrichedData.playoffs` there) so the writers and `src/lib/ai/facts.ts` can read it.
+      playoffs,
 
       // NEW: Historical data for season welcome packages
       previousSeasons,
@@ -1834,6 +1938,35 @@ function createMinimalMockDraftData(
   };
 };
 
+/** The `leagueSeasons.champion`/`runnerUp`/`regularSeasonChampion` shape (schema.ts). */
+type StoredSeasonResult = {
+  teamId: string;
+  teamName: string;
+  owner: string;
+  record: { wins: number; losses: number; ties: number };
+  pointsFor?: number;
+};
+
+/**
+ * A bracket-derived `BracketTeam` (record `"10-4-0"`) into the stored `leagueSeasons` shape
+ * (record `{wins, losses, ties}`) - the two disagree only in how the record is encoded, so this is
+ * a pure reshape. `owner` isn't on `BracketTeam` at all (it's an ESPN team-doc field), so callers
+ * resolve it themselves and pass it in.
+ */
+function bracketTeamToStoredChampion(
+  bracketTeam: { teamId: string; name: string; record: string; pointsFor: number },
+  owner: string
+): StoredSeasonResult {
+  const [wins, losses, ties] = bracketTeam.record.split("-").map(Number);
+  return {
+    teamId: bracketTeam.teamId,
+    teamName: bracketTeam.name,
+    owner,
+    record: { wins: wins || 0, losses: losses || 0, ties: ties || 0 },
+    pointsFor: bracketTeam.pointsFor,
+  };
+}
+
 // Get season welcome data for AI content generation
 export const getSeasonWelcomeDataForAI = internalQuery({
   args: {
@@ -1961,6 +2094,14 @@ export const getSeasonWelcomeDataForAI = internalQuery({
       // Collect memorable moments across recent seasons
       const memorableMoments: Array<any> = [];
 
+      // Bracket-derived corrections to `championshipHistory`, keyed by seasonId - populated inside
+      // the loop below ("0)"), applied to `championshipHistory` and the championship-count
+      // leaderboard once the loop finishes.
+      const bracketCorrections = new Map<
+        number,
+        { champion?: StoredSeasonResult; runnerUp?: StoredSeasonResult; regularSeasonChampion?: StoredSeasonResult }
+      >();
+
       // We'll analyze the last 3 historical seasons for performance & moments
       const seasonsToAnalyze = leagueSeasons
         .filter(s => s.seasonId !== currentSeason)
@@ -1990,6 +2131,72 @@ export const getSeasonWelcomeDataForAI = internalQuery({
             }));
 
           const playoffTeamsCount = season.settings?.playoffTeamCount || league.settings?.playoffTeamCount || 6;
+
+          // 0) Bracket-derived correction for a corrupted stored champion (spec: prod's 2025 season
+          // stored champion "joey's Scary Team", a 0-0 team with owner "Unknown", evidently a
+          // rolled-over sync artifact - see convex/lib/playoffs.ts's header comment). Only overrides
+          // when the stored value is unmistakably wrong (`isCorruptedSeasonResult`); a real, decided
+          // champion is left alone. Cheap on purpose: only for these 3 recently-analyzed seasons,
+          // reading the same WINNERS_BRACKET rows the memorable-moments detection below also needs.
+          if (isCorruptedSeasonResult(season.champion)) {
+            try {
+              const winnersBracketGames = await ctx.db
+                .query("matchups")
+                .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", seasonId))
+                .filter(q => q.eq(q.field("playoffTier"), "WINNERS_BRACKET"))
+                .collect();
+              if (winnersBracketGames.length > 0) {
+                const seasonFormat = parseEspnLeagueSettings(season.settings);
+                const derived = deriveSeasonResults({
+                  teams: seasonTeams.map(t => ({
+                    externalId: t.externalId,
+                    name: t.name,
+                    record: {
+                      wins: t.record.wins,
+                      losses: t.record.losses,
+                      ties: t.record.ties,
+                      pointsFor: t.record.pointsFor,
+                      playoffSeed: t.record.playoffSeed,
+                    },
+                  })),
+                  matchups: winnersBracketGames.map(g => ({
+                    matchupPeriod: g.matchupPeriod,
+                    homeTeamId: g.homeTeamId,
+                    awayTeamId: g.awayTeamId,
+                    homeScore: g.homeScore,
+                    awayScore: g.awayScore,
+                    winner: g.winner,
+                    playoffTier: g.playoffTier,
+                  })),
+                  format: {
+                    playoffTeamCount: seasonFormat.playoffTeamCount ?? league.settings?.playoffTeamCount,
+                    regularSeasonMatchupPeriods:
+                      seasonFormat.regularSeasonMatchupPeriods ?? league.settings?.regularSeasonMatchupPeriods,
+                    playoffMatchupPeriodLength: seasonFormat.playoffMatchupPeriodLength,
+                    playoffSeedingRule: seasonFormat.playoffSeedingRule,
+                  },
+                  throughWeek: Math.max(...winnersBracketGames.map(g => g.matchupPeriod)),
+                });
+                const ownerFor = (teamId: string) => {
+                  const t = seasonTeams.find(st => st.externalId === teamId);
+                  return t ? espnManagerName(t) || t.owner || UNKNOWN_MANAGER : UNKNOWN_MANAGER;
+                };
+                if (derived.champion) {
+                  bracketCorrections.set(seasonId, {
+                    champion: bracketTeamToStoredChampion(derived.champion, ownerFor(derived.champion.teamId)),
+                    runnerUp: derived.runnerUp
+                      ? bracketTeamToStoredChampion(derived.runnerUp, ownerFor(derived.runnerUp.teamId))
+                      : undefined,
+                    regularSeasonChampion: derived.regularSeasonChampion
+                      ? bracketTeamToStoredChampion(derived.regularSeasonChampion, ownerFor(derived.regularSeasonChampion.teamId))
+                      : undefined,
+                  });
+                }
+              }
+            } catch (e) {
+              // Best-effort correction only - never block the season-welcome payload over it.
+            }
+          }
 
           // 1) Championship game moments (and detect unlikely champions by seed)
           try {
@@ -2282,6 +2489,32 @@ export const getSeasonWelcomeDataForAI = internalQuery({
 
         } catch (e) {
           // Continue with other seasons
+        }
+      }
+
+      // Apply the bracket corrections collected in the loop's "0)" step - `leagueSeasons.champion`
+      // can be a stale sync artifact; the bracket cannot (spec: prod's 2025 corruption).
+      if (bracketCorrections.size > 0) {
+        for (let i = 0; i < championshipHistory.length; i++) {
+          const correction = bracketCorrections.get(championshipHistory[i].year);
+          if (!correction) continue;
+          championshipHistory[i] = {
+            ...championshipHistory[i],
+            champion: correction.champion ?? championshipHistory[i].champion,
+            runnerUp: correction.runnerUp ?? championshipHistory[i].runnerUp,
+            regularSeasonChampion: correction.regularSeasonChampion ?? championshipHistory[i].regularSeasonChampion,
+          };
+        }
+        // Recompute the championship-count leaderboard off the corrected history.
+        const correctedCounts: Record<string, number> = {};
+        championshipHistory.forEach(season => {
+          if (season.champion?.owner) {
+            correctedCounts[season.champion.owner] = (correctedCounts[season.champion.owner] || 0) + 1;
+          }
+        });
+        const correctedMost = Object.entries(correctedCounts).sort(([, a], [, b]) => b - a).slice(0, 1);
+        if (correctedMost.length > 0) {
+          allTimeRecords.mostChampionships = { manager: correctedMost[0][0], count: correctedMost[0][1] };
         }
       }
 
@@ -2848,6 +3081,10 @@ export const getWeeklyRecapDataForAI = internalQuery({
     regularSeasonWeeks?: number;
     // The FAAB/waiver ledger (owner goal: recaps can cite the week's waiver drama — keep it light).
     waivers?: WaiverLedger;
+    // Round-one byes this week, and the playoff picture/bracket through this week (spec: playoffs
+    // round - the championship recap names the champion straight from the bracket).
+    byes: Array<{ teamId: string; teamName: string; seed: number }>;
+    playoffs: PlayoffContext;
     metadata: {
       dataFreshness: number;
       week: number;
@@ -2871,25 +3108,81 @@ export const getWeeklyRecapDataForAI = internalQuery({
         currentWeek: args.week,
       });
       
-      // Get matchups for the specific week with full roster data
-      const weekMatchups = await ctx.db
+      // Get matchups for the specific week with full roster data. A round-one bye
+      // (`isByeMatchup`) is a real row but not a game - split out separately (`weekByes`) rather
+      // than left in `weekMatchups`, where it used to get "enriched" as a game with a missing
+      // opponent (see convex/lib/playoffs.ts's header comment for the finding this fixes).
+      const weekMatchupsRaw = await ctx.db
         .query("matchups")
-        .withIndex("by_league_season", q => 
+        .withIndex("by_league_season", q =>
           q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
         )
         .filter(q => q.eq(q.field("matchupPeriod"), args.week))
         .collect();
-      
+      const weekMatchups = weekMatchupsRaw.filter(m => !isByeMatchup(m));
+      const weekByeRows = weekMatchupsRaw.filter(isByeMatchup);
+
       // Get teams for this season
       const teams = await ctx.db
         .query("teams")
-        .withIndex("by_season", q => 
+        .withIndex("by_season", q =>
           q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
         )
         .collect();
-      
+
       // Create a map of teamId to team data
       const teamMap = new Map(teams.map(team => [team.externalId, team]));
+
+      // All of this season's matchups (byes included - `buildPlayoffContext` recognises them
+      // itself) through this week, for both the bracket below and `standingsAtWeek` further down -
+      // one fetch instead of two, since `buildPlayoffContext` only reads rows `<= throughWeek`
+      // anyway.
+      const seasonMatchupsThroughWeek = await ctx.db
+        .query("matchups")
+        .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+        .filter(q => q.lte(q.field("matchupPeriod"), args.week))
+        .collect();
+
+      // Playoff picture / bracket for this exact week (spec: playoffs round - the championship
+      // recap must be able to name the champion straight from the bracket, never from
+      // `leagueSeasons.champion`, which a rolled-over sync can corrupt).
+      const playoffs: PlayoffContext = buildPlayoffContext({
+        teams: teams.map(team => ({
+          externalId: team.externalId,
+          name: team.name,
+          record: {
+            wins: team.record.wins,
+            losses: team.record.losses,
+            ties: team.record.ties,
+            pointsFor: team.record.pointsFor,
+            playoffSeed: team.record.playoffSeed,
+          },
+        })),
+        matchups: seasonMatchupsThroughWeek.map(m => ({
+          matchupPeriod: m.matchupPeriod,
+          homeTeamId: m.homeTeamId,
+          awayTeamId: m.awayTeamId,
+          homeScore: m.homeScore,
+          awayScore: m.awayScore,
+          winner: m.winner,
+          playoffTier: m.playoffTier,
+        })),
+        format: {
+          playoffTeamCount: basicLeagueData.leagueFormat?.playoffTeamCount,
+          regularSeasonMatchupPeriods: basicLeagueData.leagueFormat?.regularSeasonMatchupPeriods,
+          playoffMatchupPeriodLength: basicLeagueData.leagueFormat?.playoffMatchupPeriodLength,
+          playoffSeedingRule: basicLeagueData.leagueFormat?.playoffSeedingRule,
+        },
+        throughWeek: args.week,
+      });
+
+      // Byes for this week, resolved to a name/seed (spec: `byes` next to `playoffBreakdown`).
+      const byes = weekByeRows.map(m => {
+        const teamId = m.homeTeamId !== "" ? m.homeTeamId : m.awayTeamId;
+        const team = teamMap.get(teamId);
+        const seed = playoffs.seeds.find(s => s.teamId === teamId)?.seed;
+        return { teamId, teamName: team?.name ?? teamId, seed: seed ?? 0 };
+      });
 
       // Manager display names and NFL teams come from the enriched league payload
       // (which already resolved ownerInfo / teamClaims and playersEnhanced), so
@@ -3141,13 +3434,10 @@ export const getWeeklyRecapDataForAI = internalQuery({
         ...enrichedRegularMatchups
       ];
       
-      // Get all matchups up to this week for standings calculation
-      const allMatchupsToWeek = await ctx.db
-        .query("matchups")
-        .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-        .filter(q => q.lte(q.field("matchupPeriod"), args.week))
-        .collect();
-      
+      // Matchups up to this week for standings calculation - already fetched above as
+      // `seasonMatchupsThroughWeek` for the playoff bracket.
+      const allMatchupsToWeek = seasonMatchupsThroughWeek;
+
       // Get standings at this point in the season
       const standingsAtWeek = teams
         .map(team => {
@@ -3206,11 +3496,17 @@ export const getWeeklyRecapDataForAI = internalQuery({
           playoffGameCount: playoffMatchups.length,
           consolationGameCount: consolationMatchups.length,
           regularGameCount: regularSeasonMatchups.length,
-          championshipGame: isChampionshipWeek && enrichedPlayoffMatchups.length > 0 
-            ? enrichedPlayoffMatchups[0] 
+          championshipGame: isChampionshipWeek && enrichedPlayoffMatchups.length > 0
+            ? enrichedPlayoffMatchups[0]
             : null,
         },
-        
+        // Round-one byes this week (spec: playoffs round) - not games, so never in
+        // `playoffBreakdown` above; named so a preview/recap can say "seed 1 rests".
+        byes,
+        // The playoff picture / bracket through this exact week (spec: playoffs round - names the
+        // champion straight from the bracket for the championship recap).
+        playoffs,
+
         // Context from basic data
         rivalries: basicLeagueData.rivalries,
         playoffProbabilities: basicLeagueData.playoffProbabilities,

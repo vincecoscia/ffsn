@@ -15,8 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Panel, SectionHeader, ScoreBug, TeamTile, Chip, LoadingScreen, EmptyState } from "@/components/broadcast";
+import { PlayoffBracket } from "@/components/league/PlayoffBracket";
 import { CalendarDays } from "lucide-react";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface SchedulePageProps {
   params: Promise<{ id: string }>;
@@ -76,6 +78,11 @@ export default function SchedulePage({ params }: SchedulePageProps) {
     seasonId: selectedSeason,
   });
 
+  // Moved up from below the loading gate: the playoff-picture default-open effect (below) needs
+  // these before any early return, and every hook must run on every render regardless.
+  const currentScoringPeriod = league?.espnData?.currentScoringPeriod ?? 1;
+  const isCurrentSeasonSelected = selectedSeason === currentSeason;
+
   // Get the total number of weeks including playoffs from season-specific settings
   const regularSeasonWeeks =
     leagueSeason?.settings?.regularSeasonMatchupPeriods ||
@@ -83,6 +90,25 @@ export default function SchedulePage({ params }: SchedulePageProps) {
     14;
   const playoffWeeks = leagueSeason?.settings?.playoffWeeks || league?.settings?.playoffWeeks || 3;
   const totalWeeks = regularSeasonWeeks + playoffWeeks;
+
+  // Playoff picture / bracket: "if the season ended today" during the regular season, the real
+  // bracket once the playoffs start, a champion banner once the title is decided.
+  const playoffContext = useQuery(api.matchups.getPlayoffBracket, { leagueId, seasonId: selectedSeason });
+
+  // Mirrors `deriveLeagueCalendar`'s `playoffPictureWeeks` (last 3 regular-season weeks) off the
+  // numbers already on this page, rather than importing the convex-side helper into a Client
+  // Component.
+  const playoffPictureStartWeek = Math.max(1, regularSeasonWeeks - 2);
+  const [bracketOpen, setBracketOpen] = useState(false);
+  const syncedBracketSeasonRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (!playoffContext || syncedBracketSeasonRef.current === selectedSeason) return;
+    syncedBracketSeasonRef.current = selectedSeason;
+    setBracketOpen(
+      playoffContext.mode !== "projected" ||
+        (isCurrentSeasonSelected && currentScoringPeriod >= playoffPictureStartWeek)
+    );
+  }, [playoffContext, selectedSeason, isCurrentSeasonSelected, currentScoringPeriod, playoffPictureStartWeek]);
 
   // Create an array of week numbers based on the league's settings
   const weekNumbers = React.useMemo(() => {
@@ -148,9 +174,6 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   if (!userId || !league) {
     return <LoadingScreen message="Loading schedule" />;
   }
-
-  const currentScoringPeriod = league?.espnData?.currentScoringPeriod ?? 1;
-  const isCurrentSeasonSelected = selectedSeason === currentSeason;
 
   // Pre-draft note: before a redraft league's draft, ESPN carries last
   // season's final lineups (and schedule pairings) into the new season, so
@@ -250,6 +273,19 @@ export default function SchedulePage({ params }: SchedulePageProps) {
         </div>
       </Panel>
 
+      {/* Playoff picture / bracket - collapsed "if the season ended today" summary during the
+          regular season, always open once the playoffs start (owner's ask, see the schedule-page
+          bracket brief). Unwired until `playoffContext` above has a real query behind it. */}
+      {playoffContext && (
+        <PlayoffBracket
+          context={playoffContext}
+          seasonId={selectedSeason}
+          collapsible
+          open={bracketOpen}
+          onOpenChange={setBracketOpen}
+        />
+      )}
+
       {/* Week-by-week schedule */}
       {schedule === undefined ? (
         <LoadingScreen message="Loading schedule" />
@@ -288,6 +324,56 @@ export default function SchedulePage({ params }: SchedulePageProps) {
               />
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
                 {weekMatchups.map((matchup) => {
+                  // Every 2021-2025 week-15 bye is stored as a WINNERS_BRACKET matchup with one
+                  // side's teamId empty rather than a real second team (brief-playoffs-common.md's
+                  // "BYES ARE STORED AS..." note) - agent E's `isBye` field on this row isn't
+                  // landed yet, so detect it directly instead of blocking on that.
+                  const isBye = matchup.homeTeamId === "" || matchup.awayTeamId === "";
+
+                  const isConsolation =
+                    !!matchup.playoffTier &&
+                    (matchup.playoffTier.includes("LOSERS") || matchup.playoffTier.includes("CONSOLATION"));
+                  const isPlayoffTier =
+                    matchup.playoffTier === "WINNERS_BRACKET" || matchup.matchupPeriod > regularSeasonWeeks;
+                  const roundName = playoffContext?.bracket.find(
+                    (round) => round.week === matchup.matchupPeriod
+                  )?.name;
+                  const isChampionshipGame =
+                    !!playoffContext &&
+                    matchup.matchupPeriod === playoffContext.championshipWeek &&
+                    matchup.playoffTier === "WINNERS_BRACKET";
+
+                  if (isBye) {
+                    const restingExternalId = matchup.homeTeamId || matchup.awayTeamId;
+                    const restingTeam = getTeamByExternalId(restingExternalId);
+                    return (
+                      <div key={matchup._id} className="flex flex-col border border-bc-hairline bg-bc-ground">
+                        <div className="bc-label-sm flex h-6 items-center justify-between bg-bc-panel-2 px-3 text-bc-text-3">
+                          <span>{roundName ?? "Playoffs"}</span>
+                          <span>Bye</span>
+                        </div>
+                        <div className="flex min-h-[42px] items-center gap-3 border-t border-bc-hairline px-3 py-2">
+                          <TeamTile
+                            initials={initialsFor(restingTeam)}
+                            src={restingTeam?.logo}
+                            size={32}
+                          />
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="truncate font-display text-[17px] font-bold uppercase tracking-[0.02em] text-bc-ink">
+                              {restingTeam?.name ?? "TBD"}
+                            </span>
+                            <span className="bc-label-sm text-[11px] tracking-[0.1em] text-bc-text-3">
+                              Rests this week · advances
+                            </span>
+                          </div>
+                          <Chip variant="outline" className="ml-auto flex-none">
+                            Bye
+                          </Chip>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                   const awayTeam = getTeamByExternalId(matchup.awayTeamId);
                   const isProjected = matchup.status === "scheduled";
@@ -308,39 +394,42 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                       "Scheduled"
                     );
 
-                  const isConsolation =
-                    !!matchup.playoffTier &&
-                    (matchup.playoffTier.includes("LOSERS") || matchup.playoffTier.includes("CONSOLATION"));
-                  const isPlayoffTier =
-                    matchup.playoffTier === "WINNERS_BRACKET" || matchup.matchupPeriod > regularSeasonWeeks;
-                  const stripRight = isConsolation ? "Consolation" : isPlayoffTier ? "Playoffs" : undefined;
+                  const stripRight = isConsolation
+                    ? "Consolation"
+                    : isChampionshipGame
+                      ? "Championship"
+                      : (roundName ?? (isPlayoffTier ? "Playoffs" : undefined));
 
                   return (
-                    <ScoreBug
+                    <div
                       key={matchup._id}
-                      mode={isProjected ? "projected" : matchup.status === "live" ? "live" : "final"}
-                      strip={strip}
-                      stripRight={stripRight}
-                      stripRightTone="muted"
-                      home={{
-                        leading: <TeamTile initials={initialsFor(homeTeam)} src={homeTeam?.logo} size={32} />,
-                        name: homeTeam?.name ?? "TBD",
-                        sub: homeTeam?.owner,
-                        score: isProjected
-                          ? matchup.homeProjected?.toFixed(1)
-                          : matchup.homeScore.toFixed(1),
-                        winner: matchup.winner === "home",
-                      }}
-                      away={{
-                        leading: <TeamTile initials={initialsFor(awayTeam)} src={awayTeam?.logo} size={32} />,
-                        name: awayTeam?.name ?? "TBD",
-                        sub: awayTeam?.owner,
-                        score: isProjected
-                          ? matchup.awayProjected?.toFixed(1)
-                          : matchup.awayScore.toFixed(1),
-                        winner: matchup.winner === "away",
-                      }}
-                    />
+                      className={cn(isChampionshipGame && "border border-bc-red p-1.5")}
+                    >
+                      <ScoreBug
+                        mode={isProjected ? "projected" : matchup.status === "live" ? "live" : "final"}
+                        strip={strip}
+                        stripRight={stripRight}
+                        stripRightTone={isChampionshipGame ? "highlight" : "muted"}
+                        home={{
+                          leading: <TeamTile initials={initialsFor(homeTeam)} src={homeTeam?.logo} size={32} />,
+                          name: homeTeam?.name ?? "TBD",
+                          sub: homeTeam?.owner,
+                          score: isProjected
+                            ? matchup.homeProjected?.toFixed(1)
+                            : matchup.homeScore.toFixed(1),
+                          winner: matchup.winner === "home",
+                        }}
+                        away={{
+                          leading: <TeamTile initials={initialsFor(awayTeam)} src={awayTeam?.logo} size={32} />,
+                          name: awayTeam?.name ?? "TBD",
+                          sub: awayTeam?.owner,
+                          score: isProjected
+                            ? matchup.awayProjected?.toFixed(1)
+                            : matchup.awayScore.toFixed(1),
+                          winner: matchup.winner === "away",
+                        }}
+                      />
+                    </div>
                   );
                 })}
               </div>

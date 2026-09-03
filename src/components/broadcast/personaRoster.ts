@@ -45,6 +45,7 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   weekly_preview: "Weekly preview",
   power_rankings: "Power rankings",
   waiver_wire_report: "Waiver wire report",
+  bank_statement: "The Bank Statement",
   trade_analysis: "Trade analysis",
   mock_draft: "Mock draft",
   draft_rankings: "Draft rankings & grades",

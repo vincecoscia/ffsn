@@ -129,6 +129,9 @@ export const planSeasonBackfill = internalQuery({
     types: v.optional(v.array(v.string())),
     weeks: v.optional(v.array(v.number())),
     week1TuesdayIso: v.optional(v.string()),
+    /** Regenerate items that already have an article (requires `types` or `weeks`, so a full-season
+     *  re-run can never happen by accident). The old article stays; the new one supersedes it. */
+    force: v.optional(v.boolean()),
   },
   returns: v.object({
     calendar: v.string(),
@@ -183,7 +186,12 @@ export const planSeasonBackfill = internalQuery({
         )
       )
       .take(500);
-    const existing = [...stamped, ...legacy].map((a) => ({ contentType: a.type, week: a.metadata.week }));
+    if (args.force && !args.types && !args.weeks) {
+      throw new Error("force requires a types or weeks filter (refusing to regenerate a whole season)");
+    }
+    const existing = args.force
+      ? []
+      : [...stamped, ...legacy].map((a) => ({ contentType: a.type, week: a.metadata.week }));
 
     // hasTradesForSeason: the `trades` table (never populated in prod - espnSync.storeTrades's only
     // caller is commented out) OR a real TRADE_ACCEPT transaction.
@@ -300,6 +308,7 @@ export const createBackfillRow = internalMutation({
     seasonId: v.number(),
     week: v.number(),
     printAt: v.number(),
+    force: v.optional(v.boolean()),
   },
   returns: v.object({ scheduledContentId: v.id("scheduledContent"), reused: v.boolean() }),
   handler: async (ctx, args) => {
@@ -313,7 +322,7 @@ export const createBackfillRow = internalMutation({
           .eq("week", args.week)
       )
       .first();
-    if (existing && (existing.status === "pending" || existing.status === "generating" || existing.status === "completed")) {
+    if (!args.force && existing && (existing.status === "pending" || existing.status === "generating" || existing.status === "completed")) {
       return { scheduledContentId: existing._id, reused: true };
     }
 
@@ -375,7 +384,7 @@ async function processPlanItem(
     runMutation: <T>(ref: any, args: any) => Promise<T>;
     runAction: <T>(ref: any, args: any) => Promise<T>;
   },
-  args: { leagueId: Id<"leagues">; seasonId: number; pollTimeoutMs?: number },
+  args: { leagueId: Id<"leagues">; seasonId: number; pollTimeoutMs?: number; force?: boolean },
   item: SeasonBackfillPlanItem
 ): Promise<ProcessOutcome> {
   const label = `${args.seasonId} ${item.contentType} wk${item.week}`;
@@ -397,6 +406,7 @@ async function processPlanItem(
       seasonId: args.seasonId,
       week: item.week,
       printAt: item.printAt,
+      force: args.force,
     }
   );
 
@@ -506,6 +516,9 @@ export const runSeasonBackfill = internalAction({
     types: v.optional(v.array(v.string())),
     weeks: v.optional(v.array(v.number())),
     week1TuesdayIso: v.optional(v.string()),
+    /** Regenerate items that already have an article (requires `types` or `weeks`, so a full-season
+     *  re-run can never happen by accident). The old article stays; the new one supersedes it. */
+    force: v.optional(v.boolean()),
     startIndex: v.optional(v.number()),
     maxItems: v.optional(v.number()),
     gapMs: v.optional(v.number()),
@@ -518,6 +531,7 @@ export const runSeasonBackfill = internalAction({
       types: args.types,
       weeks: args.weeks,
       week1TuesdayIso: args.week1TuesdayIso,
+      force: args.force,
     });
 
     if (args.dryRun) {

@@ -78,6 +78,7 @@ export const GENERATION_ROUTES: Record<string, GenerationRoute> = {
   // Measured 2026-09-02: low effort did not reduce output tokens on these (playoff picture cost
   // more at low than at medium), so they run at medium like everything else on Opus.
   power_rankings: { model: 'claude-opus-5', effort: 'medium' },
+  bank_statement: { model: 'claude-opus-5', effort: 'medium' },
   playoff_picture: { model: 'claude-opus-5', effort: 'medium' },
   emergency_hot_takes: { model: 'claude-opus-5', effort: 'medium' },
 
@@ -719,7 +720,10 @@ Report:
 - voiceScore 1-5: how much it reads like the writer described in the prompt below.
 
 Opinions, predictions, jokes and stated uncertainty are not factual claims — skip them. Arithmetic
-on two <FACTS> numbers is supported. Copy each claim verbatim from the body. Report nothing you are
+on two <FACTS> numbers is supported. When <FACTS> carries a playoffs block (seeds, bracket, byes,
+alive, eliminated, champion, runnerUp), it supports claims about titles, eliminations, byes and who
+is still in contention; a team's record is its regular-season record, so a playoff win never
+changes it and a sentence that adds one to the record is a contradiction. Copy each claim verbatim from the body. Report nothing you are
 not sure about; a short list of real findings is the goal.`;
 
 /** §11.2.7: on for every type unless the deployment turns it off with `FACT_CHECK_LLM="0"`. */
@@ -864,11 +868,21 @@ async function runEditorPass(
       })),
     ];
 
-    if (result.factsScore < 3) {
+    // A low facts score with nothing cited behind it is an editor that lost its notes (the
+    // rubric parse is known to drop findings), not a verdict: it is logged as a warning, never a
+    // hold. A low score WITH findings still holds the piece.
+    const editorFindings = result.contradictions.length + result.unsupported.length + result.registerLeaks.length;
+    if (result.factsScore < 3 && editorFindings > 0) {
       violations.push({
         kind: 'editor_hold',
         detail: `the editor scored the facts ${result.factsScore}/5: ${editorHoldReason(result)}`,
         severity: 'strip',
+      });
+    } else if (result.factsScore < 3) {
+      violations.push({
+        kind: 'editor_hold',
+        detail: `the editor scored the facts ${result.factsScore}/5 but cited nothing; not holding on an unexplained score`,
+        severity: 'warn',
       });
     }
     if (result.voiceScore < 3) {

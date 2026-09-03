@@ -75,6 +75,12 @@ const CONTENT_TYPE_CONFIG = {
     description: "Top pickup recommendations with statistical backing",
     defaultSchedule: "Wednesday at 3:00 PM"
   },
+  bank_statement: {
+    icon: TrendingUp,
+    title: "The Bank Statement",
+    description: "Reggie Banks' weekly results ledger: who cashed in, who's overdrawn",
+    defaultSchedule: "Tuesday at 12:00 PM"
+  },
   mock_draft: {
     icon: Users,
     title: "Mock Draft",

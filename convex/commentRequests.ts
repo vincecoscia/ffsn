@@ -25,7 +25,7 @@ export const INTERVIEWER_PERSONA = "sam-ortega";
 export const DEFAULT_WRITER_PERSONA = "curtis-vaughn";
 
 /**
- * Display names for the six writers. Duplicated here rather than imported from
+ * Display names for the seven writers. Duplicated here rather than imported from
  * `src/lib/ai/persona-prompts.ts`: that module carries prompt copy, and Convex isolate
  * code must not depend on it. Keep in sync when the roster changes (spec §3).
  */
@@ -35,6 +35,7 @@ const WRITER_NAMES: Record<string, string> = {
   "nina-sharpe": "Nina Sharpe",
   "dex-alvarez": "Dex Alvarez",
   "mel-diaper": "Mel Diaper",
+  "reggie-banks": "Reggie Banks",
   "walt-brennan": "Walt Brennan",
 };
 

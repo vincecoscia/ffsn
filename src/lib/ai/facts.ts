@@ -14,6 +14,8 @@
 import { contentTemplates } from "./content-templates";
 import type { RelationshipTier } from "./persona-prompts";
 import type { LeagueDataContext, LeagueFormat, WaiverLedger, WaiverLedgerSeason } from "./prompt-builder";
+// Types only (the module has no Convex imports), so this is safe from the prompt layer.
+import type { BracketGame, BracketTeam, PlayoffMode } from "../../../convex/lib/playoffTypes";
 import type {
   CommentResponseData,
   NonRespondent,
@@ -186,6 +188,94 @@ export interface FactsUpcoming {
   /** Meetings already played between these two, so the writer can cite real history. */
   headToHead?: { homeWins: number; awayWins: number };
   isPlayoff?: boolean;
+  /** Plain-English round name when this is a bracket game ("Semifinals"). */
+  round?: string;
+  /** Plain-English bracket: "winners bracket", "third-place ladder", "consolation ladder". */
+  bracket?: string;
+}
+
+/* -------------------------------------------------------------------------- *
+ * PLAYOFFS block (owner ask, Sept 2026: the playoffs and the championship must read as something
+ * different and special, and the articles must be centred on the teams still in contention).
+ * `buildPlayoffs` turns `LeagueDataContext.playoffs` (built server-side by
+ * `convex/lib/playoffs.ts#buildPlayoffContext`) into the id-bearing block below. Every team
+ * reference is the same `T…` id the rest of FACTS uses; every tier is plain English, never the
+ * ESPN enum; a bye is a bye entry, never a game with a blank side (the week-15 preview once wrote
+ * "staring at a blank space where an opponent should be").
+ * -------------------------------------------------------------------------- */
+
+export interface FactsPlayoffSeed {
+  teamId: string;
+  seed: number;
+  /** "10-4-0": the regular-season record. Playoff results never change it. */
+  record: string;
+  pointsFor: number;
+}
+
+export interface FactsBracketGame {
+  /** `"B" + index`, 1-based across every round, round one first. */
+  id: string;
+  home?: string;
+  away?: string;
+  homeSeed?: number;
+  awaySeed?: number;
+  homeScore?: number;
+  awayScore?: number;
+  winner?: string;
+  /** A top seed resting this round. A bye has no sides. */
+  bye?: string;
+  /** Plain English for a bye, so the writer never reads it as a missing opponent. */
+  note?: string;
+  /** "tbd": the slot waits on an earlier game. */
+  status: "final" | "live" | "scheduled" | "bye" | "tbd";
+}
+
+export interface FactsBracketRound {
+  week: number;
+  /** "Quarterfinals" | "Semifinals" | "Championship" | "Round 1" ... */
+  round: string;
+  games: FactsBracketGame[];
+}
+
+export interface FactsConsolationGame {
+  /** `"K" + index`, 1-based, in week order. */
+  id: string;
+  week: number;
+  /** "third-place ladder" (losers of the winners bracket) or "consolation ladder" (the non-playoff teams). */
+  tier: string;
+  home?: string;
+  away?: string;
+  homeSeed?: number;
+  awaySeed?: number;
+  homeScore?: number;
+  awayScore?: number;
+  winner?: string;
+  status: FactsBracketGame["status"];
+}
+
+export interface FactsPlayoffs {
+  /** "projected": if the season ended today. "live": the bracket is under way. "final": the title is decided. */
+  mode: PlayoffMode;
+  fieldSize: number;
+  /** Top seeds that rest in round one. */
+  byes: number;
+  playoffStartWeek: number;
+  championshipWeek: number;
+  /** Live/final: the round the week being written about belongs to ("Semifinals"). */
+  round?: string;
+  /** The field in seed order. Projected mode: the top of the standings as they stand today. */
+  seeds: FactsPlayoffSeed[];
+  /** Projected mode only: the next teams out, in standings order. */
+  bubble: FactsPlayoffSeed[];
+  /** The winners bracket, one entry per round. Projected mode fills round one only. */
+  bracket: FactsBracketRound[];
+  /** Consolation-ladder games, every week, in week order. Empty in projected mode. */
+  consolation: FactsConsolationGame[];
+  /** Live/final: bracket teams that can still win the title, and those that cannot. */
+  alive: string[];
+  eliminated: string[];
+  champion?: string;
+  runnerUp?: string;
 }
 
 export interface FactsBlock {
@@ -201,6 +291,8 @@ export interface FactsBlock {
   rosters?: FactsRoster[];
   /** Games that have NOT been played, for `weekly_preview`. Empty for every other type. */
   upcoming: FactsUpcoming[];
+  /** The playoff picture and bracket (see FactsPlayoffs); absent when the payload carries none. */
+  playoffs?: FactsPlayoffs;
   standings: Array<{
     rank: number;
     teamId: string;
@@ -362,11 +454,34 @@ export function seedingRuleLabel(rule: string | undefined): string | undefined {
     case "DIVISION_WINNERS":
       return "division winners are seeded first, then the rest of the field by record";
     case "H2H_RECORD":
-      return "seeded by head-to-head record";
+      return "seeded by record, ties broken by head-to-head record";
     case "TOTAL_POINTS_SCORED":
-      return "seeded by total points scored";
+      return "seeded by record, ties broken by total points scored";
     default:
       return undefined;
+  }
+}
+
+/**
+ * ESPN's `playoffTier` enum in plain English. The raw value must never reach a writer (register
+ * rule): "WINNERS_CONSOLATION_LADDER" is the losers of the winners bracket playing for third and
+ * fifth, "LOSERS_CONSOLATION_LADDER" is the teams that missed the playoffs.
+ */
+export function playoffTierLabel(tier: string | undefined): string | undefined {
+  switch (tier) {
+    case "WINNERS_BRACKET":
+      return "winners bracket";
+    case "WINNERS_CONSOLATION_LADDER":
+      return "third-place ladder";
+    case "LOSERS_CONSOLATION_LADDER":
+      return "consolation ladder";
+    case "NONE":
+      return "regular";
+    case undefined:
+    case "":
+      return undefined;
+    default:
+      return tier.toLowerCase().replace(/_/g, " ");
   }
 }
 
@@ -625,11 +740,14 @@ export function computeMissingRequiredData(contentType: string, data: LeagueData
           missing.push("championship_history — not available");
         }
         break;
-      case "upcoming_matchups":
-        if (!data.upcomingMatchups || data.upcomingMatchups.length === 0) {
+      case "upcoming_matchups": {
+        // A bye is a rest, not a game: a slate of rests alone has nothing to preview.
+        const knowsByes = payloadKnowsByes(data);
+        if (!(data.upcomingMatchups ?? []).some(row => !isRestRow(row, knowsByes))) {
           missing.push("upcoming matchups — not available");
         }
         break;
+      }
       case "matchup_results":
         if (!data.recentMatchups || data.recentMatchups.length === 0) {
           missing.push("matchup_results — no matchups in the payload");
@@ -826,8 +944,35 @@ function buildMatchupPlayers(matchup: Loose, matchupId: string, teams: TeamIndex
   return players;
 }
 
+/**
+ * Whether the payload knows what a bye is. ESPN stores a top seed's round-one rest as a matchup
+ * with one side empty and no winner (every season since 2021), and nothing used to recognise
+ * that: the week-15 preview wrote up "two blanks on the board". A payload that carries the playoff
+ * picture (or the recap's `byes` list) has already named the rests, so those rows are dropped
+ * here; an older payload keeps today's shape.
+ */
+export function payloadKnowsByes(data: LeagueDataContext): boolean {
+  return data.playoffs !== undefined || Array.isArray((data as Loose).byes);
+}
+
+/**
+ * A rest rather than a game: an explicit bye entry (`{ week, bye: { teamId, name, seed } }`), or,
+ * once the payload knows byes, a row with exactly one side. Never a game the writer may preview.
+ */
+export function isRestRow(raw: unknown, knowsByes: boolean): boolean {
+  const row = asLoose(raw);
+  const bye = asLoose(row.bye);
+  if (str(bye.teamId) || str(bye.name) || str(bye.teamName)) return true;
+  if (!knowsByes) return false;
+  const hasHome = Boolean(str(row.teamA) ?? str(row.teamAName) ?? str(row.teamAId) ?? str(row.homeTeamId));
+  const hasAway = Boolean(str(row.teamB) ?? str(row.teamBName) ?? str(row.teamBId) ?? str(row.awayTeamId));
+  return hasHome !== hasAway;
+}
+
 function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[] {
-  return collectMatchupSources(data).map((matchup, index) => {
+  const knowsByes = payloadKnowsByes(data);
+  const sources = collectMatchupSources(data).filter(matchup => !isRestRow(matchup, knowsByes));
+  return sources.map((matchup, index) => {
     const id = `M${index + 1}`;
     // Generic query: ids in teamA/teamB, names in teamAName/teamBName.
     // Weekly-recap query: names in teamA/teamB.
@@ -843,7 +988,7 @@ function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[
     return {
       id,
       week: num(matchup.week) ?? num(matchup.matchupPeriod) ?? data.currentWeek,
-      bracket: str(matchup.playoffTier) ?? (matchup.isPlayoffGame ? "playoff" : "regular"),
+      bracket: playoffTierLabel(str(matchup.playoffTier)) ?? (matchup.isPlayoffGame ? "playoff" : "regular"),
       home: {
         teamId: homeId,
         score: scoreA,
@@ -871,14 +1016,28 @@ function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[
  * that prints one is describing a game that has not happened.
  */
 function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming[] {
-  const rows = data.upcomingMatchups ?? [];
+  // A rest on the slate is not a game: it lives in `playoffs.bracket` as a bye entry, so the
+  // writer never previews a blank side as a missing opponent.
+  const knowsByes = payloadKnowsByes(data);
+  const rows = (data.upcomingMatchups ?? []).filter(row => !isRestRow(row, knowsByes)).map(asLoose);
 
-  return rows.map((raw, index) => {
-    const game = asLoose(raw);
+  return rows.map((game, index) => {
+    const week = num(game.week) ?? data.currentWeek + 1;
     const homeId = teams.resolve(game.teamAId, game.teamAName, game.teamA);
     const awayId = teams.resolve(game.teamBId, game.teamBName, game.teamB);
     const homeTeam = teams.teams.find(team => team.id === homeId);
     const awayTeam = teams.teams.find(team => team.id === awayId);
+
+    // The round and bracket come from the row when the data layer labelled it, else from the
+    // bracket in the payload when this exact pairing is one of that week's winners-bracket games.
+    const tier = str(game.tier) ?? str(game.playoffTier);
+    const bracketRound = (data.playoffs?.bracket ?? []).find(round => round.week === week);
+    const inBracket = (bracketRound?.games ?? []).some(candidate => {
+      const ids = [candidate.home, candidate.away].map(side => (side ? teams.resolve(side.teamId, side.name) : undefined));
+      return ids.includes(homeId) && ids.includes(awayId);
+    });
+    const round = str(game.round) ?? (inBracket ? bracketRound?.name : undefined);
+    const bracket = playoffTierLabel(tier) ?? (inBracket ? "winners bracket" : undefined);
 
     const headToHead = asLoose(game.headToHead);
     const homeWins = num(headToHead.teamAWins);
@@ -886,7 +1045,7 @@ function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming
 
     return {
       id: `U${index + 1}`,
-      week: num(game.week) ?? data.currentWeek + 1,
+      week,
       home: {
         teamId: homeId,
         record: str(game.teamARecord) ?? homeTeam?.record,
@@ -903,7 +1062,9 @@ function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming
         homeWins !== undefined && awayWins !== undefined && homeWins + awayWins > 0
           ? { homeWins, awayWins }
           : undefined,
-      isPlayoff: game.isPlayoff === true ? true : undefined,
+      isPlayoff: game.isPlayoff === true || (bracket !== undefined && bracket !== "regular") ? true : undefined,
+      round,
+      bracket,
     };
   });
 }
@@ -926,6 +1087,85 @@ function buildRosters(data: LeagueDataContext, teams: TeamIndex): FactsRoster[] 
     if (players.length > 0) rosters.push({ teamId, players });
   }
   return rosters;
+}
+
+/**
+ * Assembles the PLAYOFFS facts from `data.playoffs` (owner ask: playoff and championship articles
+ * centred on the bracket and the teams still in it). The context arrives with ESPN external ids;
+ * this resolves every one through the same `TeamIndex` as the rest of FACTS, assigns the `B…`/`K…`
+ * ids, and turns each tier into plain English. Absent entirely (older payload, or a season with no
+ * playoff data yet) yields nothing, never a guess.
+ */
+export function buildPlayoffs(data: LeagueDataContext, teams: TeamIndex): FactsPlayoffs | undefined {
+  const raw = data.playoffs;
+  if (!raw) return undefined;
+
+  // Names by external id, so an id-only reference (`alive`, `winnerTeamId`) still resolves by
+  // name when this season's team list does not carry the id.
+  const names = new Map<string, string>();
+  const remember = (side: { teamId: string; name: string } | undefined) => {
+    if (side?.teamId && side.name) names.set(side.teamId, side.name);
+  };
+  [...raw.seeds, ...raw.bubble, raw.champion, raw.runnerUp].forEach(remember);
+  raw.bracket.forEach(round => round.games.forEach(game => [game.home, game.away, game.bye].forEach(remember)));
+  raw.consolation.forEach(game => [game.home, game.away].forEach(remember));
+  const resolve = (teamId: string | undefined): string | undefined =>
+    teamId === undefined ? undefined : teams.resolve(teamId, names.get(teamId));
+
+  const seed = (team: BracketTeam): FactsPlayoffSeed => ({
+    teamId: teams.resolve(team.teamId, team.name),
+    seed: team.seed,
+    record: team.record,
+    pointsFor: num(team.pointsFor) ?? 0,
+  });
+
+  const sides = (game: BracketGame) => ({
+    home: resolve(game.home?.teamId),
+    away: resolve(game.away?.teamId),
+    homeSeed: game.home?.seed,
+    awaySeed: game.away?.seed,
+    homeScore: num(game.home?.score),
+    awayScore: num(game.away?.score),
+    winner: resolve(game.winnerTeamId),
+    status: game.status,
+  });
+
+  let bracketCount = 0;
+  const bracket: FactsBracketRound[] = raw.bracket.map(round => ({
+    week: round.week,
+    round: round.name,
+    games: round.games.map((game): FactsBracketGame => {
+      const id = `B${++bracketCount}`;
+      if (game.bye) {
+        return { id, bye: resolve(game.bye.teamId), note: "rests this round, advances automatically", status: "bye" };
+      }
+      return { id, ...sides(game) };
+    }),
+  }));
+
+  const consolation: FactsConsolationGame[] = raw.consolation.map((game, index) => ({
+    id: `K${index + 1}`,
+    week: game.week,
+    tier: playoffTierLabel(game.tier) ?? "consolation ladder",
+    ...sides(game),
+  }));
+
+  return {
+    mode: raw.mode,
+    fieldSize: raw.playoffTeamCount,
+    byes: raw.byes,
+    playoffStartWeek: raw.playoffStartWeek,
+    championshipWeek: raw.championshipWeek,
+    round: raw.currentRound?.name,
+    seeds: raw.seeds.map(seed),
+    bubble: raw.bubble.map(seed),
+    bracket,
+    consolation,
+    alive: raw.alive.map(id => resolve(id) ?? "T?"),
+    eliminated: raw.eliminated.map(id => resolve(id) ?? "T?"),
+    champion: resolve(raw.champion?.teamId),
+    runnerUp: resolve(raw.runnerUp?.teamId),
+  };
 }
 
 export function buildFactsBlock(req: FactsRequest): FactsBlock {
@@ -1035,8 +1275,21 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
 
   const format = buildFormat(data);
   const waivers = buildWaivers(data, teams);
+  const playoffs = buildPlayoffs(data, teams);
 
   const missing = computeMissingRequiredData(req.contentType, data);
+  // The playoff picture is either a projection or a bracket with teams already out of it; the
+  // writer is told which in plain English, so a regular-season piece never "clinches" a seed and
+  // a playoff piece never previews a knocked-out team as a contender.
+  if (playoffs?.mode === "projected") {
+    missing.push("playoff seeds are a projection (if the season ended today), not clinched");
+  }
+  if (playoffs?.mode === "live" && playoffs.eliminated.length > 0) {
+    const names = playoffs.eliminated
+      .map(id => teams.teams.find(team => team.id === id)?.name)
+      .filter((name): name is string => name !== undefined);
+    if (names.length > 0) missing.push(`eliminated teams: ${names.join(", ")} - not contenders`);
+  }
   if (adpPlaceholder) {
     missing.push(
       "ADP — every pick carries the same placeholder value, so no ADP or value-vs-ADP is available; grade on projections and roster construction only"
@@ -1091,6 +1344,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     matchups,
     rosters: rosters.length > 0 ? rosters : undefined,
     upcoming,
+    playoffs,
     standings,
     transactions,
     trades,

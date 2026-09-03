@@ -34,6 +34,8 @@ export type ViolationKind =
   | "sections_missing"
   /** Prompt-layer register in the prose: a FACTS field name, an internal id, a timestamp (§11.2.4). */
   | "data_speak"
+  /** Playoffs under way or decided, and a sentence calls a team the bracket has knocked out a contender. */
+  | "eliminated_as_contender"
   /** Editor pass scored the facts below 3; the article is held for review (spec §11.2.7). */
   | "editor_hold"
   /** Editor pass scored the voice below 3. A warning; voice never blocks (spec §11.2.7). */
@@ -147,9 +149,9 @@ const REGISTER_PATTERNS: Array<{ pattern: RegExp; why: string }> = [
     pattern: /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g,
     why: "an ISO-8601 timestamp",
   },
-  // Internal ids (T3, M1, Q2, U1, D19, X4, TR2, W3, B2). Never preceded by a letter or a digit, so
-  // player initials ("TJ") and ids inside longer tokens ("M1Pp204") do not match.
-  { pattern: /(?<![A-Za-z0-9])(?:TR|[TMQUDXWB])\d+\b/g, why: "an internal id" },
+  // Internal ids (T3, M1, Q2, U1, D19, X4, TR2, W3, B2, K1). Never preceded by a letter or a digit,
+  // so player initials ("TJ") and ids inside longer tokens ("M1Pp204") do not match.
+  { pattern: /(?<![A-Za-z0-9])(?:TR|[TMQUDXWBK])\d+\b/g, why: "an internal id" },
 ];
 
 /** Quote directives are markup for the renderer, not prose; their ids must not read as leaks. */
@@ -278,6 +280,18 @@ export function resolvePath(facts: FactsBlock, path: string): unknown {
         current = byId;
         continue;
       }
+      // Bracket games sit one level down (`playoffs.bracket[].games[]`) and a writer cites them
+      // by id without naming the round: `playoffs.bracket.B5.homeScore`.
+      const nested = current
+        .flatMap(entry => {
+          const games = (entry as Record<string, unknown>)?.games;
+          return Array.isArray(games) ? games : [];
+        })
+        .find(entry => (entry as Record<string, unknown>)?.id === segment);
+      if (nested !== undefined) {
+        current = nested;
+        continue;
+      }
       const index = Number(segment);
       if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined;
       current = current[index];
@@ -312,6 +326,43 @@ function splitSentences(text: string): string[] {
  * player, or the real warnings drown.
  */
 const LEADING_NOISE_WORDS = new Set(["the", "because", "here", "and", "but", "so", "now"]);
+
+/**
+ * Playoff contention (owner ask: articles centred on the teams still in it). A team the bracket has
+ * knocked out must not be written up as one of these. Kept narrow: the team name and one of the
+ * phrases in the same sentence, and not when the phrase is negated or in the past tense ("no
+ * longer a contender", "was still alive after the semis").
+ */
+const CONTENDER_PHRASES = /\b(?:contenders?|still alive|in the hunt|title chase|in contention)\b/gi;
+const CONTENDER_NEGATION = /\b(?:no longer|not|isn't|aren't|wasn't|weren't|never|was|were|had been|out of|former|once)\b[^.!?]{0,24}$/i;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Sentences that present one of `eliminatedNames` (lower-case) as still in the title chase. */
+export function findEliminatedAsContender(
+  text: string,
+  eliminatedNames: string[]
+): Array<{ team: string; phrase: string; sentence: string }> {
+  const hits: Array<{ team: string; phrase: string; sentence: string }> = [];
+  if (!text || eliminatedNames.length === 0) return hits;
+  // Whole-name matches only: "their squad" must not read as the team "IR Squad".
+  const patterns = eliminatedNames.map(name => ({
+    name,
+    pattern: new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(name)}(?![A-Za-z0-9])`, "i"),
+  }));
+  for (const sentence of splitSentences(text)) {
+    const named = patterns.filter(({ pattern }) => pattern.test(sentence)).map(({ name }) => name);
+    if (named.length === 0) continue;
+    for (const match of sentence.matchAll(CONTENDER_PHRASES)) {
+      const at = match.index ?? 0;
+      if (CONTENDER_NEGATION.test(sentence.slice(Math.max(0, at - 30), at))) continue;
+      for (const team of named) hits.push({ team, phrase: match[0], sentence: sentence.trim() });
+    }
+  }
+  return hits;
+}
 
 export interface VerifyOptions {
   /**
@@ -404,6 +455,16 @@ export function verifyArticle(
   if (facts.waivers.season.totalSpent !== undefined) faabAmounts.add(facts.waivers.season.totalSpent);
   if (facts.waivers.season.averageWinningBid !== undefined) faabAmounts.add(facts.waivers.season.averageWinningBid);
 
+  // A top seed resting this round has no matchup line, so a matchup-line attribution for one of
+  // its players can only be the unresolved side of a bye row. The roster block is the authority
+  // for those players; an article that puts one on the resting team is right, not wrong.
+  const restingTeamIds = new Set(
+    (facts.playoffs?.bracket ?? [])
+      .flatMap(round => round.games)
+      .map(game => game.bye)
+      .filter((id): id is string => id !== undefined)
+  );
+
   // `facts.upcoming` needs no block kind of its own: its sides carry the same `T…` team ids as
   // everything else, so a featuredTeams entry for an upcoming opponent resolves through `teamById`
   // above; its projections and head-to-head counts are reached by `collectNumbers`, so they read as
@@ -422,7 +483,8 @@ export function verifyArticle(
       violations.push({ kind: "unknown_player", detail: `${player.playerName} (${player.playerId})`, severity: "block" });
       continue;
     }
-    if (player.fantasyTeamId && known.fantasyTeamId !== player.fantasyTeamId) {
+    const onRestingTeam = restingTeamIds.has(player.fantasyTeamId) && known.fantasyTeamId === "T?";
+    if (player.fantasyTeamId && known.fantasyTeamId !== player.fantasyTeamId && !onRestingTeam) {
       violations.push({
         kind: "wrong_fantasy_team",
         detail: `${player.playerName}: article says ${player.fantasyTeamId}, FACTS says ${known.fantasyTeamId} (${player.playerId})`,
@@ -517,9 +579,13 @@ export function verifyArticle(
   // 3. Every keyStat must name a FACTS path that resolves to the asserted value.
   for (const stat of article.keyStats ?? []) {
     const resolved = resolvePath(facts, stat.source);
+    // A path that resolves to a team id (`playoffs.champion`) may be asserted as that team's name.
+    const namesThatTeam =
+      typeof resolved === "string" &&
+      teamById.get(resolved)?.name.toLowerCase() === String(stat.value).trim().toLowerCase();
     if (resolved === undefined) {
       violations.push({ kind: "bad_source_path", detail: `${stat.stat}: ${stat.source}`, severity: "strip" });
-    } else if (!looseNumEq(resolved, stat.value)) {
+    } else if (!looseNumEq(resolved, stat.value) && !namesThatTeam) {
       violations.push({
         kind: "unverified_number",
         detail: `${stat.stat}=${stat.value} but ${stat.source}=${String(resolved)}`,
@@ -581,6 +647,30 @@ export function verifyArticle(
         continue;
       }
       violations.push({ kind: "unknown_player", detail: noun, section: section.name, severity: "warn" });
+    }
+  }
+
+  // 4b. Contention (owner ask: playoff pieces centred on the teams still in it). Once the bracket
+  //     is under way, a team it has knocked out is not a contender, and no rhetoric makes it one.
+  const playoffs = facts.playoffs;
+  if (playoffs && playoffs.mode !== "projected") {
+    const eliminatedNames = playoffs.eliminated
+      .map(id => teamById.get(id)?.name.toLowerCase())
+      .filter((name): name is string => name !== undefined && name.length > 0);
+    const texts: Array<[string, string]> = [
+      [TITLE_SECTION, article.title ?? ""],
+      ...(article.sections ?? []).map((section): [string, string] => [section.name, section.content ?? ""]),
+    ];
+    for (const [section, text] of texts) {
+      for (const hit of findEliminatedAsContender(text, eliminatedNames)) {
+        const team = facts.teams.find(candidate => candidate.name.toLowerCase() === hit.team)?.name ?? hit.team;
+        violations.push({
+          kind: "eliminated_as_contender",
+          detail: `${team} is out of the title race, but "${hit.phrase}" shares a sentence with it: "${hit.sentence.slice(0, 80)}"`,
+          section,
+          severity: "block",
+        });
+      }
     }
   }
 

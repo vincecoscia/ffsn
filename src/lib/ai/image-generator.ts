@@ -119,6 +119,9 @@ function generateImagePrompt(params: ImageGenerationParams): string {
       case 'mel-diaper':
         prompt += "Angry, dramatic visuals with explosive energy, dark storm clouds, intense contrast. ";
         break;
+      case 'reggie-banks':
+        prompt += "Scoreboard-first energy, stadium tunnel light, final-score graphics, jersey-and-chain swagger, warm floodlights, triumphant and physical. ";
+        break;
       case 'walt-brennan':
         prompt += "Op-ed column aesthetic, warm print-newspaper tones, considered and unhurried, long shadows. ";
         break;

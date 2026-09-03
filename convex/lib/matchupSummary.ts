@@ -41,6 +41,10 @@
  */
 
 import type { Doc, Id } from "../_generated/dataModel";
+// `./playoffs` is a deliberately pure module (no `internal`/`api` imports of its own - see its file
+// header), so importing it as a value here carries none of the recursive-`api` risk the repo-wide
+// gotcha warns about for other convex/*.ts modules.
+import { isByeMatchup } from "./playoffs";
 
 /** ESPN lineupSlotId: 20 = bench, 21 = IR. Neither counts as a starter. */
 export const NON_STARTER_LINEUP_SLOTS = new Set([20, 21]);
@@ -157,6 +161,12 @@ export interface MatchupSummary {
   /** Starters' projected points, `null` when unknown. */
   homeProjected: number | null;
   awayProjected: number | null;
+  /**
+   * A round-one bye for a top seed (`convex/lib/playoffs.ts#isByeMatchup`) - stored as a real row
+   * with one side empty, not an actual game. The schedule page renders this as a bye card instead
+   * of a "0.0-0.0 scheduled" game.
+   */
+  isBye: boolean;
 }
 
 export interface SummarizeMatchupOptions {
@@ -174,9 +184,14 @@ export interface SummarizeMatchupOptions {
 export function summarizeMatchup(doc: Doc<"matchups">, options: SummarizeMatchupOptions = {}): MatchupSummary {
   const homeScore = sideScore(doc.homeScore, doc.homeRoster);
   const awayScore = sideScore(doc.awayScore, doc.awayRoster);
+  // A round-one bye is decided the moment it exists - no opponent is ever going to show up and
+  // score. Checked before the usual final/live/scheduled inference below, which would otherwise
+  // read it as "live" (a positive score, no `winner` set - see this module's header, finding 3's
+  // sibling bug found alongside it).
+  const isBye = isByeMatchup(doc);
 
   let status: MatchupStatus;
-  if (doc.winner) {
+  if (isBye || doc.winner) {
     status = "final";
   } else if (
     homeScore > 0 ||
@@ -195,12 +210,13 @@ export function summarizeMatchup(doc: Doc<"matchups">, options: SummarizeMatchup
     scoringPeriod: doc.scoringPeriod,
     homeTeamId: doc.homeTeamId,
     awayTeamId: doc.awayTeamId,
-    winner: doc.winner ?? null,
+    winner: isBye ? "home" : (doc.winner ?? null),
     status,
     playoffTier: doc.playoffTier ?? null,
     homeScore,
     awayScore,
     homeProjected: options.hideProjections ? null : sideProjected(doc.homeRoster, doc.homeProjectedScore),
     awayProjected: options.hideProjections ? null : sideProjected(doc.awayRoster, doc.awayProjectedScore),
+    isBye,
   };
 }

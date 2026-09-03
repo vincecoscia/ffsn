@@ -111,6 +111,7 @@ const CONTENT_TYPE_GROUPS: { label: string; options: ContentTypeOption[] }[] = [
       "weekly_preview",
       "power_rankings",
       "waiver_wire_report",
+      "bank_statement",
       "mock_draft",
       "draft_rankings",
       "draft_strategy_guide",

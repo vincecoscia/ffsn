@@ -25,13 +25,14 @@ import type { RelationshipTier } from './persona-prompts';
 const QUESTION_MODELS = ['claude-opus-5', 'claude-sonnet-5'] as const;
 const ANALYSIS_MODELS = ['claude-sonnet-5', 'claude-opus-5'] as const;
 
-/** The six selectable writers plus the interviewer, for `writerSentiment` gating. */
+/** The seven selectable writers plus the interviewer, for `writerSentiment` gating. */
 const WRITER_ROSTER: Record<string, string[]> = {
   'curtis-vaughn': ['curtis vaughn', 'curtis', 'vaughn'],
   'sam-ortega': ['simone ortega', 'sam ortega', 'ortega', 'sam'],
   'nina-sharpe': ['nina sharpe', 'nina', 'sharpe'],
   'dex-alvarez': ['dex alvarez', 'dex', 'alvarez'],
   'mel-diaper': ['mel diaper', 'mel', 'diaper'],
+  'reggie-banks': ['reggie banks', 'reggie', 'banks'],
   'walt-brennan': ['walt brennan', 'walt', 'brennan'],
 };
 
