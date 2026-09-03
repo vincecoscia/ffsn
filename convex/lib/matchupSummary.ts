@@ -17,6 +17,21 @@
  *      before kickoff every score is genuinely zero, so `status` is
  *      "scheduled"; once ESPN reports any points it is "live"; ESPN sets
  *      `winner` (Tuesday, typically) which makes it "final".
+ *   3. Before a REDRAFT league's draft, ESPN carries the PREVIOUS season's
+ *      final lineups (and pairings) into the new season's payload wholesale.
+ *      Verified 2026-09-02 against ESPN's live 2026 endpoint for a prod
+ *      league: `draftDetail.drafted === false`, `scoringPeriodId: 0`, every
+ *      `teams[].roster.entries` is EMPTY, but
+ *      `schedule[].home/away.rosterForCurrentScoringPeriod` still has each
+ *      team's FINAL 2025 lineup (18/18 players identical to 2025 week 17)
+ *      with new-season weekly projections attached (`statSourceId 1`,
+ *      `seasonId 2026`). The sync stores that as the 2026 matchup roster, so
+ *      naive projected totals sum a lineup that won't exist post-draft.
+ *      `isPreDraftRedraft` below detects this; `summarizeMatchup`'s
+ *      `hideProjections` option and `convex/matchupRosters.ts`'s
+ *      `fetchMatchupRosters` both use it. Keeper/dynasty leagues are
+ *      intentionally exempt - carrying a roster forward is the point of a
+ *      keeper slot - so any `keeperCount`/`keeperCountFuture` > 0 opts out.
  *
  * Intentionally pure - no imports from `./_generated/api` or any other
  * `convex/*.ts` module that itself references `internal`/`api` (the same
@@ -66,6 +81,40 @@ export function starterActualTotal(roster: Roster | undefined): number | undefin
 export type MatchupStatus = "final" | "live" | "scheduled";
 
 /**
+ * The subset of a `leagueSeasons` doc's `draftInfo`/`draftSettings` blobs
+ * (both `v.any()` on the schema - ESPN's raw `draftDetail`/
+ * `settings.draftSettings` objects; see `convex/lib/draftDate.ts` for the
+ * fuller picture of what else ESPN puts in each) that `isPreDraftRedraft`
+ * needs. Works equally for a stored `leagueSeasons` doc and for a live
+ * per-period ESPN response (`convex/matchupRosters.ts` passes
+ * `{ draftInfo: data.draftDetail, draftSettings: data.settings?.draftSettings }`
+ * straight from the fetch, without waiting for a sync to persist it).
+ */
+export interface PreDraftRedraftInput {
+  draftInfo?: { drafted?: boolean } | null;
+  draftSettings?: { keeperCount?: number; keeperCountFuture?: number } | null;
+}
+
+/**
+ * True only for a REDRAFT league sitting before its draft - see this
+ * module's header comment (finding 3) for the ESPN behavior this detects.
+ *
+ * `drafted` must be the literal boolean `false` - `undefined` (a league
+ * that hasn't synced `mDraftDetail`/`mSettings` yet) is NOT treated as "not
+ * drafted"; that would hide real, final lineups for every un-synced league.
+ * A keeper/dynasty league (`keeperCount` or `keeperCountFuture` > 0) is
+ * exempt even before its own draft - carrying a roster forward is the point
+ * of a keeper slot, not a carried-over-artifact bug.
+ */
+export function isPreDraftRedraft(season: PreDraftRedraftInput | null | undefined): boolean {
+  if (!season) return false;
+  if (season.draftInfo?.drafted !== false) return false;
+  const keeperCount = season.draftSettings?.keeperCount ?? 0;
+  const keeperCountFuture = season.draftSettings?.keeperCountFuture ?? 0;
+  return keeperCount === 0 && keeperCountFuture === 0;
+}
+
+/**
  * The official score when ESPN has posted a nonzero `totalPoints` - this is
  * the canonical number and, for a 2-week playoff round, the cumulative total
  * across both scoring periods (the roster only ever covers the *current*
@@ -110,8 +159,19 @@ export interface MatchupSummary {
   awayProjected: number | null;
 }
 
+export interface SummarizeMatchupOptions {
+  /**
+   * Force both `homeProjected`/`awayProjected` to `null` (spec: finding 3
+   * above - a pre-draft redraft league's carried-over roster produces a
+   * projection for a lineup that won't exist post-draft). Callers pass
+   * `isPreDraftRedraft(season)` here; everything else about the summary
+   * (scores, status, pairings) is unaffected - those are real regardless.
+   */
+  hideProjections?: boolean;
+}
+
 /** Turns one `matchups` document into the slim shape callers actually render. See header comment for the rules. */
-export function summarizeMatchup(doc: Doc<"matchups">): MatchupSummary {
+export function summarizeMatchup(doc: Doc<"matchups">, options: SummarizeMatchupOptions = {}): MatchupSummary {
   const homeScore = sideScore(doc.homeScore, doc.homeRoster);
   const awayScore = sideScore(doc.awayScore, doc.awayRoster);
 
@@ -140,7 +200,7 @@ export function summarizeMatchup(doc: Doc<"matchups">): MatchupSummary {
     playoffTier: doc.playoffTier ?? null,
     homeScore,
     awayScore,
-    homeProjected: sideProjected(doc.homeRoster, doc.homeProjectedScore),
-    awayProjected: sideProjected(doc.awayRoster, doc.awayProjectedScore),
+    homeProjected: options.hideProjections ? null : sideProjected(doc.homeRoster, doc.homeProjectedScore),
+    awayProjected: options.hideProjections ? null : sideProjected(doc.awayRoster, doc.awayProjectedScore),
   };
 }

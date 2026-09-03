@@ -2,7 +2,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { getLeagueMembership } from "./lib/auth";
-import { summarizeMatchup } from "./lib/matchupSummary";
+import { isPreDraftRedraft, summarizeMatchup } from "./lib/matchupSummary";
 
 /**
  * Slim per-season schedule for the schedule/scores pages (spec: audit
@@ -13,6 +13,13 @@ import { summarizeMatchup } from "./lib/matchupSummary";
  * the fix). Returns one row per matchup, sorted by `matchupPeriod` then
  * `scoringPeriod`, with no roster payload - roughly 90 rows/season instead
  * of 18 round trips each carrying both full rosters.
+ *
+ * Also reads the season's `leagueSeasons` row to null out every row's
+ * projected fields when `isPreDraftRedraft` is true (matchupSummary.ts's
+ * header comment, finding 3) - a redraft league before its draft has no
+ * real lineups yet, only ESPN's carried-over previous-season ones. Pairings
+ * and status are untouched: the pages read the draft flags themselves from
+ * `leagues.getLeagueSeasonByYear` for any messaging beyond the numbers.
  */
 export const getScheduleBySeason = query({
   args: {
@@ -41,15 +48,25 @@ export const getScheduleBySeason = query({
       return [];
     }
 
-    const matchups = await ctx.db
-      .query("matchups")
-      .withIndex("by_league_season", (q) =>
-        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
-      )
-      .collect();
+    const [matchups, season] = await Promise.all([
+      ctx.db
+        .query("matchups")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .collect(),
+      ctx.db
+        .query("leagueSeasons")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .first(),
+    ]);
+
+    const hideProjections = isPreDraftRedraft(season ?? undefined);
 
     return matchups
-      .map(summarizeMatchup)
+      .map((doc) => summarizeMatchup(doc, { hideProjections }))
       .sort((a, b) => a.matchupPeriod - b.matchupPeriod || a.scoringPeriod - b.scoringPeriod);
   },
 });

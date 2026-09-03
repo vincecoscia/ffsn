@@ -1,12 +1,14 @@
 /**
  * Pure unit tests for `convex/lib/matchupSummary.ts` - no Convex runtime,
- * plain vitest. See that module's header comment for the two audit
- * findings (IR counted as a starter; "live" before kickoff) this fixes.
+ * plain vitest. See that module's header comment for the three audit
+ * findings (IR counted as a starter; "live" before kickoff; pre-draft
+ * redraft leagues carrying over last season's lineups) this fixes.
  */
 import { describe, expect, it } from "vitest";
 import {
   NON_STARTER_LINEUP_SLOTS,
   isStarterSlot,
+  isPreDraftRedraft,
   starterActualTotal,
   starterProjectedTotal,
   summarizeMatchup,
@@ -223,5 +225,81 @@ describe("summarizeMatchup - shape", () => {
   it("passes through playoffTier when set", () => {
     const doc: Doc<"matchups"> = { ...BASE_MATCHUP, playoffTier: "WINNERS_BRACKET" };
     expect(summarizeMatchup(doc).playoffTier).toBe("WINNERS_BRACKET");
+  });
+});
+
+describe("isPreDraftRedraft", () => {
+  it("is true for a redraft league (both keeper counts 0) that hasn't drafted yet", () => {
+    expect(
+      isPreDraftRedraft({
+        draftInfo: { drafted: false },
+        draftSettings: { keeperCount: 0, keeperCountFuture: 0 },
+      })
+    ).toBe(true);
+  });
+
+  it("is true when the keeper counts are absent entirely (defaults to 0)", () => {
+    expect(isPreDraftRedraft({ draftInfo: { drafted: false }, draftSettings: {} })).toBe(true);
+    expect(isPreDraftRedraft({ draftInfo: { drafted: false } })).toBe(true);
+  });
+
+  it("is false for a keeper league (keeperCount > 0), even before its draft", () => {
+    expect(
+      isPreDraftRedraft({
+        draftInfo: { drafted: false },
+        draftSettings: { keeperCount: 2, keeperCountFuture: 0 },
+      })
+    ).toBe(false);
+  });
+
+  it("is false once the league has drafted", () => {
+    expect(
+      isPreDraftRedraft({
+        draftInfo: { drafted: true },
+        draftSettings: { keeperCount: 0, keeperCountFuture: 0 },
+      })
+    ).toBe(false);
+  });
+
+  it("is false when drafted is undefined (not yet synced) - never guess", () => {
+    expect(isPreDraftRedraft({ draftInfo: {}, draftSettings: { keeperCount: 0 } })).toBe(false);
+    expect(isPreDraftRedraft({})).toBe(false);
+    expect(isPreDraftRedraft(undefined)).toBe(false);
+    expect(isPreDraftRedraft(null)).toBe(false);
+  });
+
+  it("is false when keeperCountFuture alone is > 0", () => {
+    expect(
+      isPreDraftRedraft({
+        draftInfo: { drafted: false },
+        draftSettings: { keeperCount: 0, keeperCountFuture: 3 },
+      })
+    ).toBe(false);
+  });
+});
+
+describe("summarizeMatchup - hideProjections", () => {
+  it("nulls out both projected fields when hideProjections is true, leaving scores/status/pairings alone", () => {
+    const doc: Doc<"matchups"> = {
+      ...BASE_MATCHUP,
+      winner: "home",
+      homeScore: 120,
+      awayScore: 90,
+      homeRoster: roster([{ lineupSlotId: 0, points: 20, projectedPoints: 25 }]),
+    };
+
+    const shown = summarizeMatchup(doc);
+    expect(shown.homeProjected).toBe(25);
+
+    const hidden = summarizeMatchup(doc, { hideProjections: true });
+    expect(hidden.homeProjected).toBeNull();
+    expect(hidden.awayProjected).toBeNull();
+    // Everything else is unaffected.
+    expect(hidden.status).toBe("final");
+    expect(hidden.winner).toBe("home");
+    expect(hidden.homeScore).toBe(120);
+    expect(hidden.awayScore).toBe(90);
+    expect(hidden.homeTeamId).toBe(doc.homeTeamId);
+    expect(hidden.awayTeamId).toBe(doc.awayTeamId);
   });
 });

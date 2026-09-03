@@ -139,6 +139,70 @@ async function seedMatchups(t: ReturnType<typeof convexTest>, leagueId: Id<"leag
   });
 }
 
+async function seedLeagueSeason(
+  t: ReturnType<typeof convexTest>,
+  leagueId: Id<"leagues">,
+  seasonId: number,
+  draftSettings: { keeperCount?: number; keeperCountFuture?: number }
+) {
+  const now = Date.now();
+  await t.run(async (ctx) =>
+    ctx.db.insert("leagueSeasons", {
+      leagueId,
+      seasonId,
+      settings: {},
+      draftInfo: { drafted: false, inProgress: false },
+      draftSettings,
+      createdAt: now,
+    })
+  );
+}
+
+describe("matchups.getScheduleBySeason - pre-draft redraft projections", () => {
+  it("hides projected points for a pre-draft redraft league season, but leaves pairings/status alone", async () => {
+    const t = convexTest(schema, modules);
+    const leagueId = await seedLeague(t);
+    await seedMatchups(t, leagueId);
+    await seedLeagueSeason(t, leagueId, SEASON, { keeperCount: 0, keeperCountFuture: 0 });
+
+    const result = await t
+      .withIdentity({ subject: CLERK_COMMISSIONER })
+      .query(api.matchups.getScheduleBySeason, { leagueId, seasonId: SEASON });
+
+    expect(result).toHaveLength(3);
+    const [week1, week2, week3] = result;
+
+    // Projections are hidden everywhere...
+    expect(week1.homeProjected).toBeNull();
+    expect(week1.awayProjected).toBeNull();
+    expect(week3.homeProjected).toBeNull();
+    expect(week3.awayProjected).toBeNull();
+
+    // ...but pairings/status/scores are untouched.
+    expect(week1.status).toBe("live");
+    expect(week2.status).toBe("final");
+    expect(week2.winner).toBe("home");
+    expect(week2.homeScore).toBe(120.5);
+    expect(week3.status).toBe("scheduled");
+    expect(week3.homeTeamId).toBe("1");
+    expect(week3.awayTeamId).toBe("2");
+  });
+
+  it("keeps projected points when the league season is a keeper league (keeperCount > 0)", async () => {
+    const t = convexTest(schema, modules);
+    const leagueId = await seedLeague(t);
+    await seedMatchups(t, leagueId);
+    await seedLeagueSeason(t, leagueId, SEASON, { keeperCount: 1, keeperCountFuture: 0 });
+
+    const result = await t
+      .withIdentity({ subject: CLERK_COMMISSIONER })
+      .query(api.matchups.getScheduleBySeason, { leagueId, seasonId: SEASON });
+
+    const week3 = result.find((m: MatchupSummary) => m.matchupPeriod === 3)!;
+    expect(week3.homeProjected).toBe(134.4);
+  });
+});
+
 describe("matchups.getScheduleBySeason", () => {
   it("returns [] when signed out", async () => {
     const t = convexTest(schema, modules);

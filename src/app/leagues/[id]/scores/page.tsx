@@ -309,6 +309,8 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                       const awayTeam = getTeamByExternalId(matchup.awayTeamId);
                       const isFuture = matchup.status === "scheduled";
                       const isGameOfWeek = matchup._id === gameOfWeekId;
+                      const hasProjection =
+                        matchup.homeProjected !== null && matchup.awayProjected !== null;
 
                       const strip =
                         matchup.status === "final" ? (
@@ -318,8 +320,10 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                             <span className="bc-pulse size-[7px] rounded-full bg-current" />
                             Live
                           </span>
-                        ) : (
+                        ) : hasProjection ? (
                           "Scheduled · Projected"
+                        ) : (
+                          "Scheduled"
                         );
 
                       return (
@@ -342,7 +346,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                             name: awayTeam?.name || "Unknown team",
                             sub: awayTeam?.owner,
                             score: isFuture
-                              ? (matchup.awayProjected?.toFixed(1) ?? "—")
+                              ? matchup.awayProjected?.toFixed(1)
                               : matchup.awayScore.toFixed(1),
                             winner: matchup.winner === "away",
                           }}
@@ -359,7 +363,7 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                             name: homeTeam?.name || "Unknown team",
                             sub: homeTeam?.owner,
                             score: isFuture
-                              ? (matchup.homeProjected?.toFixed(1) ?? "—")
+                              ? matchup.homeProjected?.toFixed(1)
                               : matchup.homeScore.toFixed(1),
                             winner: matchup.winner === "home",
                           }}

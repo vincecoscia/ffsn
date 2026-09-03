@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Panel, SectionHeader, ScoreBug, TeamTile, Chip, LoadingScreen, EmptyState } from "@/components/broadcast";
 import { CalendarDays } from "lucide-react";
+import { format } from "date-fns";
 
 interface SchedulePageProps {
   params: Promise<{ id: string }>;
@@ -151,6 +152,20 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   const currentScoringPeriod = league?.espnData?.currentScoringPeriod ?? 1;
   const isCurrentSeasonSelected = selectedSeason === currentSeason;
 
+  // Pre-draft note: before a redraft league's draft, ESPN carries last
+  // season's final lineups (and schedule pairings) into the new season, so
+  // projections/matchups shown are provisional until the draft happens.
+  const isPreDraft = isCurrentSeasonSelected && leagueSeason?.draftInfo?.drafted === false;
+  const keeperCount = leagueSeason?.draftSettings?.keeperCount ?? 0;
+  const keeperCountFuture = leagueSeason?.draftSettings?.keeperCountFuture ?? 0;
+  const isKeeperLeague = keeperCount > 0 || keeperCountFuture > 0;
+  const draftDateMs = leagueSeason?.draftSettings?.date;
+  const draftDateLabel = typeof draftDateMs === "number" ? format(draftDateMs, "MMM d") : undefined;
+  const draftClause = draftDateLabel ? ` on ${draftDateLabel}` : "";
+  const preDraftMessage = isKeeperLeague
+    ? `Projections use last season's rosters until your draft${draftClause}.`
+    : `Matchups may change until your draft${draftClause}. Lineups and projections appear after the draft.`;
+
   return (
     <LeaguePageLayout leagueId={leagueId} currentUserId={userId} title="Schedule">
       {/* Filters */}
@@ -159,6 +174,12 @@ export default function SchedulePage({ params }: SchedulePageProps) {
           title="Schedule"
           kicker={`Regular season weeks 1-${regularSeasonWeeks} · Playoffs ${regularSeasonWeeks + 1}-${totalWeeks}`}
         />
+        {isPreDraft && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Chip variant="outline">Pre-draft</Chip>
+            <span className="bc-label-sm text-bc-text-3">{preDraftMessage}</span>
+          </div>
+        )}
         <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="flex flex-col gap-1.5">
             <span className="bc-label-sm text-bc-text-3">Team</span>
@@ -270,6 +291,8 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                   const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                   const awayTeam = getTeamByExternalId(matchup.awayTeamId);
                   const isProjected = matchup.status === "scheduled";
+                  const hasProjection =
+                    matchup.homeProjected !== null && matchup.awayProjected !== null;
 
                   const strip =
                     matchup.status === "final" ? (
@@ -279,8 +302,10 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                         <span className="bc-pulse size-[7px] rounded-full bg-current" />
                         Live
                       </span>
-                    ) : (
+                    ) : hasProjection ? (
                       "Scheduled · Projected"
+                    ) : (
+                      "Scheduled"
                     );
 
                   const isConsolation =
@@ -302,7 +327,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                         name: homeTeam?.name ?? "TBD",
                         sub: homeTeam?.owner,
                         score: isProjected
-                          ? (matchup.homeProjected?.toFixed(1) ?? "—")
+                          ? matchup.homeProjected?.toFixed(1)
                           : matchup.homeScore.toFixed(1),
                         winner: matchup.winner === "home",
                       }}
@@ -311,7 +336,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                         name: awayTeam?.name ?? "TBD",
                         sub: awayTeam?.owner,
                         score: isProjected
-                          ? (matchup.awayProjected?.toFixed(1) ?? "—")
+                          ? matchup.awayProjected?.toFixed(1)
                           : matchup.awayScore.toFixed(1),
                         winner: matchup.winner === "away",
                       }}
