@@ -189,9 +189,12 @@ export const planSeasonBackfill = internalQuery({
     if (args.force && !args.types && !args.weeks) {
       throw new Error("force requires a types or weeks filter (refusing to regenerate a whole season)");
     }
+    // A failed article is not "existing" content: the item is planned again on the next run.
     const existing = args.force
       ? []
-      : [...stamped, ...legacy].map((a) => ({ contentType: a.type, week: a.metadata.week }));
+      : [...stamped, ...legacy]
+          .filter((a) => a.status !== "failed")
+          .map((a) => ({ contentType: a.type, week: a.metadata.week }));
 
     // hasTradesForSeason: the `trades` table (never populated in prod - espnSync.storeTrades's only
     // caller is commented out) OR a real TRADE_ACCEPT transaction.
