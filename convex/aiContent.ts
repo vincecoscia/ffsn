@@ -1156,7 +1156,10 @@ async function getLeagueDataForGenerationHandler(
       playoffProbabilities: enrichedData.playoffProbabilities,
       // The bracket / playoff picture (convex/lib/playoffs.ts) - the writers' FACTS block reads it.
       playoffs: enrichedData.playoffs,
-      
+      // League-relative player rankings (owner directive, 2026-09-03 - convex/lib/playerBoard.ts).
+      // Whitelist entry only; the `PlayerBoard` shape itself lives in src/lib/ai/prompt-builder.ts.
+      playerBoard: enrichedData.playerBoard,
+
       // ENHANCED: Historical data for season welcome packages
       previousSeasons: enrichedData.previousSeasons || {},
       leagueHistory: enrichedData.leagueHistory || {

@@ -283,7 +283,11 @@ export const isContentGenerationAllowed = internalQuery({
         return validateMockDraftContent(seasonInfo, leagueSeason, targetDate);
       
       case "weekly_preview":
-        return validateWeeklyPreviewContent(seasonInfo);
+        return validateWeeklyPreviewContent(
+          seasonInfo,
+          targetDate,
+          regularSeasonStartByYear.get(seasonInfo.year),
+        );
       
       case "weekly_recap":
         return validateWeeklyRecapContent(seasonInfo);
@@ -343,14 +347,29 @@ function validateMockDraftContent(
   return { allowed: false, reason: "Too far from draft date (more than 14 days)" };
 }
 
+/** The week-1 preview prints after the draft, in the days before kickoff (owner directive, Sept 2026). */
+const WEEK_ONE_PREVIEW_LOOKAHEAD_MS = 4 * 24 * 60 * 60 * 1000;
+
 function validateWeeklyPreviewContent(
-  seasonInfo: { phase: NFLSeasonPhase; year: number; week?: number }
+  seasonInfo: { phase: NFLSeasonPhase; year: number; week?: number },
+  targetDate: number,
+  regularSeasonStart?: number,
 ): { allowed: boolean; reason?: string } {
-  // Weekly previews only during regular season and playoffs
+  // Weekly previews during the regular season and playoffs...
   if (seasonInfo.phase === "REGULAR_SEASON" || seasonInfo.phase === "PLAYOFFS") {
     return { allowed: true };
   }
-  
+
+  // ...and the week-1 preview in the run-up to kickoff, whatever phase the calendar reports (the
+  // day between preseason end and the regular season start has no phase at all).
+  if (
+    regularSeasonStart !== undefined &&
+    targetDate >= regularSeasonStart - WEEK_ONE_PREVIEW_LOOKAHEAD_MS &&
+    targetDate < regularSeasonStart
+  ) {
+    return { allowed: true };
+  }
+
   return { allowed: false, reason: `Weekly previews not available during ${seasonInfo.phase}` };
 }
 

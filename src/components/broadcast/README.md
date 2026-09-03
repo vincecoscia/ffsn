@@ -340,7 +340,7 @@ Props: `name: ReactNode`, `role?: ReactNode`, `avatar?: ReactNode` (56px slot, 4
 ```
 
 ### `WriterPlate`
-The talent-lineup card: a 300px portrait (scanline texture + faint index number + `PersonaAvatar`
+The talent-lineup card: a 3:2 portrait (scanline texture + faint index number + `PersonaAvatar`
 illustration), a name plate + red role strip, an italic tagline, a "Writes" beat line and an optional
 footnote under it.
 
@@ -368,24 +368,30 @@ The drawn on-air-talent silhouettes, matched by slug **or** display name (case-i
 `persona`, with an initials-plate fallback for any other byline (e.g. `mike-harrison`). Fills read from
 `--bc-*` tokens so they invert correctly in light mode.
 
-On air: Curtis Vaughn (earpiece coil + flagged hand mic), Sam Ortega (stick mic + credential lanyard),
-Nina Sharpe (glasses + stylus over a three-bar chart), Dex Alvarez (phone at the ear), Mel Diaper
-(headset + boom mic), Walt Brennan (glasses pushed up + folded newspaper). Retired but still drawn so
-archived bylines keep their portrait: Stan (glasses + bar chart), Vinny (fedora), Chad (spiked hair +
-shades), Rick ("87" cap + two cans).
+On air: Curtis Vaughn (suit + tie, earpiece coil, flagged hand mic), Sam Ortega (ponytail, credential
+lanyard, stick mic held out), Nina Sharpe (bob + glasses, tablet with a three-bar chart and stylus), Dex
+Alvarez (loosened tie, phone at the ear), Mel Diaper (suit and loud tie, towering swept-back hair, an "F"
+grade card),
+Reggie Banks (backwards snapback, chain, box score in hand), Walt Brennan (receding silver hair, reading
+glasses, bow tie, folded paper). Retired but still drawn so archived bylines keep their portrait: Stan
+(glasses + bar chart), Vinny (fedora), Chad (spiked hair + shades), Rick ("87" cap + two cans).
 
-Adding a writer: reuse the shared `Bust()` (shoulders / neck / head) and the `STRONG` / `INK` / `RED` /
-`SIGNAL` / `TEXT_2` token fills, keep the identifying prop inside the `bust` crop (`viewBox "20 30 216
-216"`, so roughly x 20–236 / y 30–246), and register the pattern ahead of the retired entries.
+Everything is drawn in one 384×256 landscape frame — the same 3:2 box `WriterPlate` gives the portrait,
+so nothing is cropped there. The bust is a 160×160 crop of that frame around the head (x 112–272,
+y 36–196) with its own card-toned ground. Adding a writer: compose from the shared anatomy (`Torso`,
+`Neck`, `Head`, `Hand`, `Forearm`, `ShirtV`, `Tie`, `Glasses`, the `HAIR_ARC_*` paths) and the token
+fills — `STRONG` skin, `MID` hair and shirts, `INK` hard props, `RED`/`SIGNAL` accents, `CUT` for
+negative-space outlines — keep the identifying prop inside the bust crop, put hand-held props below
+y 196 so they only appear in the portrait, and register the pattern ahead of the retired entries.
 
 Props: `persona: string`, `size?: number` (px; **only** applies to `variant="bust"` — `"portrait"` fills its
-container via `preserveAspectRatio="xMidYMid slice"`, so give the parent explicit dimensions instead),
+container via `preserveAspectRatio="xMidYMid slice"`, so give the parent a 3:2 box),
 `variant?: "portrait" | "bust"` (default `"bust"`; `bust` is a tight square headshot crop for bylines),
 `className?`.
 
 ```tsx
 <PersonaAvatar persona="Stan Deviation" size={40} />
-<div className="h-[300px]">
+<div className="aspect-[3/2] w-[360px]">
   <PersonaAvatar persona="Chad Thunderhype" variant="portrait" />
 </div>
 ```

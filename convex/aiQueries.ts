@@ -44,6 +44,11 @@ import {
   playoffRoundName,
 } from "./lib/playoffs";
 import type { PlayoffContext } from "./lib/playoffTypes";
+// `convex/lib/playerBoard.ts` is likewise deliberately pure (see its file header) - the
+// league-relative player rankings the week-1 (and every other week's) preview cites instead of
+// bare 0-0 records (owner directive, 2026-09-03).
+import { buildPlayerBoard, sumStarterProjected, topKeyPlayers } from "./lib/playerBoard";
+import type { PlayerBoardMatchupInput, PlayerBoardTeamInput } from "./lib/playerBoard";
 
 /**
  * Enhanced query functions for AI content generation
@@ -636,6 +641,7 @@ export const getLeagueDataForAI = internalQuery({
       playersEnhanced,
       leagueSeasons,
       allHistoricalTeams,
+      draftTransactions,
     ] = await Promise.all([
       // Get all teams with roster
       ctx.db.query("teams")
@@ -701,6 +707,15 @@ export const getLeagueDataForAI = internalQuery({
       ctx.db.query("teams")
         .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
         .collect(),
+
+      // Get this season's DRAFT transactions for the player board's draftPick column - same
+      // index+filter pattern draftRankingsHelpers.ts uses (there's no by-type index), bounded
+      // rather than `.collect()` (a 10-team, 17-round draft is 170 rows; 400 covers a much larger
+      // league without risking an unbounded read on a corrupted/duplicated draft log).
+      ctx.db.query("transactions")
+        .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
+        .filter(q => q.eq(q.field("type"), "DRAFT"))
+        .take(400),
     ]);
 
     // A round-one bye (`isByeMatchup`) is a real `matchups` row but not a game - no opponent ever
@@ -716,6 +731,12 @@ export const getLeagueDataForAI = internalQuery({
     // historical mode the full season is already in the table, so later weeks' REAL results must be
     // stripped from every calculation that isn't explicitly about the schedule itself.
     const playedMatchups = historicalMode ? matchups.filter(m => m.matchupPeriod <= currentWeek) : matchups;
+
+    // The player board's draftPick column (spec: player board). One row per pick; a duplicate
+    // playerId (a data anomaly) is resolved by `buildPlayerBoard` itself (first pick wins).
+    const draftPicks = draftTransactions.flatMap(t =>
+      t.items.map(item => ({ playerId: String(item.playerId), overallPickNumber: item.overallPickNumber }))
+    );
 
     // Trades before the end of `currentWeek`, from nflSeasons.weekBoundaries when that row exists.
     // No boundary row (2025 has none in prod - see convex/seasonBackfill.ts's header) leaves trades
@@ -810,13 +831,18 @@ export const getLeagueDataForAI = internalQuery({
       : undefined;
     const standingsByExternalId = new Map((standingsThroughWeek ?? []).map(row => [row.externalId, row]));
 
+    // Live `throughWeek` is the last week with a finished game, NOT `currentWeek` (which in live
+    // mode is `currentScoringPeriod` - ESPN's notion of "now", which can be a week ahead of the last
+    // completed one, e.g. right after a bye-only week sets nothing final, or - the case that
+    // matters for the player board - before week 1 has even kicked off, when ESPN already reports
+    // `currentScoringPeriod: 1` though nobody has played a snap). Shared by the playoffs picture
+    // below and the player board (spec: player board `throughWeek`/`basis`).
+    const liveThroughWeek = historicalMode ? currentWeek : highestFinishedMatchupPeriod(matchups);
+
     // Playoff picture / bracket (owner ask, Sept 2026): a bracket at playoff time, an "if the
     // season ended today" bracket during the regular season, articles centred on who's still alive.
     // `buildPlayoffContext` recognises byes itself (`isByeMatchup`), so it needs the RAW matchups
     // (`allMatchupsRaw`) - every other calculation in this handler uses the bye-filtered `matchups`.
-    // Live `throughWeek` is the last week with a finished game, NOT `currentWeek` (which in live
-    // mode is `currentScoringPeriod` - ESPN's notion of "now", which can be a week ahead of the last
-    // completed one, e.g. right after a bye-only week sets nothing final).
     const playoffs: PlayoffContext = buildPlayoffContext({
       teams: teams.map(team => ({
         externalId: team.externalId,
@@ -844,7 +870,7 @@ export const getLeagueDataForAI = internalQuery({
         playoffMatchupPeriodLength: leagueFormat.playoffMatchupPeriodLength,
         playoffSeedingRule: leagueFormat.playoffSeedingRule,
       },
-      throughWeek: historicalMode ? currentWeek : highestFinishedMatchupPeriod(matchups),
+      throughWeek: liveThroughWeek,
       standings: historicalMode
         ? (standingsThroughWeek ?? []).map(row => ({
             externalId: row.externalId,
@@ -1443,8 +1469,57 @@ export const getLeagueDataForAI = internalQuery({
         )
       : undefined;
 
-    const upcomingMatchups = matchups
-      .filter(game => game.matchupPeriod === previewWeek)
+    // The raw (unreshaped) matchup rows for the preview week - the only place in this handler
+    // that still has each side's roster, so both the player board and each game's `keyPlayers`
+    // are built from this same set before it gets reshaped into the display `upcomingMatchups`
+    // below (which carries team names/records, not rosters).
+    const previewWeekMatchups = matchups.filter(game => game.matchupPeriod === previewWeek);
+
+    /* ---------------------------------------------------------------------- *
+     * Player board (owner directive, 2026-09-03): league-relative player rankings ("WR1 vs
+     * WR12") so a preview can talk about players and their standing without leaning on a 0-0
+     * record. `basis` flips to "season_points" itself once `liveThroughWeek` says a week has
+     * actually finished - see `buildPlayerBoard`'s header and `convex/lib/playerBoard.ts`.
+     * `enhancedTeams` (built above) already carries the joined name/position/nflTeam/injury data
+     * `team.roster` alone doesn't have; reused here rather than re-deriving it a second time.
+     * ---------------------------------------------------------------------- */
+    const playerBoardTeams: PlayerBoardTeamInput[] = enhancedTeams.map(team => ({
+      externalId: team.externalId,
+      name: team.name,
+      roster: team.roster.map((player: any) => ({
+        playerId: String(player.playerId),
+        playerName: player.fullName || player.playerName,
+        position: player.position,
+        team: player.nflTeam,
+        injuryStatus: player.injuryStatus,
+        lineupSlotId: player.lineupSlotId,
+      })),
+    }));
+    const playerBoardPlayedMatchups: PlayerBoardMatchupInput[] = matchups
+      .filter(m => m.matchupPeriod <= liveThroughWeek)
+      .map(m => ({
+        matchupPeriod: m.matchupPeriod,
+        homeTeamId: m.homeTeamId,
+        awayTeamId: m.awayTeamId,
+        homeRoster: m.homeRoster,
+        awayRoster: m.awayRoster,
+      }));
+    const playerBoard = buildPlayerBoard({
+      teams: playerBoardTeams,
+      playedMatchups: playerBoardPlayedMatchups,
+      upcomingMatchups: previewWeekMatchups.map(m => ({
+        matchupPeriod: m.matchupPeriod,
+        homeTeamId: m.homeTeamId,
+        awayTeamId: m.awayTeamId,
+        homeRoster: m.homeRoster,
+        awayRoster: m.awayRoster,
+      })),
+      draftPicks,
+      throughWeek: liveThroughWeek,
+    });
+    const positionRankByPlayerId = new Map(playerBoard.entries.map(e => [e.playerId, e.positionRank]));
+
+    const upcomingMatchups = [...previewWeekMatchups]
       .sort((a, b) => (Number(a.homeTeamId) || 0) - (Number(b.homeTeamId) || 0))
       .map(game => {
         const homeTeam = teamByExternalId.get(game.homeTeamId);
@@ -1464,14 +1539,22 @@ export const getLeagueDataForAI = internalQuery({
           teamBRecord: formatTeamRecord(awayTeam),
           teamAPointsFor: pointsForOf(homeTeam),
           teamBPointsFor: pointsForOf(awayTeam),
-          // Only present once ESPN publishes a projection for the week; never invented here.
-          projectedScoreA: game.homeProjectedScore,
-          projectedScoreB: game.awayProjectedScore,
+          // ESPN's own team-level projection when it has published one; otherwise the sum of each
+          // side's starters' own `projectedPoints` (spec: player board) - never left blank when
+          // the lineup data to compute it is already on hand.
+          projectedScoreA: game.homeProjectedScore ?? sumStarterProjected(game.homeRoster),
+          projectedScoreB: game.awayProjectedScore ?? sumStarterProjected(game.awayRoster),
           isPlayoff: game.playoffTier && game.playoffTier !== "NONE" ? true : undefined,
           // Round name/tier (spec: playoffs round) - only meaningful inside the playoffs.
           round: previewRoundName,
           tier: game.playoffTier && game.playoffTier !== "NONE" ? game.playoffTier : undefined,
           headToHead: headToHeadFor(game.homeTeamId, game.awayTeamId),
+          // Top 3 projected starters per side (spec: "notable players and their rankings") - ranks
+          // come from the same player board the rest of the article cites.
+          keyPlayers: [
+            ...topKeyPlayers("A", game.homeRoster?.players ?? [], positionRankByPlayerId),
+            ...topKeyPlayers("B", game.awayRoster?.players ?? [], positionRankByPlayerId),
+          ],
         };
       });
 
@@ -1579,6 +1662,9 @@ export const getLeagueDataForAI = internalQuery({
       // above). Carried through `aiContent.ts`'s reshape (orchestrator: add `playoffs:
       // enrichedData.playoffs` there) so the writers and `src/lib/ai/facts.ts` can read it.
       playoffs,
+      // League-relative player rankings (owner directive, 2026-09-03 - see this handler's
+      // `playerBoard` build above). Whitelisted through `aiContent.ts`'s reshape the same way.
+      playerBoard,
 
       // NEW: Historical data for season welcome packages
       previousSeasons,

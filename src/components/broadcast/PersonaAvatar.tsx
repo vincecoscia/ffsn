@@ -7,352 +7,418 @@ export type PersonaAvatarVariant = "portrait" | "bust";
 export interface PersonaAvatarProps {
   /** The writer's display name or slug, e.g. "Mel Diaper" or "mel-diaper". Matched loosely against the drawn personas. */
   persona: string;
-  /** Size in px. Only applies to `variant="bust"` — `"portrait"` fills its container (give the parent explicit dimensions). Default 48. */
+  /** Size in px. Only applies to `variant="bust"` — `"portrait"` fills its container (give the parent a 3:2 box). Default 48. */
   size?: number;
-  /** `"bust"` (default) is a tight square headshot crop for bylines; `"portrait"` is the full waist-up illustration used on writer cards. */
+  /** `"bust"` (default) is a tight square headshot crop for bylines; `"portrait"` is the full 3:2 waist-up illustration used on writer cards. */
   variant?: PersonaAvatarVariant;
   className?: string;
 }
 
-// Token-driven fills so the silhouettes read correctly in both themes.
-const STRONG = "var(--bc-border-strong)"; // head / neck / shoulders base shape
-const INK = "var(--bc-ink)"; // light detail linework (glasses, headset, cap text, hair)
-const RED = "var(--bc-red)"; // brand red accents
-const RED_DEEP = "var(--bc-red-deep)"; // deep red (cap bill underside)
-const SIGNAL = "var(--bc-signal)"; // neon data accents (Nina's bar chart, Dex's phone screen)
-const TEXT_2 = "var(--bc-text-2)"; // muted grey (Rick's cap underside, Walt's hair)
+/* -------------------------------------------------------------------------- */
+/* Palette — every fill is a `--bc-*` token so the set inverts with the theme  */
+/* -------------------------------------------------------------------------- */
+
+const STRONG = "var(--bc-border-strong)"; // skin: head, neck, hands, jacket
+const MID = "var(--bc-text-3)"; // hair, shirts, soft garments — one step off the skin tone
+const SILVER = "var(--bc-text-2)"; // Walt's hair, newsprint
+const INK = "var(--bc-ink)"; // hard props: glasses, headsets, mics, phones, chains
+const RED = "var(--bc-red)";
+const RED_DEEP = "var(--bc-red-deep)";
+const SIGNAL = "var(--bc-signal)"; // screens and chart bars
+const CUT = "var(--bc-panel-2)"; // the card background, used as negative-space outlines (a hand over a torso)
 const SCAN = "var(--bc-scan)"; // faint diagonal highlight, portrait only
+
+/* -------------------------------------------------------------------------- */
+/* Frame                                                                       */
+/* -------------------------------------------------------------------------- */
+
+// Everything is drawn in one 384×256 landscape frame — the same 3:2 box `WriterPlate`
+// gives the portrait, so nothing is ever cropped there. The bust is a square crop of
+// that frame around the head; keep a writer's identifying prop inside it.
+const PORTRAIT_VIEWBOX = "0 0 384 256";
+const BUST = { x: 112, y: 36, size: 160 }; // x 112–272, y 36–196
+const BUST_VIEWBOX = `${BUST.x} ${BUST.y} ${BUST.size} ${BUST.size}`;
 
 type IllustrationProps = { variant: PersonaAvatarVariant };
 type Illustration = (props: IllustrationProps) => ReactElement;
 
-function DiagonalHighlight({ variant }: IllustrationProps) {
+/* -------------------------------------------------------------------------- */
+/* Shared anatomy — head at (192,104) rx40 ry46, neck to y184, shoulders x92–292 */
+/* -------------------------------------------------------------------------- */
+
+function Highlight({ variant }: IllustrationProps) {
   if (variant !== "portrait") return null;
-  return <path d="M0 300 L256 60 L256 300 Z" fill={SCAN} />;
+  return <path d="M0 256 L384 40 L384 256 Z" fill={SCAN} />;
 }
 
-// Shared bust geometry. Every silhouette sits on the same shoulders/neck/head so the
-// lineup reads as one set and the `bust` crop (viewBox "20 30 216 216") frames them all
-// identically — keep new writers on these three shapes and differentiate with props.
-const SHOULDERS = "M24 300 C24 234 72 206 128 206 C184 206 232 234 232 300 Z";
+function Torso({ fill = STRONG }: { fill?: string }) {
+  return (
+    <path
+      d="M92 256 C92 224 108 204 140 192 C150 188 160 186 172 184 L212 184 C224 186 234 188 244 192 C276 204 292 224 292 256 Z"
+      fill={fill}
+    />
+  );
+}
 
-function Bust() {
+function Neck() {
+  return <path d="M178 134 L206 134 L210 184 L174 184 Z" fill={STRONG} />;
+}
+
+function Head() {
+  return <ellipse cx="192" cy="104" rx="40" ry="46" fill={STRONG} />;
+}
+
+/** A hand: a skin disc with a background-coloured ring so it separates from the torso behind it. */
+function Hand({ x, y, r = 13 }: { x: number; y: number; r?: number }) {
   return (
     <>
-      <path d={SHOULDERS} fill={STRONG} />
-      <rect x="110" y="156" width="36" height="56" fill={STRONG} />
-      <ellipse cx="128" cy="118" rx="46" ry="55" fill={STRONG} />
+      <circle cx={x} cy={y} r={r + 3} fill={CUT} />
+      <circle cx={x} cy={y} r={r} fill={STRONG} />
     </>
   );
 }
 
-/** Mel Diaper — The Draft Disaster: headset + mic. */
-const MelIllustration: Illustration = ({ variant }) => (
-  <>
-    <DiagonalHighlight variant={variant} />
-    <path
-      d="M24 300 C24 234 72 206 128 206 C184 206 232 234 232 300 Z"
-      fill={STRONG}
-    />
-    <path d="M92 300 L128 236 L164 300 Z" fill={RED} />
-    <rect x="110" y="156" width="36" height="56" fill={STRONG} />
-    <ellipse cx="128" cy="116" rx="48" ry="56" fill={STRONG} />
-    <path
-      d="M76 116 C76 62 180 62 180 116"
-      stroke={INK}
-      strokeWidth="7"
-      fill="none"
-      strokeLinecap="round"
-    />
-    <rect x="66" y="106" width="16" height="30" rx="3" fill={INK} />
-    <rect x="174" y="106" width="16" height="30" rx="3" fill={INK} />
-    <path
-      d="M82 134 C88 158 100 166 118 166"
-      stroke={INK}
-      strokeWidth="5"
-      fill="none"
-      strokeLinecap="round"
-    />
-    <circle cx="122" cy="166" r="6" fill={RED} />
-    <path d="M100 106 L118 112 M156 106 L138 112" stroke={INK} strokeWidth="5" strokeLinecap="round" />
-  </>
-);
+/** A forearm as a thick rounded stroke, outlined in the background colour for the same reason. */
+function Forearm({ d, width = 24 }: { d: string; width?: number }) {
+  return (
+    <>
+      <path d={d} stroke={CUT} strokeWidth={width + 6} fill="none" strokeLinecap="round" />
+      <path d={d} stroke={STRONG} strokeWidth={width} fill="none" strokeLinecap="round" />
+    </>
+  );
+}
 
-/** Retired — Stan Deviation: glasses + a rising bar chart. */
-const StanIllustration: Illustration = ({ variant }) => (
-  <>
-    <DiagonalHighlight variant={variant} />
-    <path
-      d="M24 300 C24 234 72 206 128 206 C184 206 232 234 232 300 Z"
-      fill={STRONG}
-    />
-    <rect x="110" y="156" width="36" height="56" fill={STRONG} />
-    <ellipse cx="128" cy="116" rx="46" ry="56" fill={STRONG} />
-    <path d="M82 84 C90 58 166 58 174 84 L174 96 L82 96 Z" fill={STRONG} />
-    <rect x="88" y="104" width="34" height="24" rx="3" fill="none" stroke={INK} strokeWidth="4" />
-    <rect x="134" y="104" width="34" height="24" rx="3" fill="none" stroke={INK} strokeWidth="4" />
-    <path d="M122 114 L134 114" stroke={INK} strokeWidth="4" />
-    <path d="M82 112 L88 112 M168 112 L174 112" stroke={INK} strokeWidth="4" />
-    <rect x="150" y="270" width="12" height="30" fill={SIGNAL} />
-    <rect x="166" y="256" width="12" height="44" fill={SIGNAL} />
-    <rect x="182" y="238" width="12" height="62" fill={SIGNAL} />
-  </>
-);
+/** The shirt showing through a jacket's V, from the collar down `depth` units. */
+function ShirtV({ fill = MID, depth = 40 }: { fill?: string; depth?: number }) {
+  return <path d={`M170 184 L192 ${184 + depth} L214 184 Z`} fill={fill} />;
+}
 
-/** Retired — Vinny "The Sauce" Marinara: fedora + red band. */
-const VinnyIllustration: Illustration = ({ variant }) => (
-  <>
-    <DiagonalHighlight variant={variant} />
-    <path
-      d="M24 300 C24 234 72 206 128 206 C184 206 232 234 232 300 Z"
-      fill={STRONG}
-    />
-    <path d="M96 208 L128 262 L160 208 L150 206 L128 236 L106 206 Z" fill={INK} />
-    <rect x="110" y="156" width="36" height="56" fill={STRONG} />
-    <ellipse cx="128" cy="120" rx="46" ry="54" fill={STRONG} />
-    <path d="M94 90 L100 52 C112 42 144 42 156 52 L162 90 Z" fill={INK} />
-    <ellipse cx="128" cy="90" rx="66" ry="11" fill={INK} />
-    <path d="M96 82 L160 82 L162 90 L94 90 Z" fill={RED} />
-    <path d="M150 128 L188 118" stroke={INK} strokeWidth="4" strokeLinecap="round" />
-  </>
-);
+function Tie({ rotate = 0, fill = RED }: { rotate?: number; fill?: string }) {
+  return (
+    <g transform={rotate ? `rotate(${rotate} 192 184)` : undefined}>
+      <path d="M184 180 L200 180 L202 190 L182 190 Z" fill={fill} />
+      <path d="M184 190 L200 190 L205 238 L192 250 L179 238 Z" fill={fill} />
+    </g>
+  );
+}
 
-/** Retired — Chad Thunderhype: spiked hair + shades. */
-const ChadIllustration: Illustration = ({ variant }) => (
-  <>
-    <DiagonalHighlight variant={variant} />
-    <path
-      d="M12 300 C12 228 66 200 128 200 C190 200 244 228 244 300 Z"
-      fill={STRONG}
-    />
-    <path d="M118 236 L142 236 L128 262 L138 262 L112 292 L122 262 L112 262 Z" fill={RED} />
-    <rect x="110" y="156" width="36" height="52" fill={STRONG} />
-    <ellipse cx="128" cy="122" rx="46" ry="54" fill={STRONG} />
-    <path
-      d="M82 96 L92 48 L104 84 L116 34 L128 80 L140 32 L152 82 L164 44 L174 96 Z"
-      fill={INK}
-    />
-    <path
-      d="M86 118 L124 118 L124 136 C124 140 120 142 116 142 L94 142 C90 142 86 140 86 136 Z"
-      fill={INK}
-    />
-    <path
-      d="M132 118 L170 118 L170 136 C170 140 166 142 162 142 L140 142 C136 142 132 140 132 136 Z"
-      fill={INK}
-    />
-    <path d="M124 124 L132 124" stroke={INK} strokeWidth="4" />
-  </>
-);
+function Glasses({ y = 94, h = 20 }: { y?: number; h?: number }) {
+  const mid = y + h / 2;
+  return (
+    <g fill="none" stroke={INK} strokeWidth="6" strokeLinejoin="round" strokeLinecap="round">
+      <rect x="158" y={y} width="30" height={h} rx="4" />
+      <rect x="196" y={y} width="30" height={h} rx="4" />
+      <path d={`M188 ${mid} L196 ${mid}`} />
+      <path d={`M151 ${y + 6} L158 ${y + 6} M226 ${y + 6} L233 ${y + 6}`} />
+    </g>
+  );
+}
 
-/** Retired — Rick "Two Beers" O'Sullivan: "87" cap + two cans. */
-const RickIllustration: Illustration = ({ variant }) => (
-  <>
-    <DiagonalHighlight variant={variant} />
-    <path
-      d="M24 300 C24 234 72 206 128 206 C184 206 232 234 232 300 Z"
-      fill={STRONG}
-    />
-    <rect x="110" y="156" width="36" height="56" fill={STRONG} />
-    <ellipse cx="128" cy="122" rx="46" ry="54" fill={STRONG} />
-    <path
-      d="M88 144 C96 190 160 190 168 144 C154 158 102 158 88 144 Z"
-      fill={TEXT_2}
-    />
-    <path d="M84 108 C84 60 172 60 172 108 Z" fill={RED} />
-    <path d="M74 108 L182 108 L182 118 L74 118 Z" fill={RED_DEEP} />
-    <text
-      x="128"
-      y="100"
-      textAnchor="middle"
-      className="font-display font-extrabold"
-      fontSize="26"
-      fill={INK}
-    >
-      87
-    </text>
-    <rect x="196" y="238" width="22" height="46" rx="3" fill={INK} />
-    <rect x="196" y="250" width="22" height="6" fill={RED} />
-    <rect x="222" y="252" width="18" height="40" rx="3" fill={INK} />
-    <rect x="222" y="262" width="18" height="5" fill={RED} />
-  </>
-);
+// Hair sits on an ellipse a touch larger than the head (rx43 ry49) so it has volume;
+// the arcs below run from temple to temple over the crown.
+const HAIR_ARC_HIGH = "M151.6 87.2 A43 49 0 0 1 232.4 87.2"; // tight crop
+const HAIR_ARC = "M149.7 95.5 A43 49 0 0 1 234.3 95.5"; // regular
+const HAIR_ARC_LOW = "M149.2 99.7 A43 49 0 0 1 234.8 99.7"; // pulled back / capped
 
 /* -------------------------------------------------------------------------- */
-/* Roster B — the six writers currently on air                                  */
+/* Roster B — the seven writers on air (spec §3)                                */
 /* -------------------------------------------------------------------------- */
 
-/** Curtis Vaughn — Studio Anchor: earpiece coil + flagged hand mic. */
+/** Curtis Vaughn — Studio Anchor: suit and tie, earpiece coil, flagged hand mic. */
 const CurtisIllustration: Illustration = ({ variant }) => (
   <>
-    <DiagonalHighlight variant={variant} />
-    <Bust />
-    {/* Neat side-part anchor hair. */}
-    <path d="M82 104 C82 58 174 58 174 104 C166 82 150 74 132 78 C112 82 92 88 82 104 Z" fill={INK} />
-    {/* Collar and knot. */}
-    <path d="M108 208 L128 228 L148 208 L142 206 L128 220 L114 206 Z" fill={INK} />
-    {/* Earpiece + coil down into the collar. */}
-    <circle cx="80" cy="126" r="8" fill={INK} />
+    <Highlight variant={variant} />
+    <Torso />
+    <ShirtV depth={76} />
+    <Tie />
+    <Neck />
+    <Head />
+    {/* Neat anchor hair with a side part. */}
     <path
-      d="M80 136 C66 158 74 182 86 200"
+      d={`${HAIR_ARC} C230 86 220 78 204 76 C188 75 166 80 158 86 C153 89 150.5 92 149.7 95.5 Z`}
+      fill={MID}
+    />
+    {/* Earpiece and the coiled cable down into the collar. */}
+    <circle cx="150" cy="108" r="6" fill={INK} />
+    <path
+      d="M150 114 C142 119 142 128 151 132 C143 137 143 146 154 152 C146 158 148 168 160 176 L168 184"
       stroke={INK}
-      strokeWidth="5"
+      strokeWidth="4.5"
       fill="none"
       strokeLinecap="round"
     />
-    {/* Flagged hand mic: grille, red station flag, shaft. */}
-    <ellipse cx="200" cy="200" rx="13" ry="14" fill={INK} />
-    <path d="M191 195 L209 195" stroke={STRONG} strokeWidth="4" strokeLinecap="round" />
-    <rect x="186" y="212" width="28" height="28" fill={RED} />
-    <rect x="193" y="240" width="14" height="48" fill={INK} />
+    {/* Flagged hand mic: grille, station flag, shaft. */}
+    <circle cx="256" cy="160" r="13" fill={INK} />
+    <path d="M247 156 L265 156 M247 164 L265 164" stroke={CUT} strokeWidth="2" />
+    <rect x="243" y="174" width="26" height="22" fill={RED} />
+    <rect x="249" y="182" width="14" height="4" fill={INK} />
+    <rect x="250" y="196" width="12" height="50" fill={INK} />
+    <Forearm d="M258 224 L290 258" />
+    <Hand x={256} y={218} />
   </>
 );
 
-/** Simone "Sam" Ortega — Sideline Reporter: stick mic + credential lanyard. */
+/** Simone "Sam" Ortega — Sideline Reporter: hair pulled back, credential lanyard, stick mic held out. */
 const SamIllustration: Illustration = ({ variant }) => (
   <>
-    <DiagonalHighlight variant={variant} />
-    <Bust />
-    {/* Hair pulled back, low ponytail on the off-mic side. */}
-    <path d="M80 118 C78 60 178 60 176 118 C170 86 86 86 80 118 Z" fill={INK} />
-    <path d="M74 128 C58 148 58 178 70 196 C80 180 78 148 86 134 Z" fill={INK} />
+    <Highlight variant={variant} />
+    {/* Ponytail swings out behind the off-mic shoulder. */}
+    <path d="M160 88 C130 98 126 142 138 178 C144 160 148 146 160 132 Z" fill={MID} />
+    <Torso />
+    <ShirtV depth={30} />
+    <Neck />
+    <Head />
+    <path d={`${HAIR_ARC_LOW} C230 88 214 80 192 80 C170 80 154 88 149.2 99.7 Z`} fill={MID} />
     {/* Credential on a red lanyard. */}
-    <path
-      d="M104 208 L124 226 M152 208 L132 226"
-      stroke={RED}
-      strokeWidth="5"
-      strokeLinecap="round"
-    />
-    <rect x="110" y="222" width="36" height="26" fill={INK} />
-    <rect x="110" y="222" width="36" height="7" fill={RED} />
-    <path
-      d="M116 236 L140 236 M116 242 L131 242"
-      stroke={STRONG}
-      strokeWidth="3"
-      strokeLinecap="round"
-    />
-    {/* Stick mic, no flag — the one she actually holds out. */}
-    <ellipse cx="200" cy="196" rx="12" ry="13" fill={STRONG} stroke={INK} strokeWidth="4" />
-    <rect x="193" y="208" width="14" height="76" fill={INK} />
-    <rect x="193" y="218" width="14" height="5" fill={RED} />
+    <path d="M176 178 L188 210 M208 178 L196 210" stroke={RED} strokeWidth="4" strokeLinecap="round" />
+    <rect x="174" y="208" width="36" height="26" fill={INK} />
+    <rect x="174" y="208" width="36" height="7" fill={RED} />
+    <path d="M180 222 L204 222 M180 228 L196 228" stroke={CUT} strokeWidth="2.5" strokeLinecap="round" />
+    {/* Stick mic — the one she actually holds out. */}
+    <rect x="256" y="156" width="12" height="70" fill={INK} />
+    <rect x="256" y="166" width="12" height="6" fill={RED} />
+    <circle cx="262" cy="148" r="13" fill={INK} />
+    <path d="M253 144 L271 144 M253 152 L271 152" stroke={CUT} strokeWidth="2" />
+    <Forearm d="M264 208 L290 256" />
+    <Hand x={262} y={202} />
   </>
 );
 
-/** Nina Sharpe — The Numbers Desk: glasses + stylus over a three-bar chart. */
+/** Nina Sharpe — The Numbers Desk: bob, glasses, rolled collar, tablet with a three-bar chart and stylus. */
 const NinaIllustration: Illustration = ({ variant }) => (
   <>
-    <DiagonalHighlight variant={variant} />
-    <Bust />
-    {/* Bob, drawn before the glasses so the frames sit on top. */}
+    <Highlight variant={variant} />
+    <Torso />
+    <Neck />
+    {/* Rolled collar at the base of the neck. */}
+    <path d="M170 172 C170 165 214 165 214 172 L216 186 L168 186 Z" fill={MID} />
+    <Head />
+    {/* Bob, then the face back on top with straight bangs. */}
     <path
-      d="M78 122 C76 60 180 60 178 122 L178 152 L166 152 C170 126 168 104 160 96 C144 86 112 86 96 96 C88 104 86 126 90 152 L78 152 Z"
-      fill={INK}
+      d="M147 100 A45 50 0 0 1 237 100 L237 138 C237 146 231 148 226 146 L158 146 C153 148 147 146 147 138 Z"
+      fill={MID}
     />
-    <rect x="88" y="106" width="34" height="24" rx="3" fill="none" stroke={INK} strokeWidth="4" />
-    <rect x="134" y="106" width="34" height="24" rx="3" fill="none" stroke={INK} strokeWidth="4" />
-    <path d="M122 116 L134 116" stroke={INK} strokeWidth="4" />
-    {/* Three-bar chart with the stylus drawn across it. */}
-    <rect x="150" y="270" width="12" height="30" fill={SIGNAL} />
-    <rect x="166" y="256" width="12" height="44" fill={SIGNAL} />
-    <rect x="182" y="238" width="12" height="62" fill={SIGNAL} />
-    <path d="M140 292 L204 228" stroke={INK} strokeWidth="7" strokeLinecap="round" />
-    <path d="M204 228 L213 219" stroke={RED} strokeWidth="7" strokeLinecap="round" />
+    <path d="M156 84 A40 46 0 1 0 228 84 C216 90 168 90 156 84 Z" fill={STRONG} />
+    <Glasses y={94} />
+    {/* Tablet: three rising bars, stylus across the top corner. */}
+    <rect x="146" y="204" width="92" height="60" rx="4" fill={INK} />
+    <rect x="152" y="210" width="80" height="50" fill={CUT} />
+    <rect x="162" y="238" width="14" height="22" fill={SIGNAL} />
+    <rect x="183" y="226" width="14" height="34" fill={SIGNAL} />
+    <rect x="204" y="212" width="14" height="48" fill={SIGNAL} />
+    <path d="M270 236 L238 200" stroke={INK} strokeWidth="6" strokeLinecap="round" />
+    <circle cx="238" cy="200" r="4" fill={RED} />
+    <Forearm d="M150 240 L118 260" />
+    <Hand x={150} y={236} r={12} />
+    <Forearm d="M272 242 L298 260" />
+    <Hand x={272} y={238} r={12} />
   </>
 );
 
-/** Dex Alvarez — Insider · Transactions Desk: phone at the ear. */
+/** Dex Alvarez — Insider · Transactions Desk: tight crop, loosened tie, phone at the ear. */
 const DexIllustration: Illustration = ({ variant }) => (
   <>
-    <DiagonalHighlight variant={variant} />
-    <Bust />
-    <path d="M84 106 C86 62 170 62 172 106 C160 84 96 84 84 106 Z" fill={INK} />
-    {/* Collar and red tie. */}
-    <path d="M108 208 L128 228 L148 208 L142 206 L128 220 L114 206 Z" fill={RED} />
-    {/* Hand, then the phone on top of it, held to the ear. */}
-    <path
-      d="M166 128 L166 156 C176 164 194 160 196 148 L196 126 Z"
-      fill={STRONG}
-      stroke={INK}
-      strokeWidth="3"
-    />
-    <g transform="rotate(10 182 124)">
-      <rect x="170" y="98" width="24" height="52" fill={INK} />
-      <rect x="174" y="106" width="16" height="34" fill={SIGNAL} />
+    <Highlight variant={variant} />
+    <Torso />
+    <ShirtV depth={36} />
+    <Tie rotate={-7} />
+    <Neck />
+    <Head />
+    <path d={`${HAIR_ARC_HIGH} C226 80 210 76 192 76 C174 76 158 80 151.6 87.2 Z`} fill={MID} />
+    {/* Arm up, phone to the ear, signal bars. */}
+    <Forearm d="M242 132 L276 200" />
+    <g transform="rotate(12 238 106)">
+      <rect x="225" y="80" width="26" height="50" rx="4" fill={INK} />
+      <rect x="229" y="86" width="18" height="34" fill={SIGNAL} />
     </g>
-    <path
-      d="M202 86 C210 90 214 97 214 105"
-      stroke={SIGNAL}
-      strokeWidth="4"
-      fill="none"
-      strokeLinecap="round"
-    />
-    <path
-      d="M208 74 C222 81 228 93 228 105"
-      stroke={SIGNAL}
-      strokeWidth="4"
-      fill="none"
-      strokeLinecap="round"
-    />
+    <Hand x={241} y={130} />
+    <path d="M250 70 C256 74 260 80 260 88" stroke={SIGNAL} strokeWidth="4" fill="none" strokeLinecap="round" />
+    <path d="M258 60 C266 66 271 76 271 88" stroke={SIGNAL} strokeWidth="4" fill="none" strokeLinecap="round" />
   </>
 );
 
-/** Walt Brennan — The Veteran Columnist: glasses pushed up + folded newspaper. */
+/** Mel Diaper — The Draft Disaster: suit and a loud tie, a towering swept-back hairdo, a failing draft grade in hand. */
+const MelIllustration: Illustration = ({ variant }) => (
+  <>
+    <Highlight variant={variant} />
+    <Torso />
+    <ShirtV depth={76} />
+    <Tie fill={SIGNAL} />
+    <Neck />
+    <Head />
+    {/* The hair: a tall, swept-back mass, wider than the head, with a wave at the front and soft ridges. */}
+    <path
+      d="M150 112 C130 96 132 44 170 30 C186 24 204 26 216 30 C238 36 248 68 244 92 C242 102 238 108 234 112 L230 104 C224 84 212 76 192 78 C172 76 160 84 154 104 Z"
+      fill={MID}
+    />
+    <path
+      d="M170 82 C160 66 162 46 178 34 M192 80 C186 62 188 44 200 32 M214 82 C218 64 214 48 224 38"
+      stroke={CUT}
+      strokeWidth="5"
+      fill="none"
+      strokeLinecap="round"
+      opacity="0.3"
+    />
+    {/* The grade card. */}
+    <g transform="rotate(-8 268 226)">
+      <rect x="246" y="198" width="44" height="58" fill={STRONG} stroke={INK} strokeWidth="3" />
+      <path d="M258 210 L258 244 M258 210 L280 210 M258 226 L276 226" stroke={RED} strokeWidth="7" strokeLinecap="square" />
+    </g>
+    <Forearm d="M270 252 L298 264" />
+    <Hand x={268} y={248} />
+  </>
+);
+
+/** Walt Brennan — The Veteran Columnist: receding silver hair, reading glasses, bow tie, folded paper. */
 const WaltIllustration: Illustration = ({ variant }) => (
   <>
-    <DiagonalHighlight variant={variant} />
-    <Bust />
-    {/* Grey hair, receding, with sideburns. */}
-    <path d="M84 96 C90 62 166 62 172 96 C158 80 98 80 84 96 Z" fill={TEXT_2} />
-    <path d="M82 100 C78 116 80 134 84 146 C82 124 84 108 90 98 Z" fill={TEXT_2} />
-    <path d="M174 100 C178 116 176 134 172 146 C174 124 172 108 166 98 Z" fill={TEXT_2} />
-    {/* Reading glasses pushed up into the hairline. */}
-    <rect x="88" y="80" width="32" height="22" rx="3" fill="none" stroke={INK} strokeWidth="4" />
-    <rect x="136" y="80" width="32" height="22" rx="3" fill="none" stroke={INK} strokeWidth="4" />
-    <path d="M120 90 L136 90" stroke={INK} strokeWidth="4" />
-    <path d="M82 88 L88 88 M168 88 L174 88" stroke={INK} strokeWidth="4" />
-    <path d="M104 142 C114 134 142 134 152 142 C142 152 114 152 104 142 Z" fill={TEXT_2} />
-    {/* Folded newspaper under the arm. */}
-    <g transform="rotate(-12 74 236)">
-      <rect x="38" y="208" width="72" height="54" fill={STRONG} stroke={INK} strokeWidth="3" />
-      <path d="M74 208 L74 262" stroke={INK} strokeWidth="3" />
+    <Highlight variant={variant} />
+    <Torso />
+    <ShirtV depth={32} />
+    {/* Bow tie and cardigan buttons. */}
+    <path d="M178 178 L192 184 L206 178 L206 194 L192 188 L178 194 Z" fill={INK} />
+    <rect x="189" y="182" width="6" height="8" fill={INK} />
+    <circle cx="192" cy="222" r="2.5" fill={CUT} />
+    <circle cx="192" cy="238" r="2.5" fill={CUT} />
+    <circle cx="192" cy="254" r="2.5" fill={CUT} />
+    <Neck />
+    <Head />
+    {/* Receding silver hair with sideburns. */}
+    <path
+      d="M151.6 120.8 A43 49 0 1 1 232.4 120.8 L226 122 C224 108 226 92 222 82 C216 72 204 74 192 78 C180 74 168 72 162 82 C158 92 160 108 158 122 Z"
+      fill={SILVER}
+    />
+    <Glasses y={94} />
+    {/* Folded paper with a red masthead. */}
+    <g transform="rotate(-10 124 226)">
+      <rect x="94" y="196" width="60" height="70" fill={STRONG} stroke={INK} strokeWidth="3" />
+      <path d="M124 196 L124 266" stroke={INK} strokeWidth="3" />
+      <rect x="99" y="202" width="20" height="6" fill={RED} />
       <path
-        d="M46 220 L66 220 M46 230 L66 230 M46 240 L66 240 M82 220 L102 220 M82 230 L102 230 M82 240 L102 240"
-        stroke={TEXT_2}
+        d="M100 214 L118 214 M100 222 L118 222 M100 230 L118 230 M100 238 L118 238 M130 204 L148 204 M130 212 L148 212 M130 220 L148 220 M130 228 L148 228 M130 236 L148 236"
+        stroke={SILVER}
         strokeWidth="3"
         strokeLinecap="round"
       />
     </g>
+    <Forearm d="M126 248 L102 268" />
+    <Hand x={124} y={246} />
   </>
 );
 
-/** Reggie Banks — The Results Desk: backwards cap + chain. */
+/** Reggie Banks — The Results Desk: backwards snapback, chain, box score in hand. */
 const ReggieIllustration: Illustration = ({ variant }) => (
   <>
-    <DiagonalHighlight variant={variant} />
-    <Bust />
-    {/* Backwards cap: crown filling the top of the head, above the band. */}
-    <path
-      d="M84 90 C84 52 172 52 172 90 C172 94 168 96 164 96 L92 96 C88 96 84 94 84 90 Z"
-      fill={RED}
-    />
-    {/* Band across the forehead, slight curve. */}
-    <path d="M84 92 C84 76 172 76 172 92 C168 84 88 84 84 92 Z" fill={RED} />
-    {/* Bill, sticking out behind the head to the right. */}
-    <path d="M168 84 C182 82 198 84 206 90 C198 96 182 96 168 96 Z" fill={RED_DEEP} />
-    {/* Thick chain across the upper chest, with a small pendant at its low point. */}
-    <path
-      d="M100 212 C108 222 148 222 156 212"
-      stroke={INK}
-      strokeWidth="5"
-      fill="none"
-      strokeLinecap="round"
-    />
-    <rect x="123" y="220" width="10" height="12" fill={INK} />
+    <Highlight variant={variant} />
+    {/* Bill sticks out behind the head. */}
+    <path d="M226 80 C248 76 268 80 276 92 C268 100 248 102 226 98 Z" fill={RED_DEEP} />
+    <Torso />
+    <path d="M168 178 C168 202 216 202 216 178 Z" fill={MID} />
+    <Neck />
+    <Head />
+    {/* Crown, then the snapback opening and strap facing front. */}
+    <path d="M148.2 99.6 A44 50 0 0 1 235.8 99.6 C230 92 208 88 192 88 C176 88 154 92 148.2 99.6 Z" fill={RED} />
+    <path d="M183 88 A9 9 0 0 1 201 88 Z" fill={MID} />
+    <rect x="180" y="86" width="24" height="6" fill={INK} />
+    {/* Chain with a pendant. */}
+    <path d="M168 184 C176 212 208 212 216 184" stroke={INK} strokeWidth="6" fill="none" strokeLinecap="round" />
+    <path d="M192 204 L200 212 L192 222 L184 212 Z" fill={INK} />
+    {/* Sunday's box score. */}
+    <g transform="rotate(8 278 230)">
+      <rect x="254" y="196" width="48" height="68" fill={STRONG} stroke={INK} strokeWidth="3" />
+      <path
+        d="M262 208 L294 208 M262 218 L294 218 M262 238 L294 238 M262 248 L294 248"
+        stroke={SILVER}
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+      <rect x="260" y="224" width="36" height="8" fill={RED} />
+    </g>
+    <Forearm d="M280 254 L304 266" />
+    <Hand x={278} y={250} />
+  </>
+);
+
+/* -------------------------------------------------------------------------- */
+/* Retired — kept so archived bylines keep their drawn portrait                */
+/* -------------------------------------------------------------------------- */
+
+/** Stan Deviation: glasses + a rising bar chart. */
+const StanIllustration: Illustration = ({ variant }) => (
+  <>
+    <Highlight variant={variant} />
+    <Torso />
+    <ShirtV depth={30} />
+    <Neck />
+    <Head />
+    <path d={`${HAIR_ARC} C228 84 212 78 192 78 C172 78 156 84 149.7 95.5 Z`} fill={MID} />
+    <Glasses y={94} />
+    <rect x="262" y="236" width="12" height="20" fill={SIGNAL} />
+    <rect x="278" y="222" width="12" height="34" fill={SIGNAL} />
+    <rect x="294" y="204" width="12" height="52" fill={SIGNAL} />
+  </>
+);
+
+/** Vinny "The Sauce" Marinara: fedora with a red band, open collar, toothpick. */
+const VinnyIllustration: Illustration = ({ variant }) => (
+  <>
+    <Highlight variant={variant} />
+    <Torso />
+    <path d="M166 180 L192 226 L218 180 L208 180 L192 208 L176 180 Z" fill={INK} />
+    <Neck />
+    <Head />
+    <path d="M160 74 L166 46 C176 38 208 38 218 46 L224 74 Z" fill={INK} />
+    <ellipse cx="192" cy="76" rx="62" ry="10" fill={INK} />
+    <path d="M162 66 L222 66 L224 74 L160 74 Z" fill={RED} />
+    <path d="M212 136 L246 128" stroke={INK} strokeWidth="4" strokeLinecap="round" />
+  </>
+);
+
+/** Chad Thunderhype: spiked hair, shades, a bolt on the chest. */
+const ChadIllustration: Illustration = ({ variant }) => (
+  <>
+    <Highlight variant={variant} />
+    <Torso />
+    <path d="M186 196 L206 196 L194 218 L204 218 L180 248 L188 224 L178 224 Z" fill={RED} />
+    <Neck />
+    <Head />
+    <path d="M154 90 L162 44 L172 76 L182 32 L192 72 L202 30 L212 74 L222 40 L230 90 Z" fill={INK} />
+    <path d="M156 96 L188 96 L188 112 C188 116 184 118 180 118 L164 118 C160 118 156 116 156 112 Z" fill={INK} />
+    <path d="M196 96 L228 96 L228 112 C228 116 224 118 220 118 L204 118 C200 118 196 116 196 112 Z" fill={INK} />
+    <path d="M188 101 L196 101" stroke={INK} strokeWidth="4" />
+  </>
+);
+
+/** Rick "Two Beers" O'Sullivan: "87" cap, beard, two cans. */
+const RickIllustration: Illustration = ({ variant }) => (
+  <>
+    <Highlight variant={variant} />
+    <Torso />
+    <Neck />
+    <Head />
+    <path d="M158 120 C164 158 220 158 226 120 C214 132 170 132 158 120 Z" fill={SILVER} />
+    <path d="M154 92 C154 50 230 50 230 92 Z" fill={RED} />
+    <rect x="146" y="92" width="92" height="9" fill={RED_DEEP} />
+    <text
+      x="192"
+      y="86"
+      textAnchor="middle"
+      className="font-display font-extrabold"
+      fontSize="24"
+      fill={INK}
+    >
+      87
+    </text>
+    <rect x="256" y="200" width="20" height="40" rx="3" fill={INK} />
+    <rect x="256" y="210" width="20" height="5" fill={RED} />
+    <rect x="280" y="212" width="16" height="34" rx="3" fill={INK} />
+    <rect x="280" y="220" width="16" height="4" fill={RED} />
   </>
 );
 
 /**
  * Slug- and name-matched illustrations. Active writers are tested first so a
- * retired pattern can never shadow one of them; the five retired entries stay
+ * retired pattern can never shadow one of them; the retired entries stay
  * mapped so archived bylines keep their drawn portrait.
  */
 const ILLUSTRATIONS: Array<{ test: RegExp; render: Illustration }> = [
@@ -420,10 +486,10 @@ function InitialsFallback({
 }
 
 /**
- * The drawn on-air-talent silhouettes — the six current writers (Curtis, Sam,
- * Nina, Dex, Mel, Walt) plus the five retired ones kept for archived bylines —
- * matched by slug or display name against `persona`, with an initials-plate
- * fallback for any other byline (e.g. "mike-harrison").
+ * The drawn on-air-talent silhouettes — the seven current writers (Curtis, Sam,
+ * Nina, Dex, Mel, Reggie, Walt) plus the four retired ones kept for archived
+ * bylines — matched by slug or display name against `persona`, with an
+ * initials-plate fallback for any other byline (e.g. "mike-harrison").
  */
 export function PersonaAvatar({ persona, size = 48, variant = "bust", className }: PersonaAvatarProps) {
   const render = matchIllustration(persona);
@@ -435,7 +501,7 @@ export function PersonaAvatar({ persona, size = 48, variant = "bust", className 
   if (variant === "portrait") {
     return (
       <svg
-        viewBox="0 0 256 300"
+        viewBox={PORTRAIT_VIEWBOX}
         preserveAspectRatio="xMidYMid slice"
         className={cn("block h-full w-full", className)}
         role="img"
@@ -448,7 +514,7 @@ export function PersonaAvatar({ persona, size = 48, variant = "bust", className 
 
   return (
     <svg
-      viewBox="20 30 216 216"
+      viewBox={BUST_VIEWBOX}
       preserveAspectRatio="xMidYMid slice"
       width={size}
       height={size}
@@ -456,6 +522,8 @@ export function PersonaAvatar({ persona, size = 48, variant = "bust", className 
       role="img"
       aria-label={persona}
     >
+      {/* The bust carries its own card-toned ground so light props still read on the off-white LowerThird plate. */}
+      <rect x={BUST.x} y={BUST.y} width={BUST.size} height={BUST.size} fill={CUT} />
       {render({ variant })}
     </svg>
   );

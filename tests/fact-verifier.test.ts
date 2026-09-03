@@ -821,6 +821,26 @@ describe("look-ahead slate", () => {
 
     expect(verifyArticle(previewArticle, previewFacts)).toEqual([]);
   });
+
+  it("warns on a record beside a team only in a preview written before kickoff", () => {
+    const beforeKickoff = buildFactsBlock({
+      ...previewRequest,
+      leagueData: {
+        ...previewLeagueData,
+        currentWeek: 0,
+        playerBoard: { basis: "upcoming_projection", throughWeek: 0, entries: [] },
+      },
+    });
+    expect(beforeKickoff.board).toEqual({ basis: "this week's projections", throughWeek: 0, positions: [] });
+    const body = prose("Alpha (0-0) hosts Beta.");
+    const template = contentTemplates.weekly_preview;
+    const hits = (facts: FactsBlock) =>
+      verifyArticle({ ...cleanArticle, ...body }, facts, { template }).filter(
+        violation => violation.kind === "records_before_kickoff"
+      );
+    expect(hits(beforeKickoff)).toMatchObject([{ severity: "warn", section: "introduction" }]);
+    expect(hits(previewFacts)).toEqual([]);
+  });
 });
 
 /* -------------------------------------------------------------------------- */
