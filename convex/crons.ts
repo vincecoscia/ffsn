@@ -118,4 +118,18 @@ crons.daily(
   {},
 );
 
+// Commissioner-facing ESPN credential lifecycle reminders, private leagues
+// only ("notify the commissioner 2 weeks before a known token expires, or
+// once it has, so they can fix it ASAP"): resends the "still broken" notice
+// every 3 days a connection stays invalid, warns once per expiry date inside
+// the 14-day window, and probes a token whose commissioner-entered expiry has
+// passed but that no sync has caught yet. 13:30 UTC, right after the operator
+// digest above.
+crons.daily(
+  "ESPN credential reminders",
+  { hourUTC: 13, minuteUTC: 30 },
+  internal.espnCredentialLifecycle.dailyCredentialReminders,
+  {},
+);
+
 export default crons;

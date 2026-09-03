@@ -11,6 +11,9 @@ import {
   personaInitials,
   renderArticlePublishedEmail,
   renderCommentRequestEmail,
+  renderEspnConnectionBrokenEmail,
+  renderEspnConnectionExpiringEmail,
+  renderEspnConnectionRestoredEmail,
   renderLocalTemplate,
   renderSystemNoticeEmail,
   renderTeamInvitationEmail,
@@ -18,6 +21,9 @@ import {
   shortName,
   writerDisplay,
   type CommentRequestEmailData,
+  type EspnConnectionBrokenEmailData,
+  type EspnConnectionExpiringEmailData,
+  type EspnConnectionRestoredEmailData,
   type TeamInvitationEmailData,
 } from "../src/lib/email";
 
@@ -237,6 +243,155 @@ describe("team invitation email", () => {
     expect(isLocalTemplateId(id)).toBe(true);
     const rendered = renderLocalTemplate(id, base);
     expect(rendered?.subject).toContain("You're invited to claim Kittle Me This");
+  });
+});
+
+describe("espn connection broken email", () => {
+  const base: EspnConnectionBrokenEmailData = {
+    leagueName: "The Sunday Scaries",
+    errorDetail: "ESPN API returned 401: Unauthorized",
+    waitingCount: 3,
+    fixUrl: `${siteUrl}/leagues/l1/settings`,
+    preferencesUrl,
+    siteUrl,
+  };
+
+  it("names what ESPN said, what's waiting, links the fix, and gives the cookie steps", () => {
+    const email = renderEspnConnectionBrokenEmail(base);
+    expect(email.fromName).toBe("FFSN");
+    expect(email.subject).toBe("Action needed: FFSN can't reach your ESPN league");
+    expect(email.html).toContain("The Sunday Scaries");
+    expect(email.html).toContain("ESPN API returned 401: Unauthorized");
+    expect(email.html).toContain("3");
+    expect(email.html).toContain("Fix the connection");
+    expect(email.html).toContain(base.fixUrl);
+    expect(email.html).toContain("espn_s2");
+    expect(email.html).toContain("SWID");
+    expect(email.text).toContain("Fix the connection: " + base.fixUrl);
+    expect(email.text).toContain(base.fixUrl); // plain-text URL fallback
+    expect(email.text).toContain("How to find your ESPN cookies");
+  });
+
+  it("switches to reminder copy without changing the core facts", () => {
+    const first = renderEspnConnectionBrokenEmail(base);
+    const reminder = renderEspnConnectionBrokenEmail({ ...base, isReminder: true });
+    expect(reminder.subject).not.toBe(first.subject);
+    expect(reminder.subject.toLowerCase()).toContain("still");
+    expect(reminder.html).toContain("Still");
+    // The facts (error detail, waiting count, fix link) don't change with the variant.
+    expect(reminder.html).toContain("ESPN API returned 401: Unauthorized");
+    expect(reminder.html).toContain(base.fixUrl);
+  });
+
+  it("falls back to plain copy when ESPN's error message is unknown, and handles zero waiting", () => {
+    const email = renderEspnConnectionBrokenEmail({ ...base, errorDetail: undefined, waitingCount: 0 });
+    expect(email.html).toContain("Login rejected");
+    expect(email.html).not.toContain("undefined");
+  });
+
+  it("escapes user-controlled text", () => {
+    const email = renderEspnConnectionBrokenEmail({
+      ...base,
+      leagueName: 'Bob\'s "League" & Co <b>',
+      errorDetail: "<script>alert(1)</script>",
+    });
+    expect(email.html).not.toContain("<script>alert(1)</script>");
+    expect(email.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(email.html).toContain("Bob&#39;s &quot;League&quot; &amp; Co &lt;b&gt;");
+  });
+
+  it("round-trips through the local template registry", () => {
+    const id = localTemplateId("espn_connection_broken");
+    expect(id).toBe("ffsn:espn_connection_broken");
+    expect(isLocalTemplateId(id)).toBe(true);
+    const rendered = renderLocalTemplate(id, base);
+    expect(rendered?.subject).toContain("can't reach your ESPN league");
+  });
+});
+
+describe("espn connection expiring email", () => {
+  const base: EspnConnectionExpiringEmailData = {
+    leagueName: "The Sunday Scaries",
+    daysLeft: 12,
+    fixUrl: `${siteUrl}/leagues/l1/settings`,
+    preferencesUrl,
+    siteUrl,
+  };
+
+  it("names the days left, links reconnect, and gives the cookie steps", () => {
+    const email = renderEspnConnectionExpiringEmail(base);
+    expect(email.fromName).toBe("FFSN");
+    expect(email.subject).toBe("Your ESPN login for FFSN expires in 12 days");
+    expect(email.html).toContain("The Sunday Scaries");
+    expect(email.html).toContain("12 days");
+    expect(email.html).toContain("Reconnect now");
+    expect(email.html).toContain(base.fixUrl);
+    expect(email.html).toContain("espn_s2");
+    expect(email.text).toContain("Reconnect now: " + base.fixUrl);
+    expect(email.text).toContain(base.fixUrl);
+  });
+
+  it("uses singular 'day' for one day left, and floors/rounds sensibly", () => {
+    const email = renderEspnConnectionExpiringEmail({ ...base, daysLeft: 1 });
+    expect(email.subject).toBe("Your ESPN login for FFSN expires in 1 day");
+    expect(email.html).not.toContain("1 days");
+  });
+
+  it("escapes user-controlled text", () => {
+    const email = renderEspnConnectionExpiringEmail({ ...base, leagueName: "<script>alert(1)</script>" });
+    expect(email.html).not.toContain("<script>alert(1)</script>");
+    expect(email.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("round-trips through the local template registry", () => {
+    const id = localTemplateId("espn_connection_expiring");
+    expect(id).toBe("ffsn:espn_connection_expiring");
+    expect(isLocalTemplateId(id)).toBe(true);
+    const rendered = renderLocalTemplate(id, base);
+    expect(rendered?.subject).toBe("Your ESPN login for FFSN expires in 12 days");
+  });
+});
+
+describe("espn connection restored email", () => {
+  const base: EspnConnectionRestoredEmailData = {
+    leagueName: "The Sunday Scaries",
+    resumedCount: 4,
+    withoutInterviewsCount: 1,
+    leagueUrl: `${siteUrl}/leagues/l1`,
+    preferencesUrl,
+    siteUrl,
+  };
+
+  it("confirms the fix, the resume counts, and links back in", () => {
+    const email = renderEspnConnectionRestoredEmail(base);
+    expect(email.fromName).toBe("FFSN");
+    expect(email.subject).toBe("FFSN is back on your league");
+    expect(email.html).toContain("The Sunday Scaries");
+    expect(email.html).toContain("4");
+    expect(email.html).toContain("1");
+    expect(email.html).toContain("Open your league");
+    expect(email.html).toContain(base.leagueUrl);
+    expect(email.text).toContain("Open your league: " + base.leagueUrl);
+    expect(email.text).toContain(base.leagueUrl);
+  });
+
+  it("copes with a backlog that resumed nothing", () => {
+    const email = renderEspnConnectionRestoredEmail({ ...base, resumedCount: 0, withoutInterviewsCount: 0 });
+    expect(email.html).not.toContain("undefined");
+  });
+
+  it("escapes user-controlled text", () => {
+    const email = renderEspnConnectionRestoredEmail({ ...base, leagueName: "<script>alert(1)</script>" });
+    expect(email.html).not.toContain("<script>alert(1)</script>");
+    expect(email.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("round-trips through the local template registry", () => {
+    const id = localTemplateId("espn_connection_restored");
+    expect(id).toBe("ffsn:espn_connection_restored");
+    expect(isLocalTemplateId(id)).toBe(true);
+    const rendered = renderLocalTemplate(id, base);
+    expect(rendered?.subject).toBe("FFSN is back on your league");
   });
 });
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
-import { Plus, UserPlus, Users } from "lucide-react";
+import { Plus, TriangleAlert, UserPlus, Users } from "lucide-react";
 
 import { Panel, SectionHeader, StatBlock, RankPlate, TeamTile } from "@/components/broadcast";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +70,15 @@ export function LeagueSidebar({ leagueId, currentUserId, className }: LeagueSide
     limit: 3,
   });
 
+  // Same paused/broken condition EspnConnectionCard and ContentGenerator use:
+  // ESPN is rejecting this private league's saved cookies, so the scheduler
+  // is backlogging automated stories instead of generating them.
+  const espnConnection = useQuery(api.leagues.getEspnConnection, { leagueId });
+  const isContentPaused = Boolean(
+    espnConnection?.contentPausedAt ||
+      (espnConnection?.isPrivate && espnConnection?.credentialStatus === "invalid")
+  );
+
   if (league === undefined || teams === undefined || teamClaims === undefined) {
     return (
       <div className={cn("flex flex-col gap-7", className)}>
@@ -100,6 +110,24 @@ export function LeagueSidebar({ leagueId, currentUserId, className }: LeagueSide
 
   return (
     <div className={cn("flex flex-col gap-7", className)}>
+      {/* Paused-content notice: compact, one line. */}
+      {isContentPaused && (
+        <div className="flex items-center gap-2 border-l-4 border-l-bc-red-deep bg-bc-red-deep/10 px-3 py-2 text-xs text-bc-red-text">
+          <TriangleAlert className="size-3.5 flex-none" strokeWidth={1.8} />
+          <span className="min-w-0 flex-1">
+            Automated stories are paused until the commissioner fixes the ESPN connection.
+          </span>
+          {isCommissioner && (
+            <Link
+              href={`/leagues/${leagueId}/settings`}
+              className="flex-none font-semibold underline underline-offset-2 hover:text-bc-ink"
+            >
+              Fix
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Your team */}
       {userTeam ? (
         <Panel cut="tr" padding="md" className="flex flex-col gap-[18px] border-t-4 border-t-bc-red">

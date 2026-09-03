@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
 import { leagueCurrentSeason } from "./lib/season";
+import { espnConnectionBlocked } from "./lib/espnConnection";
 
 /**
  * Content types that reach out for comment before they are written
@@ -51,6 +52,23 @@ export const onContentScheduled = internalMutation({
 
     const scheduledContent = await ctx.db.get(args.scheduledContentId);
     const league = await ctx.db.get(args.leagueId);
+
+    // Reach out for comment articles should NOT reach out for comment while
+    // the league's ESPN connection is broken (nothing to write about yet, and
+    // it may end up weeks-old by the time it is fixed), for a row that has
+    // already been flagged to skip interviews (a resumed backlog row whose
+    // week has passed), or for a row that is no longer in a state that can
+    // still use an interview (owner directive, Sept 2026).
+    if (espnConnectionBlocked(league)) {
+      console.log(`Skipping comment request scheduling for ${args.contentType}: ESPN connection blocked for league ${args.leagueId}`);
+      return { scheduled: false, reason: "espn_connection_blocked" as const };
+    }
+    if (scheduledContent?.skipCommentRequests) {
+      return { scheduled: false, reason: "skip_comment_requests" as const };
+    }
+    if (scheduledContent && scheduledContent.status !== "pending" && scheduledContent.status !== "generating") {
+      return { scheduled: false, reason: "row_not_pending" as const };
+    }
 
     // The season this article is actually about. `scheduledContent` carries it
     // in two possible spots (contextData is the generation payload;

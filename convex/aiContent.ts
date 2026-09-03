@@ -30,6 +30,26 @@ import {
   handleGenerationFailure,
   isInsufficientDataError,
 } from "./lib/generationFailure";
+import { espnConnectionBlocked, FRESHNESS_EXEMPT_CONTENT } from "./lib/espnConnection";
+
+/**
+ * Manual generation's half of the ESPN connection gate (owner directive,
+ * Sept 2026): a private league whose stored cookies ESPN rejects cannot have
+ * its data refreshed, so the desk cannot write a fresh (non-exempt) article
+ * about it - refuse before any credit is spent. Throws rather than returning
+ * so every caller mutation stops before `credits.deductCredits`.
+ */
+function assertEspnConnectionNotBlocked(
+  league: { espnData?: { isPrivate?: boolean; credentialStatus?: string } | null } | null,
+  contentType: string,
+): void {
+  if (FRESHNESS_EXEMPT_CONTENT.has(contentType)) return;
+  if (!espnConnectionBlocked(league)) return;
+  throw new Error(
+    "ESPN_CONNECTION_BROKEN: ESPN rejected this league's cookies, so the desk can't read fresh data. " +
+      "Ask your commissioner to fix the ESPN connection in League settings.",
+  );
+}
 
 export const getByLeague = query({
   args: { 
@@ -241,6 +261,11 @@ export const createGenerationRequest = mutation({
       throw new Error("League not found");
     }
 
+    // ESPN connection gate (owner directive, Sept 2026). Before any credit
+    // is touched: a blocked, non-exempt type cannot produce a trustworthy
+    // article right now.
+    assertEspnConnectionNotBlocked(league, args.type);
+
     // Get template to check credit cost
     const template = contentTemplates[args.type];
     if (!template) {
@@ -338,6 +363,16 @@ export const createGenerationWithComments = mutation({
     if (!membership) {
       throw new Error("Not a member of this league");
     }
+
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    // ESPN connection gate (owner directive, Sept 2026). Before any credit
+    // is touched: a blocked, non-exempt type cannot produce a trustworthy
+    // article right now, and interviewing managers for one is worse.
+    assertEspnConnectionNotBlocked(league, args.type);
 
     // Get template to check credit cost
     const template = contentTemplates[args.type];
@@ -453,6 +488,16 @@ export const regenerateContentWithCredits = mutation({
     if (!membership) {
       throw new Error("Not a member of this league");
     }
+
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) {
+      throw new Error("League not found");
+    }
+
+    // ESPN connection gate (owner directive, Sept 2026). Before any credit
+    // is touched: a blocked, non-exempt type cannot produce a trustworthy
+    // article right now.
+    assertEspnConnectionNotBlocked(league, args.type);
 
     // Get template to check credit cost
     const template = contentTemplates[args.type];

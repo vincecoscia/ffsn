@@ -99,10 +99,53 @@ describe("leagues.updateEspnCredentials", () => {
       credentialCheckedAt: undefined,
       credentialError: undefined,
       lastSyncedAt: stored?.espnData?.lastSyncedAt,
+      credentialSavedAt: stored?.espnData?.credentialSavedAt,
+      credentialExpiresAt: undefined,
+      contentPausedAt: undefined,
+      backloggedCount: 0,
     });
+    expect(connection.credentialSavedAt).toBeTypeOf("number");
     // The connection object must not carry the raw cookie fields at all.
     expect(connection).not.toHaveProperty("espnS2");
     expect(connection).not.toHaveProperty("swid");
+  });
+
+  it("stores a commissioner-entered expiry, and clears the prior reminder stamp on re-save", async () => {
+    const t = convexTest(schema, modules);
+    const leagueId = await seedLeague(t);
+    const expiresAt = Date.now() + 10 * 24 * 60 * 60 * 1000;
+
+    await t.withIdentity({ subject: COMMISSIONER }).mutation(api.leagues.updateEspnCredentials, {
+      leagueId,
+      espnS2: "abc",
+      swid: "{ABC}",
+      expiresAt,
+    });
+
+    let stored = await t.run(async (ctx) => ctx.db.get(leagueId));
+    expect(stored?.espnData?.credentialExpiresAt).toBe(expiresAt);
+    expect(stored?.espnData?.credentialSavedAt).toBeTypeOf("number");
+
+    // Simulate a reminder having already fired for this expiry, then a
+    // re-save (e.g. the commissioner pastes a fresh pair) must clear it -
+    // the old reminder no longer applies to whatever expiry the new pair has.
+    await t.run(async (ctx) => {
+      const league = await ctx.db.get(leagueId);
+      await ctx.db.patch(leagueId, {
+        espnData: { ...league!.espnData!, expiryReminderSentFor: expiresAt },
+      });
+    });
+
+    await t.withIdentity({ subject: COMMISSIONER }).mutation(api.leagues.updateEspnCredentials, {
+      leagueId,
+      espnS2: "def",
+      swid: "{DEF}",
+      // Omitted this time - clears any previously-entered expiry.
+    });
+
+    stored = await t.run(async (ctx) => ctx.db.get(leagueId));
+    expect(stored?.espnData?.credentialExpiresAt).toBeUndefined();
+    expect(stored?.espnData?.expiryReminderSentFor).toBeUndefined();
   });
 
   it("rejects a non-commissioner member", async () => {
@@ -173,6 +216,63 @@ describe("leagues.getEspnConnection", () => {
       .withIdentity({ subject: COMMISSIONER })
       .query(api.leagues.getEspnConnection, { leagueId });
     expect(connection.credentialStatus).toBe("unknown");
+  });
+
+  it("counts backlogged scheduled content and surfaces contentPausedAt", async () => {
+    const t = convexTest(schema, modules);
+    const leagueId = await seedLeague(t, { withEspnData: true });
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const league = await ctx.db.get(leagueId);
+      await ctx.db.patch(leagueId, {
+        espnData: { ...league!.espnData!, contentPausedAt: now },
+      });
+
+      const scheduleId = await ctx.db.insert("contentSchedules", {
+        leagueId,
+        contentType: "weekly_recap",
+        enabled: true,
+        timezone: "America/New_York",
+        schedule: { type: "weekly", dayOfWeek: 2, hour: 9, minute: 0 },
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      for (let i = 0; i < 2; i++) {
+        await ctx.db.insert("scheduledContent", {
+          leagueId,
+          contentScheduleId: scheduleId,
+          contentType: "weekly_recap",
+          scheduledFor: now,
+          status: "backlogged",
+          attempts: 0,
+          maxAttempts: 3,
+          backlogReason: "espn_credentials_invalid",
+          backloggedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      // A non-backlogged row must not be counted.
+      await ctx.db.insert("scheduledContent", {
+        leagueId,
+        contentScheduleId: scheduleId,
+        contentType: "weekly_recap",
+        scheduledFor: now,
+        status: "pending",
+        attempts: 0,
+        maxAttempts: 3,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const connection = await t
+      .withIdentity({ subject: COMMISSIONER })
+      .query(api.leagues.getEspnConnection, { leagueId });
+    expect(connection.backloggedCount).toBe(2);
+    expect(connection.contentPausedAt).toBeTypeOf("number");
   });
 });
 

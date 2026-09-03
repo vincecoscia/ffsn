@@ -118,6 +118,21 @@ export default defineSchema({
       // Last time an operator/commissioner alert was sent for invalid
       // credentials on this league. Used to cap alerts to once per 24h.
       credentialAlertedAt: v.optional(v.number()),
+      // --- Credential lifecycle (commissioner-facing) ---
+      // When the commissioner saved the current cookie pair.
+      credentialSavedAt: v.optional(v.number()),
+      // Expiry of espn_s2 as the commissioner read it from the browser's cookie
+      // panel (optional; ESPN does not publish a lifetime). Drives the 14-day
+      // "about to expire" email.
+      credentialExpiresAt: v.optional(v.number()),
+      // The expiresAt value the 14-day reminder was last sent for.
+      expiryReminderSentFor: v.optional(v.number()),
+      // Last time the commissioner was emailed that the cookies are rejected
+      // (first notice immediately, then reminders every few days).
+      credentialInvalidNotifiedAt: v.optional(v.number()),
+      // Set while automated content is paused for rejected credentials; the
+      // scheduler backlogs rows instead of generating. Cleared on restore.
+      contentPausedAt: v.optional(v.number()),
     })),
     history: v.optional(v.array(v.object({
       seasonId: v.number(),
@@ -1130,7 +1145,11 @@ export default defineSchema({
       v.literal("batched"),
       v.literal("completed"),
       v.literal("failed"),
-      v.literal("cancelled")
+      v.literal("cancelled"),
+      // Held because the league's ESPN cookies are rejected: not retried, no
+      // credits or spend, resumed in order by `contentScheduling.resumeBacklog`
+      // once the commissioner fixes the connection.
+      v.literal("backlogged")
     ),
     
     // Generation attempt tracking
@@ -1160,6 +1179,12 @@ export default defineSchema({
 
     // Why a row was cancelled ("low_credits", "disabled", "budget", ...).
     cancelReason: v.optional(v.string()),
+    // Backlog bookkeeping ("espn_credentials_invalid").
+    backlogReason: v.optional(v.string()),
+    backloggedAt: v.optional(v.number()),
+    resumedAt: v.optional(v.number()),
+    // Resumed rows that are days old generate without opening interviews.
+    skipCommentRequests: v.optional(v.boolean()),
     // How many times execution was deferred for stale/absent league data.
     deferrals: v.optional(v.number()),
     // Dedupe key for event-triggered rows (trade id, draft id, ...).

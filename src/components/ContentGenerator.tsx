@@ -3,6 +3,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { TradeRumorDialog, type TradeRumorData } from "./TradeRumorDialog";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -34,7 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Sparkles, Zap, Clock, CreditCard, Users, MessageSquare } from "lucide-react";
+import { Sparkles, Zap, Clock, CreditCard, Users, MessageSquare, TriangleAlert } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -61,6 +62,22 @@ import { cn } from "@/lib/utils";
 interface ContentGeneratorProps {
   leagueId: Id<"leagues">;
   isCommissioner: boolean;
+}
+
+// Manual generation mutations throw an Error whose message starts with this
+// prefix when ESPN has rejected the league's stored cookies (private leagues
+// only) - map it to a clear toast instead of the generic failure one.
+const ESPN_BROKEN_PREFIX = "ESPN_CONNECTION_BROKEN:";
+
+function describeGenerationError(error: unknown, fallbackTitle: string): { title: string; description: string } {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  if (message.startsWith(ESPN_BROKEN_PREFIX)) {
+    return { title: "ESPN connection broken", description: message.slice(ESPN_BROKEN_PREFIX.length).trim() };
+  }
+  if (message.startsWith("Insufficient credits")) {
+    return { title: "Not enough credits", description: message };
+  }
+  return { title: fallbackTitle, description: message };
 }
 
 // Writers come from the roster (spec §3) — retired personas are never selectable.
@@ -190,6 +207,13 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const completedWeeks = useQuery(api.matchups.getCompletedWeeks, { leagueId });
   const currentUserTeam = useQuery(api.teams.getCurrentUserTeam, { leagueId });
   const claimedTeams = useQuery(api.teams.getClaimedTeams, { leagueId });
+  // Manual generation must be blocked the same way automated generation is:
+  // if ESPN is rejecting this private league's cookies, the desk has no
+  // fresh data to write from (see EspnConnectionCard for the fix flow).
+  const espnConnection = useQuery(api.leagues.getEspnConnection, { leagueId });
+  const espnConnectionBroken = Boolean(
+    espnConnection?.isPrivate && espnConnection.credentialStatus === "invalid"
+  );
   // Shared with the CreditWallet strip mounted below, so the balance is read
   // from a single query rather than each duplicating `getUserCredits`.
   const { balance: creditBalance } = useCreditBalance();
@@ -318,12 +342,8 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
       setRequestComments(false);
       setSelectedUserIds([]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      if (message.startsWith("Insufficient credits")) {
-        toast.error("Not enough credits", { description: message });
-      } else {
-        toast.error("Failed to generate content", { description: message });
-      }
+      const { title, description } = describeGenerationError(error, "Failed to generate content");
+      toast.error(title, { description });
     } finally {
       setIsGenerating(false);
     }
@@ -370,9 +390,8 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
 
       setShowTradeRumorDialog(false);
     } catch (error) {
-      toast.error("Failed to file the story", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      });
+      const { title, description } = describeGenerationError(error, "Failed to file the story");
+      toast.error(title, { description });
     } finally {
       setIsGenerating(false);
     }
@@ -393,6 +412,35 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
 
   return (
     <Panel padding="lg" className="mx-auto w-full max-w-4xl">
+      {/* Blocking banner: ESPN rejected this private league's saved cookies, so
+          the desk has no fresh data to write from. Lives here (rather than in
+          the pages that embed this component) so it shows up everywhere
+          ContentGenerator is mounted, including LeagueHomepage. */}
+      {espnConnectionBroken && (
+        <div className="mb-7 flex flex-col gap-2 border-l-4 border-l-bc-red-deep bg-bc-red-deep/10 p-4 sm:mb-8">
+          <div className="flex items-center gap-2 text-bc-red-text">
+            <TriangleAlert className="size-4 flex-none" strokeWidth={1.8} />
+            <span className="font-display text-[15px] font-bold uppercase tracking-[0.01em]">
+              ESPN connection broken
+            </span>
+          </div>
+          <p className="text-sm text-bc-text-2">
+            The desk can&apos;t read fresh ESPN data for this league &mdash; ESPN rejected the
+            saved cookies.{" "}
+            {isCommissioner ? (
+              <Link
+                href={`/leagues/${leagueId}/settings`}
+                className="font-semibold text-bc-red-text underline underline-offset-2 hover:text-bc-ink"
+              >
+                Fix the ESPN connection
+              </Link>
+            ) : (
+              "Ask your commissioner to fix the ESPN connection in League settings."
+            )}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-col items-center gap-2 pb-8 text-center">
         <span className="bc-label text-bc-text-2">Production desk</span>
         <div className="flex items-center gap-2.5">
@@ -827,12 +875,17 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
             variant="glow"
             size="lg"
             className="w-full"
-            disabled={isGenerating || insufficientCredits}
+            disabled={isGenerating || espnConnectionBroken || insufficientCredits}
           >
             {isGenerating ? (
               <>
                 <Spinner size={16} className="[&>span]:bg-white" />
                 Generating content&hellip;
+              </>
+            ) : espnConnectionBroken ? (
+              <>
+                <TriangleAlert className="size-4" />
+                ESPN connection broken
               </>
             ) : insufficientCredits ? (
               <>
