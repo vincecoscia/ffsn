@@ -301,43 +301,336 @@ describe("relationships: recordArticleMentions", () => {
   });
 });
 
-describe("relationships: recordReactionEvent", () => {
-  it("maps salty -2, respect +2 and fire +1 onto the article writer's meter", async () => {
-    const { t, leagueId, userBob } = await setup();
+describe("relationships: syncReactionEvent", () => {
+  async function relationshipRowFor(
+    t: Setup["t"],
+    leagueId: Setup["leagueId"],
+    userId: Setup["userAnn"],
+    persona: string
+  ) {
+    return await t.run(async (ctx) =>
+      ctx.db
+        .query("writerRelationships")
+        .withIndex("by_league_user_persona", (q) =>
+          q.eq("leagueId", leagueId).eq("userId", userId).eq("persona", persona)
+        )
+        .unique()
+    );
+  }
+
+  it("add, switch, replay, and remove all converge on at most one ledger row", async () => {
+    const { t, leagueId, userAnn } = await setup();
     const articleId = await insertArticle(t, leagueId, {
       persona: "nina-sharpe",
       title: "Nina grades the week",
       week: 5,
     });
 
-    const salty = await t.mutation(internal.relationships.recordReactionEvent, {
+    // add: a fresh salty reaction moves the score and appends one row.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("articleReactions", {
+        articleId,
+        userId: CLERK_ANN,
+        reaction: "salty",
+        createdAt: Date.now(),
+      });
+    });
+
+    const added = await t.mutation(internal.relationships.syncReactionEvent, {
       articleId,
-      userId: CLERK_BOB,
+      userId: CLERK_ANN,
+    });
+    expect(added).toEqual({ recorded: true, score: -2, tier: "neutral" });
+
+    let events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "reaction", delta: -2, persona: "nina-sharpe" });
+    expect(events[0].evidence).toContain("salty");
+    expect(await relationshipRowFor(t, leagueId, userAnn, "nina-sharpe")).toMatchObject({
+      score: -2,
+      eventCount: 1,
+    });
+
+    // switch: salty -> fire must undo the -2 and apply the +1, not just add +1.
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("articleReactions")
+        .withIndex("by_article_user", (q) =>
+          q.eq("articleId", articleId).eq("userId", CLERK_ANN)
+        )
+        .unique();
+      await ctx.db.patch(existing!._id, { reaction: "fire" });
+    });
+
+    const switched = await t.mutation(internal.relationships.syncReactionEvent, {
+      articleId,
+      userId: CLERK_ANN,
+    });
+    expect(switched).toEqual({ recorded: true, score: 1, tier: "neutral" });
+
+    events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(1);
+    expect(events[0].evidence).toContain("fire");
+    expect(await relationshipRowFor(t, leagueId, userAnn, "nina-sharpe")).toMatchObject({
+      score: 1,
+      eventCount: 1,
+    });
+
+    // replay: syncing again with nothing changed is a no-op.
+    const replay = await t.mutation(internal.relationships.syncReactionEvent, {
+      articleId,
+      userId: CLERK_ANN,
+    });
+    expect(replay).toEqual({ recorded: false, score: 1, tier: "neutral" });
+    events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(1);
+
+    // remove: deleting the reaction must reverse its delta, not leave it recorded.
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("articleReactions")
+        .withIndex("by_article_user", (q) =>
+          q.eq("articleId", articleId).eq("userId", CLERK_ANN)
+        )
+        .unique();
+      await ctx.db.delete(existing!._id);
+    });
+
+    const removed = await t.mutation(internal.relationships.syncReactionEvent, {
+      articleId,
+      userId: CLERK_ANN,
+    });
+    expect(removed).toEqual({ recorded: true, score: 0, tier: "neutral" });
+    events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(0);
+    expect(await relationshipRowFor(t, leagueId, userAnn, "nina-sharpe")).toMatchObject({
+      score: 0,
+      eventCount: 0,
+    });
+  });
+
+  it("collapses legacy duplicate ledger rows (salty then fire) into the row matching the current reaction", async () => {
+    const { t, leagueId, userAnn } = await setup();
+    const articleId = await insertArticle(t, leagueId, {
+      persona: "nina-sharpe",
+      title: "Nina grades the week",
+      week: 5,
+    });
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("articleReactions", {
+        articleId,
+        userId: CLERK_ANN,
+        reaction: "fire",
+        createdAt: now,
+      });
+      await ctx.db.insert("writerRelationships", {
+        leagueId,
+        userId: userAnn,
+        persona: "nina-sharpe",
+        score: -1,
+        tier: "neutral",
+        eventCount: 2,
+        lastEventAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("relationshipEvents", {
+        leagueId,
+        userId: userAnn,
+        persona: "nina-sharpe",
+        type: "reaction",
+        delta: -2,
+        articleId,
+        week: 5,
+        evidence: `Reacted "salty" to "Nina grades the week"`,
+        createdAt: now,
+      });
+      await ctx.db.insert("relationshipEvents", {
+        leagueId,
+        userId: userAnn,
+        persona: "nina-sharpe",
+        type: "reaction",
+        delta: 1,
+        articleId,
+        week: 5,
+        evidence: `Reacted "fire" to "Nina grades the week"`,
+        createdAt: now + 1,
+      });
+    });
+
+    const result = await t.mutation(internal.relationships.syncReactionEvent, {
+      articleId,
+      userId: CLERK_ANN,
+    });
+    expect(result).toEqual({ recorded: true, score: 1, tier: "neutral" });
+
+    const events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(1);
+    expect(events[0].evidence).toContain("fire");
+    expect(await relationshipRowFor(t, leagueId, userAnn, "nina-sharpe")).toMatchObject({
+      score: 1,
+      eventCount: 1,
+    });
+  });
+
+  it("end to end through toggleReaction: salty then fire collapses to one row, toggling fire again clears it", async () => {
+    const { t, leagueId, userAnn } = await setup();
+    const articleId = await insertArticle(t, leagueId, {
+      persona: "nina-sharpe",
+      title: "Nina grades the week",
+      week: 5,
+    });
+
+    const asAnn = t.withIdentity({ subject: CLERK_ANN });
+
+    await asAnn.mutation(api.articleEngagement.toggleReaction, {
+      articleId,
       reaction: "salty",
     });
-    expect(salty).toMatchObject({ recorded: true, score: -2 });
-
-    const respect = await t.mutation(internal.relationships.recordReactionEvent, {
+    await asAnn.mutation(api.articleEngagement.toggleReaction, {
       articleId,
-      userId: CLERK_BOB,
-      reaction: "respect",
-    });
-    expect(respect).toMatchObject({ recorded: true, score: 0 });
-
-    const fire = await t.mutation(internal.relationships.recordReactionEvent, {
-      articleId,
-      userId: CLERK_BOB,
       reaction: "fire",
     });
-    expect(fire).toMatchObject({ recorded: true, score: 1 });
+    await t.finishAllScheduledFunctions(() => {});
 
-    const events = await t.run(async (ctx) =>
-      ctx.db.query("relationshipEvents").collect()
-    );
-    expect(events.map((event) => event.delta)).toEqual([-2, 2, 1]);
-    expect(events.every((event) => event.type === "reaction")).toBe(true);
-    expect(events.every((event) => event.userId === userBob)).toBe(true);
-    expect(events.every((event) => event.persona === "nina-sharpe")).toBe(true);
+    expect(await relationshipRowFor(t, leagueId, userAnn, "nina-sharpe")).toMatchObject({
+      score: 1,
+      eventCount: 1,
+    });
+    let events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(1);
+    expect(events[0].evidence).toContain("fire");
+
+    // Tapping fire again removes the reaction.
+    await asAnn.mutation(api.articleEngagement.toggleReaction, {
+      articleId,
+      reaction: "fire",
+    });
+    await t.finishAllScheduledFunctions(() => {});
+
+    expect(await relationshipRowFor(t, leagueId, userAnn, "nina-sharpe")).toMatchObject({
+      score: 0,
+      eventCount: 0,
+    });
+    events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(0);
+  });
+});
+
+describe("relationships: reconcileReactionEvents (backfill)", () => {
+  it("collapses legacy duplicate ledger rows across two articles into one row each", async () => {
+    const { t, leagueId, userAnn, userBob } = await setup();
+    const articleA = await insertArticle(t, leagueId, {
+      persona: "nina-sharpe",
+      title: "Article A",
+      week: 5,
+    });
+    const articleB = await insertArticle(t, leagueId, {
+      persona: "dex-alvarez",
+      title: "Article B",
+      week: 5,
+    });
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+
+      // Article A / Ann: legacy salty(-2) then fire(+1); current reaction is fire.
+      await ctx.db.insert("articleReactions", {
+        articleId: articleA,
+        userId: CLERK_ANN,
+        reaction: "fire",
+        createdAt: now,
+      });
+      await ctx.db.insert("writerRelationships", {
+        leagueId,
+        userId: userAnn,
+        persona: "nina-sharpe",
+        score: -1,
+        tier: "neutral",
+        eventCount: 2,
+        lastEventAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("relationshipEvents", {
+        leagueId,
+        userId: userAnn,
+        persona: "nina-sharpe",
+        type: "reaction",
+        delta: -2,
+        articleId: articleA,
+        week: 5,
+        evidence: `Reacted "salty" to "Article A"`,
+        createdAt: now,
+      });
+      await ctx.db.insert("relationshipEvents", {
+        leagueId,
+        userId: userAnn,
+        persona: "nina-sharpe",
+        type: "reaction",
+        delta: 1,
+        articleId: articleA,
+        week: 5,
+        evidence: `Reacted "fire" to "Article A"`,
+        createdAt: now + 1,
+      });
+
+      // Article B / Bob: legacy salty(-2) then respect(+2); current reaction is respect.
+      await ctx.db.insert("articleReactions", {
+        articleId: articleB,
+        userId: CLERK_BOB,
+        reaction: "respect",
+        createdAt: now,
+      });
+      await ctx.db.insert("writerRelationships", {
+        leagueId,
+        userId: userBob,
+        persona: "dex-alvarez",
+        score: 0,
+        tier: "neutral",
+        eventCount: 2,
+        lastEventAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("relationshipEvents", {
+        leagueId,
+        userId: userBob,
+        persona: "dex-alvarez",
+        type: "reaction",
+        delta: -2,
+        articleId: articleB,
+        week: 5,
+        evidence: `Reacted "salty" to "Article B"`,
+        createdAt: now,
+      });
+      await ctx.db.insert("relationshipEvents", {
+        leagueId,
+        userId: userBob,
+        persona: "dex-alvarez",
+        type: "reaction",
+        delta: 2,
+        articleId: articleB,
+        week: 5,
+        evidence: `Reacted "respect" to "Article B"`,
+        createdAt: now + 1,
+      });
+    });
+
+    const result = await t.mutation(internal.relationships.reconcileReactionEvents, {});
+    await t.finishAllScheduledFunctions(() => {});
+    expect(result.reconciled).toBe(2);
+    expect(result.isDone).toBe(true);
+
+    const events = await t.run((ctx) => ctx.db.query("relationshipEvents").collect());
+    expect(events).toHaveLength(2);
+    const byArticle = new Map(events.map((e) => [e.articleId, e]));
+    expect(byArticle.get(articleA)).toMatchObject({ delta: 1 });
+    expect(byArticle.get(articleB)).toMatchObject({ delta: 2 });
+
+    const rows = await t.run((ctx) => ctx.db.query("writerRelationships").collect());
+    const byUser = new Map(rows.map((r) => [r.userId, r]));
+    expect(byUser.get(userAnn)).toMatchObject({ score: 1, eventCount: 1 });
+    expect(byUser.get(userBob)).toMatchObject({ score: 2, eventCount: 1 });
   });
 });
 

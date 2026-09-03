@@ -578,8 +578,8 @@ export const contentTemplates: Record<string, ContentTemplate> = {
 
   "season_welcome": {
     id: "season_welcome",
-    name: "Season Welcome Package",
-    description: "Welcome article for newly imported league with history",
+    name: "Season Kickoff",
+    description: "Kickoff piece for the new season: the league's history, last season's story, and what to expect this year",
     creditCost: 25,
     estimatedWords: 2000,
     requiredData: ["historical_data", "all_time_records", "championship_history"],

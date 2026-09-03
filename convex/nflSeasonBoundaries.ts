@@ -211,6 +211,12 @@ export const isContentGenerationAllowed = internalQuery({
 
     // Try current year first, then next year if we're in late offseason
     let seasonInfo: { phase: NFLSeasonPhase; year: number; week?: number } | null = null;
+    // Captured alongside the phase lookup so `season_welcome` can check the
+    // pre-regular-season window below even when the date falls in the gap
+    // between preseason end and regular season start - no phase window
+    // covers that gap, so the loop falls through to the OFFSEASON fallback
+    // without ever finding a `season.phases.regularSeason.start` otherwise.
+    const regularSeasonStartByYear = new Map<number, number>();
     for (const yearToCheck of [seasonYear, seasonYear + 1]) {
       const season = await ctx.db
         .query("nflSeasons")
@@ -218,32 +224,33 @@ export const isContentGenerationAllowed = internalQuery({
         .first();
 
       if (!season) continue;
+      regularSeasonStartByYear.set(yearToCheck, season.phases.regularSeason.start);
 
       // Check each phase in order
       if (targetDateForPhase >= season.phases.preseason.start && targetDateForPhase <= season.phases.preseason.end) {
         seasonInfo = { phase: "PRESEASON", year: yearToCheck };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.regularSeason.start && targetDateForPhase <= season.phases.regularSeason.end) {
         // Also determine the week if in regular season
         const week = getWeekFromDate(targetDateForPhase, season.weekBoundaries);
         seasonInfo = { phase: "REGULAR_SEASON", year: yearToCheck, week };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.playoffs.start && targetDateForPhase <= season.phases.playoffs.end) {
         // Also determine playoff week
         const week = getWeekFromDate(targetDateForPhase, season.weekBoundaries);
         seasonInfo = { phase: "PLAYOFFS", year: yearToCheck, week };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.superBowl.start && targetDateForPhase <= season.phases.superBowl.end) {
         seasonInfo = { phase: "SUPER_BOWL", year: yearToCheck, week: season.playoffStructure.superBowlWeek };
         break;
       }
-      
+
       if (targetDateForPhase >= season.phases.offseason.start && targetDateForPhase <= season.phases.offseason.end) {
         seasonInfo = { phase: "OFFSEASON", year: yearToCheck };
         break;
@@ -294,7 +301,11 @@ export const isContentGenerationAllowed = internalQuery({
         return validateWaiverWireContent(seasonInfo);
       
       case "season_welcome":
-        return validateSeasonWelcomeContent(seasonInfo, targetDate);
+        return validateSeasonWelcomeContent(
+          seasonInfo,
+          targetDate,
+          regularSeasonStartByYear.get(seasonInfo.year),
+        );
       
       default:
         // For unknown content types, allow during regular season and playoffs
@@ -398,20 +409,38 @@ function validateWaiverWireContent(
   return { allowed: false, reason: `Waiver wire reports not available during ${seasonInfo.phase}` };
 }
 
+/** How far before regular-season kickoff the season kickoff piece is allowed to fire. */
+const SEASON_WELCOME_LOOKAHEAD_MS = 21 * 24 * 60 * 60 * 1000;
+
 function validateSeasonWelcomeContent(
   seasonInfo: { phase: NFLSeasonPhase; year: number; week?: number },
-  targetDate: number
+  targetDate: number,
+  regularSeasonStart?: number,
 ): { allowed: boolean; reason?: string } {
   // Season welcome content during preseason and early regular season (first 2 weeks)
   if (seasonInfo.phase === "PRESEASON") {
     return { allowed: true };
   }
-  
+
   if (seasonInfo.phase === "REGULAR_SEASON" && seasonInfo.week && seasonInfo.week <= 2) {
     return { allowed: true };
   }
-  
-  return { allowed: false, reason: `Season welcome content only available during preseason or first 2 weeks of regular season` };
+
+  // Closes the gap between preseason end and regular season start (audit
+  // finding: in 2026 the preseason phase ends 2026-09-09 00:00 UTC and the
+  // regular season starts 2026-09-10 00:00 UTC, so a `season_start`-triggered
+  // job landing in that gap sees no phase at all, falls back to OFFSEASON
+  // above, and would otherwise be cancelled here). Allowed whatever phase the
+  // calendar reports, as long as it's within the lookahead window.
+  if (
+    regularSeasonStart !== undefined &&
+    targetDate >= regularSeasonStart - SEASON_WELCOME_LOOKAHEAD_MS &&
+    targetDate < regularSeasonStart
+  ) {
+    return { allowed: true };
+  }
+
+  return { allowed: false, reason: `Season welcome content only available during preseason, the first 2 weeks of the regular season, or the ${SEASON_WELCOME_LOOKAHEAD_MS / (24 * 60 * 60 * 1000)} days before it starts` };
 }
 
 // Helper function to determine week from date and week boundaries

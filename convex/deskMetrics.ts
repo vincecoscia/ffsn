@@ -874,6 +874,10 @@ export const notifyOperatorOfArticle = internalAction({
     contentType: v.string(),
     persona: v.optional(v.string()),
     reasons: v.array(v.string()),
+    // Season backfill (owner directive, Sept 2026): claim/record the notice - so it still surfaces
+    // in the daily digest - but skip the immediate email. A 30-article catch-up run would otherwise
+    // put one email per held/failed article straight into the operator's inbox.
+    digestOnly: v.optional(v.boolean()),
   },
   returns: v.object({ sent: v.boolean(), deduped: v.boolean() }),
   handler: async (ctx, args): Promise<{ sent: boolean; deduped: boolean }> => {
@@ -892,6 +896,10 @@ export const notifyOperatorOfArticle = internalAction({
       articleId: args.articleId,
     });
     if (!claimed) return { sent: false, deduped: true };
+
+    // The notice is claimed (so it counts toward the digest) but never mailed - left `delivered:
+    // false`, exactly as claimOperatorNotice's insert already defaults it.
+    if (args.digestOnly) return { sent: false, deduped: false };
 
     const text = [
       subject,

@@ -96,14 +96,15 @@ export const toggleReaction = mutation({
 
     // A reaction that lands on an article moves the reader's relationship with
     // its writer (spec section 6.2). Scheduled, not inline, so a relationship
-    // write can never fail the reaction itself. Only additions count: removing a
-    // reaction, or switching away from one, records nothing - the switch's new
-    // reaction is what gets recorded.
-    const recordReaction = async () => {
-      await ctx.scheduler.runAfter(0, internal.relationships.recordReactionEvent, {
+    // write can never fail the reaction itself. `syncReactionEvent` takes no
+    // reaction argument - it reads the reader's current `articleReactions` row
+    // and reconciles the ledger to match, so it must run after every branch
+    // that changes that row (add, switch, and remove alike) and add/switch/
+    // remove all converge on exactly one ledger row per article.
+    const syncReaction = async () => {
+      await ctx.scheduler.runAfter(0, internal.relationships.syncReactionEvent, {
         articleId: args.articleId,
         userId: identity.subject,
-        reaction: args.reaction,
       });
     };
 
@@ -111,11 +112,12 @@ export const toggleReaction = mutation({
       if (existing.reaction === args.reaction) {
         // Tapping the same reaction again removes it.
         await ctx.db.delete(existing._id);
+        await syncReaction();
         return { mine: null as Reaction | null };
       }
       // A different reaction replaces the old one (one reaction per user).
       await ctx.db.patch(existing._id, { reaction: args.reaction });
-      await recordReaction();
+      await syncReaction();
       return { mine: args.reaction };
     }
 
@@ -125,7 +127,7 @@ export const toggleReaction = mutation({
       reaction: args.reaction,
       createdAt: Date.now(),
     });
-    await recordReaction();
+    await syncReaction();
     return { mine: args.reaction };
   },
 });

@@ -354,6 +354,21 @@ export function verifyArticle(
       lineup: "bench",
     });
   }
+  // Rostered players without a matchup line (bench, quiet starters) are real players in FACTS
+  // too (`facts.rosters`); a writer may feature them by their roster id.
+  for (const roster of facts.rosters ?? []) {
+    for (const player of roster.players) {
+      if (playerById.has(player.id)) continue;
+      playerById.set(player.id, {
+        id: player.id,
+        name: player.name,
+        pos: player.pos,
+        fantasyTeamId: roster.teamId,
+        points: 0,
+        lineup: "bench",
+      });
+    }
+  }
   const playerNames = new Set([...playerById.values()].map(player => player.name.toLowerCase()));
   // A bench swap names the starter it would have replaced; that starter is a real player in FACTS
   // even when he has no line of his own, so he must not read as an unknown proper noun.

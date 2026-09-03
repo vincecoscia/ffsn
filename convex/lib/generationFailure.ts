@@ -138,6 +138,14 @@ export async function handleGenerationFailure(
   // matters (status, refund, scheduled row).
   if (!willRetry) {
     try {
+      // A season backfill row (convex/seasonBackfill.ts) must not email the
+      // operator per article (owner directive, Sept 2026: zero notifications
+      // from the backfill); its failure still lands in the daily digest.
+      const scheduledRow = args.scheduledContentId
+        ? await ctx.runQuery(internal.contentScheduling.getScheduledContentById, {
+            scheduledContentId: args.scheduledContentId,
+          })
+        : null;
       await ctx.runAction(internal.deskMetrics.notifyOperatorOfArticle, {
         leagueId: args.leagueId,
         articleId: args.articleId,
@@ -145,6 +153,7 @@ export async function handleGenerationFailure(
         contentType: args.contentType,
         persona: args.persona,
         reasons: [message],
+        digestOnly: scheduledRow?.backfill === true,
       });
     } catch (e) {
       console.error("Failed to notify the operator of a failed generation", args.articleId, e);
