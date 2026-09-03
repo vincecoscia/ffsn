@@ -1,9 +1,10 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "convex/react";
-import { Lock } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import ContentScheduleManager from "../../../../components/ContentScheduleManager";
@@ -42,6 +43,14 @@ export default function ContentSchedulesPage() {
   return (
     <div className="min-h-screen bg-bc-ground">
       <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 sm:py-12 lg:px-12">
+        <Link
+          href={`/leagues/${leagueId}/settings`}
+          className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-bc-text-2 transition-colors hover:text-bc-ink"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          League settings
+        </Link>
+
         <PageHeader
           kicker="Programming schedule"
           title="Content schedules"

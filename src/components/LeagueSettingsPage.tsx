@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Link from "next/link";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import { Pencil, Check, X, Upload, Trash2, Copy, Inbox } from "lucide-react";
+import { Pencil, Check, X, Upload, Trash2, Copy, Inbox, Send, ArrowUpRight } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { PlayerManagement } from "./PlayerManagement";
@@ -19,6 +20,8 @@ import { Input } from "@/components/ui/input";
 import { PageHeader, Panel, SectionHeader, Chip, EmptyState, Spinner } from "@/components/broadcast";
 import { WeeklyContentCard } from "./content-schedule/WeeklyContentCard";
 import { LeaguePassCard } from "./LeaguePassCard";
+import { StatusBoard } from "./settings/StatusBoard";
+import { SettingsSection } from "./settings/SettingsSection";
 import { cn } from "@/lib/utils";
 
 interface League {
@@ -98,9 +101,11 @@ export function LeagueSettingsPage({
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [emailInputs, setEmailInputs] = useState<{[teamId: string]: string}>({});
   const [uploadingLogoForTeam, setUploadingLogoForTeam] = useState<string | null>(null);
+  const [resendingInvitationId, setResendingInvitationId] = useState<string | null>(null);
   const fileInputRefs = useRef<{[teamId: string]: HTMLInputElement | null}>({});
 
   const createInvitation = useMutation(api.teamInvitations.createInvitation);
+  const resendInvitationEmail = useMutation(api.teamInvitations.resendInvitationEmail);
   const generateUploadUrl = useMutation(api.teams.generateUploadUrl);
   const updateCustomLogo = useMutation(api.teams.updateCustomLogo);
   const removeCustomLogo = useMutation(api.teams.removeCustomLogo);
@@ -158,6 +163,20 @@ export function LeagueSettingsPage({
       toast.error("Failed to copy invite link", {
         description: "Please try again or manually copy the link."
       });
+    }
+  };
+
+  const handleResendInvitation = async (invitationId: Id<"teamInvitations">) => {
+    setResendingInvitationId(invitationId);
+    try {
+      await resendInvitationEmail({ invitationId });
+      toast.success("Invitation email resent");
+    } catch (error) {
+      toast.error("Failed to resend invitation email", {
+        description: error instanceof Error ? error.message : "Please try again or contact support.",
+      });
+    } finally {
+      setResendingInvitationId(null);
     }
   };
 
@@ -235,359 +254,407 @@ export function LeagueSettingsPage({
     }
   };
 
+  const isCommissioner = league.role === "commissioner";
+
   return (
     <div className="min-h-screen bg-bc-ground">
       <div className="mx-auto flex max-w-6xl flex-col gap-12 px-4 py-10 sm:px-6 sm:py-12 lg:px-12">
         <PageHeader
           kicker="Control room"
           title="League settings"
-          description="Manage league info, team logos, invitations, and syncing with ESPN."
+          description="Most of this runs itself. Status first; controls only where you need to decide something."
         />
 
-        {/* Automatic weekly programming — the opt-out surface (spec §9.3). Commissioner
-            only, matching the rest of this page's controls. */}
-        <WeeklyContentCard leagueId={league._id} canManage={league.role === "commissioner"} />
+        {/* Status board — one place to see whether anything below needs a decision. */}
+        <StatusBoard leagueId={league._id} />
 
-        {/* League Pass, manager capacity and $10 seats (spec §10.1). Seats are a
-            commissioner purchase; members see the status without the buy control. */}
-        <LeaguePassCard leagueId={league._id} canManage={league.role === "commissioner"} />
+        {/* Programming: automatic weekly content, the opt-out surface (spec §9.3). */}
+        <SettingsSection id="programming">
+          <WeeklyContentCard leagueId={league._id} canManage={isCommissioner} />
+          <Link
+            href={`/leagues/${league._id}/content-schedules`}
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-bc-text-2 transition-colors hover:text-bc-ink"
+          >
+            Customize the calendar &mdash; per-story days, times and writers
+            <ArrowUpRight className="size-3.5" aria-hidden="true" />
+          </Link>
+        </SettingsSection>
 
-        {/* League info */}
-        <Panel padding="md">
-          <SectionHeader title="League info" kicker="Basics" />
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <span className="bc-label-sm text-bc-text-3">League name</span>
-              {editingLeague ? (
-                <div className="flex gap-2">
-                  <Input
-                    value={leagueName}
-                    onChange={(e) => setLeagueName(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button
-                    size="icon-sm"
-                    aria-label="Save league name"
-                    onClick={() => {
-                      // TODO: Implement league name update
-                      setEditingLeague(false);
-                    }}
-                  >
-                    <Check className="size-4" />
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="outline"
-                    aria-label="Cancel"
-                    onClick={() => {
-                      setLeagueName(league.name);
-                      setEditingLeague(false);
-                    }}
-                  >
-                    <X className="size-4" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3 border border-bc-hairline bg-bc-ground px-4 py-3">
-                  <span className="font-sans text-[16px] font-semibold text-bc-ink">{league.name}</span>
-                  <Button variant="ghost" size="sm" onClick={() => setEditingLeague(true)}>
-                    <Pencil className="size-3.5" />
-                    Edit
-                  </Button>
-                </div>
-              )}
+        {/* ESPN connection: credential status, plus the routine "sync now" action. */}
+        <SettingsSection id="espn">
+          <EspnConnectionCard leagueId={league._id} isCommissioner={isCommissioner} />
+          <Panel lifted padding="sm">
+            <SectionHeader title="Sync now" kicker="ESPN sync" size="sm" />
+            <p className="mt-2 text-sm leading-relaxed text-bc-text-2">
+              Pulls the current season&apos;s teams, rosters, matchups and scores. This already
+              happens automatically every 4 hours and before every story &mdash; use this if
+              something looks stale right now.
+            </p>
+            <div className="mt-5">
+              <MatchupRefreshManager leagueId={league._id} mode="simple" />
             </div>
-            <FieldCard label="Platform" value={league.platform} />
-            <FieldCard label="Scoring type" value={league.settings.scoringType} />
-            <FieldCard label="Roster size" value={String(league.settings.rosterSize)} />
-          </div>
-        </Panel>
+          </Panel>
+        </SettingsSection>
 
-        {/* Team logo management */}
-        <Panel padding="md">
-          <SectionHeader
-            title="Team logos"
-            kicker="Branding"
-            actions={
-              <span className="bc-label-sm max-w-xs text-right text-bc-text-3">
-                ESPN&apos;s new logo restrictions block some logos from loading &mdash; upload a custom one here.
-              </span>
-            }
-          />
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {teams.map((team) => {
-              const teamClaim = teamClaims.find(claim => claim.teamId === team._id);
-              const isCommissioner = league.role === "commissioner";
-              const canManageLogo = isCommissioner || teamClaim?.status === "active";
-              const inputId = `logo-upload-${team._id}`;
-
-              return (
-                <Panel key={team._id} lifted padding="sm" className="flex flex-col gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-none">
+        {/* Managers & invites — id kept as "invitations": LeaguePassCard scrolls here. */}
+        <SettingsSection
+          id="invitations"
+          title="Managers & invites"
+          kicker="Rostering"
+          actions={<span className="bc-label-sm text-bc-text-3">{currentSeason} season</span>}
+        >
+          {/* Create new invitations */}
+          {unclaimedTeams.length > 0 && (
+            <div className="flex flex-col gap-4">
+              <span className="bc-label text-bc-text-2">Create new invitations</span>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {unclaimedTeams.map((team) => (
+                  <button
+                    type="button"
+                    key={team._id}
+                    onClick={() => toggleTeamSelection(team._id)}
+                    className={cn(
+                      "flex flex-col gap-3 border p-4 text-left transition-colors",
+                      isTeamSelected(team._id)
+                        ? "border-bc-red bg-bc-red/10"
+                        : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
                       <TeamLogo
                         teamId={team._id}
                         teamName={team.name}
                         espnLogo={team.logo}
                         customLogo={team.customLogo}
-                        size="md"
+                        size="sm"
                       />
-                      {team.customLogo && (
-                        <span className="absolute -right-1 -top-1 size-3 border border-bc-win bg-bc-win" aria-hidden="true" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
-                        {team.name}
+                      <div className="min-w-0">
+                        <div className="truncate font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                          {team.name}
+                        </div>
+                        <div className="bc-label-sm text-bc-text-3">{team.abbreviation}</div>
                       </div>
-                      <div className="bc-label-sm text-bc-text-3">{team.abbreviation}</div>
                     </div>
-                  </div>
 
-                  {canManageLogo ? (
-                    <div className="flex flex-col gap-2">
-                      <input
-                        ref={el => {fileInputRefs.current[team._id] = el}}
-                        type="file"
-                        accept="image/*"
+                    {isTeamSelected(team._id) && (
+                      <Input
+                        type="email"
+                        placeholder="Optional: enter email"
+                        value={emailInputs[team._id] || ""}
                         onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            handleLogoUpload(team._id, file);
-                          }
+                          e.stopPropagation();
+                          setEmailInputs(prev => ({
+                            ...prev,
+                            [team._id]: e.target.value
+                          }));
                         }}
-                        className="hidden"
-                        id={inputId}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-sm"
                       />
-                      <label
-                        htmlFor={inputId}
-                        className={cn(
-                          "inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap bc-cut-sm border border-bc-red bg-bc-red font-display text-[15px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-[#A81214]",
-                          uploadingLogoForTeam === team._id && "pointer-events-none opacity-60"
-                        )}
-                      >
-                        {uploadingLogoForTeam === team._id ? (
-                          <>
-                            <Spinner size={14} className="[&>span]:bg-white" />
-                            Uploading
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="size-3.5" />
-                            Upload logo
-                          </>
-                        )}
-                      </label>
-                      {team.customLogo && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          onClick={() => handleRemoveCustomLogo(team._id)}
-                        >
-                          <Trash2 className="size-3.5" />
-                          Remove custom logo
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="bc-label-sm text-center text-bc-text-3">
-                      {teamClaim ? "Claimed by user" : "Not your team"}
-                    </div>
-                  )}
-                </Panel>
-              );
-            })}
-          </div>
-        </Panel>
+                    )}
+                  </button>
+                ))}
+              </div>
 
-        {/* Team invitations */}
-        <Panel padding="md" id="invitations" tabIndex={-1} className="outline-none">
-          <SectionHeader
-            title="Team invitations"
-            kicker="Rostering"
-            actions={<span className="bc-label-sm text-bc-text-3">{currentSeason} season</span>}
-          />
+              {selectedTeamIds.length > 0 && (
+                <div className="flex items-center justify-between border-t border-bc-hairline pt-4">
+                  <span className="bc-label-sm text-bc-text-3">
+                    {selectedTeamIds.length} team{selectedTeamIds.length !== 1 ? "s" : ""} selected
+                  </span>
+                  <Button onClick={handleCreateInvites} disabled={isCreatingInvites}>
+                    {isCreatingInvites && <Spinner size={14} className="[&>span]:bg-white" />}
+                    {isCreatingInvites ? "Creating" : "Create invitations"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
-          <div className="mt-6 flex flex-col gap-8">
-            {/* Create new invitations */}
-            {unclaimedTeams.length > 0 && (
-              <div className="flex flex-col gap-4">
-                <span className="bc-label text-bc-text-2">Create new invitations</span>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {unclaimedTeams.map((team) => (
-                    <button
-                      type="button"
-                      key={team._id}
-                      onClick={() => toggleTeamSelection(team._id)}
-                      className={cn(
-                        "flex flex-col gap-3 border p-4 text-left transition-colors",
-                        isTeamSelected(team._id)
-                          ? "border-bc-red bg-bc-red/10"
-                          : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
-                      )}
-                    >
+          {/* Existing invitations */}
+          <div className="flex flex-col gap-4">
+            <span className="bc-label text-bc-text-2">Existing invitations</span>
+            {teamInvitations.length === 0 ? (
+              <EmptyState
+                icon={<Inbox className="size-6" strokeWidth={1.8} />}
+                title="No invitations sent yet"
+                description="Invite team owners to claim their roster for this season."
+              />
+            ) : (
+              <div className="flex flex-col gap-3">
+                {teamInvitations.map((invitation) => {
+                  const chip = INVITE_STATUS_CHIP[invitation.status];
+                  const isResending = resendingInvitationId === invitation._id;
+                  return (
+                    <Panel key={invitation._id} lifted padding="sm" className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        {invitation.teamLogo && (
+                          <img
+                            src={invitation.teamLogo}
+                            alt={`${invitation.teamName} logo`}
+                            className="size-10 border border-bc-border-strong object-cover"
+                          />
+                        )}
+                        <div>
+                          <div className="font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                            {invitation.teamName}
+                          </div>
+                          <div className="text-sm text-bc-text-2">
+                            {invitation.email ? <>Sent to: {invitation.email}</> : "No email specified"}
+                          </div>
+                          <div className="bc-label-sm text-bc-text-3">
+                            Created {new Date(invitation.createdAt).toLocaleDateString()}
+                            {invitation.status === "pending" && (
+                              <> &middot; Expires {new Date(invitation.expiresAt).toLocaleDateString()}</>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="flex items-center gap-3">
+                        <Chip variant={chip.variant}>{chip.label}</Chip>
+                        {invitation.status === "pending" && (
+                          <>
+                            {invitation.email && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleResendInvitation(invitation._id)}
+                                disabled={isResending}
+                              >
+                                {isResending ? <Spinner size={14} /> : <Send className="size-3.5" />}
+                                {isResending ? "Sending" : "Resend email"}
+                              </Button>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => copyInviteLink(invitation.inviteToken)}>
+                              <Copy className="size-3.5" />
+                              Copy link
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </Panel>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </SettingsSection>
+
+        {/* League Pass, manager capacity and $10 seats (spec §10.1). */}
+        <SettingsSection id="pass">
+          <LeaguePassCard leagueId={league._id} canManage={isCommissioner} />
+        </SettingsSection>
+
+        {/* League details — name, scoring/roster fields, team logos. Rarely touched
+            after setup, so it starts closed. */}
+        <SettingsSection id="details" title="League details" kicker="Basics" collapsible defaultOpen={false}>
+          <Panel lifted padding="md">
+            <SectionHeader title="League info" size="sm" />
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <span className="bc-label-sm text-bc-text-3">League name</span>
+                {editingLeague ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={leagueName}
+                      onChange={(e) => setLeagueName(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      size="icon-sm"
+                      aria-label="Save league name"
+                      onClick={() => {
+                        // TODO: Implement league name update
+                        setEditingLeague(false);
+                      }}
+                    >
+                      <Check className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label="Cancel"
+                      onClick={() => {
+                        setLeagueName(league.name);
+                        setEditingLeague(false);
+                      }}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 border border-bc-hairline bg-bc-ground px-4 py-3">
+                    <span className="font-sans text-[16px] font-semibold text-bc-ink">{league.name}</span>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingLeague(true)}>
+                      <Pencil className="size-3.5" />
+                      Edit
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <FieldCard label="Platform" value={league.platform} />
+              <FieldCard label="Scoring type" value={league.settings.scoringType} />
+              <FieldCard label="Roster size" value={String(league.settings.rosterSize)} />
+            </div>
+          </Panel>
+
+          <Panel lifted padding="md">
+            <SectionHeader
+              title="Team logos"
+              kicker="Branding"
+              size="sm"
+              actions={
+                <span className="bc-label-sm max-w-xs text-right text-bc-text-3">
+                  ESPN&apos;s new logo restrictions block some logos from loading &mdash; upload a custom one here.
+                </span>
+              }
+            />
+            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {teams.map((team) => {
+                const teamClaim = teamClaims.find(claim => claim.teamId === team._id);
+                const canManageLogo = isCommissioner || teamClaim?.status === "active";
+                const inputId = `logo-upload-${team._id}`;
+
+                return (
+                  <Panel key={team._id} padding="sm" className="flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex-none">
                         <TeamLogo
                           teamId={team._id}
                           teamName={team.name}
                           espnLogo={team.logo}
                           customLogo={team.customLogo}
-                          size="sm"
+                          size="md"
                         />
-                        <div className="min-w-0">
-                          <div className="truncate font-display text-[16px] font-bold uppercase tracking-[0.01em] text-bc-ink">
-                            {team.name}
-                          </div>
-                          <div className="bc-label-sm text-bc-text-3">{team.abbreviation}</div>
-                        </div>
+                        {team.customLogo && (
+                          <span className="absolute -right-1 -top-1 size-3 border border-bc-win bg-bc-win" aria-hidden="true" />
+                        )}
                       </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                          {team.name}
+                        </div>
+                        <div className="bc-label-sm text-bc-text-3">{team.abbreviation}</div>
+                      </div>
+                    </div>
 
-                      {isTeamSelected(team._id) && (
-                        <Input
-                          type="email"
-                          placeholder="Optional: enter email"
-                          value={emailInputs[team._id] || ""}
+                    {canManageLogo ? (
+                      <div className="flex flex-col gap-2">
+                        <input
+                          ref={el => {fileInputRefs.current[team._id] = el}}
+                          type="file"
+                          accept="image/*"
                           onChange={(e) => {
-                            e.stopPropagation();
-                            setEmailInputs(prev => ({
-                              ...prev,
-                              [team._id]: e.target.value
-                            }));
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleLogoUpload(team._id, file);
+                            }
                           }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-sm"
+                          className="hidden"
+                          id={inputId}
                         />
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {selectedTeamIds.length > 0 && (
-                  <div className="flex items-center justify-between border-t border-bc-hairline pt-4">
-                    <span className="bc-label-sm text-bc-text-3">
-                      {selectedTeamIds.length} team{selectedTeamIds.length !== 1 ? "s" : ""} selected
-                    </span>
-                    <Button onClick={handleCreateInvites} disabled={isCreatingInvites}>
-                      {isCreatingInvites && <Spinner size={14} className="[&>span]:bg-white" />}
-                      {isCreatingInvites ? "Creating" : "Create invitations"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Existing invitations */}
-            <div className="flex flex-col gap-4">
-              <span className="bc-label text-bc-text-2">Existing invitations</span>
-              {teamInvitations.length === 0 ? (
-                <EmptyState
-                  icon={<Inbox className="size-6" strokeWidth={1.8} />}
-                  title="No invitations sent yet"
-                  description="Invite team owners to claim their roster for this season."
-                />
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {teamInvitations.map((invitation) => {
-                    const chip = INVITE_STATUS_CHIP[invitation.status];
-                    return (
-                      <Panel key={invitation._id} lifted padding="sm" className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-4">
-                          {invitation.teamLogo && (
-                            <img
-                              src={invitation.teamLogo}
-                              alt={`${invitation.teamName} logo`}
-                              className="size-10 border border-bc-border-strong object-cover"
-                            />
+                        <label
+                          htmlFor={inputId}
+                          className={cn(
+                            "inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap bc-cut-sm border border-bc-red bg-bc-red font-display text-[15px] font-bold uppercase tracking-[0.08em] text-white transition-colors hover:bg-[#A81214]",
+                            uploadingLogoForTeam === team._id && "pointer-events-none opacity-60"
                           )}
-                          <div>
-                            <div className="font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
-                              {invitation.teamName}
-                            </div>
-                            <div className="text-sm text-bc-text-2">
-                              {invitation.email ? <>Sent to: {invitation.email}</> : "No email specified"}
-                            </div>
-                            <div className="bc-label-sm text-bc-text-3">
-                              Created {new Date(invitation.createdAt).toLocaleDateString()}
-                              {invitation.status === "pending" && (
-                                <> &middot; Expires {new Date(invitation.expiresAt).toLocaleDateString()}</>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <Chip variant={chip.variant}>{chip.label}</Chip>
-                          {invitation.status === "pending" && (
-                            <Button size="sm" variant="outline" onClick={() => copyInviteLink(invitation.inviteToken)}>
-                              <Copy className="size-3.5" />
-                              Copy link
-                            </Button>
+                        >
+                          {uploadingLogoForTeam === team._id ? (
+                            <>
+                              <Spinner size={14} className="[&>span]:bg-white" />
+                              Uploading
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="size-3.5" />
+                              Upload logo
+                            </>
                           )}
-                        </div>
-                      </Panel>
-                    );
-                  })}
-                </div>
-              )}
+                        </label>
+                        {team.customLogo && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => handleRemoveCustomLogo(team._id)}
+                          >
+                            <Trash2 className="size-3.5" />
+                            Remove custom logo
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bc-label-sm text-center text-bc-text-3">
+                        {teamClaim ? "Claimed by user" : "Not your team"}
+                      </div>
+                    )}
+                  </Panel>
+                );
+              })}
             </div>
-          </div>
-        </Panel>
+          </Panel>
+        </SettingsSection>
 
-        {/* ESPN connection status + credentials */}
-        <EspnConnectionCard leagueId={league._id} isCommissioner={league.role === "commissioner"} />
+        {/* Advanced tools — manual overrides for what already runs on its own. Closed
+            by default so these queries don't run until a commissioner opens it. */}
+        <SettingsSection
+          id="advanced"
+          title="Advanced tools"
+          kicker="Maintenance"
+          collapsible
+          defaultOpen={false}
+          description="These run automatically — the league syncs from ESPN every 4 hours and before every story, player stats update daily, and rivalry and activity metrics recompute after each sync. Use these only if something looks wrong or support asks."
+        >
+          <Panel lifted padding="md">
+            <SectionHeader title="Full re-import" kicker="ESPN sync" size="sm" />
+            <p className="mt-2 text-sm text-bc-text-2">
+              Automatic: routine syncs already run every 4 hours. Use this only to rebuild
+              historical seasons from scratch.
+            </p>
+            <div className="mt-5">
+              <MatchupRefreshManager leagueId={league._id} mode="advanced" />
+            </div>
+          </Panel>
 
-        {/* Sync league data */}
-        <Panel padding="md">
-          <SectionHeader title="Sync league data" kicker="ESPN sync" />
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
-            Sync all league data from ESPN including teams, owners, logos, rosters, matchups, and scores.
-          </p>
-          <div className="mt-6">
-            <MatchupRefreshManager leagueId={league._id} />
-          </div>
-        </Panel>
+          <Panel lifted padding="md">
+            <SectionHeader title="Player database" kicker="NFL players" size="sm" />
+            <p className="mt-2 text-sm text-bc-text-2">Automatic: player stats update daily.</p>
+            <div className="mt-5">
+              <PlayerManagement leagueId={league._id} />
+            </div>
+          </Panel>
 
-        {/* Player management */}
-        <Panel padding="md">
-          <SectionHeader title="Player management" kicker="NFL players" />
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
-            Sync and manage NFL player data for your league.
-          </p>
-          <div className="mt-6">
-            <PlayerManagement leagueId={league._id} />
-          </div>
-        </Panel>
+          <Panel lifted padding="md">
+            <SectionHeader title="Historical rosters" kicker="Archive" size="sm" />
+            <p className="mt-2 text-sm text-bc-text-2">
+              Automatic: fetched as part of the season sync.
+            </p>
+            <div className="mt-5">
+              <HistoricalRosterManager leagueId={league._id} />
+            </div>
+          </Panel>
 
-        {/* Historical rosters */}
-        <Panel padding="md">
-          <SectionHeader title="Historical rosters" kicker="Archive" />
-          <div className="mt-6">
-            <HistoricalRosterManager leagueId={league._id} />
-          </div>
-        </Panel>
+          <Panel lifted padding="md">
+            <SectionHeader title="Draft data" kicker="Archive" size="sm" />
+            <p className="mt-2 text-sm text-bc-text-2">
+              Automatic: draft completion is detected by the sync.
+            </p>
+            <div className="mt-5">
+              <DraftDataViewer leagueId={league._id} />
+            </div>
+          </Panel>
 
-        {/* Draft data */}
-        <Panel padding="md">
-          <SectionHeader title="Draft data" kicker="Archive" />
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
-            View draft order and historical draft picks for all seasons.
-          </p>
-          <div className="mt-6">
-            <DraftDataViewer leagueId={league._id} />
-          </div>
-        </Panel>
-
-        {/* Data processing */}
-        <Panel padding="md">
-          <SectionHeader title="Data processing" kicker="AI pipeline" />
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-bc-text-2">
-            Process league data for AI content generation.
-          </p>
-          <div className="mt-6">
-            <DataProcessingManager leagueId={league._id} />
-          </div>
-        </Panel>
+          <Panel lifted padding="md">
+            <SectionHeader title="Data processing" kicker="AI pipeline" size="sm" />
+            <p className="mt-2 text-sm text-bc-text-2">
+              Automatic: rivalry and manager-activity metrics recompute after each sync.
+            </p>
+            <div className="mt-5">
+              <DataProcessingManager leagueId={league._id} />
+            </div>
+          </Panel>
+        </SettingsSection>
       </div>
     </div>
   );

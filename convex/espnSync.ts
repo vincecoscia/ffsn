@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { transformStats } from "./espnStatsMapping";
 import { requireLeagueMemberFromAction } from "./lib/auth";
+import { nflSeasonYearFor } from "./lib/season";
 import {
   fetchEspn,
   normalizeEspnCredentials,
@@ -360,6 +361,19 @@ export const syncLeagueData = action({
         });
       } catch (rolloverError) {
         console.error("Error rolling forward team claims:", rolloverError);
+      }
+
+      // Refresh derived metrics (team metrics, rivalries, manager activity)
+      // that the article pipeline reads (aiQueries.ts, commentRequests.ts).
+      // Scheduled rather than awaited so it runs in its own transaction and
+      // never extends this action's runtime or fails the sync itself.
+      try {
+        await ctx.scheduler.runAfter(0, internal.dataProcessing.processLeagueDataAfterSync, {
+          leagueId: args.leagueId,
+          seasonId: currentYear,
+        });
+      } catch (dataProcessingError) {
+        console.error("Error scheduling post-sync data processing:", dataProcessingError);
       }
 
       // Sync players data if available
@@ -1185,6 +1199,9 @@ export const syncHistoricalData = action({
   },
 });
 
+/** The NFL season events are judged against (August -> July, see lib/season.ts). */
+const CURRENT_SEASON_FOR_EVENTS = (): number => nflSeasonYearFor();
+
 export const updateLeagueSeason = internalMutation({
   args: {
     leagueId: v.id("leagues"),
@@ -1295,6 +1312,30 @@ export const updateLeagueSeason = internalMutation({
       }
       
       await ctx.db.patch(existingSeason._id, updateData);
+
+      // The routine sync is how a draft finishing is normally observed, so the
+      // draft_completed event (draft rankings article, spec §9.1) must fire from
+      // here, not only from the commissioner's manual draft fetch. Current NFL
+      // season only: a historical row gaining draftInfo on a re-import is not a
+      // draft that just happened. triggerEventBasedContent dedupes per season.
+      const wasDrafted = existingSeason.draftInfo?.drafted === true;
+      const isDrafted = args.seasonData.draftInfo?.drafted === true;
+      if (!wasDrafted && isDrafted && args.seasonId === CURRENT_SEASON_FOR_EVENTS()) {
+        console.log(`Draft completed for league ${args.leagueId}, season ${args.seasonId} (routine sync)`);
+        try {
+          await ctx.scheduler.runAfter(0, internal.contentScheduling.triggerEventBasedContent, {
+            leagueId: args.leagueId,
+            eventType: "draft_completed",
+            eventData: {
+              seasonId: args.seasonId,
+              draftDate: args.seasonData.draftInfo?.draftDate,
+              draftType: args.seasonData.draftInfo?.draftType,
+            },
+          });
+        } catch (error) {
+          console.error("Failed to trigger draft_completed event from sync:", error);
+        }
+      }
     } else {
       // Create new season record
       await ctx.db.insert("leagueSeasons", {
@@ -1982,6 +2023,19 @@ export const syncAllLeagueData = action({
             });
           } catch (rolloverError) {
             console.error("Error rolling forward team claims:", rolloverError);
+          }
+
+          // Refresh derived metrics (team metrics, rivalries, manager
+          // activity) that the article pipeline reads. Scheduled rather than
+          // awaited so it never extends this action's runtime or fails the
+          // sync itself.
+          try {
+            await ctx.scheduler.runAfter(0, internal.dataProcessing.processLeagueDataAfterSync, {
+              leagueId: args.leagueId,
+              seasonId: year,
+            });
+          } catch (dataProcessingError) {
+            console.error("Error scheduling post-sync data processing:", dataProcessingError);
           }
         }
 
@@ -3674,6 +3728,19 @@ export const syncAllLeaguesCurrentSeason = internalAction({
           });
         } catch (rolloverError) {
           console.error(`Error rolling forward team claims for league ${league._id}:`, rolloverError);
+        }
+
+        // Refresh derived metrics (team metrics, rivalries, manager
+        // activity) that the article pipeline reads. Scheduled rather than
+        // awaited so it never extends this action's runtime or fails the
+        // sync itself.
+        try {
+          await ctx.scheduler.runAfter(0, internal.dataProcessing.processLeagueDataAfterSync, {
+            leagueId: league._id,
+            seasonId: currentYear,
+          });
+        } catch (dataProcessingError) {
+          console.error(`Error scheduling post-sync data processing for league ${league._id}:`, dataProcessingError);
         }
 
         // Sync players data if available
