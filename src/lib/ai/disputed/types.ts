@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { ArticleClaim as ArticleClaimSchema } from "../content-generation-service";
 import type { ArticleClaimT } from "../content-generation-service";
+import type { LanguageRating } from "../language";
 
 /** Re-exported so callers of this module never need to reach into content-generation-service.ts. */
 export type { ArticleClaimT as ArticleClaim } from "../content-generation-service";
@@ -147,6 +148,12 @@ export interface ShowTurn {
   verdict?: { winner: DebaterSlug; reason: string };
   model?: string;
   retried?: boolean;
+  /**
+   * Edit-bay (pass two) only: this turn cuts in before the previous speaker finished. The
+   * PREVIOUS turn's text should then end with an em dash (see `renderTranscriptMarkdown`, which
+   * renders this turn's plate as "NAME (Role), cutting in:").
+   */
+  interrupts?: boolean;
 }
 
 export interface ShowSegment {
@@ -160,11 +167,46 @@ export interface ShowTranscript {
   show: "disputed";
   week?: number;
   question: string;
-  hotSeat?: { teamId: string; managerName: string; why: string };
+  hotSeat?: { teamId: string; teamName: string; managerName: string; why: string };
   /** The resolved debater sides (from the cold open, or the deterministic fallback). */
   sides?: DebaterSides;
+  /** The rating this episode was produced at; defaults to "clean" when the producer never set it. */
+  language?: LanguageRating;
   segments: ShowSegment[];
+  /** Set only once the edit bay (pass two, `naturalizeTranscript`) has run over this transcript. */
+  edited?: {
+    pass: "edit-bay-v1";
+    wordsBefore: number;
+    wordsAfter: number;
+    segmentsEdited: number;
+    segmentsRejected: number;
+    rejections: Array<{ segment: string; reason: string }>;
+  };
 }
+
+/* -------------------------------------------------------------------------- *
+ * Edit bay (pass two) — a model-produced rewrite of one segment's turns, forced through a tool call
+ * and validated by `edit-bay.ts#checkEditedSegment` before it ever replaces the original segment.
+ * -------------------------------------------------------------------------- */
+
+export const EditedTurnSchema = z.object({
+  // No `.nonnegative()`: it becomes `minimum: 0` in the tool schema, which the API rejects for
+  // integers in a strict tool ("For 'integer' type, property 'minimum' is not supported"). The
+  // guard in edit-bay.ts already rejects any index outside the segment.
+  sourceTurn: z.number().int().describe("Index into the segment's original turns array (0-based)."),
+  speaker: z.string().describe("Must equal sourceTurn's speaker."),
+  text: z.string().describe("The rewritten line. No new facts, names or numbers."),
+  interrupts: z
+    .boolean()
+    .optional()
+    .describe("True only if this turn cuts in before the previous speaker finished."),
+});
+export type EditedTurn = z.infer<typeof EditedTurnSchema>;
+
+export const EditedSegmentSchema = z.object({
+  turns: z.array(EditedTurnSchema),
+});
+export type EditedSegment = z.infer<typeof EditedSegmentSchema>;
 
 /* -------------------------------------------------------------------------- *
  * Producer inputs / outputs — pure bookkeeping the producer builds and reads. Never parsed off a
@@ -173,12 +215,16 @@ export interface ShowTranscript {
 
 export interface ShowBrief {
   week?: number;
-  hotSeat: { teamId: string; managerName: string; why: string };
+  hotSeat: { teamId: string; teamName: string; managerName: string; why: string };
   fallbackQuestion: string;
   ledger: {
     "mel-diaper": { hits: number; misses: number };
     "reggie-banks": { hits: number; misses: number };
   };
+  /** League-level language rating for this episode; defaults to "clean" when absent. */
+  languageRating?: LanguageRating;
+  /** Team names whose managers opted down to clean coverage, regardless of `languageRating`. */
+  cleanTeamNames?: string[];
 }
 
 export interface ShowStats {
@@ -194,6 +240,8 @@ export interface ShowStats {
   modelsUsed: string[];
   /** Times Reggie's catchphrase was stripped from a non-jab turn after surviving a retry (spec follow-up). */
   catchphraseStripped: number;
+  /** Turns whose text broke the league's language rating twice and had the offending sentence removed. */
+  languageStripped: number;
   /** Times Reggie's opening claim duplicated Mel's and was dropped after surviving a retry (spec follow-up). */
   duplicateClaimsDropped: number;
   /**

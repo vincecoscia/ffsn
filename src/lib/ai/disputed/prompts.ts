@@ -2,8 +2,9 @@
 // assembles text. `producer.ts` is the only caller.
 
 import type { FactsBlock } from "../facts";
+import { getPersona, getPersonaDisplay } from "../persona-prompts";
 import type { PersonaPrompt } from "../persona-prompts";
-import { buildRelationshipsBlock, buildWhoYouAreBlock, GROUNDING_CONTRACT } from "../prompt-builder";
+import { buildHouseStyleBlock, buildRelationshipsBlock, buildWhoYouAreBlock, GROUNDING_CONTRACT } from "../prompt-builder";
 import {
   DEBATER_SLUGS,
   HOST_SLUG,
@@ -12,6 +13,7 @@ import {
   type DebaterSlug,
   type ShowBrief,
   type ShowRole,
+  type ShowSegment,
   type TurnKind,
   type WitnessSlug,
 } from "./types";
@@ -19,10 +21,13 @@ import {
 /**
  * Word ceilings by role (spec BUILD 1 §3), plus the `cold_open` special case (pilot follow-up,
  * 2026-09-03): the cold open has to carry the week's biggest fact AND the question, so the host
- * ceiling is raised to 80 words for that one turn kind only. `redirect`/`ledger`/`close` stay at 45
- * — use {@link ceilingFor} rather than reading `host` directly whenever a `kind` is in hand.
+ * ceiling is raised above the ordinary 45 for that one turn kind only. `redirect`/`ledger`/`close`
+ * stay at 45 — use {@link ceilingFor} rather than reading `host` directly whenever a `kind` is in
+ * hand. Lowered again (edit-bay follow-up, 2026-09-03: debater 120→70, witness 80→50, coldOpen
+ * 80→70) — pass one now writes shorter so pass two (the edit bay) has room to cut without gutting
+ * every turn to nothing.
  */
-export const WORD_CEILINGS = { host: 45, witness: 80, debater: 120, coldOpen: 80 } as const;
+export const WORD_CEILINGS = { host: 45, witness: 50, debater: 70, coldOpen: 70 } as const;
 
 /** The word ceiling for a turn, by role and (for the host) by kind. */
 export function ceilingFor(role: ShowRole, kind: TurnKind): number {
@@ -37,9 +42,10 @@ export function ceilingFor(role: ShowRole, kind: TurnKind): number {
  */
 export const SHOW_RULES = `SHOW FORMAT — DISPUTED
 Disputed is FFSN's weekly transcript-only debate show. Two debaters argue one binary question about
-one manager on the hot seat; the rest of the desk are witnesses, called to the stand by name; Curtis
-Vaughn hosts and referees. This is a transcript: every line is something a real person says out loud
-— never stage direction, never a scene description, never a speaker label inside the line itself.
+one team on the hot seat, whose GM answers for its decisions; the rest of the desk are witnesses,
+called to the stand by name; Curtis Vaughn hosts and referees. This is a transcript: every line is
+something a real person says out loud — never stage direction, never a scene description, never a
+speaker label inside the line itself.
 
 THE ROLES
 - Curtis Vaughn hosts and referees. He opens the show, redirects when the debate stalls, reads the
@@ -150,10 +156,24 @@ export function roleRulesFor(slug: string): string {
  * A speaker's system prompt for this episode: the same grounding contract and identity blocks
  * `PromptBuilder` uses for an article, plus the show rules and this speaker's role. Stable across
  * every turn a given speaker takes in the episode (no facts change it — FACTS itself lives in the
- * per-turn user prompt), so the caller may cache it once per speaker.
+ * per-turn user prompt, and the house-style/language block is derived from `brief`, which is fixed
+ * for the whole episode), so the caller may cache it once per speaker.
  */
-export function buildTurnSystemPrompt(persona: PersonaPrompt, facts: FactsBlock, roleRules: string): string {
-  const parts: string[] = [GROUNDING_CONTRACT, buildWhoYouAreBlock(persona)];
+export function buildTurnSystemPrompt(
+  persona: PersonaPrompt,
+  facts: FactsBlock,
+  roleRules: string,
+  brief: ShowBrief
+): string {
+  const parts: string[] = [
+    GROUNDING_CONTRACT,
+    buildHouseStyleBlock({
+      languageRating: brief.languageRating,
+      cleanTeamNames: brief.cleanTeamNames,
+      surface: "show",
+    }),
+    buildWhoYouAreBlock(persona),
+  ];
 
   const relationshipsBlock = buildRelationshipsBlock(facts, persona);
   if (relationshipsBlock) parts.push(relationshipsBlock);
@@ -266,7 +286,7 @@ export function directorInstructionFor(kind: TurnKind, ctx: DirectorContext): st
     case "cold_open": {
       const { hotSeat } = ctx.brief;
       return `${marker}
-Open the show. State the single biggest fact of the week from FACTS in one line, then put ${hotSeat.managerName} on the hot seat: ${hotSeat.why}. Ask one binary question about ${hotSeat.managerName} where one honest answer comes from the draft board and the process — that's Mel's side — and the other comes from the scoreboard and this season's results — that's Reggie's side — and the two answers must actually contradict, never just differ in emphasis. Return that exact question in the "question" field, and each debater's contradicting position, one sentence each, in the "sides" field (keys "mel-diaper" and "reggie-banks"). Hand the floor to Mel first.`;
+Open the show. State the single biggest fact of the week from FACTS in one line, then put ${hotSeat.teamName} on the hot seat — its GM is ${hotSeat.managerName}; the question is about whether the GM is doing right by that roster (${hotSeat.why}). Ask one binary question about ${hotSeat.managerName}'s stewardship of ${hotSeat.teamName} where one honest answer comes from the draft board and the process — that's Mel's side — and the other comes from the scoreboard and this season's results — that's Reggie's side — and the two answers must actually contradict, never just differ in emphasis. Return that exact question in the "question" field, and each debater's contradicting position, one sentence each, in the "sides" field (keys "mel-diaper" and "reggie-banks"). Hand the floor to Mel first.`;
     }
 
     case "opening": {
@@ -344,4 +364,84 @@ One line. Sign off.`;
       throw new Error(`Unhandled turn kind: ${String(exhaustive)}`);
     }
   }
+}
+
+/* -------------------------------------------------------------------------- *
+ * Edit bay (pass two) — prompts for `edit-bay.ts#naturalizeTranscript`. Pass one (above) is the
+ * source of truth for every fact; these prompts ask the model to CUT and LIVEN one segment's turns
+ * without ever adding to what pass one already verified.
+ * -------------------------------------------------------------------------- */
+
+/** "Name (Role): tagline" plus the persona's first signature move — two lines, one speaker. */
+function voiceCardFor(slug: string): string {
+  const persona = getPersona(slug);
+  const move = persona.signatureMoves[0] ?? "";
+  return `${persona.name} (${persona.role}): ${persona.tagline}\n${move}`;
+}
+
+const EDIT_BAY_RULES = `EDIT BAY — DISPUTED, PASS TWO
+Disputed is FFSN's weekly transcript-only debate show (see the format above, if you were shown it —
+either way, this is a finished transcript, written turn by turn in isolation, and every line is
+something a real person says out loud). The team on the hot seat is the subject of the debate; its
+GM answers for the team's decisions, never for scoring or losing on its behalf. Your job is pass
+two: the live-radio edit. Cut it for time and make it sound like a real broadcast, without changing a
+single fact.
+
+RULES
+- Make it sound live: contractions, fragments, a debater cutting in mid-sentence where he would never
+  let the point stand. Mark the turn that cuts in "interrupts": true, and end the turn it interrupts
+  with an em dash (—) instead of its original ending. Aim for two to four cut-ins in a main event and
+  at least one in the opening statements or the last jabs; a cut-in lands MID-SENTENCE, and the
+  speaker who was cut off may pick the thread back up in a later turn.
+- Never output two consecutive turns by the same speaker. Splitting a turn is only for opening a gap
+  that another speaker fills; if nobody cuts in, keep it as one turn.
+- One-line reactions are allowed ("Oh, come on." "Here we go."). Curtis stays short — shorter than
+  anyone else on the desk.
+- CUT the segment down to the target word count. Keep the ORDER the speakers appear in. Never merge
+  two different speakers into one output turn.
+- Never put words in quotation marks that were not already in quotation marks in the original line.
+- Never add profanity that was not in the original line; at clean, none at all.
+- Keep every number, name, record and score EXACTLY as the original turn wrote it — add none, not
+  even a friendly rounding.
+- Locked turns are listed below by index and must survive verbatim, unedited, word for word.
+- Every output turn carries "sourceTurn": the index of the ORIGINAL turn (from the numbered list
+  below) it came from. A turn may be split into two output turns that share the same "sourceTurn",
+  to open a gap for an interruption. The original transcript's very first and very last turns must
+  each still be represented by at least one output turn.`;
+
+/** Stable across every segment and every episode — safe to send as one cached system block. */
+export function buildEditSystemPrompt(): string {
+  const voiceCards = [HOST_SLUG, ...DEBATER_SLUGS, ...WITNESS_SLUGS].map(voiceCardFor).join("\n\n");
+  return `${EDIT_BAY_RULES}\n\nTHE DESK\n${voiceCards}`;
+}
+
+export interface EditUserPromptArgs {
+  segment: ShowSegment;
+  /** Cut this segment to about this many words total. */
+  targetWords: number;
+  /** Indexes into `segment.turns` that must come back verbatim, unedited. */
+  lockedIndexes: number[];
+}
+
+/** Changes every call — never cached. */
+export function buildEditUserPrompt(args: EditUserPromptArgs): string {
+  const { segment, targetWords, lockedIndexes } = args;
+  const turnsBlock = segment.turns
+    .map((turn, index) => {
+      const display = getPersonaDisplay(turn.speaker);
+      return `[${index}] speaker=${turn.speaker} — ${display.name} (${display.role}): ${turn.text}`;
+    })
+    .join("\n\n");
+  const lockedLine = lockedIndexes.length > 0 ? lockedIndexes.join(", ") : "(none)";
+
+  return `SEGMENT: ${segment.title}
+
+ORIGINAL TURNS
+${turnsBlock}
+
+LOCKED TURNS (verbatim, untouchable): ${lockedLine}
+
+OUTPUT: every turn's "speaker" is the slug shown after "speaker=" in that turn's header (for example mel-diaper), never the display name; "sourceTurn" is the [index] of the original turn it came from.
+
+TARGET: cut this segment to about ${targetWords} words total, through the "edit_segment" tool.`;
 }

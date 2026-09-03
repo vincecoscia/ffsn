@@ -8,8 +8,12 @@ import type { RouteEffort, RouteModel, WriterRelationshipContext } from "../cont
 import type { FactsBlock } from "../facts";
 import { verifyArticle } from "../fact-verifier";
 import type { Violation } from "../fact-verifier";
+import { PROFANITY_WORDS, STRONG_PROFANITY, stripExemptPhrases } from "../language";
+import type { LanguageRating } from "../language";
 import { getPersona, getPersonaDisplay, personaPrompts } from "../persona-prompts";
 import type { PersonaPrompt } from "../persona-prompts";
+import { naturalizeTranscript } from "./edit-bay";
+import type { EditCaller } from "./edit-bay";
 import { buildTurnSystemPrompt, buildTurnUserPrompt, ceilingFor, directorInstructionFor, roleRulesFor } from "./prompts";
 import { resolveFactsTeamId } from "./question";
 import {
@@ -69,13 +73,13 @@ export interface TurnCaller {
 }
 
 export interface ProduceBudgets {
-  /** Debater turns in the main event. Default 10 (pilot follow-up, 2026-09-03: was 14). */
+  /** Debater turns in the main event. Default 8 (edit-bay follow-up, 2026-09-03: was 10, was 14). */
   mainEvent?: number;
   /** Consecutive jab-with-no-fact turns before Curtis redirects. Default 3. */
   heatThreshold?: number;
   /** Witnesses called to the stand in one episode. Default 6. */
   maxWitnessCalls?: number;
-  /** Curtis redirects every this many debater turns, on top of heat-triggered redirects. Default 5 (was 6). */
+  /** Curtis redirects every this many debater turns, on top of heat-triggered redirects. Default 4 (was 5, was 6). */
   redirectEvery?: number;
 }
 
@@ -88,6 +92,13 @@ export interface ProduceRoutes {
 export interface ProduceOptions {
   budgets?: ProduceBudgets;
   routes?: ProduceRoutes;
+  /**
+   * When set, the episode runs through the edit bay (pass two, `edit-bay.ts#naturalizeTranscript`)
+   * after pass one assembles the transcript: `result.transcript` becomes the edited transcript and
+   * `result.rawTranscript` stays the untouched pass-one version. Omitted, `rawTranscript ===
+   * transcript` and behaviour is unchanged.
+   */
+  naturalize?: { call: EditCaller; targetRatio?: number };
   /** Reserved for callers that want a deterministic clock; the producer does not read it itself. */
   now?: () => number;
 }
@@ -105,17 +116,20 @@ export interface ProduceEpisodeInput {
 }
 
 export interface ProduceEpisodeResult {
+  /** The final transcript: edited by the edit bay when `options.naturalize` was set, otherwise identical to `rawTranscript`. */
   transcript: ShowTranscript;
+  /** The pass-one transcript, before any edit-bay pass. `transcript === rawTranscript` without `options.naturalize`. */
+  rawTranscript: ShowTranscript;
   stats: ShowStats;
   managerMentions: Array<ManagerMention & { persona: string }>;
   claims: Array<ArticleClaim & { persona: string }>;
 }
 
 const DEFAULT_BUDGETS: Required<ProduceBudgets> = {
-  mainEvent: 10,
+  mainEvent: 8,
   heatThreshold: 3,
   maxWitnessCalls: 6,
-  redirectEvery: 5,
+  redirectEvery: 4,
 };
 
 const DEFAULT_ROUTES: ProduceRoutes = {
@@ -192,10 +206,10 @@ function isDuplicateClaim(a: ArticleClaim, b: ArticleClaim): boolean {
 function deriveFallbackSides(hotSeat: ShowBrief["hotSeat"], facts: FactsBlock): DebaterSides {
   const team = facts.teams.find((candidate) => candidate.id === hotSeat.teamId);
   return {
-    "mel-diaper": `The process says no: judge ${hotSeat.managerName} on the draft board and the lineup card, not the standings.`,
+    "mel-diaper": `The process says no: judge the ${hotSeat.teamName} on the draft board and the lineup card its GM set, not the standings.`,
     "reggie-banks": team?.record
-      ? `The scoreboard says yes: judge ${hotSeat.managerName} on results, and the results are ${team.record}.`
-      : `The scoreboard says yes: judge ${hotSeat.managerName} on results.`,
+      ? `The scoreboard says yes: judge the ${hotSeat.teamName} on results, and the results are ${team.record}.`
+      : `The scoreboard says yes: judge the ${hotSeat.teamName} on results.`,
   };
 }
 
@@ -209,7 +223,7 @@ function wordCount(text: string): number {
  * mid-argument). Case-insensitive, matches with any prefix ("You can take that to the bank",
  * "Book it — take that to the bank").
  */
-const CATCHPHRASE_PATTERN = /take that to the bank/i;
+export const CATCHPHRASE_PATTERN = /take that to the bank/i;
 
 function containsCatchphrase(text: string): boolean {
   return CATCHPHRASE_PATTERN.test(text);
@@ -219,10 +233,53 @@ function splitSentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+/);
 }
 
+const ALWAYS_CLEAN_SPEAKERS = new Set(["curtis-vaughn", "dex-alvarez", "sam-ortega"]);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The profanity a turn may not carry: every listed word for an always-clean speaker or at "clean",
+ * the strong tier at "salty", nothing at "unfiltered". Words inside a team name are facts and never
+ * count (the first Salty pilot, 2026-09-03, counted a team name as two strong hits).
+ */
+function languageViolations(
+  speaker: string,
+  text: string,
+  rating: LanguageRating,
+  teamNames: ReadonlyArray<string>
+): string[] {
+  const forbidden =
+    ALWAYS_CLEAN_SPEAKERS.has(speaker) || rating === "clean"
+      ? PROFANITY_WORDS
+      : rating === "salty"
+        ? STRONG_PROFANITY
+        : [];
+  if (forbidden.length === 0) return [];
+  const scrubbed = stripExemptPhrases(text, teamNames);
+  return forbidden.filter((word) => new RegExp(`\\b${escapeRegExp(word)}\\b`, "i").test(scrubbed));
+}
+
 /** Drops the sentence(s) matching `pattern`, leaving the rest of the text as-is. */
 function stripSentenceMatching(text: string, pattern: RegExp): string {
   const sentences = splitSentences(text);
   const kept = sentences.filter((sentence) => !pattern.test(sentence));
+  return kept.length === sentences.length ? text : kept.join(" ").trim();
+}
+
+/**
+ * Same as {@link stripSentenceMatching}, but a sentence is judged only after its team-name mentions
+ * are scrubbed — so a turn with a genuine language violation in one sentence never also loses an
+ * innocent sentence elsewhere purely for naming a team whose real, FACTS-spelled name happens to
+ * contain a tracked word. Team names are always fine to print (house style, clean tier); only the
+ * strip action needs this — `languageViolations` above already exempts team names when it decides
+ * whether a retry is owed in the first place, but its own strip call operated on the raw text, so a
+ * clean sentence that only *named* a crude team could be dropped alongside the real offender.
+ */
+function stripSentenceMatchingExempt(text: string, pattern: RegExp, teamNames: ReadonlyArray<string>): string {
+  const sentences = splitSentences(text);
+  const kept = sentences.filter((sentence) => !pattern.test(stripExemptPhrases(sentence, teamNames)));
   return kept.length === sentences.length ? text : kept.join(" ").trim();
 }
 
@@ -261,7 +318,7 @@ const FULL_ARTICLE_ONLY_KINDS = new Set<string>([
  * on a show the desk address each other by name in nearly every turn ("Nina Sharpe, grade it",
  * "Ask Nina"), which is not a fabricated player (third pilot, 2026-09-03).
  */
-const DESK_NAME_WORDS = new Set<string>(
+export const DESK_NAME_WORDS = new Set<string>(
   Object.values(personaPrompts).flatMap((persona) =>
     persona.name
       .replace(/["“”]/g, " ")
@@ -279,7 +336,11 @@ function mentionsDeskMember(detail: string): boolean {
     .some((word) => DESK_NAME_WORDS.has(word));
 }
 
-function relevantViolations(violations: Violation[]): Violation[] {
+/**
+ * Exported so `edit-bay.ts`'s guard can run the same verifier check pass one does, against the
+ * edit's rewritten text, without duplicating this filtering logic.
+ */
+export function relevantViolations(violations: Violation[]): Violation[] {
   return violations.filter((violation) => {
     if (FULL_ARTICLE_ONLY_KINDS.has(violation.kind)) return false;
     if (violation.kind === "unknown_player" && mentionsDeskMember(violation.detail)) return false;
@@ -287,8 +348,12 @@ function relevantViolations(violations: Violation[]): Violation[] {
   });
 }
 
-/** Wraps one turn as the smallest article `verifyArticle` accepts: one section, everything else empty. */
-function wrapAsArticle(segmentId: SegmentId, sanitized: TurnOutput): WrappedArticle {
+/**
+ * Wraps one turn (or, from `edit-bay.ts`, one edited segment's concatenated text) as the smallest
+ * article `verifyArticle` accepts: one section, everything else empty. Exported so the edit bay's
+ * guard runs the identical verifier check pass one does, rather than a second hand-rolled wrapper.
+ */
+export function wrapAsArticle(segmentId: SegmentId, sanitized: TurnOutput): WrappedArticle {
   const content = sanitized.text;
   return {
     title: "",
@@ -341,7 +406,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     const cached = systemPromptCache.get(speaker);
     if (cached !== undefined) return cached;
     const persona = personas[speaker] ?? getPersona(speaker);
-    const built = buildTurnSystemPrompt(persona, factsFor(speaker), roleRulesFor(speaker));
+    const built = buildTurnSystemPrompt(persona, factsFor(speaker), roleRulesFor(speaker), brief);
     systemPromptCache.set(speaker, built);
     return built;
   }
@@ -364,6 +429,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     costUsd: 0,
     modelsUsed: [],
     catchphraseStripped: 0,
+    languageStripped: 0,
     duplicateClaimsDropped: 0,
     violations: [],
   };
@@ -521,6 +587,31 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
       }
     }
 
+    // The league's language rating is enforced the way the catchphrase is: one retry that names
+    // the words, then the sentence carrying them comes out. The prompt states the rating; this is
+    // what makes it true.
+    const rating: LanguageRating = brief.languageRating ?? "clean";
+    const teamNames = facts.teams.map((team) => team.name);
+    let offending = languageViolations(speaker, sanitized.text, rating, teamNames);
+    if (offending.length > 0) {
+      retried = true;
+      const languageInstruction = `${directorInstruction}\n\nThat turn breaks the league's language rating (${rating}) for you: ${offending.join(", ")}. Say the same thing without those words.`;
+      result = await callTurn(speaker, system, languageInstruction, kind);
+      sanitized = sanitizeTurnOutput(kind, result.output);
+      offending = languageViolations(speaker, sanitized.text, rating, teamNames);
+      if (offending.length > 0) {
+        const pattern = new RegExp(`\\b(?:${offending.map(escapeRegExp).join("|")})\\b`, "i");
+        sanitized = { ...sanitized, text: stripSentenceMatchingExempt(sanitized.text, pattern, teamNames) };
+        stats.languageStripped++;
+        stats.violations.push({
+          speaker,
+          kind: "language_stripped",
+          detail: `${offending.join(", ")} is outside the ${rating} rating for ${speaker}; the sentence carrying it was removed`,
+          severity: "warn",
+        });
+      }
+    }
+
     recordWordCeilingWarning(speaker, kind, sanitized.text);
 
     const turn: ShowTurn = {
@@ -641,7 +732,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
 
   /* ---------------------------------------------------------------------- *
    * 3. MAIN EVENT — the debater budget, alternating Mel/Reggie, with witnesses called in and Curtis
-   *    redirecting on heat or every `budgets.redirectEvery`th debater turn (default 5).
+   *    redirecting on heat or every `budgets.redirectEvery`th debater turn (default 4).
    * ---------------------------------------------------------------------- */
   {
     const turns: ShowTurn[] = [];
@@ -774,15 +865,14 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     segments.push({ id: "last_jabs", title: "Last Jabs", turns });
   }
 
-  stats.modelsUsed = [...modelsUsed];
-
-  const transcript: ShowTranscript = {
+  const rawTranscript: ShowTranscript = {
     schema: "ffsn.transcript.v1",
     show: "disputed",
     week: brief.week,
     question,
     hotSeat: brief.hotSeat,
     sides: resolvedSides,
+    language: brief.languageRating ?? "clean",
     segments,
   };
 
@@ -793,12 +883,28 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     if (turn.claim) claims.push({ ...turn.claim, persona: turn.speaker });
   }
 
-  return { transcript, stats, managerMentions, claims };
+  // Pass two: the edit bay. Optional — without it `transcript` stays the same object as
+  // `rawTranscript`, and its cost/usage never touch `stats`.
+  let transcript: ShowTranscript = rawTranscript;
+  if (input.options?.naturalize) {
+    const { call, targetRatio } = input.options.naturalize;
+    const naturalizeResult = await naturalizeTranscript(rawTranscript, { call, targetRatio, facts });
+    transcript = naturalizeResult.transcript;
+    stats.promptTokens += naturalizeResult.stats.promptTokens;
+    stats.completionTokens += naturalizeResult.stats.completionTokens;
+    stats.costUsd += naturalizeResult.stats.costUsd;
+    for (const usedModel of naturalizeResult.stats.modelsUsed) modelsUsed.add(usedModel);
+  }
+
+  stats.modelsUsed = [...modelsUsed];
+
+  return { transcript, rawTranscript, stats, managerMentions, claims };
 }
 
 export function renderTranscriptMarkdown(transcript: ShowTranscript): string {
   const lines: string[] = [];
-  lines.push(`# Disputed · Week ${transcript.week ?? "?"}`);
+  const teamSuffix = transcript.hotSeat ? ` · ${transcript.hotSeat.teamName}` : "";
+  lines.push(`# Disputed · Week ${transcript.week ?? "?"}${teamSuffix}`);
   lines.push("");
   lines.push(transcript.question);
   for (const segment of transcript.segments) {
@@ -806,8 +912,9 @@ export function renderTranscriptMarkdown(transcript: ShowTranscript): string {
     lines.push(`## ${segment.title}`);
     for (const turn of segment.turns) {
       const display = getPersonaDisplay(turn.speaker);
+      const plate = turn.interrupts ? `${display.name} (${display.role}), cutting in:` : `${display.name} (${display.role}):`;
       lines.push("");
-      lines.push(`**${display.name} (${display.role}):** ${turn.text}`);
+      lines.push(`**${plate}** ${turn.text}`);
     }
   }
   return `${lines.join("\n").trimEnd()}\n`;
@@ -822,7 +929,8 @@ export function renderTranscriptPlain(transcript: ShowTranscript): string {
     lines.push(segment.title.toUpperCase());
     for (const turn of segment.turns) {
       const display = getPersonaDisplay(turn.speaker);
-      lines.push(`${display.name} (${display.role}): ${turn.text}`);
+      const plate = turn.interrupts ? `${display.name} (${display.role}), cutting in:` : `${display.name} (${display.role}):`;
+      lines.push(`${plate} ${turn.text}`);
     }
   }
   return lines.join("\n");

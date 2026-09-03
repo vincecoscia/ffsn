@@ -328,6 +328,11 @@ async function buildGenerationRequest(
     leagueId,
     persona,
   });
+  // League language rating + per-manager opt-down (owner ask, Sept 2026), resolved the same
+  // way every other generation path resolves it.
+  const languageSettings = await ctx.runQuery(internal.languageSettings.getLeagueLanguage, {
+    leagueId,
+  });
 
   return {
     leagueId,
@@ -341,6 +346,10 @@ async function buildGenerationRequest(
     relationships: relationships.length ? relationships : undefined,
     priorClaims: priorClaims.items,
     priorRecord: priorClaims.record,
+    languageRating: languageSettings.languageRating,
+    cleanTeamNames: languageSettings.cleanTeamNames.length
+      ? languageSettings.cleanTeamNames
+      : undefined,
   } as GenerationRequest;
 }
 

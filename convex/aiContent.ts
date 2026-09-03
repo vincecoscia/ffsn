@@ -874,6 +874,13 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         { leagueId: args.leagueId, persona: args.persona }
       );
 
+      // League language rating + per-manager opt-down (owner ask, Sept 2026): resolved once
+      // so this article renders at the same rating every other generation path would use.
+      const languageSettings = await ctx.runQuery(
+        internal.languageSettings.getLeagueLanguage,
+        { leagueId: args.leagueId }
+      );
+
       // Receipts (spec section 8.4): what this writer has predicted in this
       // league and how it turned out. Empty for a writer with no back catalogue.
       const priorClaims = await ctx.runQuery(
@@ -899,6 +906,10 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           // (spec §8.4). A writer may only claim a past call that is in here.
           priorClaims: priorClaims.items,
           priorRecord: priorClaims.record,
+          languageRating: languageSettings.languageRating,
+          cleanTeamNames: languageSettings.cleanTeamNames.length
+            ? languageSettings.cleanTeamNames
+            : undefined,
         },
       });
       

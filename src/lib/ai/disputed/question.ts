@@ -69,6 +69,12 @@ export function resolveFactsTeamId(facts: FactsBlock, teamId: string, teamName: 
   return byName?.id;
 }
 
+/** The FACTS team's display name for a resolved FACTS team id; falls back to the id itself when the team is unnamed (or not found). */
+function teamNameFor(facts: FactsBlock, teamId: string): string {
+  const team = facts.teams.find((candidate) => candidate.id === teamId);
+  return team?.name ?? teamId;
+}
+
 /**
  * Step 1: the manager the desk disagrees most about. Groups every writer's relationship reading of
  * every manager by `userId`, finds the manager with the widest tier spread (≥ 2) across those
@@ -128,7 +134,7 @@ function chooseFromRelationships(
     `${getPersonaDisplay(best.high.writer).name} ${tierClause(best.high.tier)} (${scoreLabel(best.high.score)}), ` +
     `${getPersonaDisplay(best.low.writer).name} ${tierClause(best.low.tier)} (${scoreLabel(best.low.score)})`;
 
-  return { teamId, managerName: best.aggregate.managerName, why };
+  return { teamId, teamName: teamNameFor(facts, teamId), managerName: best.aggregate.managerName, why };
 }
 
 /** 1st-place points-for down to last, by `facts.standings[].pointsFor` (never the win/loss rank). */
@@ -165,7 +171,7 @@ function fallbackFromStandings(facts: FactsBlock): ShowBrief["hotSeat"] | null {
         best = {
           teamId: winnerId,
           surprisal,
-          why: `won by ${margin} with the ${ordinal(winnerRank)}-lowest points for in the league`,
+          why: `${teamNameFor(facts, winnerId)} won by ${margin} with the ${ordinal(winnerRank)}-lowest points for in the league`,
         };
       }
     }
@@ -177,7 +183,7 @@ function fallbackFromStandings(facts: FactsBlock): ShowBrief["hotSeat"] | null {
         best = {
           teamId: loserId,
           surprisal,
-          why: `lost by ${margin} despite the ${ordinal(loserRank)}-highest points for in the league`,
+          why: `${teamNameFor(facts, loserId)} lost by ${margin} despite the ${ordinal(loserRank)}-highest points for in the league`,
         };
       }
     }
@@ -185,7 +191,12 @@ function fallbackFromStandings(facts: FactsBlock): ShowBrief["hotSeat"] | null {
 
   if (!best) return null;
   const team = facts.teams.find((candidate) => candidate.id === best!.teamId);
-  return { teamId: best.teamId, managerName: team?.manager ?? team?.name ?? "the manager", why: best.why };
+  return {
+    teamId: best.teamId,
+    teamName: team?.name ?? best.teamId,
+    managerName: team?.manager ?? team?.name ?? "the manager",
+    why: best.why,
+  };
 }
 
 /**
@@ -202,5 +213,5 @@ export function chooseHotSeat(
 
 /** Used only when the cold-open turn's own output carries no `question`. */
 export function fallbackQuestionFor(hotSeat: ShowBrief["hotSeat"]): string {
-  return `Is ${hotSeat.managerName} a good manager, or a lucky one?`;
+  return `Is ${hotSeat.managerName} doing enough for ${hotSeat.teamName}?`;
 }

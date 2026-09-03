@@ -7,4 +7,5 @@ export * from "./types";
 export * from "./question";
 export * from "./prompts";
 export * from "./producer";
+export * from "./edit-bay";
 export * from "./anthropic-caller";

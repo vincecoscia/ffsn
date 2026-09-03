@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { buildFactsBlock, serializeFacts } from "../src/lib/ai/facts";
 import { fixturesByName, factsRequestFor } from "../src/lib/ai/__fixtures__/index";
 import { computeCostUsd } from "../src/lib/ai/content-generation-service";
-import { getPersonaDisplay } from "../src/lib/ai/persona-prompts";
+import { getPersona, getPersonaDisplay } from "../src/lib/ai/persona-prompts";
 import { chooseHotSeat, fallbackQuestionFor } from "../src/lib/ai/disputed/question";
 import { produceEpisode, renderTranscriptMarkdown } from "../src/lib/ai/disputed/producer";
 import type { TurnCallRequest, TurnCallResult, TurnCaller } from "../src/lib/ai/disputed/producer";
-import { directorInstructionFor, SHOW_RULES } from "../src/lib/ai/disputed/prompts";
-import type { ShowBrief, TurnOutput } from "../src/lib/ai/disputed/types";
+import type { EditCaller } from "../src/lib/ai/disputed/edit-bay";
+import { buildTurnSystemPrompt, directorInstructionFor, SHOW_RULES } from "../src/lib/ai/disputed/prompts";
+import type { EditedTurn, ShowBrief, TurnOutput } from "../src/lib/ai/disputed/types";
 
 /**
  * The `rich-week` fixture (spec BUILD 1 §7) built into a real `FactsBlock`, exactly the way
@@ -21,10 +22,11 @@ const brief: ShowBrief = {
   week: facts.league.week,
   hotSeat: {
     teamId: "T10",
+    teamName: "Sable Ridge Sentinels",
     managerName: "Ruth Tanaka",
     why: "Nina Sharpe is warm on them (+22), Mel Diaper is at feud (-58)",
   },
-  fallbackQuestion: "Is Ruth Tanaka a good manager, or a lucky one?",
+  fallbackQuestion: "Is Ruth Tanaka doing enough for Sable Ridge Sentinels?",
   ledger: { "mel-diaper": { hits: 3, misses: 2 }, "reggie-banks": { hits: 4, misses: 1 } },
 };
 
@@ -139,12 +141,13 @@ describe("chooseHotSeat", () => {
 
     expect(hotSeat).not.toBeNull();
     expect(hotSeat!.teamId).toBe("T10");
+    expect(hotSeat!.teamName).toBe("Sable Ridge Sentinels");
     expect(hotSeat!.managerName).toBe("Ruth Tanaka");
     expect(hotSeat!.why).toContain("Nina Sharpe");
     expect(hotSeat!.why).toContain("+22");
     expect(hotSeat!.why).toContain("Mel Diaper");
     expect(hotSeat!.why).toContain("-58");
-    expect(fallbackQuestionFor(hotSeat!)).toBe("Is Ruth Tanaka a good manager, or a lucky one?");
+    expect(fallbackQuestionFor(hotSeat!)).toBe("Is Ruth Tanaka doing enough for Sable Ridge Sentinels?");
   });
 
   it("falls back to the standings/matchup split when no writer has a relationship reading", () => {
@@ -154,8 +157,9 @@ describe("chooseHotSeat", () => {
     // Ninth Street Nightjars (T4) lost to Halyard Bay despite the 4th-best points-for in the
     // league — the biggest process-versus-results split in the rich-week fixture's week 7 slate.
     expect(hotSeat!.teamId).toBe("T4");
+    expect(hotSeat!.teamName).toBe("Ninth Street Nightjars");
     expect(hotSeat!.managerName).toBe("Trevor Ashby");
-    expect(hotSeat!.why).toContain("lost by 23.7");
+    expect(hotSeat!.why).toContain("Ninth Street Nightjars lost by 23.7");
     expect(hotSeat!.why).toContain("4th-highest points for");
   });
 
@@ -168,7 +172,7 @@ describe("chooseHotSeat", () => {
 });
 
 describe("produceEpisode — plain rundown", () => {
-  it("runs cold open, openings, 10 alternating debater turns with redirects every 5, verdict, and last jabs", async () => {
+  it("runs cold open, openings, 8 alternating debater turns with redirects every 4, verdict, and last jabs", async () => {
     const call = makeFakeCaller(defaultScript);
     const { transcript, stats, claims } = await produceEpisode({
       facts,
@@ -196,8 +200,8 @@ describe("produceEpisode — plain rundown", () => {
       ["reggie-banks", "opening"],
     ]);
 
-    // Default budgets (pilot follow-up, 2026-09-03): 10 debater turns, a redirect every 5 of them.
-    // 10 is an exact multiple of 5, so the second redirect lands right after the very last argument
+    // Default budgets (edit-bay follow-up, 2026-09-03): 8 debater turns, a redirect every 4 of them.
+    // 8 is an exact multiple of 4, so the second redirect lands right after the very last argument
     // turn, before the segment hands off to the verdict.
     const mainEventSpeakers = transcript.segments[2].turns.map((turn) => turn.speaker);
     expect(mainEventSpeakers).toEqual([
@@ -205,9 +209,7 @@ describe("produceEpisode — plain rundown", () => {
       "reggie-banks",
       "mel-diaper",
       "reggie-banks",
-      "mel-diaper",
       "curtis-vaughn",
-      "reggie-banks",
       "mel-diaper",
       "reggie-banks",
       "mel-diaper",
@@ -215,7 +217,7 @@ describe("produceEpisode — plain rundown", () => {
       "curtis-vaughn",
     ]);
     expect(transcript.segments[2].turns.filter((turn) => turn.kind === "redirect")).toHaveLength(2);
-    expect(transcript.segments[2].turns.filter((turn) => turn.kind === "argument")).toHaveLength(10);
+    expect(transcript.segments[2].turns.filter((turn) => turn.kind === "argument")).toHaveLength(8);
 
     expect(transcript.segments[3].turns.map((turn) => [turn.speaker, turn.kind])).toEqual([
       ["nina-sharpe", "grade"],
@@ -284,7 +286,12 @@ describe("produceEpisode — heat", () => {
       brief,
       relationshipsByWriter: {},
       call,
-      options: { budgets: { mainEvent: 4 } },
+      // redirectEvery set high on purpose: this test is about the HEAT-triggered redirect (three
+      // consecutive no-fact jabs), so the modulo-triggered redirect is pushed out of range rather
+      // than left at its default — otherwise a future default change (edit-bay follow-up,
+      // 2026-09-03: redirectEvery went 5→4, which collides with mainEvent 4 on its own) could add a
+      // second, unrelated redirect this test isn't testing for.
+      options: { budgets: { mainEvent: 4, redirectEvery: 10 } },
     });
 
     const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
@@ -585,13 +592,13 @@ describe("produceEpisode — repetition guard threading", () => {
 });
 
 describe("produceEpisode — cold open word ceiling", () => {
-  it("raises the host ceiling to 80 words for the cold open only; redirect/ledger/close stay at 45", async () => {
+  it("raises the host ceiling to 70 words for the cold open only; redirect/ledger/close stay at 45", async () => {
     const requests: TurnCallRequest[] = [];
     const script = (req: TurnCallRequest): TurnOutput => {
       const kind = extractKind(req);
       if (kind === "cold_open") {
-        // 90 words: over the old 45-word host ceiling's 1.5x (67.5), under the new 80-word
-        // ceiling's 1.5x (120) — must not warn now that cold_open carries the raised ceiling.
+        // 90 words: over the old 45-word host ceiling's 1.5x (67.5), under the new 70-word
+        // ceiling's 1.5x (105) — must not warn now that cold_open carries the raised ceiling.
         return baseOutput({ text: Array(90).fill("word").join(" "), question: brief.fallbackQuestion });
       }
       return defaultScript(req);
@@ -612,7 +619,7 @@ describe("produceEpisode — cold open word ceiling", () => {
     expect(coldOpenCeilingWarning).toBeUndefined();
 
     const coldOpenRequest = requests.find((req) => extractKind(req) === "cold_open")!;
-    expect(coldOpenRequest.user).toContain("host turns stay under 80 words");
+    expect(coldOpenRequest.user).toContain("host turns stay under 70 words");
 
     const ledgerRequest = requests.find((req) => extractKind(req) === "ledger")!;
     expect(ledgerRequest.user).toContain("host turns stay under 45 words");
@@ -707,11 +714,11 @@ describe("produceEpisode — sides", () => {
 
     const team = facts.teams.find((candidate) => candidate.id === brief.hotSeat.teamId);
     const expectedReggieSide = team?.record
-      ? `The scoreboard says yes: judge ${brief.hotSeat.managerName} on results, and the results are ${team.record}.`
-      : `The scoreboard says yes: judge ${brief.hotSeat.managerName} on results.`;
+      ? `The scoreboard says yes: judge the ${brief.hotSeat.teamName} on results, and the results are ${team.record}.`
+      : `The scoreboard says yes: judge the ${brief.hotSeat.teamName} on results.`;
 
     expect(transcript.sides).toEqual({
-      "mel-diaper": `The process says no: judge ${brief.hotSeat.managerName} on the draft board and the lineup card, not the standings.`,
+      "mel-diaper": `The process says no: judge the ${brief.hotSeat.teamName} on the draft board and the lineup card its GM set, not the standings.`,
       "reggie-banks": expectedReggieSide,
     });
   });
@@ -924,5 +931,333 @@ describe("produceEpisode — call failures", () => {
 
     expect(stats.dropped).toBe(2);
     expect(stats.violations.filter((violation) => violation.kind === "call_failed")).toHaveLength(2);
+  });
+});
+
+describe("produceEpisode — naturalize (edit bay) integration", () => {
+  // With budgets.mainEvent: 2, every turn `defaultScript` produces uses `baseOutput()`'s untouched
+  // default text ("Default turn text.") — cold_open's own text included, since only its "question"
+  // field is overridden. That makes every segment's speaker sequence exactly this, in order.
+  const SEGMENT_SPEAKERS: Record<string, string[]> = {
+    cold_open: ["curtis-vaughn"],
+    opening_statements: ["mel-diaper", "reggie-banks"],
+    main_event: ["mel-diaper", "reggie-banks"],
+    verdict: ["nina-sharpe", "curtis-vaughn"],
+    last_jabs: ["mel-diaper", "reggie-banks", "curtis-vaughn"],
+  };
+
+  /** Echoes every turn back verbatim (so the guard always accepts it), marking main_event's second turn as cutting in on the first. */
+  const fakeEditCaller: EditCaller = async (req) => {
+    const speakers = SEGMENT_SPEAKERS[req.segmentId] ?? [];
+    const turns: EditedTurn[] = speakers.map((speaker, index) => ({
+      sourceTurn: index,
+      speaker,
+      text: "Default turn text.",
+      interrupts: req.segmentId === "main_event" && index === 1 ? true : undefined,
+    }));
+    return { output: { turns }, usage: { input: 10, output: 5 }, model: "claude-sonnet-5" };
+  };
+
+  it("runs the edit bay, returns rawTranscript separately from the edited transcript, and carries interrupts", async () => {
+    const call = makeFakeCaller(defaultScript);
+
+    const result = await produceEpisode({
+      facts,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 }, naturalize: { call: fakeEditCaller } },
+    });
+
+    expect(result.rawTranscript).not.toBe(result.transcript);
+    expect(result.rawTranscript.edited).toBeUndefined();
+    expect(result.transcript.edited).toBeDefined();
+    expect(result.transcript.edited?.pass).toBe("edit-bay-v1");
+    expect(result.transcript.edited?.segmentsRejected).toBe(0);
+    expect(result.transcript.edited?.segmentsEdited).toBe(result.transcript.segments.length);
+
+    const mainEvent = result.transcript.segments.find((segment) => segment.id === "main_event")!;
+    expect(mainEvent.turns[1].interrupts).toBe(true);
+    expect(mainEvent.turns[0].interrupts).toBeUndefined();
+    // The tidy pass makes the interrupted line end on an em dash.
+    expect(mainEvent.turns[0].text).toBe("Default turn text—");
+    // Copied over from the source turn untouched.
+    expect(mainEvent.turns[0].speaker).toBe("mel-diaper");
+    expect(mainEvent.turns[0].kind).toBe("argument");
+    expect(mainEvent.turns[1].speaker).toBe("reggie-banks");
+
+    const rawMainEvent = result.rawTranscript.segments.find((segment) => segment.id === "main_event")!;
+    expect(rawMainEvent.turns.every((turn) => !turn.interrupts)).toBe(true);
+  });
+
+  it("without options.naturalize, rawTranscript is the exact same object as transcript", async () => {
+    const call = makeFakeCaller(defaultScript);
+    const result = await produceEpisode({
+      facts,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+    expect(result.rawTranscript).toBe(result.transcript);
+  });
+});
+
+describe("produceEpisode — transcript.language", () => {
+  it("defaults to clean when the brief carries no languageRating", async () => {
+    const call = makeFakeCaller(defaultScript);
+    const { transcript } = await produceEpisode({
+      facts,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+    expect(transcript.language).toBe("clean");
+  });
+
+  it("carries the brief's languageRating onto the transcript", async () => {
+    const call = makeFakeCaller(defaultScript);
+    const { transcript } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "salty" },
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+    expect(transcript.language).toBe("salty");
+  });
+});
+
+describe("buildTurnSystemPrompt — house style / language", () => {
+  it("puts the house style block right after the grounding contract and before WHO YOU ARE", () => {
+    const persona = getPersona("mel-diaper");
+    const system = buildTurnSystemPrompt(persona, facts, "role rules", brief);
+    const contractIndex = system.indexOf("GROUNDING CONTRACT");
+    const houseStyleIndex = system.indexOf("HOUSE STYLE");
+    const whoYouAreIndex = system.indexOf("WHO YOU ARE");
+
+    expect(contractIndex).toBe(0);
+    expect(houseStyleIndex).toBeGreaterThan(contractIndex);
+    expect(whoYouAreIndex).toBeGreaterThan(houseStyleIndex);
+  });
+
+  it("includes the salty tier text for a salty brief and omits it for a clean one", () => {
+    const persona = getPersona("mel-diaper");
+    const saltySystem = buildTurnSystemPrompt(persona, facts, "role rules", { ...brief, languageRating: "salty" });
+    expect(saltySystem).toContain("salty: Mild profanity is allowed");
+
+    const cleanSystem = buildTurnSystemPrompt(persona, facts, "role rules", brief);
+    expect(cleanSystem).not.toContain("salty: Mild profanity is allowed");
+    expect(cleanSystem).toContain("clean: No profanity of any kind.");
+  });
+
+  it("includes the show-surface language line", () => {
+    const persona = getPersona("mel-diaper");
+    const system = buildTurnSystemPrompt(persona, facts, "role rules", brief);
+    expect(system).toContain("In the show, cut-ins and reactions follow the same rating.");
+  });
+});
+
+describe("produceEpisode — language rating enforcement", () => {
+  it("Mel saying 'damn' at clean rating gets one retry naming the language rating, and when the retry still says it the offending sentence is removed", async () => {
+    const requests: TurnCallRequest[] = [];
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        // Same response every call: the retry "still says it".
+        return baseOutput({ text: "Two picks in and nothing to show for it. That lineup call was damn near criminal." });
+      }
+      return defaultScript(req);
+    };
+    const call = makeCapturingCaller(script, requests);
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief, // languageRating undefined -> defaults to "clean"
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const melArgumentRequests = requests.filter((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument");
+    expect(melArgumentRequests).toHaveLength(2);
+    expect(melArgumentRequests[1].user).toContain("language rating");
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const melTurn = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(melTurn.text).toBe("Two picks in and nothing to show for it.");
+    expect(melTurn.retried).toBe(true);
+    expect(stats.languageStripped).toBe(1);
+    expect(
+      stats.violations.filter((violation) => violation.kind === "language_stripped" && violation.speaker === "mel-diaper")
+    ).toHaveLength(1);
+  });
+
+  it("the same mild word at salty rating passes without a retry", async () => {
+    const requests: TurnCallRequest[] = [];
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        return baseOutput({ text: "That lineup call was damn near criminal." });
+      }
+      return defaultScript(req);
+    };
+    const call = makeCapturingCaller(script, requests);
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "salty" },
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const melArgumentRequests = requests.filter((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument");
+    expect(melArgumentRequests).toHaveLength(1);
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const melTurn = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(melTurn.text).toBe("That lineup call was damn near criminal.");
+    expect(melTurn.retried).toBeUndefined();
+    expect(stats.languageStripped).toBe(0);
+  });
+
+  it("a strong word at salty rating is retried", async () => {
+    const requests: TurnCallRequest[] = [];
+    let melArgumentCalls = 0;
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        melArgumentCalls++;
+        if (melArgumentCalls === 1) return baseOutput({ text: "That whole draft was bullshit." });
+        return baseOutput({ text: "That whole draft was indefensible." });
+      }
+      return defaultScript(req);
+    };
+    const call = makeCapturingCaller(script, requests);
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "salty" },
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const melArgumentRequests = requests.filter((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument");
+    expect(melArgumentRequests).toHaveLength(2);
+    expect(melArgumentRequests[1].user).toContain("language rating");
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const melTurn = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(melTurn.text).toBe("That whole draft was indefensible.");
+    expect(melTurn.retried).toBe(true);
+    expect(stats.languageStripped).toBe(0);
+    expect(melArgumentCalls).toBe(2);
+  });
+
+  it("a Curtis turn with a mild word at unfiltered rating is retried, even though unfiltered forbids nothing for the debaters", async () => {
+    const requests: TurnCallRequest[] = [];
+    let curtisCloseCalls = 0;
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "close" && req.speaker === "curtis-vaughn") {
+        curtisCloseCalls++;
+        if (curtisCloseCalls === 1) return baseOutput({ text: "Well, that was a damn fine debate tonight." });
+        return baseOutput({ text: "Well, that was one heck of a debate tonight." });
+      }
+      return defaultScript(req);
+    };
+    const call = makeCapturingCaller(script, requests);
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "unfiltered" },
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const curtisCloseRequests = requests.filter((req) => req.speaker === "curtis-vaughn" && extractKind(req) === "close");
+    expect(curtisCloseRequests).toHaveLength(2);
+    expect(curtisCloseRequests[1].user).toContain("language rating");
+
+    const lastJabs = transcript.segments.find((segment) => segment.id === "last_jabs")!;
+    const closeTurn = lastJabs.turns.find((turn) => turn.kind === "close")!;
+    expect(closeTurn.text).toBe("Well, that was one heck of a debate tonight.");
+    expect(closeTurn.retried).toBe(true);
+    expect(stats.languageStripped).toBe(0);
+    expect(curtisCloseCalls).toBe(2);
+  });
+
+  it("a team name containing a listed word never triggers enforcement, at clean rating or any other", async () => {
+    const factsWithProfaneTeamName = {
+      ...facts,
+      teams: [...facts.teams, { id: "T99", teamId: "solo99", name: "Damn Good Dynasty", record: "0-0-0" }],
+    };
+    const requests: TurnCallRequest[] = [];
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        return baseOutput({ text: "The Damn Good Dynasty still can't fix their bench." });
+      }
+      return defaultScript(req);
+    };
+    const call = makeCapturingCaller(script, requests);
+    const { transcript, stats } = await produceEpisode({
+      facts: factsWithProfaneTeamName,
+      factsText,
+      brief, // clean — the strictest rating, and still never flags the team's own name
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const melArgumentRequests = requests.filter((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument");
+    expect(melArgumentRequests).toHaveLength(1);
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const melTurn = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(melTurn.text).toBe("The Damn Good Dynasty still can't fix their bench.");
+    expect(melTurn.retried).toBeUndefined();
+    expect(stats.languageStripped).toBe(0);
+    expect(stats.violations.some((violation) => violation.kind === "language_stripped")).toBe(false);
+  });
+
+  it("a genuine violation in one sentence never also strips an innocent sentence that merely names a profane-sounding team", async () => {
+    const factsWithProfaneTeamName = {
+      ...facts,
+      teams: [...facts.teams, { id: "T99", teamId: "solo99", name: "Damn Good Dynasty", record: "0-0-0" }],
+    };
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        // The team name ("Damn Good Dynasty") is fine at every rating; the second sentence's bare
+        // "damn" is the actual, genuine violation, and only that sentence should ever be removed.
+        return baseOutput({
+          text: "The Damn Good Dynasty are still 2-5. That trade was a damn disaster for them.",
+        });
+      }
+      return defaultScript(req);
+    };
+    const call = makeFakeCaller(script);
+    const { transcript, stats } = await produceEpisode({
+      facts: factsWithProfaneTeamName,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const melTurn = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(melTurn.text).toBe("The Damn Good Dynasty are still 2-5.");
+    expect(stats.languageStripped).toBe(1);
   });
 });

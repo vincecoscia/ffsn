@@ -1,5 +1,6 @@
 import { getPersona, type PersonaPrompt } from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
+import { DEFAULT_LANGUAGE_RATING, type LanguageRating } from './language';
 import {
   adpLooksLikePlaceholder,
   buildFactsBlock,
@@ -361,6 +362,10 @@ export interface PromptBuilderOptions {
   relationships?: WriterRelationshipContext[];
   priorClaims?: PriorClaim[];
   priorRecord?: PriorRecord;
+  /** League-level language rating (owner ask, Sept 2026); defaults to "clean" when absent. */
+  languageRating?: LanguageRating;
+  /** Team names whose managers opted down to clean coverage, regardless of `languageRating`. */
+  cleanTeamNames?: string[];
 }
 
 export interface LeagueDataContext {
@@ -703,6 +708,58 @@ export interface LeagueDataContext {
   [key: string]: unknown;
 }
 
+/** Arguments to {@link buildHouseStyleBlock}. Every field is optional; the defaults are `clean`, no opted-down teams, and the article surface. */
+export interface HouseStyleArgs {
+  languageRating?: LanguageRating;
+  cleanTeamNames?: string[];
+  surface?: 'article' | 'show';
+}
+
+/**
+ * HOUSE STYLE + LANGUAGE (owner ask, Sept 2026): the team is the subject of results, the manager is
+ * its general manager who answers for its DECISIONS, and profanity is gated by a league-level
+ * rating with a per-manager opt-down. Emitted right after {@link GROUNDING_CONTRACT} — before
+ * persona voice, because these are house rules every writer follows regardless of voice, the same
+ * reason the grounding contract itself goes first. `disputed/prompts.ts` reuses this verbatim for
+ * the show, with `surface: "show"`.
+ */
+export function buildHouseStyleBlock(args: HouseStyleArgs = {}): string {
+  const rating = args.languageRating ?? DEFAULT_LANGUAGE_RATING;
+  const cleanTeamNames = args.cleanTeamNames ?? [];
+
+  const houseStyle = `HOUSE STYLE
+- The team is the subject of results, records, scores, points and standings. Refer to a team by its team name, exactly as FACTS spells it.
+- The manager is that team's general manager. Name the manager when assigning credit or blame for a DECISION — a draft pick, a waiver claim, a lineup call, a trade, a quote — as the GM of the team: "Is Cameron Coscia doing enough for the Gravel Pit Grinders?" Never write the manager as the one who scored, lost, or won; the team did that.
+- Roasts and praise land on the team's decisions and on the GM who made them. A manager's character, looks, family and life outside the league stay off the page at every rating.
+- Headlines, titles, summaries and the first sentence name the team, not the manager.`;
+
+  const tierLine: Record<LanguageRating, string> = {
+    clean:
+      '- clean: No profanity of any kind. Team names print exactly as the league spelled them, whatever they contain — they are facts, not your words.',
+    salty:
+      '- salty: Mild profanity is allowed (the mild tier: damn, hell, ass, crap, pissed, screwed, sucks) — at most two per article, aimed at a decision or a result, never at a person. No strong profanity, no slurs, nothing sexual. Titles, headlines and summaries stay clean. This is a register, not a permission slip: when a receipt deserves it, Mel, Reggie and Walt say so in those words.',
+    unfiltered:
+      '- unfiltered: Strong profanity is allowed (the strong tier), at most one per paragraph and never in a title, headline, summary or first sentence; still never slurs, never sexual, never at a person\'s character. Swear at the pick, the lineup, the trade — never the human. This is a register, not a permission slip: the league asked for the uncut desk, so when the moment earns it, Mel, Reggie and Walt talk the way people actually talk about a blown lineup.',
+  };
+
+  const languageLines = [
+    tierLine[rating],
+    '- At every rating: some desk members never swear regardless — Curtis Vaughn, Dex Alvarez and Sam Ortega stay clean; Nina Sharpe allows herself one dry one at unfiltered; Mel Diaper, Reggie Banks and Walt Brennan carry the rating.',
+  ];
+
+  if (cleanTeamNames.length > 0) {
+    languageLines.push(
+      `- These teams' managers asked for clean coverage; about them, and about their managers, write as if the rating were clean: ${cleanTeamNames.join(', ')}.`
+    );
+  }
+
+  if (args.surface === 'show') {
+    languageLines.push('- In the show, cut-ins and reactions follow the same rating.');
+  }
+
+  return `${houseStyle}\n\nLANGUAGE\n${languageLines.join('\n')}`;
+}
+
 /**
  * The "WHO YOU ARE" block of the system prompt: identity, signature moves, style rules and truth
  * posture. Factored out of `PromptBuilder.buildSystemPrompt` so `disputed/prompts.ts` can build a
@@ -806,6 +863,13 @@ export class PromptBuilder {
   private buildSystemPrompt(): string {
     const persona = this.persona;
     const parts: string[] = [GROUNDING_CONTRACT];
+
+    parts.push(
+      buildHouseStyleBlock({
+        languageRating: this.options.languageRating,
+        cleanTeamNames: this.options.cleanTeamNames,
+      })
+    );
 
     parts.push(buildWhoYouAreBlock(persona));
 

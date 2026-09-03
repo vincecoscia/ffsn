@@ -37,6 +37,7 @@ import type * as espnCredentialLifecycle from "../espnCredentialLifecycle.js";
 import type * as espnNews from "../espnNews.js";
 import type * as espnStatsMapping from "../espnStatsMapping.js";
 import type * as espnSync from "../espnSync.js";
+import type * as languageSettings from "../languageSettings.js";
 import type * as leagues from "../leagues.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_draftDate from "../lib/draftDate.js";
@@ -122,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   espnNews: typeof espnNews;
   espnStatsMapping: typeof espnStatsMapping;
   espnSync: typeof espnSync;
+  languageSettings: typeof languageSettings;
   leagues: typeof leagues;
   "lib/auth": typeof lib_auth;
   "lib/draftDate": typeof lib_draftDate;

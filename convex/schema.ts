@@ -4,6 +4,7 @@ import {
   articleClaimValidator,
   articleQuoteValidator,
   generationStatsValidator,
+  languageRatingValidator,
   managerMentionValidator,
   relationshipEventTypeValidator,
   relationshipTierValidator,
@@ -65,6 +66,10 @@ export default defineSchema({
       emailNotifications: v.boolean(),
       favoriteTeam: v.optional(v.string()),
       timezone: v.optional(v.string()),
+      // "Keep it clean about my team" (owner ask, Sept 2026): generated content about this
+      // manager's team reads as clean whatever the league's languageRating is. Absent means
+      // this manager has not opted down.
+      cleanLanguage: v.optional(v.boolean()),
     })),
     createdAt: v.number(),
     lastActiveAt: v.number(),
@@ -1348,13 +1353,18 @@ export default defineSchema({
     
     // Content quality settings
     preferredPersonas: v.optional(v.array(v.string())), // Preferred personas in order
+    // Deprecated (owner ask, Sept 2026): superseded by languageRating below and no longer
+    // shown in the UI. Kept so rows written before today still validate.
     contentStyle: v.optional(v.union(
       v.literal("professional"),
       v.literal("casual"),
       v.literal("humorous"),
       v.literal("analytical")
     )),
-    
+    // League-level language rating (owner ask, Sept 2026): how far the desk's writers can go.
+    // Absent means "clean".
+    languageRating: v.optional(languageRatingValidator),
+
     // Auto-publish settings
     autoPublish: v.boolean(), // Automatically publish generated content
     requireApproval: v.boolean(), // Require commissioner approval before publishing

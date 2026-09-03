@@ -16,6 +16,7 @@ import { internalAction } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
   commentResponseDataValidator,
+  languageRatingValidator,
   nonRespondentValidator,
   priorClaimValidator,
   priorRecordValidator,
@@ -73,6 +74,10 @@ export const generateArticle = internalAction({
       priorClaims: v.optional(v.array(priorClaimValidator)),
       // The writer's standing record on those claims (spec §8.4).
       priorRecord: v.optional(priorRecordValidator),
+      // League-level language rating + per-manager opt-down (owner ask, Sept 2026); pass-through
+      // only - the prompt layer applies these, this action just forwards them.
+      languageRating: v.optional(languageRatingValidator),
+      cleanTeamNames: v.optional(v.array(v.string())),
     }),
   },
   handler: async (_ctx, args): Promise<GeneratedContent> => {

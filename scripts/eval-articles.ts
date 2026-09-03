@@ -46,6 +46,7 @@ import {
 import { resolveRoute } from "../src/lib/ai/content-generation-service";
 import type { GeneratedArticleT, GenerationRoute } from "../src/lib/ai/content-generation-service";
 import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
+import { countProfanity, mentionRatio } from "../src/lib/ai/language";
 
 /* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
@@ -469,6 +470,7 @@ interface LiveResult {
   featuredPlayers: string[];
   facts: FactsBlock;
   body: string;
+  title: string;
   promptTokens: number;
   completionTokens: number;
   cacheReadTokens: number;
@@ -533,6 +535,17 @@ function countKinds(result: LiveResult, kinds: string[]): number {
   return result.violations.filter(violation => kinds.includes(violation.kind)).length;
 }
 
+/** The house-style eval number (owner ask, Sept 2026): team-vs-manager mentions and profanity, for one piece of text. */
+function houseStyleLines(label: string, text: string, teams: FactsBlock["teams"]): string[] {
+  const mentions = mentionRatio(text, teams);
+  const profanity = countProfanity(text, teams.map(team => team.name));
+  const ratio = mentions.ratio === null ? "n/a" : mentions.ratio.toFixed(2);
+  return [
+    `  ${label}: team/manager mentions: ${mentions.teamMentions}/${mentions.managerMentions} (ratio ${ratio})`,
+    `  ${label}: profanity: ${profanity.mild} mild / ${profanity.strong} strong`,
+  ];
+}
+
 async function generateOne(
   fixture: EvalFixture,
   persona: string,
@@ -571,6 +584,7 @@ async function generateOne(
     featuredPlayers: generated.metadata.featuredPlayers ?? [],
     facts,
     body: generated.content,
+    title: generated.title,
     promptTokens: generated.metadata.promptTokens ?? 0,
     completionTokens: generated.metadata.completionTokens ?? 0,
     cacheReadTokens: generated.metadata.cacheReadTokens ?? 0,
@@ -988,6 +1002,10 @@ async function runLive(options: Options): Promise<void> {
   );
 
   for (const result of results) {
+    console.log(`\nHouse style on ${result.fixture}/${result.contentType}/${result.persona}:`);
+    for (const line of houseStyleLines("body", result.body, result.facts.teams)) console.log(line);
+    for (const line of houseStyleLines("title", result.title, result.facts.teams)) console.log(line);
+
     const flagged = result.violations.filter(v => v.severity !== "warn");
     if (flagged.length === 0 && options.quiet) continue;
     console.log(`\nFlags on ${result.fixture}/${result.contentType}/${result.persona} (${result.violations.length}):`);

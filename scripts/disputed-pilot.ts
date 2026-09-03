@@ -19,12 +19,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fixturesByName, factsRequestFor } from "../src/lib/ai/__fixtures__";
 import { buildFactsBlock, serializeFacts, type FactsBlock } from "../src/lib/ai/facts";
 import { personaPrompts } from "../src/lib/ai/persona-prompts";
+import { countProfanity, mentionRatio, type LanguageRating } from "../src/lib/ai/language";
 import type {
   CommentResponseData,
   WriterRelationshipContext,
 } from "../src/lib/ai/content-generation-service";
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
-import type { ShowBrief } from "../src/lib/ai/disputed";
+import type { ShowBrief, ShowTranscript } from "../src/lib/ai/disputed";
 
 /**
  * The seven writer slugs (mirrors `ACTIVE_WRITERS` in convex/relationships.ts, which this plain
@@ -38,18 +39,23 @@ const ACTIVE_WRITERS = Object.values(personaPrompts)
 interface Options {
   fixture: string;
   leagueFile?: string;
-  budget: number;
+  /** Main-event debater turns. Unset means the producer's own default (DEFAULT_BUDGETS.mainEvent). */
+  budget?: number;
   out: string;
   help: boolean;
+  language: LanguageRating;
+  cleanTeams: string[];
 }
+
+const VALID_LANGUAGE_RATINGS: LanguageRating[] = ["clean", "salty", "unfiltered"];
 
 function parseArgs(argv: string[]): Options {
   const options: Options = {
     fixture: "rich-week",
-    // Matches the producer's own DEFAULT_BUDGETS.mainEvent (src/lib/ai/disputed/producer.ts).
-    budget: 10,
     out: "scripts/eval-runs/disputed/",
     help: false,
+    language: "clean",
+    cleanTeams: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -67,10 +73,21 @@ function parseArgs(argv: string[]): Options {
         options.leagueFile = value();
         break;
       case "--budget":
-        options.budget = Math.max(1, Number(value()) || 10);
+        options.budget = Math.max(1, Number(value()) || 8);
         break;
       case "--out":
         options.out = value();
+        break;
+      case "--language": {
+        const language = value();
+        if (!(VALID_LANGUAGE_RATINGS as string[]).includes(language)) {
+          throw new Error(`--language must be one of ${VALID_LANGUAGE_RATINGS.join(", ")}, got "${language}"`);
+        }
+        options.language = language as LanguageRating;
+        break;
+      }
+      case "--clean-team":
+        options.cleanTeams.push(value());
         break;
       case "--dry":
         // Implied — this script never writes to a Convex deployment. Accepted so a copy-pasted
@@ -96,8 +113,10 @@ function printUsage(): void {
                           { "leagueData": ..., "relationshipsByWriter": { "mel-diaper": [...], ... },
                             "commentResponses": [...], "ledger": { "mel-diaper": {"hits":n,"misses":n}, ... } }
                           Only "leagueData" is required; everything else defaults to empty.
-  --budget <n>            Main-event debater turns (default 10, the producer's own default).
+  --budget <n>            Main-event debater turns (default: the producer's own, currently 8).
   --out <dir>             Where to write the transcript + stats (default scripts/eval-runs/disputed/).
+  --language <rating>     League-level language rating: clean, salty, or unfiltered (default clean).
+  --clean-team <name>     A team whose manager opted down to clean coverage. Repeatable.
   --dry                   Implied — accepted for symmetry with convex/disputedNode.ts's own flag.
   -h, --help              This message.
 
@@ -185,6 +204,11 @@ function timestamp(): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
 }
 
+/** Every turn's spoken text, in order, joined into one string — what a listener actually hears. */
+function transcriptTextOf(transcript: ShowTranscript): string {
+  return transcript.segments.flatMap((segment) => segment.turns.map((turn) => turn.text)).join(" ");
+}
+
 function labelFor(options: Options): string {
   if (options.leagueFile) {
     return (options.leagueFile.split("/").pop() ?? options.leagueFile).replace(/\.json$/, "");
@@ -229,10 +253,12 @@ async function main(): Promise<void> {
     hotSeat,
     fallbackQuestion: fallbackQuestionFor(hotSeat),
     ledger,
+    languageRating: options.language,
+    cleanTeamNames: options.cleanTeams,
   };
 
   const label = labelFor(options);
-  console.log(`Producing Disputed for "${label}" (main-event budget ${options.budget})…`);
+  console.log(`Producing Disputed for "${label}" (main-event budget ${options.budget ?? "producer default"})…`);
   console.log(`Hot seat: ${hotSeat.managerName} — ${hotSeat.why}`);
 
   const result = await produceEpisode({
@@ -241,7 +267,7 @@ async function main(): Promise<void> {
     brief,
     relationshipsByWriter,
     call: createAnthropicTurnCaller(apiKey),
-    options: { budgets: { mainEvent: options.budget } },
+    options: options.budget !== undefined ? { budgets: { mainEvent: options.budget } } : undefined,
   });
 
   const markdown = renderTranscriptMarkdown(result.transcript);
@@ -266,7 +292,27 @@ async function main(): Promise<void> {
           `Violations (${stats.violations.length}):`,
           ...stats.violations.map((v) => `  - [${v.severity}] ${v.speaker} ${v.kind}: ${v.detail}`),
         ];
-  const statsFooter = ["", "---", "", "## Stats", "", ...statsLines, "", ...violationLines].join("\n");
+
+  const transcriptText = transcriptTextOf(result.transcript);
+  const mentions = mentionRatio(transcriptText, facts.teams);
+  const profanity = countProfanity(transcriptText, facts.teams.map((team) => team.name));
+  const houseStyleLines = [
+    `- Team/manager mentions: ${mentions.teamMentions}/${mentions.managerMentions} (ratio ${mentions.ratio === null ? "n/a" : mentions.ratio.toFixed(2)})`,
+    `- Profanity: ${profanity.mild} mild / ${profanity.strong} strong`,
+  ];
+
+  const statsFooter = [
+    "",
+    "---",
+    "",
+    "## Stats",
+    "",
+    ...statsLines,
+    "",
+    ...houseStyleLines,
+    "",
+    ...violationLines,
+  ].join("\n");
 
   const outDir = options.out.replace(/\/$/, "");
   mkdirSync(outDir, { recursive: true });
@@ -281,6 +327,7 @@ async function main(): Promise<void> {
   console.log(`Wrote ${jsonPath}\n`);
   console.log("Stats");
   for (const line of statsLines) console.log(`  ${line.replace(/^- /, "")}`);
+  for (const line of houseStyleLines) console.log(`  ${line.replace(/^- /, "")}`);
   if (stats.violations.length > 0) {
     console.log(`\n${stats.violations.length} violation(s):`);
     for (const v of stats.violations) {

@@ -9,10 +9,13 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { TurnOutputSchema } from "./types";
+import type { EditCallRequest, EditCallResult, EditCaller } from "./edit-bay";
+import { EditedSegmentSchema, TurnOutputSchema } from "./types";
+import type { EditedSegment } from "./types";
 import type { TurnCallRequest, TurnCallResult, TurnCaller } from "./producer";
 
 const TOOL_NAME = "speak_turn";
+const EDIT_TOOL_NAME = "edit_segment";
 
 /** Wraps one string as a text block with its own ephemeral cache breakpoint. */
 function cachedBlock(text: string): Anthropic.TextBlockParam {
@@ -118,6 +121,115 @@ function parseTurn(message: Anthropic.Message): TurnCallResult["output"] {
 }
 
 /**
+ * The edit bay's request, built the same way `buildParams` builds a turn's: the difference is one
+ * cached system block instead of two (no FACTS prefix — the edit bay never sees FACTS directly,
+ * only pass one's already-verified text) and the `edit_segment` tool in place of `speak_turn`.
+ */
+function buildEditParams(req: EditCallRequest, model: string): Anthropic.MessageCreateParamsNonStreaming {
+  return {
+    model,
+    max_tokens: req.maxTokens,
+    output_config: { effort: req.effort },
+    system: [cachedBlock(req.system)],
+    messages: [{ role: "user" as const, content: req.user }],
+    tools: [
+      {
+        name: EDIT_TOOL_NAME,
+        strict: true,
+        description: "Return the live-radio edit of this one segment of the Disputed transcript.",
+        input_schema: { ...zodToJsonSchema(EditedSegmentSchema, { $refStrategy: "none" }), type: "object" } as const,
+      },
+    ],
+    tool_choice: { type: "tool" as const, name: EDIT_TOOL_NAME },
+  };
+}
+
+/** One call attempt for the edit bay: send the request, retry once without `strict` on that specific 400. */
+async function createEditMessage(anthropic: Anthropic, req: EditCallRequest, model: string): Promise<Anthropic.Message> {
+  const params = buildEditParams(req, model);
+  try {
+    return await anthropic.messages.create(params);
+  } catch (error) {
+    if (error instanceof Anthropic.BadRequestError && /strict/i.test(error.message)) {
+      return await anthropic.messages.create(withoutStrictTools(params));
+    }
+    throw error;
+  }
+}
+
+function parseEditedSegment(message: Anthropic.Message): EditedSegment {
+  const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+  if (!toolUse) {
+    throw new Error(`No ${EDIT_TOOL_NAME} tool call in the response (stop_reason ${message.stop_reason})`);
+  }
+  const parsed = EditedSegmentSchema.safeParse(unwrapToolInput(toolUse.input));
+  if (!parsed.success) {
+    const issues = parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`);
+    throw new Error(`Unusable ${EDIT_TOOL_NAME} output: ${issues.join("; ")}`);
+  }
+  return parsed.data;
+}
+
+/** What both `createAnthropicTurnCaller` and `createAnthropicEditCaller` resolve with. */
+interface RetriedCallResult<T> {
+  output: T;
+  usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+  model: string;
+}
+
+/**
+ * The retry/fallback loop shared by the turn caller and the edit caller: walks `models` in order,
+ * retrying overloaded/5xx/connection errors on each with jittered backoff before moving to the next.
+ * Factored out of `createAnthropicTurnCaller` — same behaviour, same log line and error message
+ * shape, parameterized only by how to make one attempt, how to parse it, and the text naming what is
+ * being called (for the retry log and the final failure message).
+ */
+async function withRetriesAndFallback<T>(
+  models: string[],
+  attempt: (model: string) => Promise<Anthropic.Message>,
+  parse: (message: Anthropic.Message) => T,
+  retryLogLabel: string,
+  failureMessage: (lastErrorMessage: string) => string
+): Promise<RetriedCallResult<T>> {
+  const maxRetries = 3;
+  const baseDelay = 1000;
+  let lastError: Error | null = null;
+
+  for (const model of models) {
+    for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex++) {
+      try {
+        const message = await attempt(model);
+        const output = parse(message);
+        const usage = message.usage;
+        return {
+          output,
+          usage: {
+            input: usage?.input_tokens ?? 0,
+            output: usage?.output_tokens ?? 0,
+            cacheRead: usage?.cache_read_input_tokens ?? undefined,
+            cacheWrite: usage?.cache_creation_input_tokens ?? undefined,
+          },
+          model: message.model || model,
+        };
+      } catch (error) {
+        lastError = error as Error;
+        if (shouldFallback(error) && attemptIndex < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attemptIndex) + Math.random() * 1000;
+          console.warn(
+            `[disputed] ${model} overloaded for ${retryLogLabel} (attempt ${attemptIndex + 1}/${maxRetries + 1}); retrying in ${Math.round(delay)}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+
+  throw new Error(failureMessage(lastError?.message ?? "unknown error"));
+}
+
+/**
  * `createAnthropicTurnCaller(apiKey)` returns a `TurnCaller`: one `new Anthropic({ apiKey })`, reused
  * across every turn of the episode. Walks `[req.model, its fallback]`, retrying overloaded/5xx on
  * each with jittered backoff before moving to the next.
@@ -127,41 +239,33 @@ export function createAnthropicTurnCaller(apiKey: string): TurnCaller {
 
   return async function callTurn(req: TurnCallRequest): Promise<TurnCallResult> {
     const models = [req.model, fallbackModelFor(req.model)];
-    const maxRetries = 3;
-    const baseDelay = 1000;
-    let lastError: Error | null = null;
+    return withRetriesAndFallback(
+      models,
+      (model) => createMessage(anthropic, req, model),
+      parseTurn,
+      `${req.speaker}'s turn`,
+      (message) => `Disputed turn call failed for ${req.speaker}: ${message}`
+    );
+  };
+}
 
-    for (const model of models) {
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          const message = await createMessage(anthropic, req, model);
-          const output = parseTurn(message);
-          const usage = message.usage;
-          return {
-            output,
-            usage: {
-              input: usage?.input_tokens ?? 0,
-              output: usage?.output_tokens ?? 0,
-              cacheRead: usage?.cache_read_input_tokens ?? undefined,
-              cacheWrite: usage?.cache_creation_input_tokens ?? undefined,
-            },
-            model: message.model || model,
-          };
-        } catch (error) {
-          lastError = error as Error;
-          if (shouldFallback(error) && attempt < maxRetries) {
-            const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
-            console.warn(
-              `[disputed] ${model} overloaded for ${req.speaker}'s turn (attempt ${attempt + 1}/${maxRetries + 1}); retrying in ${Math.round(delay)}ms`
-            );
-            await new Promise((resolve) => setTimeout(resolve, delay));
-            continue;
-          }
-          break;
-        }
-      }
-    }
+/**
+ * `createAnthropicEditCaller(apiKey)` returns an `EditCaller` for `edit-bay.ts#naturalizeTranscript`:
+ * one `new Anthropic({ apiKey })`, reused across every segment of the episode. Same retry/fallback
+ * behaviour as the turn caller, one cached system block (the edit bay's system prompt) instead of
+ * two, and the `edit_segment` tool in place of `speak_turn`.
+ */
+export function createAnthropicEditCaller(apiKey: string): EditCaller {
+  const anthropic = new Anthropic({ apiKey });
 
-    throw new Error(`Disputed turn call failed for ${req.speaker}: ${lastError?.message ?? "unknown error"}`);
+  return async function callEdit(req: EditCallRequest): Promise<EditCallResult> {
+    const models = [req.model, fallbackModelFor(req.model)];
+    return withRetriesAndFallback(
+      models,
+      (model) => createEditMessage(anthropic, req, model),
+      parseEditedSegment,
+      `segment ${req.segmentId}'s edit`,
+      (message) => `Disputed edit call failed for segment ${req.segmentId}: ${message}`
+    );
   };
 }

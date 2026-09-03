@@ -61,6 +61,7 @@ function toStoredTurn(turn: ShowTurn) {
     verdict: turn.verdict,
     model: turn.model,
     retried: turn.retried,
+    interrupts: turn.interrupts,
   };
 }
 
@@ -71,7 +72,13 @@ function toStoredTranscript(transcript: ShowTranscript) {
     week: transcript.week,
     question: transcript.question,
     hotSeat: transcript.hotSeat,
-    sides: transcript.sides,
+    // Slug-keyed in memory, an array in storage: Convex field names cannot carry the hyphen in
+    // "mel-diaper" (see `showTranscriptValidator`).
+    sides: transcript.sides
+      ? Object.entries(transcript.sides).map(([persona, position]) => ({ persona, position }))
+      : undefined,
+    language: transcript.language,
+    edited: transcript.edited,
     segments: transcript.segments.map((segment) => ({
       id: segment.id,
       title: segment.title,
@@ -152,6 +159,12 @@ export const produceEpisode = internalAction({
       leagueId: args.leagueId,
     });
 
+    // 4.5. League language rating + per-manager opt-down (owner ask, Sept 2026), fetched once
+    // for the whole episode's brief.
+    const languageSettings = await ctx.runQuery(internal.languageSettings.getLeagueLanguage, {
+      leagueId: args.leagueId,
+    });
+
     // 5. FACTS — the same grounding block an article would get, built for the show's own persona.
     const facts = buildFactsBlock({
       leagueId: args.leagueId,
@@ -181,6 +194,10 @@ export const produceEpisode = internalAction({
         "mel-diaper": { hits: melLedger.record.hits, misses: melLedger.record.misses },
         "reggie-banks": { hits: reggieLedger.record.hits, misses: reggieLedger.record.misses },
       },
+      languageRating: languageSettings.languageRating,
+      cleanTeamNames: languageSettings.cleanTeamNames.length
+        ? languageSettings.cleanTeamNames
+        : undefined,
     };
 
     // A draft row is only ever created once real content is ready to fill it (step 11 below) —

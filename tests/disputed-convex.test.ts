@@ -151,7 +151,13 @@ describe("aiContent: updateGeneratedContent (Disputed)", () => {
       show: "disputed" as const,
       week: 5,
       question: "Is Ann a good manager, or a lucky one?",
-      hotSeat: { teamId: "T3", managerName: "Ann", why: "the desk disagrees about her" },
+      hotSeat: {
+        teamId: "T3",
+        teamName: "Alpha",
+        managerName: "Ann",
+        why: "the desk disagrees about her",
+      },
+      language: "salty" as const,
       segments: [
         {
           id: "cold_open",

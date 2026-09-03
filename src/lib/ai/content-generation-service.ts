@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDataError } from './prompt-builder';
+import type { LanguageRating } from './language';
 import { enhancePromptWithComments } from './comment-integration';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
@@ -299,6 +300,10 @@ export interface GenerationRequest {
   relationships?: WriterRelationshipContext[];
   priorClaims?: PriorClaim[];
   priorRecord?: PriorRecord;
+  /** League-level language rating (owner ask, Sept 2026); defaults to "clean" when absent. */
+  languageRating?: LanguageRating;
+  /** Team names whose managers opted down to clean coverage, regardless of `languageRating`. */
+  cleanTeamNames?: string[];
 }
 
 /** Verifier findings, attached to the article so the commissioner sees every flagged sentence. */
@@ -1025,6 +1030,8 @@ export async function prepareArticleRequest(
     relationships: request.relationships,
     priorClaims: request.priorClaims,
     priorRecord: request.priorRecord,
+    languageRating: request.languageRating,
+    cleanTeamNames: request.cleanTeamNames,
   };
 
   const built = await generatePrompt(promptOptions);

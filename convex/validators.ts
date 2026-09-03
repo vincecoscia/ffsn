@@ -11,6 +11,17 @@
 import { v } from "convex/values";
 
 /* -------------------------------------------------------------------------- */
+/* Language rating                                                             */
+/* -------------------------------------------------------------------------- */
+
+/** `LanguageRating` from `src/lib/ai/language.ts` (owner ask, Sept 2026). Absent means "clean". */
+export const languageRatingValidator = v.union(
+  v.literal("clean"),
+  v.literal("salty"),
+  v.literal("unfiltered"),
+);
+
+/* -------------------------------------------------------------------------- */
 /* Relationship primitives                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -270,7 +281,10 @@ export const showTurnValidator = v.object({
   verdict: v.optional(v.object({ winner: v.string(), reason: v.string() })),
   model: v.optional(v.string()),
   retried: v.optional(v.boolean()),
+  // Set by the edit-bay pass: this turn cuts in before the previous speaker finished.
+  interrupts: v.optional(v.boolean()),
 });
+
 
 /** One segment of the show's rundown (cold open, opening statements, main event, verdict, last jabs). */
 export const showSegmentValidator = v.object({
@@ -285,11 +299,36 @@ export const showTranscriptValidator = v.object({
   show: v.literal("disputed"),
   week: v.optional(v.number()),
   question: v.string(),
-  hotSeat: v.optional(v.object({ teamId: v.string(), managerName: v.string(), why: v.string() })),
+  hotSeat: v.optional(
+    v.object({
+      teamId: v.string(),
+      // Optional so a row produced before today (when hotSeat carried no team name) still
+      // validates.
+      teamName: v.optional(v.string()),
+      managerName: v.string(),
+      why: v.string(),
+    })
+  ),
   // The position each debater was assigned in the cold open (one sentence each), so a
   // reader can see what the two of them were actually arguing for.
-  sides: v.optional(
-    v.object({ "mel-diaper": v.string(), "reggie-banks": v.string() })
+  // Stored as an array, not an object keyed by slug: Convex field names may not contain hyphens,
+  // so `{ "mel-diaper": ... }` fails the schema push (caught 2026-09-03 when codegen refused it).
+  // `disputedNode.toStoredTranscript` converts from `ShowTranscript.sides`.
+  sides: v.optional(v.array(v.object({ persona: v.string(), position: v.string() }))),
+  // The rating this episode was produced at (owner ask, Sept 2026); absent means "clean" -
+  // mirrors `ShowTranscript.language` in src/lib/ai/disputed/types.ts.
+  language: v.optional(languageRatingValidator),
+  // Bookkeeping from the edit-bay pass (pass two), when it ran: how much it cut and which
+  // segments it had to leave as pass one produced them.
+  edited: v.optional(
+    v.object({
+      pass: v.string(),
+      wordsBefore: v.number(),
+      wordsAfter: v.number(),
+      segmentsEdited: v.number(),
+      segmentsRejected: v.number(),
+      rejections: v.array(v.object({ segment: v.string(), reason: v.string() })),
+    })
   ),
   segments: v.array(showSegmentValidator),
 });
