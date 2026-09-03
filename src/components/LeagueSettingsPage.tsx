@@ -22,6 +22,7 @@ import { WeeklyContentCard } from "./content-schedule/WeeklyContentCard";
 import { LeaguePassCard } from "./LeaguePassCard";
 import { StatusBoard } from "./settings/StatusBoard";
 import { SettingsSection } from "./settings/SettingsSection";
+import { SeasonSyncBoard } from "./league/SeasonSyncBoard";
 import { cn } from "@/lib/utils";
 
 interface League {
@@ -286,14 +287,21 @@ export function LeagueSettingsPage({
           <Panel lifted padding="sm">
             <SectionHeader title="Sync now" kicker="ESPN sync" size="sm" />
             <p className="mt-2 text-sm leading-relaxed text-bc-text-2">
-              Pulls the current season&apos;s teams, rosters, matchups and scores. This already
-              happens automatically every 4 hours and before every story &mdash; use this if
-              something looks stale right now.
+              Pulls the current season&apos;s teams, rosters, matchups, scores and recent
+              transactions. The automatic sync (every 4 hours, and before every story) does the
+              same, plus the full transaction log for the current and previous week &mdash; use
+              this if something looks stale right now.
             </p>
             <div className="mt-5">
               <MatchupRefreshManager leagueId={league._id} mode="simple" />
             </div>
           </Panel>
+        </SettingsSection>
+
+        {/* Per-season sync status (ESPN refresh audit, Sept 2026, section 5.v): what's actually
+            been pulled for each season, replacing the "Automatic:" claims below with the truth. */}
+        <SettingsSection id="season-sync">
+          <SeasonSyncBoard leagueId={league._id} isCommissioner={isCommissioner} />
         </SettingsSection>
 
         {/* Managers & invites — id kept as "invitations": LeaguePassCard scrolls here. */}
@@ -604,13 +612,14 @@ export function LeagueSettingsPage({
           kicker="Maintenance"
           collapsible
           defaultOpen={false}
-          description="These run automatically — the league syncs from ESPN every 4 hours and before every story, player stats update daily, and rivalry and activity metrics recompute after each sync. Use these only if something looks wrong or support asks."
+          description="The season sync board above shows exactly what's been pulled and when, for every season. These are manual rebuilds — use them only if something looks wrong or support asks."
         >
           <Panel lifted padding="md">
             <SectionHeader title="Full re-import" kicker="ESPN sync" size="sm" />
             <p className="mt-2 text-sm text-bc-text-2">
-              Automatic: routine syncs already run every 4 hours. Use this only to rebuild
-              historical seasons from scratch.
+              Manual rebuild. The automatic sync only ever touches the current season &mdash; a
+              past season&apos;s teams, rosters and matchups never refresh on their own. Use this
+              to pull any season from scratch.
             </p>
             <div className="mt-5">
               <MatchupRefreshManager leagueId={league._id} mode="advanced" />
@@ -619,7 +628,10 @@ export function LeagueSettingsPage({
 
           <Panel lifted padding="md">
             <SectionHeader title="Player database" kicker="NFL players" size="sm" />
-            <p className="mt-2 text-sm text-bc-text-2">Automatic: player stats update daily.</p>
+            <p className="mt-2 text-sm text-bc-text-2">
+              Player stats update daily on their own for the current season. Use this to force an
+              immediate refresh or backfill an older season.
+            </p>
             <div className="mt-5">
               <PlayerManagement leagueId={league._id} />
             </div>
@@ -628,7 +640,8 @@ export function LeagueSettingsPage({
           <Panel lifted padding="md">
             <SectionHeader title="Historical rosters" kicker="Archive" size="sm" />
             <p className="mt-2 text-sm text-bc-text-2">
-              Automatic: fetched as part of the season sync.
+              Manual rebuild. Historical rosters are only fetched during an import or a full
+              re-import above &mdash; use this to pull one season&apos;s rosters directly.
             </p>
             <div className="mt-5">
               <HistoricalRosterManager leagueId={league._id} />
@@ -638,7 +651,8 @@ export function LeagueSettingsPage({
           <Panel lifted padding="md">
             <SectionHeader title="Draft data" kicker="Archive" size="sm" />
             <p className="mt-2 text-sm text-bc-text-2">
-              Automatic: draft completion is detected by the sync.
+              Draft completion is detected automatically, but the picks themselves are only saved
+              when you sync them here.
             </p>
             <div className="mt-5">
               <DraftDataViewer leagueId={league._id} />

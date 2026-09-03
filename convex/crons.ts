@@ -132,4 +132,25 @@ crons.daily(
   {},
 );
 
+// ESPN refresh audit (Sept 2026), recommendation (i): the 4-hourly liveness sync above never
+// backfills a week once it closes (stat corrections, a settled `pending` transaction) - this
+// re-pulls exactly the weeks that just finished, per league, and records them so it's never redone.
+crons.interval(
+  "close finished weeks",
+  { hours: 6 },
+  internal.seasonSync.weekClosedCron,
+  {},
+);
+
+// ESPN refresh audit, recommendation (ii): once a league's bracket is decided, do the one full pull
+// a season needs to be DONE (every period, draft picks, trades, the bracket-derived champion, season
+// player stats) and stamp it finalized. `crons.daily` (not `crons.cron`) matches this job's own
+// "daily" cadence - see `convex/seasonSync.ts`'s header for what runs and why.
+crons.daily(
+  "close finished seasons",
+  { hourUTC: 10, minuteUTC: 30 },
+  internal.seasonSync.seasonClosedCron,
+  {},
+);
+
 export default crons;
