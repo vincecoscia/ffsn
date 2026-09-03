@@ -11,6 +11,7 @@ import {
   reviewFlagValidator,
   writerSentimentValidator,
 } from "./validators";
+import { divisionValidator, waiverTypeValidator } from "./lib/espnSettings";
 
 /** `EditorFinding` from `src/lib/ai/publish-gate.ts` (spec §11.2.7). */
 const editorFindingValidator = v.object({
@@ -91,11 +92,32 @@ export default defineSchema({
       })),
       playoffTeamCount: v.optional(v.number()),
       regularSeasonMatchupPeriods: v.optional(v.number()),
-      divisions: v.optional(v.array(v.object({
-        id: v.string(),
-        name: v.string(),
-        size: v.number(),
-      }))),
+      // --- ESPN settings mirror (audit: this object was written once by the
+      // setup wizard and never refreshed, so `dataProcessing.ts` fell back to
+      // stale/default playoff math; `leagues.mirrorSeasonSettings` now
+      // refreshes the fields below from every season sync's parsed ESPN
+      // settings - see `convex/lib/espnSettings.ts`). All optional: leagues
+      // created before this shipped, or a sync ESPN didn't include a field
+      // for, still validate. ---
+      // Replaces a placeholder that nothing had ever written (`id` was
+      // `v.string()`; ESPN's division id is actually numeric, and `size`
+      // isn't always present).
+      divisions: v.optional(v.array(divisionValidator)),
+      playoffMatchupPeriodLength: v.optional(v.number()),
+      playoffRounds: v.optional(v.number()),
+      playoffSeedingRule: v.optional(v.string()),
+      playoffReseed: v.optional(v.boolean()),
+      matchupPeriods: v.optional(v.record(v.string(), v.array(v.number()))),
+      lineupSlots: v.optional(v.record(v.string(), v.number())),
+      isSuperflex: v.optional(v.boolean()),
+      hasIdp: v.optional(v.boolean()),
+      waiverType: v.optional(waiverTypeValidator),
+      faabBudget: v.optional(v.number()),
+      waiverHours: v.optional(v.number()),
+      tradeDeadline: v.optional(v.number()),
+      receptionPoints: v.optional(v.number()),
+      scoringSystem: v.optional(v.string()),
+      settingsSyncedAt: v.optional(v.number()),
     }),
     espnData: v.optional(v.object({
       seasonId: v.number(),
@@ -296,7 +318,13 @@ export default defineSchema({
   leagueSeasons: defineTable({
     leagueId: v.id("leagues"),
     seasonId: v.number(),
-    // Store full ESPN settings blob for the season
+    // Store full ESPN settings blob for the season (the exact shape of
+    // `leagueData.settings` from ESPN's `view=mSettings` response). Already
+    // `v.any()`, so no schema change was needed to store it - but it's worth
+    // noting here that `convex/lib/espnSettings.ts`'s `parseEspnLeagueSettings`
+    // is the one place that blob gets turned into a typed
+    // `ParsedLeagueSettings`, and `leagues.mirrorSeasonSettings` mirrors a
+    // subset of that parsed result onto `leagues.settings` after each sync.
     settings: v.any(),
     champion: v.optional(v.object({
       teamId: v.string(),
@@ -334,6 +362,12 @@ export default defineSchema({
     // Store concise draft status info (e.g., { drafted: true, inProgress: false, completeDate: ... })
     draftInfo: v.optional(v.any()),
     draftSettings: v.optional(v.any()), // Store ESPN's draftSettings object
+    // The scheduled draft instant (resolveScheduledDraftDate(...).scheduledAt)
+    // that the post-draft follow-up syncs (scheduledAt + 3h/8h/24h, scheduled
+    // from updateLeagueSeason) were created for. Lets a re-sync tell "already
+    // scheduled for this draft date" apart from "the draft date changed,
+    // schedule again" without re-reading the scheduler's queue.
+    postDraftSyncScheduledFor: v.optional(v.number()),
     draft: v.optional(v.array(v.object({
       autoDraftTypeId: v.number(),
       bidAmount: v.number(),

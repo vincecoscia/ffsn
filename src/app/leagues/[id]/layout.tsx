@@ -74,10 +74,7 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
     { label: "Players", href: `/leagues/${league._id}/players` },
     { label: "AI Content", href: `/leagues/${league._id}/ai-generation` },
     ...(isCommissioner
-      ? [
-          { label: "Content Schedules", href: `/leagues/${league._id}/content-schedules` },
-          { label: "Settings", href: `/leagues/${league._id}/settings` },
-        ]
+      ? [{ label: "Settings", href: `/leagues/${league._id}/settings` }]
       : []),
   ];
 

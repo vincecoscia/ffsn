@@ -1070,7 +1070,19 @@ async function getLeagueDataForGenerationHandler(
       // Teams with all enhanced data
       teams: enrichedData.teams,
       standings: enrichedData.standings,
-      
+      // Present only when the league has divisions (spec: format audit).
+      divisionStandings: enrichedData.divisionStandings,
+
+      // League-format facts: scoring, roster shape, playoff structure, divisions, waivers (spec:
+      // format audit). `playoffTeams` / `regularSeasonWeeks` are the back-compat flat fields the
+      // existing prompt-builder code (playoff_picture, draft_strategy_guide, …) already reads —
+      // this reshape used to drop both, which is why every playoff_picture article printed
+      // "not in the payload" regardless of what `getLeagueDataForAI` actually knew.
+      leagueFormat: enrichedData.leagueFormat,
+      playoffTeams: enrichedData.leagueFormat?.playoffTeamCount ?? enrichedData.metadata?.playoffTeams,
+      regularSeasonWeeks: enrichedData.leagueFormat?.regularSeasonMatchupPeriods,
+
+
       // Matchup data
       recentMatchups: enrichedData.recentMatchups,
       // The look-ahead slate (spec 4.3). This reshape is a whitelist, so a field left out here

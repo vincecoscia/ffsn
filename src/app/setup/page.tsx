@@ -237,6 +237,32 @@ export default function SetupPage() {
     setPaymentError(null);
 
     try {
+      // `convex/espn.ts`'s `fetchLeagueData` now returns the full parsed ESPN
+      // settings shape (`convex/lib/espnSettings.ts`) on `espnData.settings`,
+      // not just the five fields the `EspnSettings` display interface above
+      // declares - read the extra fields off the raw response so they can be
+      // passed through to `leagues.create` (which persists them onto
+      // `leagues.settings`; see the matching optional fields added there).
+      const extraEspnSettings = espnData?.settings as
+        | (EspnSettings & {
+            playoffMatchupPeriodLength?: number;
+            playoffRounds?: number;
+            playoffSeedingRule?: string;
+            playoffReseed?: boolean;
+            divisions?: Array<{ id: number; name: string; size?: number }>;
+            matchupPeriods?: Record<string, number[]>;
+            lineupSlots?: Record<string, number>;
+            isSuperflex?: boolean;
+            hasIdp?: boolean;
+            waiverType?: "faab" | "waivers" | "free_agency";
+            faabBudget?: number;
+            waiverHours?: number;
+            tradeDeadline?: number;
+            receptionPoints?: number;
+            scoringSystem?: string;
+          })
+        | undefined;
+
       // Step 1: Create the league with all ESPN data BEFORE payment
       const leagueId = await createLeague({
         name: formData.leagueName,
@@ -252,6 +278,21 @@ export default function SetupPage() {
           rosterComposition: espnData?.settings?.rosterComposition,
           playoffTeamCount: espnData?.settings?.playoffTeamCount,
           regularSeasonMatchupPeriods: espnData?.settings?.regularSeasonMatchupPeriods,
+          playoffMatchupPeriodLength: extraEspnSettings?.playoffMatchupPeriodLength,
+          playoffRounds: extraEspnSettings?.playoffRounds,
+          playoffSeedingRule: extraEspnSettings?.playoffSeedingRule,
+          playoffReseed: extraEspnSettings?.playoffReseed,
+          divisions: extraEspnSettings?.divisions,
+          matchupPeriods: extraEspnSettings?.matchupPeriods,
+          lineupSlots: extraEspnSettings?.lineupSlots,
+          isSuperflex: extraEspnSettings?.isSuperflex,
+          hasIdp: extraEspnSettings?.hasIdp,
+          waiverType: extraEspnSettings?.waiverType,
+          faabBudget: extraEspnSettings?.faabBudget,
+          waiverHours: extraEspnSettings?.waiverHours,
+          tradeDeadline: extraEspnSettings?.tradeDeadline,
+          receptionPoints: extraEspnSettings?.receptionPoints,
+          scoringSystem: extraEspnSettings?.scoringSystem,
         },
         espnData: espnData
           ? {

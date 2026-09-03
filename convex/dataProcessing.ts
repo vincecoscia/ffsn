@@ -18,13 +18,20 @@ import {
  * Processes league data after ESPN sync to calculate derived metrics
  */
 
-// Public mutation to trigger data processing
+// Public mutation to trigger data processing (commissioner-only "Data
+// processing" button on the settings page). Delegates to
+// `processLeagueDataAfterSync` so the button and the post-sync hooks run the
+// exact same resilient, upsert-safe orchestration.
 export const runDataProcessing = mutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
   },
-  async handler(ctx, args) {
+  async handler(ctx, args): Promise<{
+    success: boolean;
+    error?: string;
+    steps?: { teamMetrics: string; rivalries: string; managerActivity: string };
+  }> {
     await requireCommissioner(ctx, args.leagueId);
 
     console.log(`Triggering data processing for league ${args.leagueId}, season ${args.seasonId}`);
@@ -38,25 +45,21 @@ export const runDataProcessing = mutation({
     console.log(`Found ${uniqueSeasons.length} historical seasons:`, uniqueSeasons);
 
     try {
-      // Run the processing directly
-      // In a production environment, you might want to use ctx.scheduler
-      // to run this asynchronously
-      await ctx.runMutation(internal.dataProcessing.calculateTeamMetrics, {
+      const result = await ctx.runMutation(internal.dataProcessing.processLeagueDataAfterSync, {
         leagueId: args.leagueId,
         seasonId: args.seasonId,
       });
 
-      await ctx.runMutation(internal.dataProcessing.detectAndStoreRivalries, {
-        leagueId: args.leagueId,
-        seasonId: args.seasonId,
-      });
+      const failedSteps = Object.entries(result.steps).filter(([, status]) => status !== "ok");
+      if (failedSteps.length === 0) {
+        return { success: true, steps: result.steps };
+      }
 
-      await ctx.runMutation(internal.dataProcessing.updateManagerActivity, {
-        leagueId: args.leagueId,
-        seasonId: args.seasonId,
-      });
-
-      return { success: true };
+      return {
+        success: false,
+        error: failedSteps.map(([step, status]) => `${step}: ${status}`).join("; "),
+        steps: result.steps,
+      };
     } catch (error) {
       console.error("Failed to trigger data processing:", error);
       return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
@@ -64,27 +67,78 @@ export const runDataProcessing = mutation({
   },
 });
 
-// Main processing function called after league sync
+// Main processing function called after league sync (and by the commissioner
+// "Data processing" button via `runDataProcessing`). Runs each derived-metric
+// step independently: a failure in one step (missing data, a bad row, etc.)
+// is caught and recorded but never prevents the remaining steps from running.
+// Safe to call repeatedly for the same league/season - each step upserts
+// rather than blindly inserting.
 export const processLeagueDataAfterSync = internalMutation({
   args: {
     leagueId: v.id("leagues"),
     seasonId: v.number(),
   },
-  async handler(ctx, args) {
+  async handler(ctx, args): Promise<{
+    leagueId: Id<"leagues">;
+    seasonId: number;
+    steps: { teamMetrics: string; rivalries: string; managerActivity: string };
+  }> {
     console.log(`Starting data processing for league ${args.leagueId}, season ${args.seasonId}`);
-    
+
+    const steps = {
+      teamMetrics: "ok",
+      rivalries: "ok",
+      managerActivity: "ok",
+    };
+
     try {
-      // Process each type of data calculation
-      // Note: In a real implementation, these would be separate scheduled jobs
-      // to avoid timeout issues with large datasets
-      console.log("Data processing would calculate team metrics, detect rivalries, and update manager activity");
-      
-      console.log(`Data processing completed for league ${args.leagueId}`);
-      return { success: true };
+      await ctx.runMutation(internal.dataProcessing.calculateTeamMetrics, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
     } catch (error) {
-      console.error("Data processing failed:", error);
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[dataProcessing] calculateTeamMetrics failed for league ${args.leagueId} season ${args.seasonId}:`,
+        error
+      );
+      steps.teamMetrics = `error:${message}`;
     }
+
+    try {
+      await ctx.runMutation(internal.dataProcessing.detectAndStoreRivalries, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[dataProcessing] detectAndStoreRivalries failed for league ${args.leagueId} season ${args.seasonId}:`,
+        error
+      );
+      steps.rivalries = `error:${message}`;
+    }
+
+    try {
+      await ctx.runMutation(internal.dataProcessing.updateManagerActivity, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[dataProcessing] updateManagerActivity failed for league ${args.leagueId} season ${args.seasonId}:`,
+        error
+      );
+      steps.managerActivity = `error:${message}`;
+    }
+
+    console.log(
+      `[dataProcessing] processLeagueDataAfterSync summary for league ${args.leagueId} season ${args.seasonId}:`,
+      steps
+    );
+
+    return { leagueId: args.leagueId, seasonId: args.seasonId, steps };
   },
 });
 
@@ -101,11 +155,17 @@ export const calculateTeamMetrics = internalMutation({
       .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
       .collect();
       
+    const MAX_SEASON_MATCHUPS = 5000;
     const matchups = await ctx.db
       .query("matchups")
       .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-      .collect();
-    
+      .take(MAX_SEASON_MATCHUPS);
+    if (matchups.length === MAX_SEASON_MATCHUPS) {
+      console.warn(
+        `[dataProcessing] calculateTeamMetrics: matchups capped at ${MAX_SEASON_MATCHUPS} for league ${args.leagueId} season ${args.seasonId}; metrics may be based on a partial set.`
+      );
+    }
+
     // Get standings for SOS calculation
     const standings = teams
       .sort((a, b) => {
@@ -180,18 +240,24 @@ export const detectAndStoreRivalries = internalMutation({
   async handler(ctx, args) {
     // Get all matchups across ALL seasons for this league
     // We need to use by_league_period index since by_league_season requires both leagueId and seasonId
+    const MAX_ALL_TIME_MATCHUPS = 20000;
     const allMatchups = await ctx.db
       .query("matchups")
       .withIndex("by_league_period", q => q.eq("leagueId", args.leagueId))
-      .collect();
-    
+      .take(MAX_ALL_TIME_MATCHUPS);
+    if (allMatchups.length === MAX_ALL_TIME_MATCHUPS) {
+      console.warn(
+        `[dataProcessing] detectAndStoreRivalries: matchups capped at ${MAX_ALL_TIME_MATCHUPS} for league ${args.leagueId}; rivalry history may be based on a partial set.`
+      );
+    }
+
     console.log(`Found ${allMatchups.length} total matchups across all seasons for rivalry detection`);
-    
+
     // Get current season teams for metadata
     const currentTeams = await ctx.db
       .query("teams")
       .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-      .collect();
+      .take(500);
     
     // Create map of externalId to current team info
     const teamMap = new Map(currentTeams.map(t => [t.externalId, t]));
@@ -267,15 +333,23 @@ export const detectAndStoreRivalries = internalMutation({
         }
       }
       
-      // Check if rivalry already exists (check both directions)
-      const existing = await ctx.db
-        .query("rivalries")
-        .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
-        .collect()
-        .then(rivalries => rivalries.find(r => 
-          (r.teamA.teamId === rivalry.teamA && r.teamB.teamId === rivalry.teamB) ||
-          (r.teamA.teamId === rivalry.teamB && r.teamB.teamId === rivalry.teamA)
-        ));
+      // Check if rivalry already exists (check both directions), via the
+      // `by_teams` index rather than collecting every rivalry row for the
+      // league - this is both an upsert (never insert a duplicate pair) and
+      // avoids an unbounded scan as the rivalries table grows.
+      const existing =
+        (await ctx.db
+          .query("rivalries")
+          .withIndex("by_teams", q =>
+            q.eq("leagueId", args.leagueId).eq("teamA.teamId", rivalry.teamA).eq("teamB.teamId", rivalry.teamB)
+          )
+          .first()) ??
+        (await ctx.db
+          .query("rivalries")
+          .withIndex("by_teams", q =>
+            q.eq("leagueId", args.leagueId).eq("teamA.teamId", rivalry.teamB).eq("teamB.teamId", rivalry.teamA)
+          )
+          .first());
       
       if (existing) {
         // Update existing rivalry
@@ -334,16 +408,28 @@ export const updateManagerActivity = internalMutation({
   },
   async handler(ctx, args) {
     // Get all transactions for the season
+    const MAX_SEASON_TRANSACTIONS = 10000;
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-      .collect();
-    
+      .take(MAX_SEASON_TRANSACTIONS);
+    if (transactions.length === MAX_SEASON_TRANSACTIONS) {
+      console.warn(
+        `[dataProcessing] updateManagerActivity: transactions capped at ${MAX_SEASON_TRANSACTIONS} for league ${args.leagueId} season ${args.seasonId}; activity counts may be based on a partial set.`
+      );
+    }
+
     // Get all trades
+    const MAX_SEASON_TRADES = 5000;
     const trades = await ctx.db
       .query("trades")
       .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
-      .collect();
+      .take(MAX_SEASON_TRADES);
+    if (trades.length === MAX_SEASON_TRADES) {
+      console.warn(
+        `[dataProcessing] updateManagerActivity: trades capped at ${MAX_SEASON_TRADES} for league ${args.leagueId} season ${args.seasonId}; activity counts may be based on a partial set.`
+      );
+    }
     
     // Group by team
     const activityByTeam = new Map<string, {
@@ -390,26 +476,44 @@ export const updateManagerActivity = internalMutation({
       activityByTeam.set(trade.teamB.teamId, teamBActivity);
     }
     
+    // Prefetch existing activity rows for this league+season up front, keyed
+    // by teamId. Previously each iteration looked up the existing row via
+    // the `by_team` index alone (`teamId` only) with no `leagueId`/`seasonId`
+    // filter - since `teamId` is an ESPN externalId ("1", "2", ...) that is
+    // reused every season (and can collide across different leagues), that
+    // lookup could match and patch a completely unrelated league's or prior
+    // season's managerActivity row instead of creating this season's row.
+    // Scoping through `by_league_season` up front fixes the upsert and
+    // avoids an extra indexed query per team.
+    const MAX_EXISTING_ACTIVITY_ROWS = 2000;
+    const existingActivityRows = await ctx.db
+      .query("managerActivity")
+      .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+      .take(MAX_EXISTING_ACTIVITY_ROWS);
+    if (existingActivityRows.length === MAX_EXISTING_ACTIVITY_ROWS) {
+      console.warn(
+        `[dataProcessing] updateManagerActivity: existing activity rows capped at ${MAX_EXISTING_ACTIVITY_ROWS} for league ${args.leagueId} season ${args.seasonId}.`
+      );
+    }
+    const existingActivityByTeam = new Map(existingActivityRows.map(a => [a.teamId, a]));
+
     // Update manager activity records
     for (const [teamId, activity] of activityByTeam) {
       // Get team to find owner
       const team = await ctx.db
         .query("teams")
-        .withIndex("by_external", q => 
+        .withIndex("by_external", q =>
           q.eq("leagueId", args.leagueId)
            .eq("externalId", teamId)
            .eq("seasonId", args.seasonId)
         )
         .first();
-      
+
       if (!team) continue;
-      
-      // Find existing activity record
-      const existing = await ctx.db
-        .query("managerActivity")
-        .withIndex("by_team", q => q.eq("teamId", teamId))
-        .first();
-      
+
+      // Find existing activity record, scoped to this league+season.
+      const existing = existingActivityByTeam.get(teamId);
+
       if (existing) {
         await ctx.db.patch(existing._id, {
           totalTransactions: activity.totalTransactions,
@@ -500,8 +604,19 @@ export const getEnrichedLeagueData = internalQuery({
       transactions as any // Type mismatch - helper expects different format
     );
     
-    // Calculate playoff probabilities
-    const remainingWeeks = (league.settings.playoffWeeks || 4) - (league.espnData?.currentScoringPeriod || 1);
+    // Calculate playoff probabilities.
+    //
+    // Audit finding: this used to read `league.settings.playoffWeeks` - a
+    // COUNT of playoff weeks (e.g. 3), not a week number - as if it were the
+    // week the regular season ends, so `remainingWeeks` went negative from
+    // week 5 onward. The value that actually belongs here is
+    // `regularSeasonMatchupPeriods` (the last regular-season week number);
+    // `Math.max(0, ...)` keeps it from going negative once the regular
+    // season is over even if that field is ever stale.
+    const remainingWeeks = Math.max(
+      0,
+      (league.settings.regularSeasonMatchupPeriods ?? 14) - (league.espnData?.currentScoringPeriod ?? 1)
+    );
     const playoffProbabilities = calculatePlayoffProbabilities(
       standings,
       remainingWeeks,

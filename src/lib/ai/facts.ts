@@ -13,7 +13,7 @@
 
 import { contentTemplates } from "./content-templates";
 import type { RelationshipTier } from "./persona-prompts";
-import type { LeagueDataContext } from "./prompt-builder";
+import type { LeagueDataContext, LeagueFormat } from "./prompt-builder";
 import type {
   CommentResponseData,
   NonRespondent,
@@ -32,6 +32,44 @@ export interface FactsTeam {
   record: string;
   pointsFor?: number;
   rank?: number;
+  /** The division's display name, when the league has divisions. */
+  division?: string;
+}
+
+export interface FactsFormatDivision {
+  id: string;
+  name: string;
+}
+
+/**
+ * League-format facts (audit: leagues differ in scoring, roster shape, playoff structure,
+ * divisions and waivers, and the writers had no way to know any of it). Every field here is
+ * plain English — a writer must never see a raw settings key or an ESPN enum value. Built once
+ * per article by `buildFormat` from `LeagueDataContext.leagueFormat`, itself assembled by
+ * `convex/aiQueries.ts#buildLeagueFormat`.
+ */
+export interface FactsFormat {
+  /** e.g. "Half-PPR (0.5 points per reception)" or "0.25 points per reception". */
+  scoring?: string;
+  /** e.g. "1QB/2RB/2WR/1TE/1FLEX/1DST/1K (superflex)". */
+  rosterShape?: string;
+  regularSeasonWeeks?: number;
+  playoffTeamCount?: number;
+  playoffRounds?: number;
+  /** 2 when a playoff round spans two real weeks, otherwise 1. */
+  playoffRoundLengthWeeks?: number;
+  /** e.g. "Weeks 15-18". */
+  playoffWeeksRange?: string;
+  /** Plain English, e.g. "division winners are seeded first, then the rest by record". */
+  seedingRule?: string;
+  divisions: FactsFormatDivision[];
+  /** e.g. "FAAB waivers, $100 season budget". */
+  waiverType?: string;
+  /** Plain-English instant, e.g. "Tue, Nov 18, 11:59 PM ET". Never a raw timestamp. */
+  tradeDeadline?: string;
+  tradeDeadlineStatus?: "passed" | "soon" | "upcoming";
+  isSuperflex?: boolean;
+  hasIdp?: boolean;
 }
 
 export interface FactsPlayer {
@@ -83,11 +121,23 @@ export interface FactsUpcoming {
 export interface FactsBlock {
   schema: "ffsn.facts.v1";
   league: { name: string; week?: number; season: number; teamCount: number; scoring?: string };
+  /** League-format facts (scoring, roster shape, playoff structure, divisions, waivers). */
+  format: FactsFormat;
   teams: FactsTeam[];
   matchups: FactsMatchup[];
   /** Games that have NOT been played, for `weekly_preview`. Empty for every other type. */
   upcoming: FactsUpcoming[];
-  standings: Array<{ rank: number; teamId: string; record: string; pointsFor: number; streak?: string }>;
+  standings: Array<{
+    rank: number;
+    teamId: string;
+    record: string;
+    pointsFor: number;
+    streak?: string;
+    /** ESPN's authoritative playoff seed, when known. May diverge from `rank` on older data. */
+    seed?: number;
+    /** The division's display name, when the league has divisions. */
+    division?: string;
+  }>;
   transactions: Array<{
     id: string;
     teamId: string;
@@ -191,6 +241,141 @@ function toWhen(timestamp: number | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/* -------------------------------------------------------------------------- *
+ * FORMAT block (audit: leagues differ in scoring, roster shape, playoff structure, divisions and
+ * waivers; the writers had no way to know any of it). Every function below turns a raw settings
+ * value into the plain English the grounding contract requires — no ESPN enum, no field name, no
+ * raw timestamp ever reaches the model.
+ * -------------------------------------------------------------------------- */
+
+const STANDARD_RECEPTION_LABELS: Record<string, string> = {
+  "1": "PPR (1 point per reception)",
+  "0.5": "Half-PPR (0.5 points per reception)",
+  "0": "Standard (no points per reception)",
+};
+
+/**
+ * Reception points can be 1, 0.5, 0.25 or absent (live ESPN payloads carry all of these). Prefer
+ * the number when it is not one of the three standard values; the label otherwise.
+ */
+export function scoringLabel(rawScoringType: string | undefined, receptionPoints: number | undefined): string | undefined {
+  if (typeof receptionPoints === "number" && Number.isFinite(receptionPoints)) {
+    const standard = STANDARD_RECEPTION_LABELS[String(receptionPoints)];
+    if (standard) return standard;
+    return `${receptionPoints} point${receptionPoints === 1 ? "" : "s"} per reception`;
+  }
+  const normalized = rawScoringType?.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "ppr":
+      return STANDARD_RECEPTION_LABELS["1"];
+    case "half_ppr":
+      return STANDARD_RECEPTION_LABELS["0.5"];
+    case "standard":
+      return STANDARD_RECEPTION_LABELS["0"];
+    case "custom":
+    case undefined:
+      return rawScoringType || undefined;
+    default:
+      return rawScoringType;
+  }
+}
+
+/** ESPN's `playoffSeedingRule` enum, in plain English. */
+export function seedingRuleLabel(rule: string | undefined): string | undefined {
+  switch (rule) {
+    case "DIVISION_WINNERS":
+      return "division winners are seeded first, then the rest of the field by record";
+    case "H2H_RECORD":
+      return "seeded by head-to-head record";
+    case "TOTAL_POINTS_SCORED":
+      return "seeded by total points scored";
+    default:
+      return undefined;
+  }
+}
+
+/** ESPN's `waiverType` enum plus FAAB budget, in plain English. */
+export function waiverTypeLabel(type: string | undefined, faabBudget: number | undefined): string | undefined {
+  switch (type) {
+    case "faab":
+      return faabBudget ? `FAAB waivers, $${faabBudget} season budget` : "FAAB waivers";
+    case "waivers":
+      return "standard rolling waivers";
+    case "free_agency":
+      return "free agency, first come first served";
+    default:
+      return undefined;
+  }
+}
+
+const ROSTER_SLOT_ORDER = ["QB", "RB", "WR", "TE", "FLEX", "SUPERFLEX", "DST", "D/ST", "K", "IDP", "BE", "BENCH"];
+
+/** A lineup-slot map (already keyed by position label) rendered as "1QB/2RB/2WR/1TE/1FLEX". */
+export function rosterShapeLabel(
+  lineupSlots: Record<string, number> | undefined,
+  isSuperflex: boolean | undefined,
+  hasIdp: boolean | undefined
+): string | undefined {
+  if (!lineupSlots) return undefined;
+  const parts: string[] = [];
+  for (const key of ROSTER_SLOT_ORDER) {
+    const count = lineupSlots[key];
+    if (count) parts.push(`${count}${key}`);
+  }
+  for (const [key, count] of Object.entries(lineupSlots)) {
+    if (!ROSTER_SLOT_ORDER.includes(key) && count) parts.push(`${count}${key}`);
+  }
+  if (parts.length === 0) return undefined;
+  let shape = parts.join("/");
+  const extras: string[] = [];
+  if (isSuperflex) extras.push("superflex");
+  if (hasIdp) extras.push("IDP");
+  if (extras.length > 0) shape += ` (${extras.join(", ")})`;
+  return shape;
+}
+
+/** "passed" once the deadline instant is behind us, "soon" inside a two-week window, else "upcoming". */
+export function tradeDeadlineStatus(deadlineMs: number | undefined): FactsFormat["tradeDeadlineStatus"] {
+  if (deadlineMs === undefined) return undefined;
+  const now = Date.now();
+  if (deadlineMs < now) return "passed";
+  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+  return deadlineMs - now <= TWO_WEEKS_MS ? "soon" : "upcoming";
+}
+
+/**
+ * Assembles the FORMAT facts from `data.leagueFormat` (spec: format audit). Every field is
+ * optional — a league on an old sync, or one the settings migration has not reached yet, simply
+ * carries fewer of them, and the writer is told the gap through `facts.missing` rather than a
+ * guess.
+ */
+export function buildFormat(data: LeagueDataContext): FactsFormat {
+  const fmt: LeagueFormat = (data as Loose).leagueFormat as LeagueFormat | undefined ?? {};
+  const regularSeasonWeeks = fmt.regularSeasonMatchupPeriods ?? data.regularSeasonWeeks;
+  const playoffTeamCount = fmt.playoffTeamCount ?? data.playoffTeams;
+  const divisions: FactsFormatDivision[] = (fmt.divisions ?? []).map(division => ({
+    id: division.id,
+    name: division.name,
+  }));
+
+  return {
+    scoring: scoringLabel(fmt.scoringType ?? data.scoringType, fmt.receptionPoints),
+    rosterShape: rosterShapeLabel(fmt.lineupSlots, fmt.isSuperflex, fmt.hasIdp),
+    regularSeasonWeeks,
+    playoffTeamCount,
+    playoffRounds: fmt.playoffRounds,
+    playoffRoundLengthWeeks: fmt.playoffMatchupPeriodLength,
+    playoffWeeksRange: fmt.playoffWeeksRange,
+    seedingRule: seedingRuleLabel(fmt.playoffSeedingRule),
+    divisions,
+    waiverType: waiverTypeLabel(fmt.waiverType, fmt.faabBudget),
+    tradeDeadline: toWhen(fmt.tradeDeadline),
+    tradeDeadlineStatus: tradeDeadlineStatus(fmt.tradeDeadline),
+    isSuperflex: fmt.isSuperflex,
+    hasIdp: fmt.hasIdp,
+  };
 }
 
 /**
@@ -364,6 +549,7 @@ class TeamIndex {
         record: formatRecord(team.record),
         pointsFor: num(team.pointsFor) ?? num(team.record?.pointsFor) ?? standing?.pointsFor,
         rank: standing?.rank ?? team.playoffSeed,
+        division: str(loose.division),
       };
       this.teams.push(factsTeam);
 
@@ -543,6 +729,8 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     record: `${row.wins}-${row.losses}-${row.ties ?? 0}`,
     pointsFor: num(row.pointsFor) ?? 0,
     streak: row.streakType && row.streakLength ? `${row.streakType}${row.streakLength}` : undefined,
+    seed: row.playoffSeed,
+    division: str(asLoose(row).division),
   }));
 
   const transactions = (data.transactions ?? []).map((transaction, index) => ({
@@ -631,6 +819,8 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     outcome: claim.outcome,
   }));
 
+  const format = buildFormat(data);
+
   const missing = computeMissingRequiredData(req.contentType, data);
   if (adpPlaceholder) {
     missing.push(
@@ -643,6 +833,14 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   }
   if (priorClaims.length === 0) {
     missing.push("priorClaims — none. You have no prediction history in this league; do not claim one.");
+  }
+  // The playoff field size drives every "who's in" claim in a playoff picture piece — the writer
+  // must be told the gap explicitly rather than defaulting to a common field size like six.
+  if (req.contentType === "playoff_picture" && format.playoffTeamCount === undefined) {
+    missing.push("playoff field size — not in the payload; do not assume a number of playoff teams");
+  }
+  if (req.contentType === "waiver_wire_report" && format.waiverType === undefined) {
+    missing.push("waiver type — not in the payload; do not assume FAAB or rolling waivers");
   }
 
   const season =
@@ -660,6 +858,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
       teamCount: data.teams?.length ?? 0,
       scoring: data.scoringType,
     },
+    format,
     teams: teams.teams,
     matchups,
     upcoming,

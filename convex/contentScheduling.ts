@@ -23,6 +23,9 @@ import { contentTemplates } from "../src/lib/ai/content-templates";
 import { adpLooksLikePlaceholder } from "../src/lib/ai/facts";
 import { hasActivePass, passSeasonId } from "./credits";
 import { automationSpendCapUsd } from "./deskMetrics";
+import { resolveScheduledDraftDate, nextMorningAfter } from "./lib/draftDate";
+import { weekToMatchupPeriod } from "./lib/espnSettings";
+import { deriveLeagueCalendar, describeLeagueCalendar, leagueCalendarInputFromSettings } from "./lib/leagueCalendar";
 
 /** The roster default writer for a content type (spec section 9.2.3). */
 export function defaultPersonaFor(contentType: string): string {
@@ -86,23 +89,35 @@ export const DEFAULT_SCHEDULES: Record<string, CalendarEntry> = {
   },
   mid_season_awards: {
     enabled: true,
-    // Season week 9, Wednesday 09:00 local.
+    // League-relative midSeasonWeek (convex/lib/leagueCalendar.ts) when the
+    // league's synced settings support it, else NFL week 9 - Wednesday 09:00
+    // local either way.
     schedule: { type: "season_based", trigger: "week_9", delayDays: 0, hour: 9, minute: 0, dayOfWeek: 3 },
   },
   playoff_picture: {
     enabled: true,
-    // Season weeks 12-14, Thursday 12:00 local (one article per week in range).
+    // League-relative playoffPictureWeeks (reg-2, reg-1, reg) when available,
+    // else NFL weeks 12-14 - Thursday 12:00 local, one article per week.
     schedule: { type: "season_based", trigger: "weeks_12_14", delayDays: 0, hour: 12, minute: 0, dayOfWeek: 4 },
   },
   season_recap: {
     enabled: true,
-    schedule: { type: "season_based", trigger: "champion_determined", delayDays: 1, hour: 10, minute: 0 },
+    // League-relative: Tuesday 09:00 local after the league's LAST
+    // championship week (seasonEndWeek) - `delayDays: 1` off that week's
+    // Monday-night end lands on Tuesday. Falls back to the day after Super
+    // Bowl Sunday when the league has no synced settings yet.
+    schedule: { type: "season_based", trigger: "champion_determined", delayDays: 1, hour: 9, minute: 0 },
   },
 
   // --- created disabled --------------------------------------------------
   championship_manifesto: {
     enabled: false,
-    schedule: { type: "season_based", trigger: "championship_week", delayDays: -1, hour: 18, minute: 0 },
+    // League-relative: Tuesday 09:00 local of the league's FIRST championship
+    // week (the week boundary's start is that Tuesday 00:00, per
+    // `nflSeasons.weekBoundaries`) - the day the preceding round's finality
+    // is known. Falls back to the (wrong-by-construction) NFL conference
+    // championship week when the league has no synced settings yet.
+    schedule: { type: "season_based", trigger: "championship_week", delayDays: 0, hour: 9, minute: 0 },
   },
   rivalry_week_special: {
     enabled: false,
@@ -160,6 +175,28 @@ const MATCHUP_DEPENDENT_CONTENT = new Set([
   "waiver_wire_report",
   "playoff_picture",
   "mid_season_awards",
+]);
+
+/**
+ * `DEFAULT_SCHEDULES`' `season_based` triggers for these five types were
+ * written against fixed NFL-week numbers (`week_9`, `weeks_12_14`,
+ * `week_14`, `championship_week` -> NFL week 21 via
+ * `nflSeasonBoundaries.playoffStructure`, `champion_determined` ->
+ * `superBowl.end`) that only happen to be right for a 14-week regular season
+ * with three single-week playoff rounds - audit finding: every real league
+ * was stored as exactly that shape regardless of its actual ESPN settings
+ * (`convex/lib/espnSettings.ts`'s header comment has the production
+ * numbers). `scheduleSeasonAndRelativeContentCron` resolves these five
+ * league-relatively via `convex/lib/leagueCalendar.ts` whenever the league's
+ * synced settings support it, falling back to the old NFL-week trigger logic
+ * otherwise.
+ */
+const LEAGUE_RELATIVE_CONTENT_TYPES = new Set([
+  "mid_season_awards",
+  "playoff_picture",
+  "hall_of_shame",
+  "championship_manifesto",
+  "season_recap",
 ]);
 
 /* -------------------------------------------------------------------------- *
@@ -1379,6 +1416,31 @@ export const resumeBacklog = internalMutation({
   },
 });
 
+/**
+ * Resolves an NFL `week` number to the ESPN matchup period id the `matchups`
+ * table's `matchupPeriod` column actually stores (audit fix: a multi-week
+ * playoff round is stored under its OWN period id - e.g. period `16` holds
+ * NFL weeks 17-18 in a 2-week-round league - so querying `matchupPeriod` by
+ * the raw NFL week number finds nothing for any week inside a multi-week
+ * round). Uses `weekToMatchupPeriod` (`convex/lib/espnSettings.ts`) against
+ * this season's synced `matchupPeriods` map; falls back to `week` itself (the
+ * historic 1:1 assumption) when the league has no map synced yet.
+ */
+async function resolveMatchupPeriodForWeek(
+  ctx: { db: QueryCtx["db"] },
+  leagueId: Id<"leagues">,
+  seasonId: number,
+  week: number,
+): Promise<number> {
+  const leagueSeason = await ctx.db
+    .query("leagueSeasons")
+    .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
+    .first();
+  const matchupPeriods = (leagueSeason?.settings as { matchupPeriods?: Record<string, number[]> } | undefined)
+    ?.matchupPeriods;
+  return weekToMatchupPeriod(matchupPeriods, week) ?? week;
+}
+
 /** True when the league has at least one matchup row for the target week. */
 export const hasMatchupsForWeek = internalQuery({
   args: {
@@ -1387,10 +1449,11 @@ export const hasMatchupsForWeek = internalQuery({
     week: v.number(),
   },
   handler: async (ctx, args): Promise<boolean> => {
+    const matchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
     const matchups = await ctx.db
       .query("matchups")
       .withIndex("by_league_period", (q) =>
-        q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+        q.eq("leagueId", args.leagueId).eq("matchupPeriod", matchupPeriod),
       )
       .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
       .take(1);
@@ -1441,10 +1504,17 @@ export const isWeekFinal = internalQuery({
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
 
+    // `args.week` is an NFL week; a multi-week playoff round's matchups are
+    // stored under the ROUND's own matchup period id (see
+    // `resolveMatchupPeriodForWeek`'s doc comment) - map through it so a
+    // caller checking finality of the LAST week of a 2-week round actually
+    // finds that round's matchup row, instead of finding nothing and
+    // reporting `no_matchups`.
+    const matchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
     const matchups = await ctx.db
       .query("matchups")
       .withIndex("by_league_period", (q) =>
-        q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+        q.eq("leagueId", args.leagueId).eq("matchupPeriod", matchupPeriod),
       )
       .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
       .take(MAX_MATCHUPS_PER_WEEK);
@@ -1529,10 +1599,11 @@ export const checkDataCompleteness = internalQuery({
 
     // The week this article is about.
     if (needs(REQUIRES_WEEK_MATCHUPS)) {
+      const matchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
       const played = await ctx.db
         .query("matchups")
         .withIndex("by_league_period", (q) =>
-          q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+          q.eq("leagueId", args.leagueId).eq("matchupPeriod", matchupPeriod),
         )
         .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
         .take(1);
@@ -1542,20 +1613,22 @@ export const checkDataCompleteness = internalQuery({
     // The week a preview is about: the slate that has not been played yet.
     if (needs(REQUIRES_UPCOMING_MATCHUPS)) {
       const upcomingWeek = args.week + 1;
+      const upcomingMatchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, upcomingWeek);
       const upcoming = await ctx.db
         .query("matchups")
         .withIndex("by_league_period", (q) =>
-          q.eq("leagueId", args.leagueId).eq("matchupPeriod", upcomingWeek),
+          q.eq("leagueId", args.leagueId).eq("matchupPeriod", upcomingMatchupPeriod),
         )
         .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
         .take(1);
       // A preview may legitimately be written about the current week's slate
       // when that week has not started; accept either.
       if (upcoming.length === 0) {
+        const thisWeekMatchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
         const thisWeek = await ctx.db
           .query("matchups")
           .withIndex("by_league_period", (q) =>
-            q.eq("leagueId", args.leagueId).eq("matchupPeriod", args.week),
+            q.eq("leagueId", args.leagueId).eq("matchupPeriod", thisWeekMatchupPeriod),
           )
           .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
           .take(1);
@@ -2098,11 +2171,27 @@ export const triggerEventBasedContent = internalAction({
         continue;
       }
 
-      const delayMs = schedule.schedule.type === "event_triggered" 
-        ? (schedule.schedule.delayMinutes || 0) * 60 * 1000 
-        : 0;
-
-      const scheduledFor = Date.now() + delayMs;
+      const triggeredAt = Date.now();
+      let scheduledFor: number;
+      if (schedule.schedule.type === "event_triggered" && schedule.schedule.trigger === "draft_completed") {
+        // draft_rankings (spec section 9.1) prints "the morning after" a
+        // draft rather than a fixed delay after the event fires - see
+        // nextMorningAfter's doc comment in convex/lib/draftDate.ts for the
+        // exact rule. Every other event type (trade_occurred, etc.) keeps
+        // its configured delayMinutes below.
+        scheduledFor = nextMorningAfter(
+          triggeredAt,
+          schedule.timezone || DEFAULT_TIMEZONE,
+          { hour: 9, minHoursAfter: 6 },
+          convertUTCToTimeZone,
+          convertTimeZoneToUTC,
+        );
+      } else {
+        const delayMs = schedule.schedule.type === "event_triggered"
+          ? (schedule.schedule.delayMinutes || 0) * 60 * 1000
+          : 0;
+        scheduledFor = triggeredAt + delayMs;
+      }
 
       const scheduledContentId = await ctx.runMutation(internal.contentScheduling.scheduleContentGeneration, {
         leagueId: args.leagueId,
@@ -2122,8 +2211,9 @@ export const triggerEventBasedContent = internalAction({
 
       scheduledJobs.push(scheduledContentId);
 
-      // If no delay, process immediately
-      if (delayMs === 0) {
+      // If the target time is already here (or passed), process immediately
+      // rather than waiting for the next scheduler tick.
+      if (scheduledFor <= triggeredAt) {
         await ctx.scheduler.runAfter(0, internal.contentScheduling.processScheduledContent, {
           scheduledContentId: scheduledContentId.scheduledContentId,
         });
@@ -2738,6 +2828,11 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
 
     let scheduled = 0;
     let skipped = 0;
+    // One calendar-derivation summary log line per league per cron run (spec:
+    // "log a one-line summary per league when the calendar is derived") -
+    // several LEAGUE_RELATIVE_CONTENT_TYPES rows can derive the same league's
+    // calendar in one pass; only the first logs it.
+    const loggedCalendarForLeague = new Set<string>();
 
     // Helper to dedupe and schedule with intelligent filtering
     const maybeSchedule = async (schedule: any, scheduledFor: number, extraContext?: any) => {
@@ -2822,7 +2917,23 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
         if (s.schedule.type === "relative" && s.schedule.relativeTo === "draft_date") {
           // Find league draft date from leagueSeasons via internal query (ctx.db not available in actions)
           const ls = await ctx.runQuery(internal.contentScheduling.getLeagueSeasonDoc, { leagueId: s.leagueId, seasonId });
-          const draftDate = ls?.draftInfo?.draftDate as number | undefined;
+
+          // A completed draft has no "before the draft" window left to fill
+          // (mock_draft's whole point is a pre-draft preview) - once ESPN
+          // reports it drafted, there's nothing left to schedule here no
+          // matter what draftSettings.date says.
+          if (ls?.draftInfo?.drafted === true) { skipped += 1; continue; }
+
+          // resolveScheduledDraftDate distinguishes the SCHEDULED start
+          // (draftSettings.date) from draftInfo.draftDate, which is the
+          // COMPLETION time (or the sentinel `1`) - only meaningful after
+          // the draft, so it's a fallback for rows synced before
+          // draftSettings started being resolved, not the primary source.
+          const resolved = resolveScheduledDraftDate({
+            draftSettings: ls?.draftSettings,
+            draftInfo: ls?.draftInfo,
+          });
+          const draftDate = resolved.scheduledAt ?? resolved.completedAt;
           if (!draftDate) { skipped += 1; continue; }
 
           const tz = s.timezone || "America/New_York";
@@ -2832,6 +2943,13 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
           localTarget.setDate(localTarget.getDate() + (s.schedule.offsetDays || 0));
           localTarget.setHours(s.schedule.hour, s.schedule.minute, 0, 0);
           const scheduledFor = convertTimeZoneToUTC(localTarget, tz).getTime();
+
+          // Skip once the computed slot is already in the past - e.g. a
+          // mock_draft row (offsetDays: -7) whose 7-days-before instant has
+          // already gone by. Without this, a draft date only recently made
+          // available would immediately backfill a mock draft article for a
+          // moment that already happened.
+          if (scheduledFor <= Date.now()) { skipped += 1; continue; }
 
           await maybeSchedule(s, scheduledFor, {
             seasonId,
@@ -2859,50 +2977,146 @@ export const scheduleSeasonAndRelativeContentCron = internalAction({
         // Map triggers to boundaries
         if (s.schedule.type !== "season_based") { skipped += 1; continue; }
         const trigger = s.schedule.trigger as string;
-        switch (trigger) {
-          case "season_start":
-            baseDate = seasonData.phases.regularSeason.start;
-            break;
-          case "champion_determined":
-            // Use end of Super Bowl day as when champion is known
-            baseDate = seasonData.phases.superBowl.end;
-            break;
-          case "championship_week": {
-            const champWeek = seasonData.playoffStructure.championshipWeek;
-            const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === champWeek);
-            baseDate = wb?.start ?? null;
-            targetWeek = wb?.week;
-            break;
+
+        // League-relative resolution (audit fix, convex/lib/leagueCalendar.ts):
+        // for the five content types whose DEFAULT_SCHEDULES trigger encodes
+        // a fixed NFL-week number (`week_9`, `weeks_12_14`, `week_14`,
+        // `championship_week` -> NFL week 21, `champion_determined` ->
+        // Super Bowl Sunday), derive THIS league's actual regular-season
+        // length / playoff shape from its synced ESPN settings
+        // (`leagueSeasons.settings`, populated by `espnSync.ts`'s
+        // `buildSeasonSettings`) instead. Falls back to the fixed-trigger
+        // switch below - unchanged - whenever the league has no synced
+        // settings yet (no current-season sync has run with the parser).
+        let usedLeagueCalendar = false;
+        if (LEAGUE_RELATIVE_CONTENT_TYPES.has(s.contentType)) {
+          const leagueSeasonDoc = await ctx.runQuery(internal.contentScheduling.getLeagueSeasonDoc, {
+            leagueId: s.leagueId,
+            seasonId,
+          });
+          const calendarInput = leagueCalendarInputFromSettings(leagueSeasonDoc?.settings);
+
+          if (calendarInput) {
+            const calendar = deriveLeagueCalendar(calendarInput);
+            usedLeagueCalendar = true;
+
+            switch (s.contentType) {
+              case "mid_season_awards": {
+                const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === calendar.midSeasonWeek);
+                baseDate = wb?.start ?? null;
+                targetWeek = wb?.week;
+                break;
+              }
+              case "hall_of_shame": {
+                const wb = seasonData.weekBoundaries.find(
+                  (w: WeekBoundary) => w.week === calendar.lastRegularSeasonWeek,
+                );
+                baseDate = wb?.start ?? null;
+                targetWeek = wb?.week;
+                break;
+              }
+              case "playoff_picture": {
+                // Pick the earliest of the three playoff-picture weeks whose
+                // slot has not gone by yet, so one row is created per week as
+                // the range comes around (same "in-range" behaviour the old
+                // weeks_12_14 trigger had, just on the league's own weeks).
+                const now = Date.now();
+                for (const week of calendar.playoffPictureWeeks) {
+                  const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === week);
+                  if (!wb) continue;
+                  if (wb.end < now) continue; // week already over
+                  baseDate = wb.start;
+                  targetWeek = week;
+                  break;
+                }
+                break;
+              }
+              case "championship_manifesto": {
+                // Playoffs' final round preview: the FIRST championship week,
+                // which starts the Tuesday the preceding round's finality is
+                // known (spec: schedule Tuesday 09:00 local of that week -
+                // see the hour/delayDays on this type's DEFAULT_SCHEDULES entry).
+                const firstChampionshipWeek = calendar.championshipWeeks[0];
+                const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === firstChampionshipWeek);
+                baseDate = wb?.start ?? null;
+                targetWeek = wb?.week;
+                break;
+              }
+              case "season_recap": {
+                // The Tuesday after the LAST championship week ends (spec) -
+                // `wb.end` (that week's Monday-night close) + this type's
+                // `delayDays: 1` lands the target on Tuesday.
+                const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === calendar.seasonEndWeek);
+                baseDate = wb?.end ?? null;
+                targetWeek = wb?.week;
+                break;
+              }
+            }
+
+            if (!loggedCalendarForLeague.has(s.leagueId)) {
+              loggedCalendarForLeague.add(s.leagueId);
+              const summary = describeLeagueCalendar(calendar, {
+                regularSeasonMatchupPeriods: calendarInput.regularSeasonMatchupPeriods,
+                playoffTeamCount: (leagueSeasonDoc?.settings as { playoffTeamCount?: number } | undefined)
+                  ?.playoffTeamCount,
+                playoffMatchupPeriodLength: calendarInput.playoffMatchupPeriodLength,
+              });
+              console.log(`league ${s.leagueId}: ${summary} (derived from synced settings)`);
+            }
+          } else {
+            console.log(
+              `league ${s.leagueId}: no parsed ESPN settings synced yet for ${s.contentType} - ` +
+                `falling back to the fixed NFL-week schedule (${trigger})`,
+            );
           }
-          default: {
-            // Handle triggers like week_8
-            const weekMatch = /^week_(\d+)$/.exec(trigger);
-            if (weekMatch) {
-              const weekNum = parseInt(weekMatch[1], 10);
-              const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === weekNum);
+        }
+
+        if (!usedLeagueCalendar) {
+          switch (trigger) {
+            case "season_start":
+              baseDate = seasonData.phases.regularSeason.start;
+              break;
+            case "champion_determined":
+              // Use end of Super Bowl day as when champion is known
+              baseDate = seasonData.phases.superBowl.end;
+              break;
+            case "championship_week": {
+              const champWeek = seasonData.playoffStructure.championshipWeek;
+              const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === champWeek);
               baseDate = wb?.start ?? null;
               targetWeek = wb?.week;
               break;
             }
-
-            // Handle in-range triggers like weeks_12_14 (playoff_picture): pick
-            // the earliest week in the range whose slot has not gone by yet, so
-            // one row is created per week as the range comes around.
-            const rangeMatch = /^weeks_(\d+)_(\d+)$/.exec(trigger);
-            if (rangeMatch) {
-              const from = parseInt(rangeMatch[1], 10);
-              const to = parseInt(rangeMatch[2], 10);
-              const now = Date.now();
-              for (let week = from; week <= to; week++) {
-                const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === week);
-                if (!wb) continue;
-                if (wb.end < now) continue; // week already over
-                baseDate = wb.start;
-                targetWeek = week;
+            default: {
+              // Handle triggers like week_8
+              const weekMatch = /^week_(\d+)$/.exec(trigger);
+              if (weekMatch) {
+                const weekNum = parseInt(weekMatch[1], 10);
+                const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === weekNum);
+                baseDate = wb?.start ?? null;
+                targetWeek = wb?.week;
                 break;
               }
+
+              // Handle in-range triggers like weeks_12_14 (playoff_picture): pick
+              // the earliest week in the range whose slot has not gone by yet, so
+              // one row is created per week as the range comes around.
+              const rangeMatch = /^weeks_(\d+)_(\d+)$/.exec(trigger);
+              if (rangeMatch) {
+                const from = parseInt(rangeMatch[1], 10);
+                const to = parseInt(rangeMatch[2], 10);
+                const now = Date.now();
+                for (let week = from; week <= to; week++) {
+                  const wb = seasonData.weekBoundaries.find((w: WeekBoundary) => w.week === week);
+                  if (!wb) continue;
+                  if (wb.end < now) continue; // week already over
+                  baseDate = wb.start;
+                  targetWeek = week;
+                  break;
+                }
+              }
+              break;
             }
-            break;
           }
         }
 
@@ -2987,18 +3201,27 @@ async function shouldScheduleContentForLeague(
       return { should: false, reason: `wrong season phase for season_welcome: ${currentSeasonPhase}` };
       
     case "season_recap":
-      // Only schedule after Super Bowl
-      if (currentSeasonPhase === "OFFSEASON") {
-        return { should: true, reason: `season ended, ${currentSeasonPhase} phase` };
+      // A fantasy season ends with the league's championship round (NFL weeks
+      // ~15-18), which is inside the NFL's own REGULAR_SEASON phase. Timing is
+      // resolved from the league's synced settings (leagueCalendar: the Tuesday
+      // after seasonEndWeek) and gated by isWeekFinal, so the phase only has to
+      // rule out the preseason.
+      if (currentSeasonPhase === "PRESEASON" || currentSeasonPhase === "DRAFT") {
+        return { should: false, reason: `season not started: ${currentSeasonPhase}` };
       }
-      return { should: false, reason: `season not ended yet: ${currentSeasonPhase}` };
+      return { should: true, reason: `season underway or ended (${currentSeasonPhase}); date derives from the league's schedule` };
       
     case "championship_manifesto":
-      // Only schedule before/during playoffs
-      if (currentSeasonPhase === "PLAYOFFS" || currentSeasonPhase === "SUPER_BOWL") {
-        return { should: true, reason: `playoffs/championship time: ${currentSeasonPhase}` };
+      // Same reasoning: the fantasy title game falls in the NFL regular season.
+      // Gating on the NFL PLAYOFFS phase meant this never fired for any league.
+      if (
+        currentSeasonPhase === "REGULAR_SEASON" ||
+        currentSeasonPhase === "PLAYOFFS" ||
+        currentSeasonPhase === "SUPER_BOWL"
+      ) {
+        return { should: true, reason: `season underway (${currentSeasonPhase}); championship week derives from the league's schedule` };
       }
-      return { should: false, reason: `not playoff time: ${currentSeasonPhase}` };
+      return { should: false, reason: `not in season: ${currentSeasonPhase}` };
       
     case "mid_season_awards":
       // Only schedule during regular season (around week 8)
