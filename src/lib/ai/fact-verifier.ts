@@ -304,9 +304,12 @@ export function resolvePath(facts: FactsBlock, path: string): unknown {
 }
 
 function looseNumEq(resolved: unknown, asserted: string): boolean {
-  const assertedNumber = Number(String(asserted).replace(/[^0-9.\-]/g, ""));
-  if (typeof resolved === "number" && Number.isFinite(assertedNumber)) {
-    return Math.abs(resolved - assertedNumber) <= 0.05;
+  // A keyStat value is often a compound figure ("139.4-96.7", "45.6 on a projected 11.9",
+  // "$65 of $100"); the sourced number only has to be one of the numbers in it. Collapsing the
+  // whole string to one number turned every such stat into a false "unverified number" strip.
+  const assertedNumbers = (String(asserted).match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  if (typeof resolved === "number" && assertedNumbers.length > 0) {
+    return assertedNumbers.some(n => Number.isFinite(n) && Math.abs(resolved - n) <= 0.05);
   }
   return normalizeQuote(String(resolved)) === normalizeQuote(String(asserted));
 }
