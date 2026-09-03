@@ -72,6 +72,7 @@ async function upsertDerivedTrades(
       seasonId: trade.seasonId,
       tradeDate: trade.tradeDate,
       espnTransactionId: trade.espnTransactionId,
+      week: trade.week,
       status: trade.status,
       teamA: trade.teamA,
       teamB: trade.teamB,
