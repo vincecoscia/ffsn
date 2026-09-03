@@ -1,0 +1,480 @@
+{
+  "transcript": {
+    "schema": "ffsn.transcript.v1",
+    "show": "disputed",
+    "week": 8,
+    "question": "Is Cameron Coscia's nonstop waiver churn actually improving The Stinky Faggots, or is it papering over a roster that already had the talent to win?",
+    "hotSeat": {
+      "teamId": "T8",
+      "teamName": "The Stinky Faggots",
+      "managerName": "Cameron Coscia",
+      "why": "Nina Sharpe is favorite on them (+72), Curtis Vaughn is neutral on them (+9)"
+    },
+    "sides": {
+      "mel-diaper": "The draft board shows Bijan Robinson, A.J. Brown and Josh Allen were already elite building blocks, so nine waiver moves and 24 dollars spent look like busywork, not improvement.",
+      "reggie-banks": "Five wins and 1094.2 points with Rico Dowdle and Cam Skattebo mined off waivers prove Cameron Coscia is actively upgrading a roster that would be stuck without the churn."
+    },
+    "language": "unfiltered",
+    "segments": [
+      {
+        "id": "cold_open",
+        "title": "Cold Open",
+        "turns": [
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "cold_open",
+            "text": "Good evening. The Stinky Faggots sit fifth in the league at 5-3 with 1094.2 points, but leaned on a nine-move waiver wire this year, most of any team in the league. So: is Cameron Coscia building a contender, or just churning a roster that's already good enough to win on its own? Mel, you've got the board. Go.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "opening_statements",
+        "title": "Opening Statements",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "CURTIS, THE BOARD ALREADY WON THIS ARGUMENT. Bijan Robinson at PICK TWO. A.J. Brown. Josh Allen at TWENTY-TWO. That's the roster. Then NINE pickups and TWENTY-FOUR DOLLARS of churn — Will Reichard for zero, the 49ers D/ST for zero — and Week 8 came in at 116.9 in a SIX POINT loss. That's not building, that's fidgeting. I'll say it: THE STINKY FAGGOTS WIN WEEK NINE ANYWAY, 130-PLUS, and not one damn point of it comes from the wire.",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots score 130 or more in Week 9 against GLORY ASSHOLE, powered by drafted players, not waiver adds",
+              "kind": "general",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T11",
+              "week": 9,
+              "minPoints": 130
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "Cute draft, Mel. Rico Dowdle wasn't drafted by anybody in this room and he went for 32.4 and 33.9 in back-to-back weeks. Cam Skattebo, pick one-forty-six, tenth-best back in the league at 113.8. That's the damn wire winning games. Here's mine: The Stinky Faggots beat GLORY ASSHOLE in Week 9, and Skattebo and Dowdle are why.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat GLORY ASSHOLE in Week 9",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T11",
+              "week": 9
+            },
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "main_event",
+        "title": "Main Event",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "REGGIE, YOU JUST NAMED WEEK FIVE AND WEEK SIX. Go look at WEEK EIGHT. Josh Allen 24.2, Jaylen Waddle 20.9, Khalil Shakir 20.8 — SIXTY-FIVE POINTS from three DRAFTED players — and the team still lost by 6.1. Dowdle and Skattebo weren't the top line. And this week's nine-move masterpiece? Will Reichard and the 49ers, for ZERO DOLLARS EACH. Nina, grade it.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And this week's nine-move masterpiece? Will Reichard and the 49ers, for ZERO DOLLARS EACH."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, the claim is that the wire is winning games. Partly supported. Rico Dowdle went 32.4 and 33.9 in weeks five and six — real. But Week 8's box score shows Josh Allen, Waddle, Shakir combining for 65 points, all drafted, and the team still lost by 6.1. Three games isn't a trend, it's a highlight reel.",
+            "jab": false,
+            "factsCited": [
+              "M2 Rico Dowdle 32.4",
+              "M8 Rico Dowdle 33.9",
+              "M20 Josh Allen 24.2, Jaylen Waddle 20.9, Khalil Shakir 20.8, margin 6.1"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Nina, I'll take partly supported and bank the rest. Week 6: 185.4 points. Bijan 35.8, Dowdle 33.9, Skattebo 31.0 — the wire guys outscored the pick-two back's whole afternoon of help. Forty-five point win. And Mel, the wire got Reichard AND the 49ers for nothing, then the roster went 5-3. Cute board. Scoreboard. Dex, is nine moves reported or is that Mel's feeling?",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "the wire got Reichard AND the 49ers for nothing, then the roster went 5-3"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. Budget sheet says nine acquisitions, twenty-four spent, seventy-six left. Reichard and the 49ers, zero dollars each. That's the log, not Mel's feeling. That's the wire.",
+            "jab": false,
+            "factsCited": [
+              "B6 - Stinky Faggots budget: 9 acquisitions, $24 spent, $76 remaining",
+              "W12 - Will Reichard $0",
+              "W13 - 49ers D/ST $0"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "DEX SAID SEVENTY-SIX DOLLARS LEFT. SEVENTY-SIX! That's the receipt, Reggie — nine moves and they never once outbid anybody who mattered. Week 8's big claim? A ZERO-DOLLAR bid on Kyle Monangai they LOST to a two-dollar bid. Meanwhile Bijan 21.2, A.J. Brown 28.1 in Week 7 and the team still dropped it by 11.3. Walt, settle it.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "walt-brennan",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Nine moves and they never once outbid anybody who mattered — a ZERO-DOLLAR bid on Kyle Monangai they LOST."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "walt-brennan",
+            "kind": "witness",
+            "text": "This league's record only goes back to this season, so I won't pretend there's an older parallel to lean on. What I've got is this: seventy-six dollars sitting unspent tells me the wire's a hedge, not a plan. A team with drafted talent losing close games isn't a churn problem, it's a lineup problem. My verdict goes to Mel.",
+            "jab": false,
+            "factsCited": [
+              "budgets T8 remaining $76",
+              "M20 Josh Allen 24.2 Waddle 20.9 Shakir 20.8 loss by 6.1"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Walt, seventy-six dollars unspent is not a hedge — it's ammunition, and the wire already hit without needing it. Skattebo at 18.4 in Week 7, Shakir 20.8 in Week 8, Dowdle starting every week. Mel, Prolapsed Peehole spent fifty-seven dollars and sits 2-6 at 907.1 points. Money isn't the stat. Wins are. Five of them. SCOREBOARD.",
+            "jab": true,
+            "factsCited": [
+              "B6",
+              "B4",
+              "T5 record 2-6 907.1",
+              "T8 record 5-3 1094.2",
+              "M14 Skattebo 18.4",
+              "M20 Shakir 20.8",
+              "M8 Dowdle 33.9"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Skattebo at 18.4 in Week 7, Shakir 20.8 in Week 8, Dowdle starting every week."
+              },
+              {
+                "teamId": "T5",
+                "managerName": "Vincent Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Prolapsed Peehole spent fifty-seven dollars and sits 2-6 at 907.1 points."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Walt's already ruled. Let's move it forward — Sam, anything on record from Cameron Coscia about the plan behind nine moves, or is that silence too?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "sam-ortega",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "sam-ortega",
+            "kind": "witness",
+            "text": "I checked. There's nothing on record from Cameron Coscia this week — no quote in the file about the nine moves or the plan behind them. I asked. Silence is what I've got.",
+            "jab": false,
+            "factsCited": [
+              "facts.quotes is empty",
+              "no nonRespondents entry for Cameron Coscia"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "SCOREBOARD?! REGGIE, THE SCOREBOARD SAYS FIFTH. FIFTH! Three teams at 5-3 sit ABOVE them on points, and the wire didn't put 1094.2 up — Bijan Robinson at PICK TWO, A.J. Brown, Josh Allen at TWENTY-TWO did. And Week 8 the bench read 19.7 in a 6.1-point loss. NINETEEN POINT SEVEN. That's not a churn problem. I'm filing a formal complaint about the lineup card.",
+            "jab": true,
+            "factsCited": [
+              "standings: T8 rank 4 at 5-3, 1094.2 PF; T11 1107, T9 1096.4 above/near",
+              "M20: T8 116.9 with 19.7 bench points, lost by 6.1",
+              "board: Bijan Robinson draftPick 2, Josh Allen draftPick 22"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And Week 8 the bench read 19.7 in a 6.1-point loss. NINETEEN POINT SEVEN. That's not a churn problem."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Fifth on POINTS, Mel — fourth in the standings, and the three teams above them are separated by thirteen points total. Nineteen-seven on the bench? Moisty Loins left 98.2 on the bench in Week 7 and still won. Bench points don't lose games; scores do. 116.9 to 123.0 against the one-seed. You're grading paper. I'm reading 5-3.",
+            "jab": true,
+            "factsCited": [
+              "standings T8 rank 4 5-3-0 1094.2",
+              "T11 1107, T9 1096.4, T8 1094.2",
+              "M20 Week 8 T2 123.0 vs T8 116.9",
+              "M12 Week 7 T10 benchPoints 98.2 win"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "You're grading paper. I'm reading 5-3."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "READING 5-3?! THEN READ WEEK NINE, REGGIE. The projection has them at 129.7 — LOWEST OF ANY TEAM ON THE BOARD THIS WEEK. Lowest! And it's Josh Allen 22.7, Bijan 20.2, Waddle 15.1 carrying it — DRAFTED, DRAFTED, DRAFTED. Not Dowdle. Not Skattebo. Nine moves and the projection sheet still doesn't list one of them. BAN THIS ROSTER FROM THE WAIVER PAGE.",
+            "jab": true,
+            "factsCited": [
+              "U5 Week 9 T8 projected 129.7",
+              "U5 key players Josh Allen 22.7, Bijan Robinson 20.2, Jaylen Waddle 15.1",
+              "U1-U4 projections",
+              "B6 nine acquisitions"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Nine moves and the projection sheet still doesn't list one of them."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "A PROJECTION, MEL? Paper doesn't score. That same sheet had Skattebo at 13.9 in Week 6 — he went 31.0. Had Dowdle at 17.8 — 33.9. Had Bijan at 22.7 in Week 7 — he went 21.2, and the DRAFTED guy came up short. Projections are bedtime stories. 5-3 is the morning.",
+            "jab": true,
+            "factsCited": [
+              "M8 Cam Skattebo 31.0 vs 13.9 projected",
+              "M8 Rico Dowdle 33.9 vs 17.8 projected",
+              "M14 Bijan Robinson 21.2 vs 22.7 projected",
+              "T8 record 5-3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "That same sheet had Skattebo at 13.9 in Week 6 — he went 31.0."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Projections versus box scores, we've heard it. Nina, grade the new claim: Reggie says Week 9's projection sheet has been wrong before on this roster. Is that pattern real or cherry-picked?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, three data points: Skattebo projected 13.9, went 31.0. Dowdle projected 17.8, went 33.9. Bijan projected 22.7, went 21.2 — that one held. Two misses, one hit, in eight weeks of games. Not supported as a pattern. That's an anecdote with a decimal.",
+            "jab": false,
+            "factsCited": [
+              "M8P4696981",
+              "M8P4038815",
+              "M14P4430807"
+            ],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "verdict",
+        "title": "Verdict",
+        "turns": [
+          {
+            "speaker": "nina-sharpe",
+            "kind": "grade",
+            "text": "Class, opening claims. Mel said this roster wins Week 9 without one point from the wire. Reggie said The Stinky Faggots beat GLORY ASSHOLE with Skattebo and Dowdle as the reason. Mel's claim: not gradeable yet, that's a future game, but the roster of record — Bijan, A.J. Brown, Allen — is real drafted talent. Reggie's claim: partly supported. Dowdle and Skattebo produced in weeks five and six, but Week 8's win column shows drafted starters carrying most of the scoring. My bias is zero here — this is a numbers question, not a favorite. The one number that decides it: nine moves, twenty-four dollars spent, and a 5-3 record built mostly on names taken well before pick one-forty-six.",
+            "jab": false,
+            "factsCited": [
+              "B6 waiver budget: 9 acquisitions, $24 spent",
+              "M8: Bijan 35.8, Dowdle 33.9, Skattebo 31.0",
+              "M20: Josh Allen 24.2, Waddle 20.9, Shakir 20.8, loss by 6.1"
+            ],
+            "verdict": {
+              "winner": "mel-diaper",
+              "reason": "The team's 5-3 record and 1094.2 points trace mainly to drafted talent — Bijan Robinson (pick 2), A.J. Brown, Josh Allen (pick 22) — while the nine waiver moves cost only $24 total."
+            },
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "ledger",
+            "text": "Neither of you has a win on the board yet this season by my count — this is the first time either prediction gets tested. So let's hear it. Mel, Reggie, last jabs, one each.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      },
+      {
+        "id": "last_jabs",
+        "title": "Last Jabs",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "jab",
+            "text": "SCOREBOARD, REGGIE? NINA JUST TOLD YOU IT'S AN ANECDOTE WITH A DECIMAL. Here's mine, one more time: THE STINKY FAGGOTS CLEAR 130 IN WEEK NINE and not one damn point of it comes from the wire — because it's Bijan at PICK TWO, Josh Allen at TWENTY-TWO and A.J. Brown. Nine moves. TWENTY-FOUR DOLLARS. SEVENTY-SIX UNSPENT. That's busywork with a receipt on it.",
+            "jab": true,
+            "factsCited": [
+              "B6 · The Stinky Faggots: $76 of $100 left, 9 pickups",
+              "Bijan Robinson draftPick 2 (T8)",
+              "Josh Allen draftPick 22 (T8)",
+              "A.J. Brown on T8 roster",
+              "U5 · Week 9 T11 vs T8",
+              "Nina's grade: not supported as a pattern"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Nine moves. TWENTY-FOUR DOLLARS. SEVENTY-SIX UNSPENT. That's busywork with a receipt on it."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "jab",
+            "text": "Twenty-four dollars, Mel — and one of those dollars bought Cam Skattebo's roster spot next to a back who went 33.9. You keep reciting pick numbers. I don't care where you took him. Week 6: 185.4, a 45-point win, Dowdle and Skattebo for 64.9 of it. That's not busywork, that's a damn upgrade. The Stinky Faggots beat GLORY ASSHOLE in Week 9, Skattebo and Dowdle the reason. You can take that to the bank.",
+            "jab": true,
+            "factsCited": [
+              "M8 - Week 6: T8 185.4 vs T10 140.4, margin 45",
+              "M8 Rico Dowdle 33.9, Cam Skattebo 31.0",
+              "B6 - The Stinky Faggots $76 of $100 left, 9 pickups, 24 spent",
+              "U5 - Week 9 T11 vs T8"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "That's not busywork, that's a damn upgrade."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "close",
+            "text": "Mel's on the board, Reggie's on the bank. We'll see which one Week 9 pays out. That's the show.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "turns": 23,
+    "witnessCalls": 5,
+    "redirects": 2,
+    "retries": 1,
+    "dropped": 0,
+    "agreements": 0,
+    "promptTokens": 57138,
+    "completionTokens": 9123,
+    "costUsd": 0.9141151000000003,
+    "modelsUsed": [
+      "claude-sonnet-5",
+      "claude-opus-5"
+    ],
+    "catchphraseStripped": 0,
+    "languageStripped": 0,
+    "duplicateClaimsDropped": 0,
+    "violations": [
+      {
+        "speaker": "mel-diaper",
+        "kind": "unknown_player",
+        "detail": "Meanwhile Bijan",
+        "severity": "warn"
+      },
+      {
+        "speaker": "walt-brennan",
+        "kind": "unknown_player",
+        "detail": "What I've",
+        "severity": "warn"
+      },
+      {
+        "speaker": "mel-diaper",
+        "kind": "unknown_player",
+        "detail": "Not Dowdle",
+        "severity": "warn"
+      },
+      {
+        "speaker": "mel-diaper",
+        "kind": "unknown_player",
+        "detail": "Not Skattebo",
+        "severity": "warn"
+      },
+      {
+        "speaker": "reggie-banks",
+        "kind": "unknown_player",
+        "detail": "Had Dowdle",
+        "severity": "warn"
+      },
+      {
+        "speaker": "reggie-banks",
+        "kind": "unknown_player",
+        "detail": "Had Bijan",
+        "severity": "warn"
+      },
+      {
+        "speaker": "nina-sharpe",
+        "kind": "grade",
+        "detail": "119 words, over 1.5x the 50-word ceiling for a witness turn",
+        "severity": "warn"
+      }
+    ]
+  }
+}

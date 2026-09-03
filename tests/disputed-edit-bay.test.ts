@@ -9,6 +9,8 @@ import type { EditCaller } from "../src/lib/ai/disputed/edit-bay";
 import { EditedSegmentSchema, TurnOutputSchema } from "../src/lib/ai/disputed/types";
 import type { EditedSegment, ShowSegment, ShowTranscript, ShowTurn } from "../src/lib/ai/disputed/types";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { buildFactsBlock } from "../src/lib/ai/facts";
+import { fixturesByName, factsRequestFor } from "../src/lib/ai/__fixtures__/index";
 
 /* -------------------------------------------------------------------------- *
  * A hand-built 5-turn segment with real-looking numbers, reused across the guard tests below.
@@ -513,6 +515,53 @@ describe("tidyEditedTurns", () => {
   it("never marks the first turn of a segment as a cut-in", () => {
     const tidied = tidyEditedTurns([turn("mel-diaper", "MIRAGE?!", { interrupts: true })]);
     expect(tidied[0].interrupts).toBeUndefined();
+  });
+});
+
+describe("checkEditedSegment — step g, team names survive the cut", () => {
+  // Needs FACTS for the team names; the rich-week fixture supplies real ones.
+  const facts = buildFactsBlock(factsRequestFor(fixturesByName["rich-week"], "weekly_recap"));
+  const team = facts.teams[0].name;
+
+  const original: ShowSegment = {
+    id: "main_event",
+    title: "Main Event",
+    turns: [
+      baseTurn({ speaker: "mel-diaper", text: `${team} lost by 11.3 on Sunday. ${team} left 17.8 on the bench. ${team} has not put up a 33 since Week 6. That is the whole case against ${team}, and it is a long one.` }),
+      baseTurn({ speaker: "reggie-banks", text: `${team} is 5-3 with 1094.2 points for. The scoreboard says ${team} is fine.` }),
+    ],
+  };
+
+  it("rejects an edit that drops the team's name while keeping most of the words", () => {
+    const edited: EditedSegment = {
+      turns: [
+        { sourceTurn: 0, speaker: "mel-diaper", text: "He lost by 11.3 on Sunday. He left 17.8 on the bench. He has not put up a 33 since Week 6. That is the whole case, and it is a long one." },
+        { sourceTurn: 1, speaker: "reggie-banks", text: "5-3 with 1094.2 points for. The scoreboard says fine." },
+      ],
+    };
+    const result = checkEditedSegment(original, edited, { facts });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("cuts team names harder than words");
+  });
+
+  it("accepts a cut that keeps the team's name in proportion", () => {
+    const edited: EditedSegment = {
+      turns: [
+        { sourceTurn: 0, speaker: "mel-diaper", text: `${team} lost by 11.3 and left 17.8 on the bench. ${team} has not put up a 33 since Week 6.` },
+        { sourceTurn: 1, speaker: "reggie-banks", text: `${team} is 5-3 with 1094.2 points for. Fine.` },
+      ],
+    };
+    expect(checkEditedSegment(original, edited, { facts })).toEqual({ ok: true });
+  });
+
+  it("does nothing without FACTS to name the teams", () => {
+    const edited: EditedSegment = {
+      turns: [
+        { sourceTurn: 0, speaker: "mel-diaper", text: "He lost by 11.3 on Sunday. He left 17.8 on the bench." },
+        { sourceTurn: 1, speaker: "reggie-banks", text: "5-3 with 1094.2 points for." },
+      ],
+    };
+    expect(checkEditedSegment(original, edited)).toEqual({ ok: true });
   });
 });
 

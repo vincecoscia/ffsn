@@ -88,7 +88,9 @@ at most twice across the whole episode, not once every turn. A prediction is sta
 opening statement, and restated once, in the last jab; between those two moments, argue with new
 facts pulled from FACTS, never the same forecast said again in new words. Quotation marks mean
 a manager's verbatim words from FACTS.quotes and nothing else — never your own words, not even a
-line you have said before. Emphasis is capitals, not quote marks.`;
+line you have said before. Emphasis is capitals, not quote marks. That rule binds every speaker on
+the desk, Nina included: a claim you are grading is restated in your own words, never inside
+quotation marks.`;
 
 function debaterRoleRules(slug: DebaterSlug): string {
   const shared =
@@ -235,6 +237,22 @@ ${turnOutputContract(kind)}`;
   return { cachedPrefix: factsText, suffix };
 }
 
+/**
+ * The per-turn language directive for a debater's opening and last jab. Three live runs
+ * (2026-09-03) at salty and unfiltered with the register described only in the system prompt
+ * produced zero profanity: the model reads a tier as permission it may decline. Naming the turn
+ * where the register shows is what makes the league's setting real. Empty at clean.
+ */
+function languageNoteFor(ctx: DirectorContext): string {
+  const rating = ctx.brief.languageRating ?? "clean";
+  if (rating === "clean") return "";
+  const tier =
+    rating === "salty"
+      ? "one mild word — damn, hell, ass, crap, pissed, screwed or sucks"
+      : "one strong word from the strong tier";
+  return `LANGUAGE: this league runs ${rating}. This is a turn where that register shows: use ${tier}, aimed at the decision or the result, never at the person.\n\n`;
+}
+
 /** Everything `directorInstructionFor` might need for one turn. Every field is optional — only the fields the given `kind` actually uses are read. */
 export interface DirectorContext {
   brief: ShowBrief;
@@ -301,7 +319,7 @@ ${ctx.melsOpening.claim ? `Mel's claim: ${describeClaim(ctx.melsOpening.claim)}`
 Your claim must contradict his — the same subject and week with the opposite outcome, or a different resolvable claim that would prove YOUR side. Never restate his.`
         : "";
       return `${marker}
-${sideLine}Give your opening statement on: "${question}". Take a side and attach a number to it. State your position in the "claim" field as a resolvable prediction with FACTS team ids. Agreement is forbidden this turn — you are staking out ground, not finding consensus. Never put your own words in quotation marks — a quotation mark means a manager's verbatim words from FACTS.quotes; when you want emphasis, use capitals instead.${melsOpeningBlock}`;
+${sideLine}${languageNoteFor(ctx)}Give your opening statement on: "${question}". Take a side and attach a number to it. State your position in the "claim" field as a resolvable prediction with FACTS team ids. Agreement is forbidden this turn — you are staking out ground, not finding consensus. Never put your own words in quotation marks — a quotation mark means a manager's verbatim words from FACTS.quotes; when you want emphasis, use capitals instead.${melsOpeningBlock}`;
     }
 
     case "argument": {
@@ -335,7 +353,7 @@ Three turns have gone by without a new fact. Redirect the debate in under ${WORD
 
     case "grade": {
       return `${marker}
-Grade both debaters' opening claims against the numbers in FACTS: supported, partly supported, or not supported. Say which one the record actually backs and name the winner in the "verdict" field, with the one number that decided it. You never join a side.`;
+Restate each claim in your own words, never inside quotation marks. Grade both debaters' opening claims against the numbers in FACTS: supported, partly supported, or not supported. Say which one the record actually backs and name the winner in the "verdict" field, with the one number that decided it. You never join a side.`;
     }
 
     case "ledger": {
@@ -351,7 +369,7 @@ Read the season ledger from the brief in one line: Mel is ${ledger["mel-diaper"]
           : "";
       const sideLine = ctx.mySide ? `YOUR SIDE: ${ctx.mySide}\n\n` : "";
       return `${marker}
-${sideLine}One last shot at the other debater, backed by a fact.${catchphrase}`;
+${sideLine}${languageNoteFor(ctx)}One last shot at the other debater, backed by a fact.${catchphrase}`;
     }
 
     case "close": {
@@ -388,6 +406,9 @@ two: the live-radio edit. Cut it for time and make it sound like a real broadcas
 single fact.
 
 RULES
+- When you cut, cut adjectives, repeats and wind-ups — never the team's name. A line that named the
+  team keeps naming the team; do not shorten "the Gravel Pit Grinders lost" to "he lost". The
+  manager's name is the first thing to trim, not the last.
 - Make it sound live: contractions, fragments, a debater cutting in mid-sentence where he would never
   let the point stand. Mark the turn that cuts in "interrupts": true, and end the turn it interrupts
   with an em dash (—) instead of its original ending. Aim for two to four cut-ins in a main event and

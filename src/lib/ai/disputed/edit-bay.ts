@@ -10,7 +10,7 @@
 import { computeCostUsd } from "../content-generation-service";
 import type { FactsBlock } from "../facts";
 import { verifyArticle } from "../fact-verifier";
-import { DEFAULT_LANGUAGE_RATING, PROFANITY_WORDS, STRONG_PROFANITY } from "../language";
+import { DEFAULT_LANGUAGE_RATING, PROFANITY_WORDS, STRONG_PROFANITY, mentionRatio } from "../language";
 import type { LanguageRating } from "../language";
 import { getPersonaDisplay, personaPrompts } from "../persona-prompts";
 import { buildEditSystemPrompt, buildEditUserPrompt } from "./prompts";
@@ -319,6 +319,24 @@ export function checkEditedSegment(
   for (const word of forbiddenToAdd) {
     if (wholeWordPresent(editedText, word) && !wholeWordPresent(originalText, word)) {
       return { ok: false, reason: `edited segment introduces profanity at ${languageRating} rating: "${word}"` };
+    }
+  }
+
+  // g. Team-first survives the cut: the edit may not drop team names faster than it drops words.
+  //    (First house-style run, 2026-09-03: the editor trimmed every long team name and kept the
+  //    manager's first name, taking the team/manager ratio from 1.24 to 0.72.) Only when FACTS is
+  //    available, since the team names come from it.
+  if (opts.facts) {
+    const teams = opts.facts.teams.map((team) => ({ name: team.name, manager: team.manager }));
+    const before = mentionRatio(originalText, teams);
+    const after = mentionRatio(editedText, teams);
+    const wordFraction = originalWords === 0 ? 1 : editedWords / originalWords;
+    const floor = Math.floor(before.teamMentions * wordFraction * 0.8);
+    if (before.teamMentions > 0 && after.teamMentions < floor) {
+      return {
+        ok: false,
+        reason: `edited segment cuts team names harder than words: ${before.teamMentions} team-name mentions became ${after.teamMentions} while keeping ${Math.round(wordFraction * 100)}% of the words; keep the team as the subject and cut elsewhere`,
+      };
     }
   }
 
