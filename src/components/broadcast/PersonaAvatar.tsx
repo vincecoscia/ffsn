@@ -93,11 +93,11 @@ function ShirtV({ fill = MID, depth = 40 }: { fill?: string; depth?: number }) {
   return <path d={`M170 184 L192 ${184 + depth} L214 184 Z`} fill={fill} />;
 }
 
-function Tie({ rotate = 0 }: { rotate?: number }) {
+function Tie({ rotate = 0, fill = RED }: { rotate?: number; fill?: string }) {
   return (
     <g transform={rotate ? `rotate(${rotate} 192 184)` : undefined}>
-      <path d="M184 180 L200 180 L202 190 L182 190 Z" fill={RED} />
-      <path d="M184 190 L200 190 L205 238 L192 250 L179 238 Z" fill={RED} />
+      <path d="M184 180 L200 180 L202 190 L182 190 Z" fill={fill} />
+      <path d="M184 190 L200 190 L205 238 L192 250 L179 238 Z" fill={fill} />
     </g>
   );
 }
@@ -237,27 +237,28 @@ const DexIllustration: Illustration = ({ variant }) => (
   </>
 );
 
-/** Mel Diaper — The Draft Disaster: hoodie, gaming headset with boom mic, a failing draft grade in hand. */
+/** Mel Diaper — The Draft Disaster: suit and a loud tie, a towering swept-back hairdo, a failing draft grade in hand. */
 const MelIllustration: Illustration = ({ variant }) => (
   <>
     <Highlight variant={variant} />
-    {/* Bunched hood behind the neck. */}
-    <ellipse cx="192" cy="188" rx="52" ry="18" fill={MID} />
     <Torso />
-    <path d="M182 192 L176 238 M202 192 L208 238" stroke={MID} strokeWidth="4" strokeLinecap="round" />
+    <ShirtV depth={76} />
+    <Tie fill={SIGNAL} />
     <Neck />
     <Head />
-    {/* Messy hair under the band. */}
+    {/* The hair: a tall, swept-back mass, wider than the head, with a wave at the front and soft ridges. */}
     <path
-      d={`${HAIR_ARC} C231 89 226 85 220 84 L215 77 L208 84 L200 75 L192 84 L184 75 L176 84 L169 77 L164 84 C158 85 153 89 149.7 95.5 Z`}
+      d="M150 112 C130 96 132 44 170 30 C186 24 204 26 216 30 C238 36 248 68 244 92 C242 102 238 108 234 112 L230 104 C224 84 212 76 192 78 C172 76 160 84 154 104 Z"
       fill={MID}
     />
-    {/* Headset: band, cups, boom, red capsule. */}
-    <path d="M146 106 A46 52 0 0 1 238 106" stroke={INK} strokeWidth="8" fill="none" />
-    <rect x="136" y="90" width="18" height="34" rx="5" fill={INK} />
-    <rect x="230" y="90" width="18" height="34" rx="5" fill={INK} />
-    <path d="M150 122 C146 136 160 142 176 140" stroke={INK} strokeWidth="6" fill="none" strokeLinecap="round" />
-    <circle cx="180" cy="140" r="7" fill={RED} />
+    <path
+      d="M170 82 C160 66 162 46 178 34 M192 80 C186 62 188 44 200 32 M214 82 C218 64 214 48 224 38"
+      stroke={CUT}
+      strokeWidth="5"
+      fill="none"
+      strokeLinecap="round"
+      opacity="0.3"
+    />
     {/* The grade card. */}
     <g transform="rotate(-8 268 226)">
       <rect x="246" y="198" width="44" height="58" fill={STRONG} stroke={INK} strokeWidth="3" />

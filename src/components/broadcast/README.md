@@ -370,7 +370,8 @@ The drawn on-air-talent silhouettes, matched by slug **or** display name (case-i
 
 On air: Curtis Vaughn (suit + tie, earpiece coil, flagged hand mic), Sam Ortega (ponytail, credential
 lanyard, stick mic held out), Nina Sharpe (bob + glasses, tablet with a three-bar chart and stylus), Dex
-Alvarez (loosened tie, phone at the ear), Mel Diaper (hoodie, headset + boom mic, an "F" grade card),
+Alvarez (loosened tie, phone at the ear), Mel Diaper (suit and loud tie, towering swept-back hair, an "F"
+grade card),
 Reggie Banks (backwards snapback, chain, box score in hand), Walt Brennan (receding silver hair, reading
 glasses, bow tie, folded paper). Retired but still drawn so archived bylines keep their portrait: Stan
 (glasses + bar chart), Vinny (fedora), Chad (spiked hair + shades), Rick ("87" cap + two cans).
