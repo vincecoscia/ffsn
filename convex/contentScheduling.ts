@@ -15,6 +15,7 @@ import { nflSeasonYearFor, leagueCurrentSeason } from "./lib/season";
 import { requireLeagueMember, requireCommissioner } from "./lib/auth";
 import { espnConnectionBlocked, FRESHNESS_EXEMPT_CONTENT } from "./lib/espnConnection";
 import { resolveSeasonEndWeek, weeklyTargetWeekInSeason } from "./lib/seasonWindow";
+import { languageRatingValidator } from "./validators";
 // Both of these are plain data modules (no runtime deps), so they are safe to
 // import into the Convex V8 isolate - payments.ts already imports the templates.
 import { contentTypePersonaMap, DEFAULT_PERSONA, personaPrompts } from "../src/lib/ai/persona-prompts";
@@ -641,12 +642,18 @@ export const updateLeagueContentPreferences = mutation({
     notifyCommissioner: v.optional(v.boolean()),
     notifyFailures: v.optional(v.boolean()),
     preferredPersonas: v.optional(v.array(v.string())),
+    // Deprecated (owner ask, Sept 2026): superseded by `languageRating` below and no longer
+    // shown in the UI. Still accepted so an old caller doesn't break, and kept on the schema
+    // so rows written before today still validate.
     contentStyle: v.optional(v.union(
       v.literal("professional"),
       v.literal("casual"),
       v.literal("humorous"),
       v.literal("analytical")
     )),
+    // League-level language rating (owner ask, Sept 2026): how far the desk's writers can go.
+    // Absent means "clean".
+    languageRating: v.optional(languageRatingValidator),
     autoPublish: v.optional(v.boolean()),
     requireApproval: v.optional(v.boolean()),
   },

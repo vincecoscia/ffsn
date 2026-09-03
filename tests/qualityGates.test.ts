@@ -468,6 +468,7 @@ describe("publish gate (spec §11.2.9)", () => {
         severity: "block" | "strip" | "warn";
       }>;
       factsScore?: number;
+      contradictions?: Array<{ claim: string; sectionName: string }>;
       wordCount?: number;
     } = {}
   ) {
@@ -509,7 +510,7 @@ describe("publish gate (spec §11.2.9)", () => {
               : {
                   factsScore: args.factsScore,
                   voiceScore: 4,
-                  contradictions: [],
+                  contradictions: args.contradictions ?? [],
                   unsupported: [],
                   registerLeaks: [],
                   incompleteSections: [],
@@ -557,11 +558,14 @@ describe("publish gate (spec §11.2.9)", () => {
     expect(article?.status).toBe("draft");
   });
 
-  it("holds an article the editor scored below 3 on the facts", async () => {
+  it("holds an article the editor scored below 3 on the facts with something cited", async () => {
     const t = makeTest();
     const leagueId = await seedLeague(t);
-    // No verifier findings at all - the editor is the only thing holding it.
-    const articleId = await seedArticle(t, leagueId, { factsScore: 2 });
+    // No verifier findings at all - the editor is the only thing holding it, and it cited a claim.
+    const articleId = await seedArticle(t, leagueId, {
+      factsScore: 2,
+      contradictions: [{ claim: "Ghost Back scored 40", sectionName: "introduction" }],
+    });
 
     const result = await t.mutation(internal.aiContent.finalizeGeneratedArticle, {
       articleId,
@@ -572,6 +576,21 @@ describe("publish gate (spec §11.2.9)", () => {
     expect(result.published).toBe(false);
     expect(result.blockingFlags).toBe(0);
     expect(result.holdReasons.join(" ")).toMatch(/editor scored the facts 2\/5/);
+  });
+
+  it("publishes an article the editor scored 2/5 without citing anything", async () => {
+    const t = makeTest();
+    const leagueId = await seedLeague(t);
+    // A low score with no findings is the rubric parse losing its notes, not a verdict.
+    const articleId = await seedArticle(t, leagueId, { factsScore: 2 });
+
+    const result = await t.mutation(internal.aiContent.finalizeGeneratedArticle, {
+      articleId,
+      leagueId,
+      generatedByUserId: "system",
+    });
+
+    expect(result.published).toBe(true);
   });
 
   it("holds an article that came in under the word floor", async () => {

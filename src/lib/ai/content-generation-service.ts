@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDataError } from './prompt-builder';
+import type { LanguageRating } from './language';
 import { enhancePromptWithComments } from './comment-integration';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
@@ -299,6 +300,10 @@ export interface GenerationRequest {
   relationships?: WriterRelationshipContext[];
   priorClaims?: PriorClaim[];
   priorRecord?: PriorRecord;
+  /** League-level language rating (owner ask, Sept 2026); defaults to "clean" when absent. */
+  languageRating?: LanguageRating;
+  /** Team names whose managers opted down to clean coverage, regardless of `languageRating`. */
+  cleanTeamNames?: string[];
 }
 
 /** Verifier findings, attached to the article so the commissioner sees every flagged sentence. */
@@ -713,7 +718,8 @@ Report:
   data feed", "per the sheet", or any sentence that describes where a number came from instead of
   what it means. NOT leaks: hand-offs to another desk ("Numbers desk has more on that", "Insider
   desk is working it"), ":::quote{id=…}" lines (renderer markup for a pull quote), "on the record",
-  "did not respond to a request for comment", and stating that a number is a projection.
+  "did not respond to a request for comment", stating that a number is a projection, and the draft
+  desk's own vocabulary on draft grades ("ADP", "value against ADP", a "delta" of picks).
 - incompleteSections: headings whose body stops early, repeats another section, or says nothing.
 - factsScore 1-5: 5 = every factual sentence resolves to <FACTS>; 3 = nothing is wrong but some
   claims are loose; 1 = the article invents things.
@@ -1024,6 +1030,8 @@ export async function prepareArticleRequest(
     relationships: request.relationships,
     priorClaims: request.priorClaims,
     priorRecord: request.priorRecord,
+    languageRating: request.languageRating,
+    cleanTeamNames: request.cleanTeamNames,
   };
 
   const built = await generatePrompt(promptOptions);
@@ -1598,11 +1606,28 @@ export class ContentGenerationService {
           const retryMessage = await createArticleMessage(anthropic, retryPrepared, discarded);
           const second = await completeArticleFromMessage(retryMessage, retryPrepared, apiKey);
           fullRegenerations++;
-          // Fewer strips wins; a tie goes to the second attempt, which was written knowing more.
-          if (stripCount(second) <= stripCount(generated)) {
+          // The better article wins, judged the way the publish gate will judge it: one that
+          // publishes beats one that is held; among held ones, fewer hold reasons, then fewer
+          // strips, then more words. Measured 2026-09-03 on draft grades: a first pass with one
+          // stripped sentence and all five sections was being replaced by a regeneration that
+          // came back with two sections (fewer strips, but thin), and the piece was then held
+          // for the missing sections instead of for one sentence.
+          const rank = (attempt: GeneratedContent): number[] => {
+            const g = shouldPublish(attempt.metadata);
+            return [g.ok ? 1 : 0, -g.reasons.length, -stripCount(attempt), attempt.metadata.verifierStats?.wordCount ?? 0];
+          };
+          const secondWins = ((a: number[], b: number[]) => {
+            for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i];
+            return true; // a full tie goes to the second attempt, which was written knowing more
+          })(rank(second), rank(generated));
+          if (secondWins) {
             discard(generated);
             generated = second;
           } else {
+            console.warn('Full regeneration was not better; keeping the first article', {
+              first: rank(generated),
+              second: rank(second),
+            });
             discard(second);
           }
         } catch (retryError) {

@@ -6,6 +6,7 @@ import { api } from "../../convex/_generated/api";
 import { Doc, Id } from "../../convex/_generated/dataModel";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
 import { Label } from "./ui/label";
 import { Separator } from "./ui/separator";
 import { Progress } from "./ui/progress";
@@ -147,6 +148,17 @@ function personaOptions(contentType: string) {
   }));
 }
 
+/**
+ * League-level language rating (owner ask, Sept 2026): the three options a commissioner can
+ * pick, in escalating order. Default is "clean" - see `DEFAULT_LANGUAGE_RATING` in
+ * `src/lib/ai/language.ts`.
+ */
+const LANGUAGE_OPTIONS: Array<{ value: "clean" | "salty" | "unfiltered"; label: string }> = [
+  { value: "clean", label: "Clean" },
+  { value: "salty", label: "Salty" },
+  { value: "unfiltered", label: "Unfiltered" },
+];
+
 const DAYS_OF_WEEK = [
   { value: 0, label: "Sunday" },
   { value: 1, label: "Monday" },
@@ -218,7 +230,9 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     notifyCommissioner?: boolean;
     notifyFailures?: boolean;
     preferredPersonas?: string[];
-    contentStyle?: "professional" | "casual" | "humorous" | "analytical";
+    // contentStyle is deprecated (owner ask, Sept 2026) and no longer surfaced here -
+    // languageRating replaces it.
+    languageRating?: "clean" | "salty" | "unfiltered";
     autoPublish?: boolean;
     requireApproval?: boolean;
   }) => {
@@ -370,6 +384,48 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                 <span className="text-sm text-bc-text-2">Failures</span>
               </div>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-3 border border-bc-hairline bg-bc-panel-2 p-4">
+            <Label className="text-[15px] text-bc-ink">Language</Label>
+            <RadioGroup
+              value={preferences?.languageRating ?? "clean"}
+              onValueChange={(value) =>
+                handleUpdateGlobalSettings({
+                  languageRating: value as "clean" | "salty" | "unfiltered",
+                })
+              }
+              className="grid grid-cols-3 gap-2"
+            >
+              {LANGUAGE_OPTIONS.map((option) => {
+                const selected = (preferences?.languageRating ?? "clean") === option.value;
+                return (
+                  <div key={option.value} className="flex items-center">
+                    <RadioGroupItem
+                      value={option.value}
+                      id={`language-${option.value}`}
+                      className="sr-only"
+                    />
+                    <Label
+                      htmlFor={`language-${option.value}`}
+                      className={cn(
+                        "flex w-full cursor-pointer items-center justify-center border p-2.5 text-sm font-semibold transition-colors",
+                        selected
+                          ? "border-bc-red bg-bc-plate text-bc-plate-fg"
+                          : "border-bc-hairline bg-bc-panel-2 hover:border-bc-border-strong"
+                      )}
+                    >
+                      {option.label}
+                    </Label>
+                  </div>
+                );
+              })}
+            </RadioGroup>
+            <p className="text-sm text-bc-text-2">
+              Sets how far the desk&apos;s writers can go. Titles and summaries stay clean at
+              every level. Team names always print exactly as spelled. Any manager can keep
+              coverage of their own team clean from their settings.
+            </p>
           </div>
         </div>
       </Panel>

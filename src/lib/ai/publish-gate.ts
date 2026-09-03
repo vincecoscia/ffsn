@@ -114,8 +114,13 @@ export function shouldPublish(metadata: PublishGateMetadata): { ok: boolean; rea
     reasons.push("a required section is missing");
   }
 
+  // A low editor score holds the piece only when the editor cited something. A 2/5 with no
+  // contradictions, no unsupported claims and no register leaks is the rubric parse dropping its
+  // notes (seen on the 2025 backfill), not a verdict; the verifier already logs it as a warning.
   const editor = metadata.editor;
-  if (editor && typeof editor.factsScore === "number" && editor.factsScore < 3) {
+  const editorFindings =
+    (editor?.contradictions?.length ?? 0) + (editor?.unsupported?.length ?? 0) + (editor?.registerLeaks?.length ?? 0);
+  if (editor && typeof editor.factsScore === "number" && editor.factsScore < 3 && editorFindings > 0) {
     reasons.push(`the editor scored the facts ${editor.factsScore}/5`);
   }
 

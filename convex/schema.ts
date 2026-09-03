@@ -4,11 +4,13 @@ import {
   articleClaimValidator,
   articleQuoteValidator,
   generationStatsValidator,
+  languageRatingValidator,
   managerMentionValidator,
   relationshipEventTypeValidator,
   relationshipTierValidator,
   quoteReviewEntryValidator,
   reviewFlagValidator,
+  showTranscriptValidator,
   writerSentimentValidator,
 } from "./validators";
 import { divisionValidator, waiverTypeValidator } from "./lib/espnSettings";
@@ -64,6 +66,10 @@ export default defineSchema({
       emailNotifications: v.boolean(),
       favoriteTeam: v.optional(v.string()),
       timezone: v.optional(v.string()),
+      // "Keep it clean about my team" (owner ask, Sept 2026): generated content about this
+      // manager's team reads as clean whatever the league's languageRating is. Absent means
+      // this manager has not opted down.
+      cleanLanguage: v.optional(v.boolean()),
     })),
     createdAt: v.number(),
     lastActiveAt: v.number(),
@@ -550,6 +556,10 @@ export default defineSchema({
     // Explicit on-the-record predictions this writer made (spec §8.4). Written
     // with outcome "open"; claims.resolveOpenClaims settles them weekly.
     claims: v.optional(v.array(articleClaimValidator)),
+    // The structured "Disputed" episode transcript (spec: Disputed), when this row is a
+    // desk_show. `content` still holds the plain rendering; this is the turn-by-turn structure
+    // behind it, produced by src/lib/ai/disputed's producer rather than the article pipeline.
+    transcript: v.optional(showTranscriptValidator),
     // The NFL season this article belongs to, stamped at generation time from
     // the league's synced season. Backs the per-season spend roll-up
     // (`deskMetrics.getLeagueSeasonSpend`) without scanning the whole league.
@@ -1343,13 +1353,18 @@ export default defineSchema({
     
     // Content quality settings
     preferredPersonas: v.optional(v.array(v.string())), // Preferred personas in order
+    // Deprecated (owner ask, Sept 2026): superseded by languageRating below and no longer
+    // shown in the UI. Kept so rows written before today still validate.
     contentStyle: v.optional(v.union(
       v.literal("professional"),
       v.literal("casual"),
       v.literal("humorous"),
       v.literal("analytical")
     )),
-    
+    // League-level language rating (owner ask, Sept 2026): how far the desk's writers can go.
+    // Absent means "clean".
+    languageRating: v.optional(languageRatingValidator),
+
     // Auto-publish settings
     autoPublish: v.boolean(), // Automatically publish generated content
     requireApproval: v.boolean(), // Require commissioner approval before publishing

@@ -117,6 +117,9 @@ export const updatePreferences = mutation({
       emailNotifications: v.boolean(),
       favoriteTeam: v.optional(v.string()),
       timezone: v.optional(v.string()),
+      // "Keep it clean about my team" (owner ask, Sept 2026): generated content about this
+      // manager's team reads as clean whatever the league's languageRating is.
+      cleanLanguage: v.optional(v.boolean()),
     }),
   },
   handler: async (ctx, args) => {

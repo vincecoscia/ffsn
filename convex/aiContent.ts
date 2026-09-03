@@ -23,6 +23,7 @@ import {
   managerMentionValidator,
   nonRespondentValidator,
   reviewFlagValidator,
+  showTranscriptValidator,
   verifierStatsValidator,
 } from "./validators";
 import { leagueCurrentSeason } from "./lib/season";
@@ -271,6 +272,13 @@ export const createGenerationRequest = mutation({
     if (!template) {
       const availableTypes = Object.keys(contentTemplates).join(', ');
       throw new Error(`Invalid content type: "${args.type}". Available types: ${availableTypes}`);
+    }
+
+    // Show-kind templates (spec: Disputed) are produced turn-by-turn by the desk show
+    // producer (disputedNode.produceEpisode), not by this single-writer article pipeline.
+    // Refuse before any credit is touched.
+    if (template.kind === "show") {
+      throw new Error("Disputed is produced by the desk show producer, not the article generator");
     }
 
     // What this generation costs its requester (spec §10.1). No managers are
@@ -866,6 +874,13 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         { leagueId: args.leagueId, persona: args.persona }
       );
 
+      // League language rating + per-manager opt-down (owner ask, Sept 2026): resolved once
+      // so this article renders at the same rating every other generation path would use.
+      const languageSettings = await ctx.runQuery(
+        internal.languageSettings.getLeagueLanguage,
+        { leagueId: args.leagueId }
+      );
+
       // Receipts (spec section 8.4): what this writer has predicted in this
       // league and how it turned out. Empty for a writer with no back catalogue.
       const priorClaims = await ctx.runQuery(
@@ -891,6 +906,10 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           // (spec §8.4). A writer may only claim a past call that is in here.
           priorClaims: priorClaims.items,
           priorRecord: priorClaims.record,
+          languageRating: languageSettings.languageRating,
+          cleanTeamNames: languageSettings.cleanTeamNames.length
+            ? languageSettings.cleanTeamNames
+            : undefined,
         },
       });
       
@@ -1252,6 +1271,9 @@ export const updateGeneratedContent = internalMutation({
       // Explicit predictions the writer made (spec §8.4). Stored with
       // outcome "open" plus the byline, week and season below.
       claims: v.optional(v.array(generatedClaimValidator)),
+      // The "Disputed" show's structured transcript (spec: Disputed). Optional: only a
+      // desk_show generation reports one.
+      transcript: v.optional(showTranscriptValidator),
       // Season backfill (owner directive, Sept 2026): the season this article is actually ABOUT,
       // from the caller (generateContentAction's `args.seasonId`, or aiContentHelpers' prepared
       // path). Falls back to the league's live current season below when absent, which is every
@@ -1336,11 +1358,14 @@ export const updateGeneratedContent = internalMutation({
     // it invisible to `by_league_season`-scoped reads of the 2025 season.
     const league = await ctx.db.get(article.leagueId);
     const season = args.metadata.seasonId ?? leagueCurrentSeason(league);
+    // A multi-speaker piece (the "Disputed" show, spec: Disputed) stamps each claim with the
+    // desk member who actually made it; an ordinary single-writer article falls back to its
+    // own byline, exactly as before.
     const claims = args.metadata.claims?.map((claim) => ({
       ...claim,
       week: claim.week ?? args.metadata.week,
       outcome: "open" as const,
-      persona: article.persona,
+      persona: claim.persona ?? article.persona,
       season,
     }));
 
@@ -1358,6 +1383,7 @@ export const updateGeneratedContent = internalMutation({
       quotes: args.metadata.quotes,
       managerMentions: args.metadata.managerMentions,
       claims,
+      transcript: args.metadata.transcript,
       reviewFlags: args.metadata.reviewFlags,
       factsMissing: args.metadata.factsMissing,
       // The season this article belongs to, so `deskMetrics.getLeagueSeasonSpend`

@@ -11,6 +11,14 @@ export interface ContentTemplate {
   optionalData: string[];
   sections: ContentSection[];
   examplePrompt?: string;
+  /**
+   * "show" marks a multi-speaker piece produced turn-by-turn by its own producer (the
+   * "Disputed" debate show — see `src/lib/ai/disputed/`), not by the single-writer article
+   * pipeline. Absent (the default) means an ordinary article. A "show" template is never
+   * offered by the content-generation picker (`isSelectableContentType`) and is refused by
+   * `aiContent.createGenerationRequest`.
+   */
+  kind?: "article" | "show";
 }
 
 export interface ContentSection {
@@ -1007,6 +1015,24 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         required: false,
         wordCount: 150
       }
+    ]
+  },
+
+  "desk_show": {
+    id: "desk_show",
+    kind: "show",
+    name: "Disputed",
+    description: "The desk's weekly debate show. Mel Diaper and Reggie Banks argue one question about one manager; the rest of the desk are called as witnesses; Curtis Vaughn hosts. Produced turn by turn by the show producer, not by the article pipeline.",
+    creditCost: 30,
+    estimatedWords: 1600,
+    requiredData: ["standings", "matchup_results"],
+    optionalData: ["transactions", "trades", "team_rosters"],
+    sections: [
+      { name: "cold_open", description: "Curtis states the biggest fact of the week and asks the question", required: true, wordCount: 60 },
+      { name: "opening_statements", description: "Mel then Reggie take a side with a number attached", required: true, wordCount: 240 },
+      { name: "main_event", description: "The debate, with witnesses called by name and Curtis redirecting when it gets hot", required: true, wordCount: 1000 },
+      { name: "verdict", description: "Nina grades both takes and names a winner; Curtis reads the season ledger", required: true, wordCount: 160 },
+      { name: "last_jabs", description: "One jab each, then Curtis signs off", required: true, wordCount: 140 }
     ]
   }
 };

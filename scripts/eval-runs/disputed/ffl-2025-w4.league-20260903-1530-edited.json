@@ -1,0 +1,1301 @@
+{
+  "transcript": {
+    "schema": "ffsn.transcript.v1",
+    "show": "disputed",
+    "week": 4,
+    "question": "Was Cameron Coscia's one-dollar Tory Horton waiver move smart, patient roster-building, or a manager wasting a stacked budget while his league mates spend?",
+    "hotSeat": {
+      "teamId": "T8",
+      "managerName": "Cameron Coscia",
+      "why": "Nina Sharpe is favorite on them (+72), Curtis Vaughn is neutral on them (+9)"
+    },
+    "segments": [
+      {
+        "id": "cold_open",
+        "title": "Cold Open",
+        "turns": [
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "cold_open",
+            "text": "Good evening. Week four's biggest number: Gabe Coscia edged Chodie mcgruber 183.3 to 183.2 — one-tenth of a point. Tonight's hot seat: Cameron Coscia, one dollar on Tory Horton, dropped his Buccaneers defense to do it. Shrewd, or sitting on his hands? Mel, you're up.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "opening_statements",
+        "title": "Opening Statements",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "SMART?! IT'S A DOLLAR. Cameron Coscia is 3-1 with 540.4 points and he still has $100 of $100 sitting in the vault. ONE HUNDRED. Nobody in this league has spent a nickel — the biggest bid all week was eleven dollars on Justin Fields, and Fields has THIRTY-TWO POINT ONE on the season—",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat Prolapsed Peehole in Week 5",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T5",
+              "week": 5
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "A dollar? A HUNDRED dollars? I don't care where you took him — I care that Coscia is 3-1 with 540.4 points and just got dropped 147.4 to 116.4 by Tua Deez Nuts.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat Prolapsed Peehole in Week 5",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T5",
+              "week": 5
+            },
+            "model": "claude-opus-5",
+            "interrupts": true
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "Patience is not sitting on your hands. Patience is HAVING THE HUNDRED.",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat Prolapsed Peehole in Week 5",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T5",
+              "week": 5
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "And Khalil Shakir sat on his bench for 17.9 while A.J. Brown played. That's 15.2 points he left in the building! The budget didn't lose that game — the LINEUP did. Scoreboard.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat Prolapsed Peehole in Week 5",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T5",
+              "week": 5
+            },
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "main_event",
+        "title": "Main Event",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "FIFTEEN POINT TWO?! THAT'S YOUR CASE?! Reggie, that bench is a DRAFT problem, same one every week — Jakobi Meyers 17.7 in Week 1, Waddle 17.8 in Week 2, Skattebo 24.1 in Week 3, Shakir 17.9 in Week 4. FOUR WEEKS. Every one replaces A.J. Brown or Chuba Hubbard. THAT IS A ROSTER SO DEEP IT LEAKS. Bijan Robinson has 88.4 and sat in Week 4 — SAT — and Coscia still spent one dollar instead of eleven. I want Nina on this.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "agreesWithOpponent": false,
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "That is not a lineup card, THAT IS A ROSTER SO DEEP IT LEAKS. And he's 3-1 with 540.4 points while it leaks!"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, the number's right: Shakir sat for 17.9 while Brown started, a gain of 15.2, supported. But Mel's \"four weeks\" is partial credit — four different bench decisions across four different weeks, not one repeating mistake. That's depth, not error.",
+            "jab": false,
+            "factsCited": [
+              "M16 benchImpact Khalil Shakir 17.9 gain 15.2",
+              "M4 benchImpact Jakobi Meyers",
+              "M8 benchImpact Jaylen Waddle",
+              "M12 benchImpact Cam Skattebo"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 2,
+                "evidence": "Four games is a trend line I'll watch, not a verdict I'll write."
+              }
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "I'll take that grade and the flowers with it, because look what the wins look like. Week 1, 146.6. Week 2, 127.8. Week 3, 149.6, punching out Ja'Marr Chase's team by 17.9. Three-and-one, 540.4, third seed. Put some respect on the 3-1.",
+            "jab": false,
+            "factsCited": [
+              "M4",
+              "M8",
+              "M12",
+              "M16",
+              "T8 record 3-1 540.4",
+              "standings rank 3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Three-and-one, 540.4 points, third seed as it stands."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "\"THE RIGHT NINE NAMES\"?! Reggie, they were DRAFTED — Bijan, pick TWO. Allen, pick TWENTY-TWO. Walker, pick THIRTY-NINE. Skattebo at pick ONE FOUR SIX — 40 points out of the fifth round of nowhere. THAT'S A DRAFT BOARD DOING THE WORK. Eleven bids this week, top three teams in points ALL sitting on $100 of $100. I want Dex on the log.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Bijan Robinson, pick TWO. Josh Allen, pick TWENTY-TWO. Kenneth Walker III, pick THIRTY-NINE. And Cam Skattebo at pick ONE FOUR SIX."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. Eleven claims this week. Highest bid was eleven dollars, Justin Fields, Colominas. Coscia's Tory Horton claim: one dollar. Two guys bid zero and still won. That's not a quiet market, that's a dead one. Every team still shows $100 of $100.",
+            "jab": false,
+            "factsCited": [
+              "W1",
+              "W9",
+              "W5",
+              "W7",
+              "budgets B1-B10"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Dead market is EXACTLY my point — if nobody's money moved, the dollar didn't win anybody anything. Results did. Rivero paid ZERO for the Patriots D and Loop, 3-1 at 146.9. Gainwell went 31.4 for free, on the bench, lost by one-tenth. The lineup card was the story.",
+            "jab": true,
+            "factsCited": [
+              "W7",
+              "W8",
+              "W11",
+              "M20",
+              "M17",
+              "W1",
+              "B6",
+              "T6 record 3-1",
+              "T2 record 3-1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T6",
+                "managerName": "Sammy Rivero",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Sammy Rivero paid ZERO for the Patriots defense and zero for Tyler Loop and he's 3-1 with 146.9 in Week 4."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "Matthew Colominas got Kenneth Gainwell for zero dollars — and Gainwell went 31.4."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Cameron Coscia's dollar bought a receiver who hasn't shown up in a box score yet."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "\"HASN'T SHOWN UP IN A BOX SCORE\"?! You just made my case — the dollar receiver is a DEPTH BUY! And Gainwell — 31.4 ON THE BENCH, lost by ONE-TENTH! So which is it?! The board wins. Allen, pick TWENTY-TWO, 105.5, QB1. Bijan, pick TWO, 88.4. Walt, settle it.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "walt-brennan",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Josh Allen, pick TWENTY-TWO, 105.5 points, QB1 in this league. Bijan, pick TWO, 88.4."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew Colominas",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Gainwell — 31.4 ON THE BENCH in a game lost by ONE-TENTH OF A POINT."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "walt-brennan",
+            "kind": "witness",
+            "text": "The record doesn't go back further than this season, so I won't pretend to know if Cameron's ever done this before. What I know is 3-1 and $100 still in the drawer isn't patience, it's a man who hasn't had to make a hard call yet. My verdict: Mel's right the board did the heavy lifting, but a full vault in Week 4 stops being restraint and starts being a question nobody's asked him yet.",
+            "jab": false,
+            "factsCited": [
+              "B6 - Stinky Faggots $100 of $100 left",
+              "W1 - Cameron Coscia won Tory Horton for $1",
+              "T8 record 3-1-0, 540.4 points"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "A question, not a verdict. Nina, grade Mel's Week 5 forecast — supported, partly, or premature?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, a projection isn't a result. 133.9 to 126.9 is a projected margin of seven, and I don't have the box score yet. Call it premature.",
+            "jab": false,
+            "factsCited": [
+              "U3: T8 projected 133.9 vs T5 projected 126.9, week 5"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Premature, fine, paper is paper. Mel wants to crown a draft board. Then explain Michael Warrell — six dollars, 146 points, beat SAGGY NUTS by 28, Jeanty 33.5, Maye 25.2, Johnston 23.8, all STARTED. GIVE THAT MAN HIS FLOWERS. That's what a dollar looks like when it plays.",
+            "jab": true,
+            "factsCited": [
+              "M16",
+              "M19",
+              "W3",
+              "board RB Bijan Robinson 88.4 pick 2",
+              "T3 record 2-2",
+              "T9"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T3",
+                "managerName": "Michael Warrell",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Michael Warrell spent six dollars and put up 146 to beat SAGGY NUTS by 28 — Ashton Jeanty 33.5, Drake Maye 25.2, Quentin Johnston 23.8, all STARTED."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "in the one week his team lost by 31 he still went 28.1"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "MICHAEL WARRELL?! YOU HANDED ME THE BOARD AGAIN! Maye was BENCHED in Week 2 for 28.3 — same manager, same quarterback, two weeks apart. That team's 474 points, dead last among 2-2 clubs, six dollars deep. You want flowers for seventh?!",
+            "jab": true,
+            "factsCited": [
+              "M7 Drake Maye benched 28.3, gain 20.3, margin 8.1",
+              "M19 Jeanty 33.5, Maye 25.2",
+              "T3 record 2-2, pointsFor 474, rank 7",
+              "W3 Christian Kirk $6",
+              "Josh Allen draftPick 22",
+              "Bijan Robinson draftPick 2"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T3",
+                "managerName": "Michael Warrell",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Drake Maye was BENCHED in Week 2 for 28.3, a gain of 20.3 in a game lost by 8.1."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 1,
+                "evidence": "Bijan, pick TWO. Allen, pick TWENTY-TWO."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "I'm asking it with a scoreboard. Jake Ferguson, taken at 131, top-scoring tight end at 62.3. Hunter Henry, 163, at 53.4. Egbuka, 89, 71.1. Those are guys somebody STARTED. Sammy Rivero's 3-1 with Ferguson and zero dollars spent.",
+            "jab": true,
+            "factsCited": [
+              "board TE top: Jake Ferguson 62.3, pick 131",
+              "board TE: Hunter Henry 53.4, pick 163",
+              "board WR: Emeka Egbuka 71.1, pick 89",
+              "M1 Egbuka 23.6",
+              "T6 record 3-1",
+              "W8 Patriots D/ST $0, W11 Tyler Loop $0",
+              "M17 margin 0.1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T6",
+                "managerName": "Sammy Rivero",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "And Sammy Rivero's 3-1 with Ferguson in the lineup and zero dollars spent."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "FERGUSON AT 131?! THAT'S A DRAFT PICK! Nobody bid a dollar on those men — TAKEN. Rome Odunze, pick SEVENTY, third-highest receiver at 79.6 — ON THE BENCH, on a 1-3 team. The board out-earning the card by a mile.",
+            "jab": true,
+            "factsCited": [
+              "board TE: Jake Ferguson draftPick 131, 62.3",
+              "board TE: Hunter Henry draftPick 163, 53.4",
+              "board WR: Emeka Egbuka draftPick 89, 71.1",
+              "board WR: Rome Odunze draftPick 70, 79.6, lineup bench, T5",
+              "standings: T5 1-3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T5",
+                "managerName": "Vincent Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "Rome Odunze, pick SEVENTY, third-highest scoring receiver in this league at 79.6 — ON THE BENCH."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Odunze at 79.6 on a bench — 1-3 team! Pick 70 doesn't start anybody. And you skipped Gabe Coscia, 183.3, highest score of the week, 3-1, won by one-tenth because Jacobs went 31.7 and Love went 29.3, BOTH IN THE LINEUP. GIVE THAT MAN HIS FLOWERS.",
+            "jab": true,
+            "factsCited": [
+              "M17",
+              "T11 standings 3-1 586.6 seed 2",
+              "board WR Rome Odunze 79.6 bench T5",
+              "T5 record 1-3-0"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Gabe Coscia, 183.3. Highest score of the week, 3-1, 586.6 points, second seed, and he won by one-tenth of a point because Josh Jacobs went 31.7 and Jordan Love went 29.3 and BOTH WERE IN THE LINEUP."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Both circling that same one-tenth. Dex — is there a single transaction tying Coscia's dollar to anything beyond that Horton claim?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. One claim, one dollar. Tory Horton, week four, Cameron Coscia, dropped his Buccaneers D. That's the whole file. Nothing else with his name on it.",
+            "jab": false,
+            "factsCited": [
+              "W1"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "ONE CLAIM, ONE DOLLAR — THAT'S MY WHOLE CASE. Then answer for Gabe Coscia's card — Bowers went at pick TWENTY-THREE, benched with 43.5 while Henry starts. Jacobs, pick EIGHTEEN, 72.5, benched. Lamar Jackson, pick TWENTY-FIVE, 103.4, QB2 — BENCHED.",
+            "jab": true,
+            "factsCited": [
+              "W1 Tory Horton $1 claim",
+              "board QB: Lamar Jackson pick 25, 103.4, bench",
+              "board RB: Josh Jacobs pick 18, 72.5, bench",
+              "board TE: Brock Bowers pick 23, 43.5, bench; Hunter Henry 163 starter",
+              "T11 3-1, 586.6"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "Brock Bowers went at pick TWENTY-THREE and he's on the BENCH with 43.5 while Hunter Henry starts."
+              },
+              {
+                "teamId": "T9",
+                "managerName": "Albert Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And Lamar Jackson, pick TWENTY-FIVE, 103.4 points, QB2 in this league — BENCHED."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "ONE CLAIM, ONE DOLLAR — DEX JUST SAID IT, AND THAT'S MY WHOLE CASE."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Henry started and went 29 in Week 3 — the card was RIGHT. Jackson, 103.4, his team's 2-2 and lost by 28. Mahomes, 95.6, 1-3. Bijan, 88.4, just lost by 31. Meanwhile Baker Mayfield, 87.1, started every week, that team's 3-1 and first at 589.9. Cards play.",
+            "jab": true,
+            "factsCited": [
+              "M13 Hunter Henry 29 bench Week 3",
+              "board QB Lamar Jackson 103.4 bench",
+              "board QB Patrick Mahomes 95.6 bench",
+              "board RB Bijan Robinson 88.4 bench",
+              "M16 T1 147.4 T8 116.4 margin 31",
+              "M19 T3 146 T9 118 margin 28",
+              "T9 2-2",
+              "T12 1-3",
+              "board QB Baker Mayfield 87.1",
+              "T2 3-1 589.9 rank 1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Hunter Henry started and went 29 in Week 3 — GIVE THAT MAN HIS FLOWERS, the card was RIGHT."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Baker Mayfield, 87.1, started every week I've watched, and that team's 3-1 and first in points at 589.9."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "BAKER MAYFIELD?! PICK SEVENTY-FOUR! You just credited a card for a fifth-round steal — and that same team left ONE HUNDRED POINT TWO on the bench in Week 4 and lost by a tenth! The card you're praising is the worst card of the week!",
+            "jab": true,
+            "factsCited": [
+              "Baker Mayfield draftPick 74, 87.1 season points, QB rank 6",
+              "T2 record 3-1, pointsFor 589.9",
+              "M17 away T2 benchPoints 100.2, margin 0.1",
+              "Justin Herbert draftPick 140, 80.8, QB7",
+              "Tucker Kraft draftPick 120, 50.8",
+              "Dalton Kincaid draftPick 161, 49.9"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And that same 3-1, 589.9-point team you're waving around left ONE HUNDRED POINT TWO on the bench in Week 4 and lost by a tenth."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "A hundred point two on the bench and that team scored 183.2 — second-highest of the week! Nacua 36, Pickens 33.4, both STARTED. First in points at 589.9, top seed. Coscia's problem in Week 4 wasn't a dollar, it was 116.4. Scoreboard.",
+            "jab": true,
+            "factsCited": [
+              "M17",
+              "M3",
+              "M11",
+              "M16",
+              "T2 standings 3-1-0 589.9",
+              "playoffs seeds T2 seed 1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Puka Nacua 36, George Pickens 33.4, both STARTED, both in that game."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Cameron Coscia's problem in Week 4 wasn't a dollar, it was 116.4."
+              }
+            ],
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "verdict",
+        "title": "Verdict",
+        "turns": [
+          {
+            "speaker": "nina-sharpe",
+            "kind": "grade",
+            "text": "Class, grade time. Mel's opening claim was patience: Cameron Coscia at $100 of $100, 3-1, 540.4 points. Supported — the budget number is real. Reggie's opening claim was that results, not restraint, decide it, pointing to the 147.4-116.4 loss and Shakir's 17.9 on the bench. Also supported — that box score is real too. But only one claim survives contact with Week 4's actual outcome: Cameron Coscia's team lost by 31 with a full vault. The dollar didn't cost him that game; the lineup did. Verdict goes to Reggie on the number that matters this week — 116.4.",
+            "jab": false,
+            "factsCited": [
+              "M16 116.4 vs 147.4",
+              "M16 Khalil Shakir bench 17.9 gain 15.2",
+              "B6 Stinky Faggots $100 of $100"
+            ],
+            "verdict": {
+              "winner": "reggie-banks",
+              "reason": "Cameron Coscia's team lost 147.4 to 116.4 in Week 4 with $100 still unspent — the vault didn't stop the loss, the lineup did."
+            },
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "ledger",
+            "text": "First meeting between these two this season, so no history to lean on — clean slate, nothing on the board for either man. Nina's already put her thumb on 116.4. Mel, Reggie — last jabs, make them count.",
+            "jab": false,
+            "factsCited": [
+              "priorClaims empty"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      },
+      {
+        "id": "last_jabs",
+        "title": "Last Jabs",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "jab",
+            "text": "ONE HUNDRED SIXTEEN POINT FOUR — that's your trophy, Reggie?! A 3-1 team with 540.4 points and the FULL HUNDRED still in the drawer! You built an hour on ONE bad Sunday and Dex told you the whole file is one dollar. Bijan, pick TWO, 88.4. Josh Allen, pick TWENTY-TWO, 105.5, QB1 in this league. THAT'S 193.9 FROM TWO PICKS. Nina says premature — fine. The Stinky Faggots beat Prolapsed Peehole in Week 5, 133.9 to 126.9, and when they do I want that one dollar bronzed, mounted, and hung over the commissioner's desk.",
+            "jab": true,
+            "factsCited": [
+              "T8 record 3-1, 540.4 PF",
+              "B6 The Stinky Faggots $100 of $100 left",
+              "M16 T1 147.4 - T8 116.4",
+              "W1 Tory Horton $1",
+              "board: Bijan Robinson pick 2, 88.4",
+              "board: Josh Allen pick 22, 105.5, QB1",
+              "U3 T8 projected 133.9 vs T5 126.9"
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "jab",
+            "text": "Bronze the dollar, Mel. I'll take the scoreboard. Same team, same week: Bijan 28.1, Josh Allen 26.9 — your two picks showed UP — and the final was 147.4 to 116.4. A 31-point loss with your precious hundred untouched. That's the card, not the board. And I said it once, I'll say it once more: The Stinky Faggots beat Prolapsed Peehole in Week 5. They lose, I'm wrong, out loud, no excuses. But you're framing a receipt while Gabe Coscia's 183.3 is still hanging on the wall. Cute draft. You can take that to the bank.",
+            "jab": true,
+            "factsCited": [],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "close",
+            "text": "Nina's got the number, Reggie's got the last word, and Cameron Coscia still has his hundred dollars. We'll see the Stinky Faggots and Prolapsed Peehole in Week 5. That's the show.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      }
+    ],
+    "edited": {
+      "pass": "edit-bay-v1",
+      "wordsBefore": 2603,
+      "wordsAfter": 1449,
+      "segmentsEdited": 3,
+      "segmentsRejected": 2,
+      "rejections": [
+        {
+          "segment": "verdict",
+          "reason": "locked turn 1 (curtis-vaughn, kind \"ledger\") must come back verbatim and exactly once; the edit changed, split, merged or dropped it"
+        },
+        {
+          "segment": "last_jabs",
+          "reason": "the segment's last turn (index 2, curtis-vaughn) is not represented in the edit"
+        }
+      ]
+    }
+  },
+  "editStats": {
+    "segmentsEdited": 3,
+    "segmentsRejected": 2,
+    "segmentsRetried": 2,
+    "wordsBefore": 2603,
+    "wordsAfter": 1449,
+    "promptTokens": 10624,
+    "completionTokens": 4913,
+    "costUsd": 0.07314160000000001,
+    "modelsUsed": [
+      "claude-sonnet-5"
+    ],
+    "rejections": [
+      {
+        "segment": "verdict",
+        "reason": "locked turn 1 (curtis-vaughn, kind \"ledger\") must come back verbatim and exactly once; the edit changed, split, merged or dropped it"
+      },
+      {
+        "segment": "last_jabs",
+        "reason": "the segment's last turn (index 2, curtis-vaughn) is not represented in the edit"
+      }
+    ]
+  },
+  "rawTranscript": {
+    "schema": "ffsn.transcript.v1",
+    "show": "disputed",
+    "week": 4,
+    "question": "Was Cameron Coscia's one-dollar Tory Horton waiver move smart, patient roster-building, or a manager wasting a stacked budget while his league mates spend?",
+    "hotSeat": {
+      "teamId": "T8",
+      "managerName": "Cameron Coscia",
+      "why": "Nina Sharpe is favorite on them (+72), Curtis Vaughn is neutral on them (+9)"
+    },
+    "segments": [
+      {
+        "id": "cold_open",
+        "title": "Cold Open",
+        "turns": [
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "cold_open",
+            "text": "Good evening. Week four's biggest number: Gabe Coscia's squad edged Chodie mcgruber 183.3 to 183.2, a margin of one-tenth of a point. But tonight's hot seat belongs to Cameron Coscia, who spent all of one dollar on Tory Horton and dropped his Buccaneers defense to do it. The question on the floor: was that a shrewd, patient FAAB week, or a manager sitting on his hands while this league's contenders spend real money? Mel, you're up first.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "opening_statements",
+        "title": "Opening Statements",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "SMART?! IT'S A DOLLAR. It's the cheapest move on the board and it's also the RIGHT one, and here's why: A DOLLAR. Cameron Coscia is 3-1 with 540.4 points and he still has $100 of $100 sitting in the vault. ONE HUNDRED. Nobody in this league has spent a nickel of real money — the biggest bid all week was eleven dollars on Justin Fields, and Fields has THIRTY-TWO POINT ONE on the season. THIRTY-TWO! You want me to yell at a man for not chasing that?! I'd sooner file a complaint about a lawn mower. Here's my number: The Stinky Faggots beat Prolapsed Peehole in Week 5, projected 133.9 to 126.9. Patience is not sitting on your hands. Patience is HAVING THE HUNDRED.",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat Prolapsed Peehole in Week 5",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T5",
+              "week": 5
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "A dollar? A HUNDRED dollars? I don't care about the vault, and I don't care where you took him — I care that Cameron Coscia is 3-1 with 540.4 points and he just went out and got dropped 147.4 to 116.4 by Tua Deez Nuts. And in that game Khalil Shakir sat on his bench for 17.9 while A.J. Brown played. That's 15.2 points he left in the building! The budget didn't lose that game — the LINEUP did. My number: The Stinky Faggots beat Prolapsed Peehole in Week 5. If they lose that game, I'm wrong and I'll say so. Scoreboard.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat Prolapsed Peehole in Week 5",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T5",
+              "week": 5
+            },
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "main_event",
+        "title": "Main Event",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "FIFTEEN POINT TWO?! THAT'S YOUR CASE?! Reggie, that bench is a DRAFT problem and it's the same one every single week — Jakobi Meyers 17.7 in Week 1, Jaylen Waddle 17.8 in Week 2, Cam Skattebo 24.1 in Week 3, Khalil Shakir 17.9 in Week 4. FOUR WEEKS. Every one of them would have replaced A.J. Brown or Chuba Hubbard. That is not a lineup card, THAT IS A ROSTER SO DEEP IT LEAKS. And he's 3-1 with 540.4 points while it leaks! Bijan Robinson has 88.4 points and he sat on the bench in Week 4 — SAT — and Cameron Coscia still spent one dollar instead of eleven. I want Nina on this. Grade the fifteen-point-two.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "agreesWithOpponent": false,
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "That is not a lineup card, THAT IS A ROSTER SO DEEP IT LEAKS. And he's 3-1 with 540.4 points while it leaks!"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, the number is right: Khalil Shakir sat for 17.9 in Week 4 while A.J. Brown started, a gain of 15.2 — that's straight from the box score, supported. But Mel's \"four weeks\" claim gets partial credit only: Meyers, Waddle, Skattebo, Shakir are four different bench decisions across four different weeks, not one repeating mistake. That's a pattern of depth, not a pattern of error. Four games is a trend line I'll watch, not a verdict I'll write.",
+            "jab": false,
+            "factsCited": [
+              "M16 benchImpact Khalil Shakir 17.9 gain 15.2",
+              "M4 benchImpact Jakobi Meyers",
+              "M8 benchImpact Jaylen Waddle",
+              "M12 benchImpact Cam Skattebo"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 2,
+                "evidence": "Four games is a trend line I'll watch, not a verdict I'll write."
+              }
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Nina, I'll take that grade and I'll take the flowers with it — because look what the WINS look like. Week 1, 146.6. Week 2, 127.8. Week 3, 149.6, and he punched out Ja'Marr Chase's team by 17.9 doing it. Three-and-one, 540.4 points, third seed as it stands. And in Week 4 the man who won it wasn't a bid, it was Bijan Robinson going 28.1 and Josh Allen going 26.9 — 55 points from two starters and the team still lost by 31. You don't fix that with eleven dollars on a quarterback. You fix it with the right nine names. Put some respect on the 3-1.",
+            "jab": false,
+            "factsCited": [
+              "M4",
+              "M8",
+              "M12",
+              "M16",
+              "T8 record 3-1 540.4",
+              "standings rank 3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Three-and-one, 540.4 points, third seed as it stands."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "\"THE RIGHT NINE NAMES\"?! Reggie, the right nine names were DRAFTED, and here's the receipt you keep walking past: Bijan Robinson, pick TWO. Josh Allen, pick TWENTY-TWO. Kenneth Walker III, pick THIRTY-NINE. And Cam Skattebo at pick ONE FOUR SIX — 40 points on the season out of the fifth round of nowhere. ONE FORTY-SIX! That's not a lineup fixing anything, THAT'S A DRAFT BOARD DOING THE WORK. And the league agrees with the dollar: eleven bids this week, and the top three teams in points are ALL sitting on $100 of $100. Nobody spent. Nobody had to. I want Dex on the transaction log — tell me if a single dollar of real money moved in this league.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Bijan Robinson, pick TWO. Josh Allen, pick TWENTY-TWO. Kenneth Walker III, pick THIRTY-NINE. And Cam Skattebo at pick ONE FOUR SIX."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. Here's what I've got. Eleven claims this week. Highest bid was eleven dollars, Justin Fields, Matthew Colominas. Cameron Coscia's Tory Horton claim: one dollar. Two guys bid zero dollars and still won — Spencer Shrader, Kenneth Gainwell. That's not a quiet market, that's a dead one. Every team in this league still shows $100 of $100 remaining. Nobody's real money moved. Stand by.",
+            "jab": false,
+            "factsCited": [
+              "W1",
+              "W9",
+              "W5",
+              "W7",
+              "budgets B1-B10"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Dex just told you the whole market's asleep, and the dead market is EXACTLY my point — if nobody's money moved, then the dollar didn't win anybody anything. Results did. Sammy Rivero paid ZERO for the Patriots defense and zero for Tyler Loop and he's 3-1 with 146.9 in Week 4. Matthew Colominas got Kenneth Gainwell for zero dollars — and Gainwell went 31.4. THIRTY-ONE POINT FOUR for free! On the bench, and that team lost by one-tenth of a point. That's the lesson: the money was never the story, the lineup card was. Cameron Coscia's dollar bought a receiver who hasn't shown up in a box score yet. Bijan and Allen showed up. Nobody else did.",
+            "jab": true,
+            "factsCited": [
+              "W7",
+              "W8",
+              "W11",
+              "M20",
+              "M17",
+              "W1",
+              "B6",
+              "T6 record 3-1",
+              "T2 record 3-1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T6",
+                "managerName": "Sammy Rivero",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Sammy Rivero paid ZERO for the Patriots defense and zero for Tyler Loop and he's 3-1 with 146.9 in Week 4."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "Matthew Colominas got Kenneth Gainwell for zero dollars — and Gainwell went 31.4."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Cameron Coscia's dollar bought a receiver who hasn't shown up in a box score yet."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "\"HASN'T SHOWN UP IN A BOX SCORE\"?! Reggie, you just made my case for me — the dollar receiver is a DEPTH BUY, not a starter, and you don't pay eleven dollars for depth when you're already 3-1! And you brought up Gainwell — 31.4 ON THE BENCH in a game lost by ONE-TENTH OF A POINT. ONE TENTH! That's a zero-dollar pickup that WON the free-agent week and STILL cost that team the game. So which is it?! Spending doesn't win. Free doesn't win. The board wins. Josh Allen, pick TWENTY-TWO, 105.5 points, QB1 in this league. Bijan, pick TWO, 88.4. That's 193.9 from two picks, and it goes in the lineup whether or not anybody bids a dime. Walt, settle it.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "walt-brennan",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Josh Allen, pick TWENTY-TWO, 105.5 points, QB1 in this league. Bijan, pick TWO, 88.4."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew Colominas",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Gainwell — 31.4 ON THE BENCH in a game lost by ONE-TENTH OF A POINT."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "walt-brennan",
+            "kind": "witness",
+            "text": "The record doesn't go back further than this season, so I won't pretend to know if Cameron's ever done this before. What I know is 3-1 and $100 still in the drawer isn't patience, it's a man who hasn't had to make a hard call yet. A dollar on Tory Horton is a receipt, not a decision. I'd call it a method if I thought anyone was following one. My verdict: Mel's right that the board did the heavy lifting, but a full vault in Week 4 stops being restraint and starts being a question nobody's asked him yet.",
+            "jab": false,
+            "factsCited": [
+              "B6 - Stinky Faggots $100 of $100 left",
+              "W1 - Cameron Coscia won Tory Horton for $1",
+              "T8 record 3-1-0, 540.4 points"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Walt's called it a question, not a verdict. Let's put a number on the calendar instead. Nina, grade Mel's Week 5 forecast — Stinky Faggots projected 133.9, Prolapsed Peehole 126.9 — supported, partly, or premature?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, a projection is not a result — it's a number the model spits out before kickoff. 133.9 to 126.9 is a projected margin of seven points, and I don't have Week 5's box score to grade it against. Call it premature. Ask me again after the games are played.",
+            "jab": false,
+            "factsCited": [
+              "U3: T8 projected 133.9 vs T5 projected 126.9, week 5"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Nina says premature, and I'll live with premature — because paper is paper. Mel wants to hand the trophy to a draft board. Fine. Then explain Week 4 to me. Bijan Robinson, pick two, 88.4 on the season, and in the one week his team lost by 31 he still went 28.1. The board did its job. The card didn't. Meanwhile Michael Warrell spent six dollars and put up 146 to beat SAGGY NUTS by 28 — Ashton Jeanty 33.5, Drake Maye 25.2, Quentin Johnston 23.8, all STARTED. GIVE THAT MAN HIS FLOWERS. That's what a dollar looks like when it plays.",
+            "jab": true,
+            "factsCited": [
+              "M16",
+              "M19",
+              "W3",
+              "board RB Bijan Robinson 88.4 pick 2",
+              "T3 record 2-2",
+              "T9"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T3",
+                "managerName": "Michael Warrell",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Michael Warrell spent six dollars and put up 146 to beat SAGGY NUTS by 28 — Ashton Jeanty 33.5, Drake Maye 25.2, Quentin Johnston 23.8, all STARTED."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "in the one week his team lost by 31 he still went 28.1"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "MICHAEL WARRELL?! YOU JUST HANDED ME THE BOARD AGAIN! Ashton Jeanty went 33.5 and Drake Maye went 25.2 — and Drake Maye was BENCHED in Week 2 for 28.3, a gain of 20.3 in a game lost by 8.1. That's the same manager, same quarterback, TWO WEEKS APART. The card didn't get smart, the DRAFT got started. And that team is 474 points, DEAD LAST in scoring among the 2-2 clubs, seventh in the standings, six dollars deep. You want flowers for seventh?! I want the six dollars CONFISCATED and the draft card framed. Bijan, pick TWO. Allen, pick TWENTY-TWO. WALT SAID THE BOARD DID THE HEAVY LIFTING.",
+            "jab": true,
+            "factsCited": [
+              "M7 Drake Maye benched 28.3, gain 20.3, margin 8.1",
+              "M19 Jeanty 33.5, Maye 25.2",
+              "T3 record 2-2, pointsFor 474, rank 7",
+              "W3 Christian Kirk $6",
+              "Josh Allen draftPick 22",
+              "Bijan Robinson draftPick 2"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T3",
+                "managerName": "Michael Warrell",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Drake Maye was BENCHED in Week 2 for 28.3, a gain of 20.3 in a game lost by 8.1."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 1,
+                "evidence": "Bijan, pick TWO. Allen, pick TWENTY-TWO."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Walt said the board did the heavy lifting, and then he said the vault is a question nobody's asked. I'm asking it with a scoreboard. Jake Ferguson, taken at 131, is the top-scoring tight end in this league at 62.3. Hunter Henry, 163, sitting at 53.4. Emeka Egbuka, 89, 71.1 points and a 23.6 in Week 1. Those aren't board picks, those are guys somebody STARTED. And Sammy Rivero's 3-1 with Ferguson in the lineup and zero dollars spent. You keep framing the receipt. I keep reading the final score. Tenth of a point decided this week — paper never gets that close.",
+            "jab": true,
+            "factsCited": [
+              "board TE top: Jake Ferguson 62.3, pick 131",
+              "board TE: Hunter Henry 53.4, pick 163",
+              "board WR: Emeka Egbuka 71.1, pick 89",
+              "M1 Egbuka 23.6",
+              "T6 record 3-1",
+              "W8 Patriots D/ST $0, W11 Tyler Loop $0",
+              "M17 margin 0.1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T6",
+                "managerName": "Sammy Rivero",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "And Sammy Rivero's 3-1 with Ferguson in the lineup and zero dollars spent."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "FERGUSON AT 131?! REGGIE, THAT'S A DRAFT PICK! You just named three of them — Ferguson 131, Hunter Henry 163, Egbuka 89 — and called it lineup work. ONE THIRTY-ONE. ONE SIXTY-THREE. Nobody bid a dollar on those men, they were TAKEN. And here's the receipt you haven't touched: Rome Odunze, pick SEVENTY, third-highest scoring receiver in this league at 79.6 — ON THE BENCH. Seventy-nine point six, benched, on a 1-3 team. That is the board out-earning the card by a mile. I want a hearing convened on pick 70 and I want the bench chair burned in the parking lot.",
+            "jab": true,
+            "factsCited": [
+              "board TE: Jake Ferguson draftPick 131, 62.3",
+              "board TE: Hunter Henry draftPick 163, 53.4",
+              "board WR: Emeka Egbuka draftPick 89, 71.1",
+              "board WR: Rome Odunze draftPick 70, 79.6, lineup bench, T5",
+              "standings: T5 1-3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T5",
+                "managerName": "Vincent Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "Rome Odunze, pick SEVENTY, third-highest scoring receiver in this league at 79.6 — ON THE BENCH."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Rome Odunze at 79.6 on a bench — on a 1-3 team, Mel! You just named the exact reason the board doesn't win games. Pick 70 doesn't start anybody. And you skipped the number that ended Week 4: Gabe Coscia, 183.3. Highest score of the week, 3-1, 586.6 points, second seed, and he won by one-tenth of a point because Josh Jacobs went 31.7 and Jordan Love went 29.3 and BOTH WERE IN THE LINEUP. GIVE THAT MAN HIS FLOWERS. Meanwhile 100.2 points sat on the other bench in that same game. One-tenth. That's the whole show. The card decides it, every single time.",
+            "jab": true,
+            "factsCited": [
+              "M17",
+              "T11 standings 3-1 586.6 seed 2",
+              "board WR Rome Odunze 79.6 bench T5",
+              "T5 record 1-3-0"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Gabe Coscia, 183.3. Highest score of the week, 3-1, 586.6 points, second seed, and he won by one-tenth of a point because Josh Jacobs went 31.7 and Jordan Love went 29.3 and BOTH WERE IN THE LINEUP."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Both of you keep circling the same one-tenth of a point. Dex, back to the log — is there a single transaction tying Cameron Coscia's dollar to anything beyond that Tory Horton claim, or is this whole hour built on one bid?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. One claim, one dollar. Tory Horton, week four, Cameron Coscia, dropped his Buccaneers defense. That's the whole file on him. No other bid, no other drop, nothing else with his name on it this week. That's the wire on Cameron Coscia.",
+            "jab": false,
+            "factsCited": [
+              "W1"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "ONE CLAIM, ONE DOLLAR — DEX JUST SAID IT, AND THAT'S MY WHOLE CASE. You want the card? Then answer for GABE COSCIA'S CARD, Reggie, because Brock Bowers went at pick TWENTY-THREE and he's on the BENCH with 43.5 while Hunter Henry starts. TWENTY-THREE! And Josh Jacobs, pick EIGHTEEN, 72.5 points — BENCHED as it stands. That's your one-tenth-of-a-point genius sitting two top-25 picks down. And Lamar Jackson, pick TWENTY-FIVE, 103.4 points, QB2 in this league — BENCHED. The card doesn't decide anything when the board hands you 103.4 and you park it. I want pick 23 and pick 25 subpoenaed and I want the drafting confiscated from nobody in particular.",
+            "jab": true,
+            "factsCited": [
+              "W1 Tory Horton $1 claim",
+              "board QB: Lamar Jackson pick 25, 103.4, bench",
+              "board RB: Josh Jacobs pick 18, 72.5, bench",
+              "board TE: Brock Bowers pick 23, 43.5, bench; Hunter Henry 163 starter",
+              "T11 3-1, 586.6"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "Brock Bowers went at pick TWENTY-THREE and he's on the BENCH with 43.5 while Hunter Henry starts."
+              },
+              {
+                "teamId": "T9",
+                "managerName": "Albert Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And Lamar Jackson, pick TWENTY-FIVE, 103.4 points, QB2 in this league — BENCHED."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "ONE CLAIM, ONE DOLLAR — DEX JUST SAID IT, AND THAT'S MY WHOLE CASE."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Bowers on the bench? Hunter Henry started and went 29 in Week 3 — GIVE THAT MAN HIS FLOWERS, the card was RIGHT. And you keep naming benched studs like they're evidence. Lamar Jackson, 103.4, QB2 — his team's 2-2 and lost by 28 in Week 4. Mahomes, 95.6, QB3 — 1-3. Bijan, 88.4, second-best back in the league — his team just lost by 31. That's four top picks and nothing to show for it. Meanwhile Baker Mayfield, 87.1, started every week I've watched, and that team's 3-1 and first in points at 589.9. Boards don't play. Cards play.",
+            "jab": true,
+            "factsCited": [
+              "M13 Hunter Henry 29 bench Week 3",
+              "board QB Lamar Jackson 103.4 bench",
+              "board QB Patrick Mahomes 95.6 bench",
+              "board RB Bijan Robinson 88.4 bench",
+              "M16 T1 147.4 T8 116.4 margin 31",
+              "M19 T3 146 T9 118 margin 28",
+              "T9 2-2",
+              "T12 1-3",
+              "board QB Baker Mayfield 87.1",
+              "T2 3-1 589.9 rank 1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Hunter Henry started and went 29 in Week 3 — GIVE THAT MAN HIS FLOWERS, the card was RIGHT."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Baker Mayfield, 87.1, started every week I've watched, and that team's 3-1 and first in points at 589.9."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "BAKER MAYFIELD?! PICK SEVENTY-FOUR, REGGIE! Pick 74, 87.1 points, QB6 in this league — YOU JUST CREDITED A CARD FOR A FIFTH-ROUND STEAL. And that same 3-1, 589.9-point team you're waving around left ONE HUNDRED POINT TWO on the bench in Week 4 and lost by a tenth. A HUNDRED POINT TWO! The card you're praising is the worst card of the week! Meanwhile Justin Herbert, pick ONE FORTY, 80.8 points, QB7. Tucker Kraft, pick ONE TWENTY, 50.8. Dalton Kincaid, ONE SIXTY-ONE, 49.9. Every name that's carrying a roster came off a board in the double digits. I want Week 4's lineup cards impounded and I want pick 74 given a plaque.",
+            "jab": true,
+            "factsCited": [
+              "Baker Mayfield draftPick 74, 87.1 season points, QB rank 6",
+              "T2 record 3-1, pointsFor 589.9",
+              "M17 away T2 benchPoints 100.2, margin 0.1",
+              "Justin Herbert draftPick 140, 80.8, QB7",
+              "Tucker Kraft draftPick 120, 50.8",
+              "Dalton Kincaid draftPick 161, 49.9"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And that same 3-1, 589.9-point team you're waving around left ONE HUNDRED POINT TWO on the bench in Week 4 and lost by a tenth."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "A HUNDRED POINT TWO on the bench and that team scored 183.2 — second-highest score of the whole week! You're mad at a lineup that put up 183.2 and lost by a tenth. Puka Nacua 36, George Pickens 33.4, both STARTED, both in that game. That's 69.4 from two receivers on the card. And Michael Pittman went 20 off that same bench in Week 1 — the depth is real, the starters still won 135.4 in Week 1 and 153.6 in Week 3. First in points at 589.9, top seed as it stands. Cameron Coscia's problem in Week 4 wasn't a dollar, it was 116.4. Scoreboard.",
+            "jab": true,
+            "factsCited": [
+              "M17",
+              "M3",
+              "M11",
+              "M16",
+              "T2 standings 3-1-0 589.9",
+              "playoffs seeds T2 seed 1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Puka Nacua 36, George Pickens 33.4, both STARTED, both in that game."
+              },
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Cameron Coscia's problem in Week 4 wasn't a dollar, it was 116.4."
+              }
+            ],
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "verdict",
+        "title": "Verdict",
+        "turns": [
+          {
+            "speaker": "nina-sharpe",
+            "kind": "grade",
+            "text": "Class, grade time. Mel's opening claim was patience: Cameron Coscia at $100 of $100, 3-1, 540.4 points. Supported — the budget number is real. Reggie's opening claim was that results, not restraint, decide it, pointing to the 147.4-116.4 loss and Shakir's 17.9 on the bench. Also supported — that box score is real too. But only one claim survives contact with Week 4's actual outcome: Cameron Coscia's team lost by 31 with a full vault. The dollar didn't cost him that game; the lineup did. Verdict goes to Reggie on the number that matters this week — 116.4.",
+            "jab": false,
+            "factsCited": [
+              "M16 116.4 vs 147.4",
+              "M16 Khalil Shakir bench 17.9 gain 15.2",
+              "B6 Stinky Faggots $100 of $100"
+            ],
+            "verdict": {
+              "winner": "reggie-banks",
+              "reason": "Cameron Coscia's team lost 147.4 to 116.4 in Week 4 with $100 still unspent — the vault didn't stop the loss, the lineup did."
+            },
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "ledger",
+            "text": "First meeting between these two this season, so no history to lean on — clean slate, nothing on the board for either man. Nina's already put her thumb on 116.4. Mel, Reggie — last jabs, make them count.",
+            "jab": false,
+            "factsCited": [
+              "priorClaims empty"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      },
+      {
+        "id": "last_jabs",
+        "title": "Last Jabs",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "jab",
+            "text": "ONE HUNDRED SIXTEEN POINT FOUR — that's your trophy, Reggie?! A 3-1 team with 540.4 points and the FULL HUNDRED still in the drawer! You built an hour on ONE bad Sunday and Dex told you the whole file is one dollar. Bijan, pick TWO, 88.4. Josh Allen, pick TWENTY-TWO, 105.5, QB1 in this league. THAT'S 193.9 FROM TWO PICKS. Nina says premature — fine. The Stinky Faggots beat Prolapsed Peehole in Week 5, 133.9 to 126.9, and when they do I want that one dollar bronzed, mounted, and hung over the commissioner's desk.",
+            "jab": true,
+            "factsCited": [
+              "T8 record 3-1, 540.4 PF",
+              "B6 The Stinky Faggots $100 of $100 left",
+              "M16 T1 147.4 - T8 116.4",
+              "W1 Tory Horton $1",
+              "board: Bijan Robinson pick 2, 88.4",
+              "board: Josh Allen pick 22, 105.5, QB1",
+              "U3 T8 projected 133.9 vs T5 126.9"
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "jab",
+            "text": "Bronze the dollar, Mel. I'll take the scoreboard. Same team, same week: Bijan 28.1, Josh Allen 26.9 — your two picks showed UP — and the final was 147.4 to 116.4. A 31-point loss with your precious hundred untouched. That's the card, not the board. And I said it once, I'll say it once more: The Stinky Faggots beat Prolapsed Peehole in Week 5. They lose, I'm wrong, out loud, no excuses. But you're framing a receipt while Gabe Coscia's 183.3 is still hanging on the wall. Cute draft. You can take that to the bank.",
+            "jab": true,
+            "factsCited": [],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "close",
+            "text": "Nina's got the number, Reggie's got the last word, and Cameron Coscia still has his hundred dollars. We'll see the Stinky Faggots and Prolapsed Peehole in Week 5. That's the show.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      }
+    ]
+  }
+}

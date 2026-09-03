@@ -513,10 +513,13 @@ export const recordArticleMentions = internalMutation({
       const intensity = Math.min(3, Math.max(1, Math.round(mention.intensity))) as 1 | 2 | 3;
       const table =
         mention.stance === "roast" ? DELTAS.article_roast : DELTAS.article_praise;
+      // A multi-speaker piece (the "Disputed" show, spec: Disputed) tags each mention with the
+      // desk member who actually made it; an ordinary single-writer article carries no
+      // per-mention persona and falls back to its own byline, exactly as before.
       const result = await applyEvent(ctx, {
         leagueId: article.leagueId,
         userId: user._id,
-        persona: article.persona,
+        persona: mention.persona ?? article.persona,
         type: mention.stance === "roast" ? "article_roast" : "article_praise",
         delta: table[intensity],
         evidence: mention.evidence,

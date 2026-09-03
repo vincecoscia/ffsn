@@ -1,0 +1,507 @@
+{
+  "transcript": {
+    "schema": "ffsn.transcript.v1",
+    "show": "disputed",
+    "week": 8,
+    "question": "Is Cameron Coscia's roster management actually building The Stinky Faggots into a contender, or is his nine-move, league-most churn on waivers a sign he doesn't trust the roster he drafted?",
+    "hotSeat": {
+      "teamId": "T8",
+      "teamName": "The Stinky Faggots",
+      "managerName": "Cameron Coscia",
+      "why": "Nina Sharpe is favorite on them (+72), Curtis Vaughn is neutral on them (+9)"
+    },
+    "sides": {
+      "mel-diaper": "Nine waiver moves and counting is a GM who never trusted his own draft board and is patching a foundation that was never solid.",
+      "reggie-banks": "The Stinky Faggots are 5-and-3 with a top-four scoring output on the year, so whatever Cameron Coscia is doing on the wire is clearly working."
+    },
+    "language": "salty",
+    "segments": [
+      {
+        "id": "cold_open",
+        "title": "Cold Open",
+        "turns": [
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "cold_open",
+            "text": "Good evening. The Stinky Faggots dropped a 6.1-point nail-biter to Chodie mcgruber this week, 123 to 116.9, and still sit 5-and-3 with the league's busiest waiver wire behind them. So: is Cameron Coscia building a contender or just churning bodies? Mel, you're up first.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "opening_statements",
+        "title": "Opening Statements",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "NINE. NINE pickups, league-most, and the roster still lost by 6.1. Cameron Coscia drafted Bijan Robinson at PICK TWO and he's out there claiming Will Reichard for $0 and the 49ers D/ST for $0 in Week 8. That is not contending, that is REDECORATING. I say The Stinky Faggots finish outside the top two seeds — no better than third — and I want the waiver wire CONFISCATED.",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots finish no better than 3rd in the final standings",
+              "kind": "team_finish",
+              "subjectTeamId": "T8",
+              "minRank": 3,
+              "maxRank": 10
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "Cute draft, Mel. Now the record: 5-and-3, 1,094.2 points, FOURTH in the league in scoring. Nine pickups isn't churn, that's a man WORKING. Rico Dowdle, waiver-era grinder, went 32.4 and 33.9 in back-to-back weeks. Cam Skattebo, pick 146, RB10 on the year. I say The Stinky Faggots finish top two. Prove me wrong with a third-place finish or worse. GIVE THAT MAN HIS FLOWERS.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots finish in the top two seeds — 1st or 2nd — in the final standings",
+              "kind": "team_finish",
+              "subjectTeamId": "T8",
+              "minRank": 1,
+              "maxRank": 2
+            },
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "main_event",
+        "title": "Main Event",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "FOURTH in scoring?! Reggie, they scored 105.4 in Week 7 and LOST. They scored 116.9 this week and LOST. That's TWO losses under 120 from a roster with Bijan Robinson at pick two and Josh Allen at 22. And $76 of $100 still sitting in the budget — NINE pickups and he spent TWENTY-FOUR DOLLARS. That's not working the wire, that's window shopping with the cart empty.",
+            "jab": true,
+            "factsCited": [
+              "M14 T8 105.4 loss to T3",
+              "M20 T8 116.9 loss to T2",
+              "B6 The Stinky Faggots $76 of $100 left, 9 pickups",
+              "board RB Bijan Robinson draftPick 2",
+              "board QB Josh Allen draftPick 22"
+            ],
+            "witnessRequested": "nina-sharpe",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "NINE pickups and he spent TWENTY-FOUR DOLLARS. That's not working the wire, that's window shopping with the cart empty."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, check the row: fourth in points scored, 1094.2, that part's real. But nine pickups for $24 spent, with $76 sitting unused — that's partly supported. He's active on the wire but not paying for it. I'll flag my own soft spot for his lineup cards before you say it: even I can't make $76 unspent look aggressive.",
+            "jab": false,
+            "factsCited": [
+              "B6 budget: $76 of $100 left, 9 pickups",
+              "T8 standings: 5-3-0, 1094.2 points, rank 4"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Nina, I'll take partly supported and bank the rest. But Mel — you want cheap? Bijan went 35.8 in Week 6 and Dowdle 33.9 in the same afternoon, 185.4 points, a 45-point beatdown of Moisty Loins. That's the roster you're calling a foundation problem. And Week 8: Josh Allen 24.2, Waddle 20.9, Shakir 20.8, three starters over 20 and they lost by 6.1. Losing that close isn't a broken build. SCOREBOARD.",
+            "jab": true,
+            "factsCited": [
+              "M8 - Week 6 T8 185.4 vs T10 140.4, margin 45",
+              "M8P4430807 Bijan Robinson 35.8",
+              "M8P4038815 Rico Dowdle 33.9",
+              "M20 - Week 8 T2 123 vs T8 116.9, margin 6.1",
+              "M20P3918298 Josh Allen 24.2",
+              "M20P4372016 Jaylen Waddle 20.9",
+              "M20P4373678 Khalil Shakir 20.8"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "That's the roster you're calling a foundation problem."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "SCOREBOARD?! Then read the WHOLE card, Reggie. Week 8 they left 19.7 on the bench and lost by 6.1. Week 7, seventeen point eight benched, lost by 11.3. TWO GAMES, TWO BENCHES, TWO LOSSES. And the Week 8 wire answer was a $0 kicker and a $0 defense with SEVENTY-SIX DOLLARS in the drawer. That's not a foundation, that's a tarp. Dex, tell me what's actually reported.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "And the Week 8 wire answer was a $0 kicker and a $0 defense with SEVENTY-SIX DOLLARS in the drawer."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. Week 8, Stinky Faggots: Will Reichard, kicker, $0. 49ers D/ST, $0. Budget sheet says $76 of $100 left, 9 pickups total, $24 spent on the season. That's the log. No quote from Cameron on strategy. Nothing else to file.",
+            "jab": false,
+            "factsCited": [
+              "W12",
+              "W13",
+              "B6"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Dex just read it: $0 kicker, $0 defense. And Mel calls that a problem. Nineteen-point-seven benched is the LOWEST bench total in that whole Week 8 slate — 63.9 for Moisty Loins, 38.6 for IM NOT GAY. The Stinky Faggots start their best. Meanwhile Team Rive burned $90 on Woody Marks and sits 4-and-4. THAT is window shopping. Five-and-three. I'll wait.",
+            "jab": true,
+            "factsCited": [
+              "M20 bench 19.7 vs 32.1",
+              "M16 bench 63.9",
+              "M19 bench 38.6",
+              "waivers.season.biggestBid Team Rive Woody Marks $90 week 5",
+              "T6 record 4-4-0",
+              "T8 record 5-3-0",
+              "W12",
+              "W13"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "The Stinky Faggots start their best."
+              },
+              {
+                "teamId": "T6",
+                "managerName": "Sammy Rivero",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Meanwhile Team Rive burned $90 on Woody Marks and sits 4-and-4. THAT is window shopping."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Let's settle the seed math. Walt, historical parallel — a 5-and-3 team, fourth in scoring, nine cheap pickups. Where does that team actually finish?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "walt-brennan",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "walt-brennan",
+            "kind": "witness",
+            "text": "The record only goes back to this season, so I won't pretend I've seen this exact team before. What I see is fourth in scoring, a 6.1-point loss, and a budget nobody spent. That's not a contender or a churn artist, it's a landlord who owns a good building and won't fix the boiler. My verdict: Reggie's closer, because the scoreboard says fourth, but Mel's right that $76 unspent isn't a plan.",
+            "jab": false,
+            "factsCited": [
+              "B6 - Stinky Faggots budget $76 remaining, 9 acquisitions, $24 spent",
+              "M20 - Week 8 loss 123-116.9",
+              "standings - Stinky Faggots rank 4"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "Walt says landlord. I say the boiler is the DRAFT. Bijan at PICK TWO scored 21.2 in Week 7 and they lost. Josh Allen at 22 scored 24.2 in Week 8 and they LOST. And the one bid that mattered all season, Kyle Monangai, he offered ZERO DOLLARS and got outbid by Prolapsed Peehole for TWO. TWO! With $76 in the drawer! I want that budget audited on live television.",
+            "jab": true,
+            "factsCited": [
+              "W9 - Vincent Coscia won Kyle Monangai for $2, outbid The Stinky Faggots $0",
+              "B6 - The Stinky Faggots $76 of $100 left, 9 pickups",
+              "M14 - Bijan Robinson 21.2, T8 lost 105.4-116.7",
+              "M20 - Josh Allen 24.2, T8 lost 116.9-123",
+              "Bijan draftPick 2, Josh Allen draftPick 22"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "The one bid that mattered all season, Kyle Monangai, he offered ZERO DOLLARS and got outbid by Prolapsed Peehole for TWO."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Audit it! Twenty-four dollars bought Rico Dowdle 32.4 and 33.9, and Cam Skattebo — RB10, 113.8 on the year. Mel, you keep naming picks like they're evidence. I don't care where you took him. Meanwhile Prolapsed Peehole spent $57 on the wire and sits 2-and-6, 907.1 points, LAST. Cheap and 5-and-3 beats expensive and buried.",
+            "jab": true,
+            "factsCited": [
+              "B6 · The Stinky Faggots: $76 of $100 left, 9 pickups",
+              "M2 Rico Dowdle 32.4",
+              "M8 Rico Dowdle 33.9",
+              "board RB Cam Skattebo rank 10, 113.8, draftPick 146",
+              "B4 · Prolapsed Peehole: $43 of $100 left, spent 57",
+              "standings T5 2-6-0 907.1 rank 10",
+              "standings T8 5-3-0"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Twenty-four dollars bought Rico Dowdle 32.4 and 33.9, and Cam Skattebo — RB10, 113.8 on the year."
+              },
+              {
+                "teamId": "T5",
+                "managerName": "Vincent Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Meanwhile Prolapsed Peehole spent $57 on the wire and sits 2-and-6, 907.1 points, LAST."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "You want cheap and 5-and-3? Look at the SEED SHEET. FOURTH. Fourth seed at 1,094.2 — behind GLORY ASSHOLE at 1,107 and SAGGY NUTS at 1,096.4. Two-point-two points behind third! That's not top two, Reggie, that's FOURTH IN LINE FOR THE BYE. And Week 9 has them projected 129.7 — LOWEST projection on the entire slate. LOWEST. Nina, grade that.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, check the seed sheet: supported. The Stinky Faggots sit fourth at 1094.2, GLORY ASSHOLE third at 1107 — that's a 12.8-point gap, not 2.2, Mel. And projected 129.7 for Week 9 is the lowest on the slate. That part's real too. Two supported numbers, zero verdict from me.",
+            "jab": false,
+            "factsCited": [
+              "T8 seed row 1094.2",
+              "T11 seed row 1107",
+              "U5 T8 projected 129.7"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Nina, I'll take it — 12.8 back, and a projection. Projections are bedtime stories, Mel. That LOWEST projection on the slate, 129.7? Week 6 that same roster put up 185.4. Week 5, 146. And the record's tied with three teams at 5-and-3 — the seed is a tiebreaker, not a verdict. Beat them Sunday, then talk seeds.",
+            "jab": true,
+            "factsCited": [
+              "U5 projected 129.7",
+              "M8 T8 185.4",
+              "M2 T8 146.0",
+              "standings T8 5-3-0",
+              "seedingRule ties broken by total points scored"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Week 6 that same roster put up 185.4. Week 5, 146."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Enough projections. Sam, any word on record from Cameron Coscia this week about the wire strategy or the seed?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "sam-ortega",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "sam-ortega",
+            "kind": "witness",
+            "text": "Nothing on record. I went looking for a quote from Cameron Coscia on the wire strategy or the seed — there isn't one in the file. No response logged. I've got no words to hand you, Curtis, just the transaction sheet Dex already read.",
+            "jab": false,
+            "factsCited": [
+              "facts.quotes is empty",
+              "waiver claims W12/W13"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "Sam's got NOTHING because there's nothing to say. Fine — new receipt. Kenneth Walker III. Chuba Hubbard. Jerry Jeudy. Jakobi Meyers. Ricky Pearsall. David Njoku. All DRAFTED, all on that bench, and the answer in Week 8 was a $0 kicker. NINE pickups to fix a roster he already stocked?! And in the projected quarterfinals it's the FOURTH seed hosting IR Squad — no bye, no rest, because 1,094.2 wasn't enough. FIX THE BOILER.",
+            "jab": true,
+            "factsCited": [
+              "T8 roster: Kenneth Walker III, Chuba Hubbard, Jerry Jeudy, Jakobi Meyers, Ricky Pearsall, David Njoku",
+              "W12 Will Reichard $0",
+              "B6 The Stinky Faggots $76 of $100 left, 9 pickups",
+              "playoffs bracket B4: T8 (4) hosts T3 (5), Week 15",
+              "standings: T8 4th seed, 1094.2"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "NINE pickups to fix a roster he already stocked?!"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Bench receipts? Njoku, Jeudy, Pearsall sit because Waddle went 20.9 and Shakir 20.8 in the same lineup. That IS trusting the board. And the quarterfinal you're scared of? IR Squad, 1,034.3 points — sixty points BELOW The Stinky Faggots on the year. Fourth seed hosting a lower-scoring team. Five-and-three, fourth in scoring, cheapest wire in the league. THAT'S A DAWG.",
+            "jab": true,
+            "factsCited": [
+              "M20 - Waddle 20.9, Shakir 20.8 Week 8",
+              "T8 roster - Njoku, Jeudy, Pearsall",
+              "T3 pointsFor 1034.3",
+              "T8 pointsFor 1094.2",
+              "T8 record 5-3",
+              "B6 - $24 spent, 9 pickups",
+              "playoffs bracket B4 - T8 hosts T3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Five-and-three, fourth in scoring, cheapest wire in the league. THAT'S A DAWG."
+              }
+            ],
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "verdict",
+        "title": "Verdict",
+        "turns": [
+          {
+            "speaker": "nina-sharpe",
+            "kind": "grade",
+            "text": "Class, final grades. Mel's claim, top-two finish blocked, Stinky Faggots stuck at third-or-worse: partly supported — they sit fourth today, but that's a seed, not a verdict. Reggie's claim, top-two finish: not supported by the current seed sheet, they're fourth at 1094.2. Verdict goes to Reggie anyway, because Mel's ask — confiscate the wire — has nothing behind it: 5-and-3, fourth in scoring, that's a functional team regardless of the $76 sitting unspent. That's the segment.",
+            "jab": false,
+            "factsCited": [
+              "standings seed T8 fourth 1094.2",
+              "B6 budget $76 remaining"
+            ],
+            "verdict": {
+              "winner": "reggie-banks",
+              "reason": "The Stinky Faggots are 5-and-3 and fourth in scoring at 1094.2, which the record supports as contender-level regardless of the unspent budget."
+            },
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "ledger",
+            "text": "Neither of you has a track record with me yet this season — call it even, nothing on the books for either debater. So let's make this one count. Mel, Reggie, last jabs — bring the number home.",
+            "jab": false,
+            "factsCited": [
+              "No priorClaims for either debater"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      },
+      {
+        "id": "last_jabs",
+        "title": "Last Jabs",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "jab",
+            "text": "A DAWG?! Reggie, the dawg is FOURTH. Nine pickups, TWENTY-FOUR DOLLARS spent, $76 rotting in the drawer, and a $0 kicker was the Week 8 plan. He drafted Bijan at TWO and Josh Allen at 22 and still needed NINE patches. I said third or worse — FOURTH TODAY. And I want that unspent $76 donated to the league before Sunday.",
+            "jab": true,
+            "factsCited": [
+              "B6 · The Stinky Faggots: $76 of $100 left, 9 pickups",
+              "W12 Will Reichard $0",
+              "W13 49ers D/ST $0",
+              "standings T8 rank 4, 1094.2",
+              "Bijan Robinson draftPick 2",
+              "Josh Allen draftPick 22"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Nine pickups, TWENTY-FOUR DOLLARS spent, $76 rotting in the drawer, and a $0 kicker was the Week 8 plan."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "jab",
+            "text": "Fourth today, Mel. Fourth in a league where three teams share 5-and-3 and the whole thing gets settled on the field. That $24 bought Rico Dowdle 33.9 and Cam Skattebo, RB10, 113.8. You want the money donated; I want the flowers. Top two, and a third-place finish or worse proves me wrong. Five-and-three, fourth in scoring, cheapest wire in the building. You can take that to the bank.",
+            "jab": true,
+            "factsCited": [
+              "T8 record 5-3-0, pointsFor 1094.2, rank 4",
+              "B6 · The Stinky Faggots: $76 of $100 left, 9 pickups, $24 spent",
+              "M8 Rico Dowdle 33.9",
+              "RB board: Cam Skattebo RB10, 113.8 season points",
+              "standings: T9, T8, T3, T11 all 5-3-0"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "That $24 bought Rico Dowdle 33.9 and Cam Skattebo, RB10, 113.8."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "close",
+            "text": "Fourth in scoring, fourth seed, $76 unspent, one 6.1-point loss. Nina calls it a wash, Walt calls it a landlord who won't fix the boiler. We'll let the standings finish the argument. That's the show.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "turns": 25,
+    "witnessCalls": 5,
+    "redirects": 2,
+    "retries": 2,
+    "dropped": 0,
+    "agreements": 0,
+    "promptTokens": 69713,
+    "completionTokens": 10835,
+    "costUsd": 1.4161934499999997,
+    "modelsUsed": [
+      "claude-sonnet-5",
+      "claude-opus-5"
+    ],
+    "catchphraseStripped": 0,
+    "duplicateClaimsDropped": 0,
+    "violations": [
+      {
+        "speaker": "nina-sharpe",
+        "kind": "grade",
+        "detail": "76 words, over 1.5x the 50-word ceiling for a witness turn",
+        "severity": "warn"
+      }
+    ]
+  }
+}

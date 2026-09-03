@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval:articles": "vite-node scripts/eval-articles.ts"
+    "eval:articles": "vite-node scripts/eval-articles.ts",
+    "disputed:pilot": "vite-node scripts/disputed-pilot.ts",
+    "disputed:edit": "vite-node scripts/disputed-edit.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

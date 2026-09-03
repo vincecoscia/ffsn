@@ -7,7 +7,7 @@ import { api } from "../../../../../convex/_generated/api";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Bell, Mail, Shield } from "lucide-react";
+import { Bell, Mail, Shield, VolumeX } from "lucide-react";
 import { PageHeader, Panel, SectionHeader } from "@/components/broadcast";
 
 const EMAIL_TOPICS = [
@@ -27,13 +27,18 @@ export default function NotificationSettingsPage() {
 
   // Update user preferences mutation
   const updatePreferences = useMutation(api.users.updateUserPreferences);
+  // "Keep it clean about my team" (owner ask, Sept 2026): a separate mutation because
+  // users.updatePreferences replaces the whole preferences object rather than merging it.
+  const updateCleanLanguage = useMutation(api.users.updatePreferences);
 
   const [emailNotifications, setEmailNotifications] = useState(true);
+  const [cleanLanguage, setCleanLanguage] = useState(false);
 
   // Sync with fetched preferences
   useEffect(() => {
     if (userPreferences?.preferences) {
       setEmailNotifications(userPreferences.preferences.emailNotifications ?? true);
+      setCleanLanguage(userPreferences.preferences.cleanLanguage ?? false);
     }
   }, [userPreferences]);
 
@@ -57,6 +62,36 @@ export default function NotificationSettingsPage() {
     } catch (error) {
       console.error("Failed to update email preferences:", error);
       toast.error("Failed to update email preferences. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCleanLanguageChange = async (enabled: boolean) => {
+    if (!user) return;
+
+    setIsLoading(true);
+    try {
+      // updatePreferences replaces the whole preferences object, so the current values ride
+      // along rather than getting clobbered.
+      await updateCleanLanguage({
+        preferences: {
+          emailNotifications,
+          favoriteTeam: userPreferences?.preferences?.favoriteTeam,
+          timezone: userPreferences?.preferences?.timezone,
+          cleanLanguage: enabled,
+        },
+      });
+
+      setCleanLanguage(enabled);
+      toast.success(
+        enabled
+          ? "Coverage of your team will stay clean"
+          : "Coverage of your team will follow the league's language setting"
+      );
+    } catch (error) {
+      console.error("Failed to update clean-language preference:", error);
+      toast.error("Failed to update this setting. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -137,6 +172,30 @@ export default function NotificationSettingsPage() {
                   at any time. We never share your email address with third parties.
                 </p>
               </div>
+            </div>
+          </Panel>
+
+          <Panel padding="md" className="flex flex-col gap-5">
+            <SectionHeader
+              title="Coverage of my team"
+              actions={<VolumeX className="size-5 text-bc-text-3" strokeWidth={1.8} />}
+            />
+            <div className="flex items-center justify-between gap-4 border-t border-bc-hairline pt-4">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="clean-language" className="font-display text-base font-semibold text-bc-ink">
+                  Keep it clean about my team
+                </Label>
+                <p className="max-w-md text-sm text-bc-text-2">
+                  The desk writes about your team as if the league&apos;s language setting were
+                  Clean.
+                </p>
+              </div>
+              <Switch
+                id="clean-language"
+                checked={cleanLanguage}
+                onCheckedChange={handleCleanLanguageChange}
+                disabled={isLoading}
+              />
             </div>
           </Panel>
 

@@ -467,6 +467,13 @@ export function verifyArticle(
       });
     }
   }
+  // Writers sometimes cite a player by the bare ESPN id ("4242335") instead of the FACTS id
+  // ("P4242335" / "M3P4242335"). Same player, same team; index the bare id too so a real player is
+  // never blocked as unknown for the prefix alone (the dominant hold reason on the 2025 backfill).
+  for (const [id, player] of [...playerById.entries()]) {
+    const bare = id.replace(/^(?:M\d+P|P)/, "");
+    if (bare !== id && !playerById.has(bare)) playerById.set(bare, player);
+  }
   const playerNames = new Set([...playerById.values()].map(player => player.name.toLowerCase()));
   // A bench swap names the starter it would have replaced; that starter is a real player in FACTS
   // even when he has no line of his own, so he must not read as an unknown proper noun.

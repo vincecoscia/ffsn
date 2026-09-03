@@ -311,6 +311,17 @@ describe("verifier", () => {
     });
   });
 
+  it("accepts a known player cited by bare ESPN id, and still checks the team", () => {
+    // The fixture's first matchup player is "M1Pp1" on T3; a writer may cite him as "p1".
+    const base = { playerName: "Any Name", position: "RB", nflTeam: "BUF", mentions: 1 };
+    expect(verify({ featuredPlayers: [{ ...base, playerId: "p1", fantasyTeamId: "T3" }] })).not.toContainEqual(
+      expect.objectContaining({ kind: "unknown_player" })
+    );
+    expect(verify({ featuredPlayers: [{ ...base, playerId: "p1", fantasyTeamId: "T7" }] })).toContainEqual(
+      expect.objectContaining({ kind: "wrong_fantasy_team" })
+    );
+  });
+
   it("blocks a quote whose text differs from the ledger", () => {
     const violations = verify({
       quotes: [{ ...cleanArticle.quotes[0], text: "I set that lineup on Thursday." }],
@@ -646,11 +657,14 @@ describe("shouldPublish", () => {
     expect(gate.reasons).toContain("a required section is missing");
   });
 
-  it("holds when the editor scored the facts below 3, and publishes at 3", () => {
-    expect(shouldPublish({ ...clean, editor: { ...clean.editor, factsScore: 2 } })).toMatchObject({
+  it("holds when the editor scored the facts below 3 with something cited, and publishes at 3", () => {
+    const cited = { contradictions: [{ claim: "Ghost Back scored 40", sectionName: "introduction" }] };
+    expect(shouldPublish({ ...clean, editor: { ...clean.editor, ...cited, factsScore: 2 } })).toMatchObject({
       ok: false,
       reasons: ["the editor scored the facts 2/5"],
     });
+    // A low score with nothing cited is the rubric parse losing its notes, not a verdict.
+    expect(shouldPublish({ ...clean, editor: { ...clean.editor, factsScore: 2 } }).ok).toBe(true);
     expect(shouldPublish({ ...clean, editor: { ...clean.editor, factsScore: 3 } }).ok).toBe(true);
     // Voice never blocks.
     expect(shouldPublish({ ...clean, editor: { ...clean.editor, voiceScore: 1 } }).ok).toBe(true);

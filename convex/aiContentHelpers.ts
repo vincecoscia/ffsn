@@ -408,6 +408,14 @@ export const generateAIContentWithData = internalAction({
         { leagueId: args.leagueId, persona: args.persona }
       );
 
+      // League language rating + per-manager opt-down (owner ask, Sept 2026), fetched here for
+      // the same reason as the relationships above: the prepared path never reaches
+      // generateContentAction.
+      const languageSettings = await ctx.runQuery(
+        internal.languageSettings.getLeagueLanguage,
+        { leagueId: args.leagueId }
+      );
+
       // Receipts (spec section 8.4), fetched here for the same reason as the
       // relationships above: the prepared path never reaches generateContentAction.
       const priorClaims = await ctx.runQuery(
@@ -434,6 +442,10 @@ export const generateAIContentWithData = internalAction({
           // (spec section 8.4).
           priorClaims: priorClaims.items,
           priorRecord: priorClaims.record,
+          languageRating: languageSettings.languageRating,
+          cleanTeamNames: languageSettings.cleanTeamNames.length
+            ? languageSettings.cleanTeamNames
+            : undefined,
         },
       });
       

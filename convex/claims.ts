@@ -44,6 +44,20 @@ const ARTICLE_SCAN_LIMIT = 200;
 /** Default number of prior claims handed to the writer (spec §8.4). */
 const DEFAULT_PRIOR_CLAIM_LIMIT = 12;
 
+/**
+ * The "Disputed" show's host persona and article type (spec: Disputed). Every episode is
+ * an `aiContent` row stamped with the host's own byline (`persona: SHOW_HOST`,
+ * `type: SHOW_TYPE`), but its individual claims are stamped with whichever desk member
+ * actually made them (`claim.persona`) - not always the host. Defined locally rather than
+ * imported from `src/` so this module stays self-contained.
+ */
+const SHOW_HOST = "curtis-vaughn";
+const SHOW_TYPE = "desk_show";
+
+/** How many recent Disputed episodes we scan for a non-host writer's show claims. One
+ * season of weekly episodes is well under this. */
+const SHOW_SCAN_LIMIT = 60;
+
 /* -------------------------------------------------------------------------- */
 /* Id and name normalization                                                    */
 /* -------------------------------------------------------------------------- */
@@ -425,12 +439,58 @@ async function articlesForWriter(
     .take(ARTICLE_SCAN_LIMIT);
 }
 
-function countRecord(articles: Array<Doc<"aiContent">>) {
+/** The league's recent Disputed episodes - `desk_show` rows under the host's own
+ * byline - newest first, bounded. Individual claims on these rows may belong to any
+ * desk member (spec: Disputed). */
+async function showArticlesForLeague(
+  ctx: QueryCtx,
+  leagueId: Id<"leagues">
+): Promise<Array<Doc<"aiContent">>> {
+  const rows = await ctx.db
+    .query("aiContent")
+    .withIndex("by_league_persona", (q) =>
+      q.eq("leagueId", leagueId).eq("persona", SHOW_HOST)
+    )
+    .order("desc")
+    .take(SHOW_SCAN_LIMIT);
+  return rows.filter((row) => row.type === SHOW_TYPE);
+}
+
+/**
+ * Every article that can carry one of this persona's claims: their own byline
+ * (`articlesForWriter`) plus the league's Disputed episodes, whose claims are stamped
+ * per-speaker rather than by the show's own byline (spec: Disputed). When `persona` is
+ * the show host itself, its own byline query above already returns every episode, so the
+ * show rows are not fetched a second time. Newest first, bounded, deduped.
+ */
+async function claimSourceArticlesForWriter(
+  ctx: QueryCtx,
+  leagueId: Id<"leagues">,
+  persona: string
+): Promise<Array<Doc<"aiContent">>> {
+  const own = await articlesForWriter(ctx, leagueId, persona);
+  if (persona === SHOW_HOST) return own;
+
+  const shows = await showArticlesForLeague(ctx, leagueId);
+  if (shows.length === 0) return own;
+
+  return [...own, ...shows].sort((a, b) => b._creationTime - a._creationTime);
+}
+
+/**
+ * A claim's own `persona` wins over its article's (spec: Disputed): a multi-speaker piece like
+ * the "Disputed" show stamps each claim with the desk member who actually made it, which is not
+ * always the article's own byline (the host, for a show). `persona` is a required field on every
+ * stored claim (`updateGeneratedContent` always stamps one), so this only ever falls back to
+ * `article.persona` for rows written before that field existed.
+ */
+function countRecord(articles: Array<Doc<"aiContent">>, persona: string) {
   let hits = 0;
   let misses = 0;
   let open = 0;
   for (const article of articles) {
     for (const claim of article.claims ?? []) {
+      if ((claim.persona ?? article.persona) !== persona) continue;
       if (claim.outcome === "hit") hits++;
       else if (claim.outcome === "miss") misses++;
       else open++;
@@ -500,8 +560,8 @@ export const getPriorClaimsForWriter = internalQuery({
       50
     );
 
-    const articles = await articlesForWriter(ctx, args.leagueId, args.persona);
-    const record = countRecord(articles);
+    const articles = await claimSourceArticlesForWriter(ctx, args.leagueId, args.persona);
+    const record = countRecord(articles, args.persona);
 
     let wanted: Set<string> | null = null;
     if (args.teamIds && args.teamIds.length > 0) {
@@ -517,6 +577,7 @@ export const getPriorClaimsForWriter = internalQuery({
     const items = [];
     for (const article of articles) {
       for (const claim of article.claims ?? []) {
+        if ((claim.persona ?? article.persona) !== args.persona) continue;
         if (wanted) {
           const touches =
             (claim.subjectTeamId && wanted.has(claim.subjectTeamId)) ||
@@ -556,8 +617,8 @@ export const getWriterRecords = query({
 
     const records = [];
     for (const persona of ACTIVE_WRITERS) {
-      const articles = await articlesForWriter(ctx, args.leagueId, persona);
-      records.push({ persona, ...countRecord(articles) });
+      const articles = await claimSourceArticlesForWriter(ctx, args.leagueId, persona);
+      records.push({ persona, ...countRecord(articles, persona) });
     }
     return records;
   },
