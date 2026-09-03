@@ -3393,8 +3393,12 @@ export const getWeeklyRecapDataForAI = internalQuery({
             // Only consider bench players with decent scores
             if (benchPlayer.points < 15) return false;
             
-            // Find the worst starter at the same position
-            const samePositionStarters = starters.filter(s => s.position === benchPlayer.position);
+            // Find the worst starter at the same position ON THE SAME TEAM. `starters` holds both
+            // sides of the matchup; comparing across them named the opponent's starter as the man
+            // "left on the bench" behind, which put players on the wrong team in recaps.
+            const samePositionStarters = starters.filter(
+              s => s.position === benchPlayer.position && s.fantasyTeamId === benchPlayer.fantasyTeamId
+            );
             if (samePositionStarters.length === 0) return false;
             
             // Find the lowest scoring starter at this position
@@ -3407,8 +3411,10 @@ export const getWeeklyRecapDataForAI = internalQuery({
           .sort((a, b) => b.points - a.points)
           .slice(0, 2) // Max 2 impactful bench players
           .map(player => {
-            // Calculate the actual impact
-            const samePositionStarters = starters.filter(s => s.position === player.position);
+            // Calculate the actual impact - against the SAME team's starters (see the filter above).
+            const samePositionStarters = starters.filter(
+              s => s.position === player.position && s.fantasyTeamId === player.fantasyTeamId
+            );
             const worstStarter = samePositionStarters.sort((a, b) => a.points - b.points)[0];
             const pointDifference = player.points - worstStarter.points;
             
