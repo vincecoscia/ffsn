@@ -166,6 +166,10 @@ export const generatedClaimValidator = v.object({
   minRank: v.optional(v.number()),
   maxRank: v.optional(v.number()),
   minPoints: v.optional(v.number()),
+  // Which desk member actually made this claim (spec: Disputed) — a multi-speaker piece's
+  // claims are not all the article's own byline. Absent on an ordinary single-writer article,
+  // where `updateGeneratedContent` stamps the stored claim with `article.persona`.
+  persona: v.optional(v.string()),
 });
 
 /**
@@ -191,13 +195,21 @@ export const articleQuoteValidator = v.object({
   writerResponse: v.optional(v.string()),
 });
 
-/** `ManagerMention` as stored on the article (spec §4.2). Drives relationship events. */
+/**
+ * `ManagerMention` as stored on the article (spec §4.2). Drives relationship events.
+ *
+ * `persona` is optional and only meaningful on a multi-speaker piece (the "Disputed" show,
+ * spec: Disputed): which desk member actually made the mention, when that differs from the
+ * article's own top-level `persona`. Absent on an ordinary article, where the byline is the
+ * only speaker and `relationships.recordArticleMentions` falls back to `article.persona`.
+ */
 export const managerMentionValidator = v.object({
   teamId: v.string(),
   managerName: v.string(),
   stance: v.union(v.literal("roast"), v.literal("praise"), v.literal("neutral")),
   intensity: v.number(),
   evidence: v.string(),
+  persona: v.optional(v.string()),
 });
 
 /** Verifier + model bookkeeping for one generation run (spec §4.2). */
@@ -234,4 +246,50 @@ export const verifierStatsValidator = v.object({
   // full retry the publish gate allows before holding (spec §11.2.8).
   // Optional, like the §8.7 fields, so a run from before it shipped saves.
   fullRegenerations: v.optional(v.number()),
+});
+
+/* -------------------------------------------------------------------------- */
+/* "Disputed" show transcript                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One turn of a produced "Disputed" episode, as stored on `aiContent.transcript`. Mirrors
+ * `src/lib/ai/disputed/types.ts`'s `ShowTurn`, minus `managerMentions` and `claim`: those are
+ * extracted once per episode onto the article's own `managerMentions` / `claims` fields (each
+ * stamped with the turn's own `persona`), so the transcript stays a plain structured rendering
+ * of who said what rather than a second copy of the grounding data.
+ */
+export const showTurnValidator = v.object({
+  speaker: v.string(),
+  kind: v.string(),
+  text: v.string(),
+  jab: v.boolean(),
+  factsCited: v.array(v.string()),
+  witnessRequested: v.optional(v.string()),
+  agreesWithOpponent: v.optional(v.boolean()),
+  verdict: v.optional(v.object({ winner: v.string(), reason: v.string() })),
+  model: v.optional(v.string()),
+  retried: v.optional(v.boolean()),
+});
+
+/** One segment of the show's rundown (cold open, opening statements, main event, verdict, last jabs). */
+export const showSegmentValidator = v.object({
+  id: v.string(),
+  title: v.string(),
+  turns: v.array(showTurnValidator),
+});
+
+/** The full produced transcript for one "Disputed" episode. Mirrors `disputed/types.ts`'s `ShowTranscript`. */
+export const showTranscriptValidator = v.object({
+  schema: v.literal("ffsn.transcript.v1"),
+  show: v.literal("disputed"),
+  week: v.optional(v.number()),
+  question: v.string(),
+  hotSeat: v.optional(v.object({ teamId: v.string(), managerName: v.string(), why: v.string() })),
+  // The position each debater was assigned in the cold open (one sentence each), so a
+  // reader can see what the two of them were actually arguing for.
+  sides: v.optional(
+    v.object({ "mel-diaper": v.string(), "reggie-banks": v.string() })
+  ),
+  segments: v.array(showSegmentValidator),
 });

@@ -49,7 +49,7 @@ export class InsufficientDataError extends Error {
  * The grounding contract. Emitted at the very top of the system prompt, above the persona, because
  * position matters: the contract must frame the voice, not the other way round.
  */
-const GROUNDING_CONTRACT = `GROUNDING CONTRACT — this overrides every style instruction below.
+export const GROUNDING_CONTRACT = `GROUNDING CONTRACT — this overrides every style instruction below.
 
 Everything factual in your article must come from the <FACTS> block in the user message. A fact is
 any name, team, score, point total, record, rank, pick number, date, transaction, or quote.
@@ -703,6 +703,51 @@ export interface LeagueDataContext {
   [key: string]: unknown;
 }
 
+/**
+ * The "WHO YOU ARE" block of the system prompt: identity, signature moves, style rules and truth
+ * posture. Factored out of `PromptBuilder.buildSystemPrompt` so `disputed/prompts.ts` can build a
+ * turn's system prompt out of the same identity block without duplicating it (spec BUILD 1 §0).
+ */
+export function buildWhoYouAreBlock(persona: PersonaPrompt): string {
+  return `WHO YOU ARE
+${persona.voice}
+
+Your signature moves:
+${persona.signatureMoves.map(move => `- ${move}`).join('\n')}
+
+Never do these (style rules — they never override the grounding contract):
+${persona.neverDo.map(rule => `- ${rule}`).join('\n')}
+
+How you handle certainty:
+- When the facts are strong: ${persona.truthPosture.whenCertain}
+- When the data is thin: ${persona.truthPosture.whenUnsure}
+- When something is listed in facts.missing: ${persona.truthPosture.whenDataMissing}`;
+}
+
+/**
+ * The "RELATIONSHIPS" block of the system prompt, or `null` when the writer has no standing
+ * relationships to report. Factored out of `PromptBuilder.buildSystemPrompt` for the same reason as
+ * {@link buildWhoYouAreBlock} — `disputed/prompts.ts` reuses it verbatim.
+ */
+export function buildRelationshipsBlock(facts: FactsBlock, persona: PersonaPrompt): string | null {
+  if (facts.relationships.length === 0) return null;
+
+  const lines = facts.relationships.map(relationship => {
+    const team = facts.teams.find(candidate => candidate.id === relationship.teamId);
+    const posture = persona.relationshipPosture[relationship.tier];
+    const recent = relationship.recentEvents
+      .slice(0, 3)
+      .map(event => `${event.week ? `Wk ${event.week}: ` : ''}${event.evidence} (${event.delta > 0 ? '+' : ''}${event.delta})`)
+      .join(' · ');
+    return `- ${relationship.manager} (${team?.name ?? relationship.teamId}): ${relationship.tier}, score ${relationship.score}. ${posture}${recent ? ` Recent: ${recent}` : ''}`;
+  });
+
+  return `RELATIONSHIPS
+These are your standing relationships with the managers in this league. Relationship evidence is a
+fact: you may quote it back ("you told Sam that I should stick to mock drafts").
+${lines.join('\n')}`;
+}
+
 export class PromptBuilder {
   private options: PromptBuilderOptions;
   private template: ContentTemplate;
@@ -762,19 +807,7 @@ export class PromptBuilder {
     const persona = this.persona;
     const parts: string[] = [GROUNDING_CONTRACT];
 
-    parts.push(`WHO YOU ARE
-${persona.voice}
-
-Your signature moves:
-${persona.signatureMoves.map(move => `- ${move}`).join('\n')}
-
-Never do these (style rules — they never override the grounding contract):
-${persona.neverDo.map(rule => `- ${rule}`).join('\n')}
-
-How you handle certainty:
-- When the facts are strong: ${persona.truthPosture.whenCertain}
-- When the data is thin: ${persona.truthPosture.whenUnsure}
-- When something is listed in facts.missing: ${persona.truthPosture.whenDataMissing}`);
+    parts.push(buildWhoYouAreBlock(persona));
 
     parts.push(`QUOTES
 - Attribution pattern: ${persona.quoteStyle.attributionPattern}
@@ -811,22 +844,8 @@ from anyone, and do not describe managers as silent or unresponsive. Skip the te
 entirely; there is no quote to place and no silence to report.`);
     }
 
-    if (this.facts.relationships.length > 0) {
-      const lines = this.facts.relationships.map(relationship => {
-        const team = this.facts.teams.find(candidate => candidate.id === relationship.teamId);
-        const posture = persona.relationshipPosture[relationship.tier];
-        const recent = relationship.recentEvents
-          .slice(0, 3)
-          .map(event => `${event.week ? `Wk ${event.week}: ` : ''}${event.evidence} (${event.delta > 0 ? '+' : ''}${event.delta})`)
-          .join(' · ');
-        return `- ${relationship.manager} (${team?.name ?? relationship.teamId}): ${relationship.tier}, score ${relationship.score}. ${posture}${recent ? ` Recent: ${recent}` : ''}`;
-      });
-
-      parts.push(`RELATIONSHIPS
-These are your standing relationships with the managers in this league. Relationship evidence is a
-fact: you may quote it back ("you told Sam that I should stick to mock drafts").
-${lines.join('\n')}`);
-    }
+    const relationshipsBlock = buildRelationshipsBlock(this.facts, persona);
+    if (relationshipsBlock) parts.push(relationshipsBlock);
 
     const recordBlock = this.buildRecordBlock();
     if (recordBlock) parts.push(recordBlock);

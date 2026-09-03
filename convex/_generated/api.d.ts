@@ -28,6 +28,8 @@ import type * as crons from "../crons.js";
 import type * as dataProcessing from "../dataProcessing.js";
 import type * as deskMetrics from "../deskMetrics.js";
 import type * as devTools from "../devTools.js";
+import type * as disputed from "../disputed.js";
+import type * as disputedNode from "../disputedNode.js";
 import type * as draftRankingsHelpers from "../draftRankingsHelpers.js";
 import type * as emailService from "../emailService.js";
 import type * as espn from "../espn.js";
@@ -111,6 +113,8 @@ declare const fullApi: ApiFromModules<{
   dataProcessing: typeof dataProcessing;
   deskMetrics: typeof deskMetrics;
   devTools: typeof devTools;
+  disputed: typeof disputed;
+  disputedNode: typeof disputedNode;
   draftRankingsHelpers: typeof draftRankingsHelpers;
   emailService: typeof emailService;
   espn: typeof espn;

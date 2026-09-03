@@ -14,13 +14,16 @@ import {
 } from "@/lib/ai/persona-prompts";
 
 /**
- * True when a content type can actually be generated today — i.e. it has a template
- * behind it (spec §8.5). Derived from `contentTemplates` at runtime rather than a
- * hard-coded list, so a type becomes selectable everywhere the moment its template
- * ships, and stops being offered if one is ever removed.
+ * True when a content type can actually be generated today from the picker — i.e. it has a
+ * template behind it (spec §8.5) AND that template is an ordinary single-writer article, not a
+ * "show" (the "Disputed" debate show is produced turn-by-turn by its own producer, never by the
+ * content-generation picker). Derived from `contentTemplates` at runtime rather than a
+ * hard-coded list, so a type becomes selectable everywhere the moment its template ships, and
+ * stops being offered if one is ever removed or turns out to be a show.
  */
 export function isSelectableContentType(type: string): boolean {
-  return Object.prototype.hasOwnProperty.call(contentTemplates, type);
+  const template = contentTemplates[type];
+  return template !== undefined && template.kind !== "show";
 }
 
 /**
@@ -64,6 +67,7 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   custom_roast: "Custom roast",
   team_name_power_rankings: "Team-name power rankings",
   player_glazing: "The Case For",
+  desk_show: "Disputed",
 };
 
 /** Display name for a content type, falling back to the de-slugged string. */

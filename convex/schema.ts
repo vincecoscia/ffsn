@@ -9,6 +9,7 @@ import {
   relationshipTierValidator,
   quoteReviewEntryValidator,
   reviewFlagValidator,
+  showTranscriptValidator,
   writerSentimentValidator,
 } from "./validators";
 import { divisionValidator, waiverTypeValidator } from "./lib/espnSettings";
@@ -550,6 +551,10 @@ export default defineSchema({
     // Explicit on-the-record predictions this writer made (spec §8.4). Written
     // with outcome "open"; claims.resolveOpenClaims settles them weekly.
     claims: v.optional(v.array(articleClaimValidator)),
+    // The structured "Disputed" episode transcript (spec: Disputed), when this row is a
+    // desk_show. `content` still holds the plain rendering; this is the turn-by-turn structure
+    // behind it, produced by src/lib/ai/disputed's producer rather than the article pipeline.
+    transcript: v.optional(showTranscriptValidator),
     // The NFL season this article belongs to, stamped at generation time from
     // the league's synced season. Backs the per-season spend roll-up
     // (`deskMetrics.getLeagueSeasonSpend`) without scanning the whole league.
