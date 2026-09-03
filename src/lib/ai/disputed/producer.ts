@@ -166,8 +166,23 @@ function sanitizeTurnOutput(kind: TurnKind, output: TurnOutput): TurnOutput {
  * treated as equal to `undefined` on each field — two claims that both omit `week`, say, still count
  * as duplicates if everything else matches.
  */
+/**
+ * Two claims are the SAME claim only when every field that decides the outcome matches. Same
+ * kind, subject and week with different rank or point bounds are opposed claims, not duplicates
+ * (third pilot, 2026-09-03: Mel's "top four" and Reggie's "fifth or worse" were both `team_finish`
+ * on the same team and week, and the coarser check threw Reggie's away).
+ */
 function isDuplicateClaim(a: ArticleClaim, b: ArticleClaim): boolean {
-  return a.kind === b.kind && a.subjectTeamId === b.subjectTeamId && a.opponentTeamId === b.opponentTeamId && a.week === b.week;
+  return (
+    a.kind === b.kind &&
+    a.subjectTeamId === b.subjectTeamId &&
+    a.opponentTeamId === b.opponentTeamId &&
+    a.subjectPlayer === b.subjectPlayer &&
+    a.week === b.week &&
+    a.minRank === b.minRank &&
+    a.maxRank === b.maxRank &&
+    a.minPoints === b.minPoints
+  );
 }
 
 /**
@@ -240,8 +255,36 @@ const FULL_ARTICLE_ONLY_KINDS = new Set<string>([
   "llm_unsupported",
 ]);
 
+/**
+ * Every word of every desk member's name, lower-cased ("Simone", "Sam", "Ortega", ...). The
+ * verifier's prose sweep reads a capitalised name it cannot find in FACTS as an unknown player;
+ * on a show the desk address each other by name in nearly every turn ("Nina Sharpe, grade it",
+ * "Ask Nina"), which is not a fabricated player (third pilot, 2026-09-03).
+ */
+const DESK_NAME_WORDS = new Set<string>(
+  Object.values(personaPrompts).flatMap((persona) =>
+    persona.name
+      .replace(/["“”]/g, " ")
+      .split(/\s+/)
+      .map((word) => word.toLowerCase())
+      .filter((word) => word.length > 2)
+  )
+);
+
+function mentionsDeskMember(detail: string): boolean {
+  return detail
+    .toLowerCase()
+    .replace(/['’]s\b/g, "")
+    .split(/[^a-z]+/)
+    .some((word) => DESK_NAME_WORDS.has(word));
+}
+
 function relevantViolations(violations: Violation[]): Violation[] {
-  return violations.filter((violation) => !FULL_ARTICLE_ONLY_KINDS.has(violation.kind));
+  return violations.filter((violation) => {
+    if (FULL_ARTICLE_ONLY_KINDS.has(violation.kind)) return false;
+    if (violation.kind === "unknown_player" && mentionsDeskMember(violation.detail)) return false;
+    return true;
+  });
 }
 
 /** Wraps one turn as the smallest article `verifyArticle` accepts: one section, everything else empty. */
@@ -393,7 +436,41 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
    * one retry with an explicit instruction not to; if it survives that too, the offending sentence is
    * stripped deterministically rather than spending a third call on it.
    */
+  /**
+   * A turn whose model call fails outright (network error, unusable output after the caller's own
+   * retries) is dropped like a twice-blocked turn, so one bad call never throws away the twenty
+   * turns before it (the third pilot episode, 2026-09-03, died on a single "Connection error"). The
+   * episode still aborts after `MAX_CONSECUTIVE_CALL_FAILURES` failures in a row: at that point the
+   * API is down, not flaky, and a transcript of nothing but Curtis redirects is worse than an error.
+   */
+  const MAX_CONSECUTIVE_CALL_FAILURES = 3;
+  let consecutiveCallFailures = 0;
+
   async function produceTurn(
+    kind: TurnKind,
+    speaker: string,
+    segmentId: SegmentId,
+    directorInstruction: string
+  ): Promise<TurnAttempt> {
+    try {
+      const attempt = await produceTurnUnguarded(kind, speaker, segmentId, directorInstruction);
+      consecutiveCallFailures = 0;
+      return attempt;
+    } catch (error) {
+      consecutiveCallFailures++;
+      const message = error instanceof Error ? error.message : String(error);
+      stats.violations.push({ speaker, kind: "call_failed", detail: message.slice(0, 240), severity: "block" });
+      if (consecutiveCallFailures >= MAX_CONSECUTIVE_CALL_FAILURES) {
+        throw new Error(
+          `Disputed aborted after ${consecutiveCallFailures} consecutive failed turn calls; last failure (${speaker}, ${kind}): ${message}`
+        );
+      }
+      stats.dropped++;
+      return { dropped: true, wasDebater: roleOf(speaker) === "debater" };
+    }
+  }
+
+  async function produceTurnUnguarded(
     kind: TurnKind,
     speaker: string,
     segmentId: SegmentId,

@@ -48,11 +48,20 @@ function fallbackModelFor(model: string): string {
   return model === "claude-sonnet-5" ? "claude-opus-5" : "claude-sonnet-5";
 }
 
-/** Errors worth retrying / falling back on: model not found, server errors, overloaded. */
+/**
+ * Errors worth retrying / falling back on: model not found, server errors, overloaded, rate
+ * limited, and network failures. The third pilot episode (2026-09-03) died mid-run on a bare
+ * "Connection error." from the SDK, which carries no HTTP status; a dropped socket is the most
+ * retryable failure there is, so it gets the same backoff as a 529.
+ */
 function shouldFallback(error: unknown): boolean {
-  if (!error || typeof error !== "object" || !("status" in error)) return false;
+  if (!error || typeof error !== "object") return false;
+  if (error instanceof Anthropic.APIConnectionError) return true;
+  const message = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+  if (/connection error|ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket hang up|fetch failed/i.test(message)) return true;
+  if (!("status" in error)) return false;
   const status = (error as { status?: unknown }).status;
-  return status === 404 || status === 500 || status === 503 || status === 529;
+  return status === 404 || status === 408 || status === 429 || status === 500 || status === 503 || status === 529;
 }
 
 function buildParams(req: TurnCallRequest, model: string): Anthropic.MessageCreateParamsNonStreaming {

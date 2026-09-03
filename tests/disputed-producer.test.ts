@@ -855,3 +855,74 @@ describe("produceEpisode — opposed claims", () => {
     expect(claims.map((claim) => claim.persona)).toEqual(["mel-diaper"]);
   });
 });
+
+describe("produceEpisode — call failures", () => {
+  it("drops a turn whose call throws once, gives Curtis a redirect, and the episode completes", async () => {
+    let melArgumentCalls = 0;
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        melArgumentCalls++;
+        if (melArgumentCalls === 1) throw new Error("Connection error.");
+      }
+      return defaultScript(req);
+    };
+    const call = makeFakeCaller(script);
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    expect(mainEvent.turns.map((turn) => [turn.speaker, turn.kind])).toEqual([
+      ["curtis-vaughn", "redirect"],
+      ["reggie-banks", "argument"],
+    ]);
+    expect(stats.dropped).toBe(1);
+    expect(stats.violations.filter((violation) => violation.kind === "call_failed")).toHaveLength(1);
+  });
+
+  it("rejects after three consecutive call failures, with no infinite loop", async () => {
+    const script = (): TurnOutput => {
+      throw new Error("Connection error.");
+    };
+    const call = makeFakeCaller(script);
+
+    await expect(
+      produceEpisode({
+        facts,
+        factsText,
+        brief,
+        relationshipsByWriter: {},
+        call,
+        options: { budgets: { mainEvent: 2 } },
+      })
+    ).rejects.toThrow(/consecutive failed turn calls/);
+  });
+
+  it("survives two consecutive call failures (under the abort threshold) and completes with dropped 2", async () => {
+    let callCount = 0;
+    const script = (req: TurnCallRequest): TurnOutput => {
+      callCount++;
+      if (callCount <= 2) throw new Error("Connection error.");
+      return defaultScript(req);
+    };
+    const call = makeFakeCaller(script);
+
+    const { stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 2 } },
+    });
+
+    expect(stats.dropped).toBe(2);
+    expect(stats.violations.filter((violation) => violation.kind === "call_failed")).toHaveLength(2);
+  });
+});
