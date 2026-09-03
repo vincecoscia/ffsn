@@ -604,8 +604,19 @@ export const getEnrichedLeagueData = internalQuery({
       transactions as any // Type mismatch - helper expects different format
     );
     
-    // Calculate playoff probabilities
-    const remainingWeeks = (league.settings.playoffWeeks || 4) - (league.espnData?.currentScoringPeriod || 1);
+    // Calculate playoff probabilities.
+    //
+    // Audit finding: this used to read `league.settings.playoffWeeks` - a
+    // COUNT of playoff weeks (e.g. 3), not a week number - as if it were the
+    // week the regular season ends, so `remainingWeeks` went negative from
+    // week 5 onward. The value that actually belongs here is
+    // `regularSeasonMatchupPeriods` (the last regular-season week number);
+    // `Math.max(0, ...)` keeps it from going negative once the regular
+    // season is over even if that field is ever stale.
+    const remainingWeeks = Math.max(
+      0,
+      (league.settings.regularSeasonMatchupPeriods ?? 14) - (league.espnData?.currentScoringPeriod ?? 1)
+    );
     const playoffProbabilities = calculatePlayoffProbabilities(
       standings,
       remainingWeeks,

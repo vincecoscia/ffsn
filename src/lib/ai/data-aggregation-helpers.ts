@@ -294,10 +294,17 @@ export function analyzeTransactionTrends(
 // Calculate playoff probabilities (simplified)
 export function calculatePlayoffProbabilities(
   standings: LeagueDataContext['standings'],
-  remainingWeeks: number,
-  playoffTeams: number = 6
+  remainingWeeksInput: number,
+  playoffTeamsInput?: number
 ): Array<{ teamId: string; teamName: string; probability: number; }> {
   if (!standings || standings.length === 0) return [];
+
+  // A caller may pass a negative remaining-week count once the regular season has ended (the
+  // schedule length minus the current week goes negative); a negative count only inflates the
+  // "gamesBack" penalty below into nonsense. Clamp it at zero instead. `playoffTeamsInput` only
+  // falls back to 6 when it is genuinely absent, never when a caller passes 0.
+  const remainingWeeks = Math.max(0, remainingWeeksInput);
+  const playoffTeams = playoffTeamsInput ?? 6;
 
   return standings.map(team => {
     // Simple probability based on current position and games remaining

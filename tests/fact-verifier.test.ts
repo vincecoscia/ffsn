@@ -21,6 +21,11 @@ import {
   getPersona,
   personaPrompts,
 } from "../src/lib/ai/persona-prompts";
+// The standings comparator and the league-format builder live in the Convex query that assembles
+// a league's payload; both are plain, side-effect-free functions, so they are directly importable
+// and testable here without a convex-test harness (audit: format/seeding).
+import { compareStandingsForSeeding, computeLeagueFormat } from "../convex/aiQueries";
+import espnSettingsFixture from "./fixtures/espn-settings-public-2025.json";
 
 /**
  * The prompt layer is pure TypeScript (no Convex, no network): FACTS in, prompt out,
@@ -814,5 +819,242 @@ describe("look-ahead slate", () => {
     };
 
     expect(verifyArticle(previewArticle, previewFacts)).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* League format (audit: divisions, playoff structure, roster shape, scoring,   */
+/* waivers — the writers had no way to know any of these before).              */
+/* -------------------------------------------------------------------------- */
+
+describe("league format", () => {
+  it("orders standings by ESPN's playoff seed, not by wins", () => {
+    // Bay Blitz (7-1, seed 1) and Ridge Runners (8-0, seed 3): the most-win team is NOT seed 1,
+    // which is exactly the DIVISION_WINNERS scenario the audit flagged — a wins/PF comparator gets
+    // this league's seeding wrong.
+    const bayBlitz = { record: { wins: 7, losses: 1, ties: 0, pointsFor: 1000, playoffSeed: 1 } };
+    const riverKings = { record: { wins: 6, losses: 2, ties: 0, pointsFor: 950, playoffSeed: 2 } };
+    const ridgeRunners = { record: { wins: 8, losses: 0, ties: 0, pointsFor: 1100, playoffSeed: 3 } };
+    const canyonWolves = { record: { wins: 5, losses: 3, ties: 0, pointsFor: 880, playoffSeed: 4 } };
+    const noSeedYet = { record: { wins: 4, losses: 4, ties: 0, pointsFor: 700 } };
+
+    const sorted = [ridgeRunners, canyonWolves, noSeedYet, bayBlitz, riverKings].sort(
+      compareStandingsForSeeding
+    );
+    expect(sorted).toEqual([bayBlitz, riverKings, ridgeRunners, canyonWolves, noSeedYet]);
+  });
+
+  it("parses a real ESPN settings blob (leagueSeasons.settings' actual shape), not a flat guess", () => {
+    // `leagueSeasons.settings` stores ESPN's raw, deeply nested `view=mSettings` response —
+    // `computeLeagueFormat` must run it through `parseEspnLeagueSettings` rather than reading flat
+    // top-level keys that only exist on the separately-mirrored `leagues.settings`. This fixture
+    // (2-week playoff rounds, TOTAL_POINTS_SCORED seeding, a numeric division id) is a real
+    // production league's settings subtree.
+    const format = computeLeagueFormat(espnSettingsFixture.settings, undefined);
+
+    expect(format.regularSeasonMatchupPeriods).toBe(14);
+    expect(format.playoffTeamCount).toBe(4);
+    expect(format.playoffMatchupPeriodLength).toBe(2);
+    expect(format.playoffRounds).toBe(2);
+    expect(format.playoffSeedingRule).toBe("TOTAL_POINTS_SCORED");
+    expect(format.waiverType).toBe("faab");
+    expect(format.faabBudget).toBe(200);
+    expect(format.tradeDeadline).toBe(1764784800000);
+    // ESPN's division id is numeric (0); `computeLeagueFormat` normalizes it to the string form
+    // used everywhere else this feature compares a division id (`teams.divisionId` stringified).
+    expect(format.divisions).toEqual([{ id: "0", name: "Texas", size: 12 }]);
+    expect(typeof format.divisions?.[0].id).toBe("string");
+    // Two-week playoff rounds starting week 15: championship is week 18.
+    expect(format.fantasyChampionshipWeek).toBe(18);
+  });
+
+  // A fixture league with 2 divisions (East, West), 4 playoff teams, a 13-week regular season,
+  // 2-week playoff rounds, half-PPR, superflex, and FAAB 100 — everything the format audit's spec
+  // list of gaps names.
+  const formatLeagueFormat = {
+    scoringType: "half_ppr",
+    receptionPoints: 0.5,
+    regularSeasonMatchupPeriods: 13,
+    playoffTeamCount: 4,
+    playoffMatchupPeriodLength: 2,
+    playoffRounds: 2,
+    playoffSeedingRule: "DIVISION_WINNERS",
+    divisions: [
+      { id: "1", name: "East" },
+      { id: "2", name: "West" },
+    ],
+    lineupSlots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, BE: 6 },
+    isSuperflex: true,
+    hasIdp: false,
+    waiverType: "faab",
+    faabBudget: 100,
+    // Derived by `convex/aiQueries.ts#computeLeagueFormat` (regular season + 2 playoff rounds of
+    // 2 weeks each = weeks 14-17); `facts.ts#buildFormat` reads it rather than recomputing it.
+    fantasyChampionshipWeek: 17,
+    playoffWeeksRange: "Weeks 14-17",
+  };
+
+  const formatLeagueData = {
+    leagueName: "Format League",
+    currentWeek: 14,
+    season: 2025,
+    scoringType: "half_ppr",
+    leagueFormat: formatLeagueFormat,
+    teams: [
+      {
+        id: "ft1", name: "Bay Blitz", manager: "Jo", externalId: "1",
+        record: { wins: 7, losses: 1, ties: 0, pointsFor: 1000 },
+        pointsFor: 1000, pointsAgainst: 700, division: "East",
+      },
+      {
+        id: "ft2", name: "Ridge Runners", manager: "Ivy", externalId: "2",
+        record: { wins: 8, losses: 0, ties: 0, pointsFor: 1100 },
+        pointsFor: 1100, pointsAgainst: 650, division: "East",
+      },
+      {
+        id: "ft3", name: "River Kings", manager: "Sam", externalId: "3",
+        record: { wins: 6, losses: 2, ties: 0, pointsFor: 950 },
+        pointsFor: 950, pointsAgainst: 720, division: "West",
+      },
+      {
+        id: "ft4", name: "Canyon Wolves", manager: "Lee", externalId: "4",
+        record: { wins: 5, losses: 3, ties: 0, pointsFor: 880 },
+        pointsFor: 880, pointsAgainst: 800, division: "West",
+      },
+    ],
+    // Already in seed order, as the fixed `getLeagueDataForAI` sort produces it — note rank 3 is
+    // Ridge Runners, this league's best record, which is the point of the test above.
+    standings: [
+      { rank: 1, team: "Bay Blitz", teamId: "1", wins: 7, losses: 1, ties: 0, pointsFor: 1000, pointsAgainst: 700, playoffSeed: 1, division: "East" },
+      { rank: 2, team: "River Kings", teamId: "3", wins: 6, losses: 2, ties: 0, pointsFor: 950, pointsAgainst: 720, playoffSeed: 2, division: "West" },
+      { rank: 3, team: "Ridge Runners", teamId: "2", wins: 8, losses: 0, ties: 0, pointsFor: 1100, pointsAgainst: 650, playoffSeed: 3, division: "East" },
+      { rank: 4, team: "Canyon Wolves", teamId: "4", wins: 5, losses: 3, ties: 0, pointsFor: 880, pointsAgainst: 800, playoffSeed: 4, division: "West" },
+    ],
+    divisionStandings: [
+      {
+        division: "East",
+        teams: [
+          { rank: 1, teamId: "1", team: "Bay Blitz", record: "7-1-0", pointsFor: 1000 },
+          { rank: 3, teamId: "2", team: "Ridge Runners", record: "8-0-0", pointsFor: 1100 },
+        ],
+      },
+      {
+        division: "West",
+        teams: [
+          { rank: 2, teamId: "3", team: "River Kings", record: "6-2-0", pointsFor: 950 },
+          { rank: 4, teamId: "4", team: "Canyon Wolves", record: "5-3-0", pointsFor: 880 },
+        ],
+      },
+    ],
+    availablePlayers: [
+      {
+        playerId: "fa1",
+        playerName: "Free Agent One",
+        position: "RB",
+        team: "KC",
+        proTeam: "KC",
+        ownership: { percentOwned: 12, percentChange: 4 },
+      },
+    ],
+    recentMatchups: [],
+    trades: [],
+    transactions: [],
+  } as unknown as LeagueDataContext;
+
+  const formatRequest = {
+    leagueId: "lg2",
+    contentType: "playoff_picture",
+    persona: "nina-sharpe",
+    userId: "u1",
+    leagueData: formatLeagueData,
+    priorClaims: [],
+  } satisfies FactsRequest & { userId: string };
+
+  const formatFacts = buildFactsBlock(formatRequest);
+
+  it("carries division names on both teams and standings", () => {
+    expect(formatFacts.teams.find((team) => team.id === "T1")?.division).toBe("East");
+    expect(formatFacts.teams.find((team) => team.id === "T3")?.division).toBe("West");
+    expect(formatFacts.standings.find((row) => row.teamId === "T3")?.division).toBe("West");
+    expect(formatFacts.standings.map((row) => row.seed)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("builds the FORMAT block in plain English — no ESPN enum, no raw field ever reaches it", () => {
+    expect(formatFacts.format).toMatchObject({
+      scoring: "Half-PPR (0.5 points per reception)",
+      regularSeasonWeeks: 13,
+      playoffTeamCount: 4,
+      playoffRounds: 2,
+      playoffRoundLengthWeeks: 2,
+      playoffWeeksRange: "Weeks 14-17",
+      seedingRule: "division winners are seeded first, then the rest of the field by record",
+      waiverType: "FAAB waivers, $100 season budget",
+      isSuperflex: true,
+    });
+    expect(formatFacts.format.rosterShape).toContain("superflex");
+    expect(formatFacts.format.rosterShape).toContain("1QB");
+    expect(formatFacts.format.divisions).toEqual([
+      { id: "1", name: "East" },
+      { id: "2", name: "West" },
+    ]);
+  });
+
+  it("tells the playoff_picture writer the real field size and seeding rule, never assuming six", () => {
+    const built = new PromptBuilder(formatRequest).build();
+    expect(built.userPrompt).toContain("The field is 4 teams.");
+    expect(built.userPrompt).toContain("Seeding rule: division winners are seeded first");
+    expect(built.userPrompt).toContain("STANDINGS BY DIVISION");
+    expect(built.userPrompt).not.toContain("not in the payload");
+  });
+
+  it("tells the waiver_wire_report writer the FAAB budget", () => {
+    const built = new PromptBuilder({
+      ...formatRequest,
+      contentType: "waiver_wire_report",
+    }).build();
+    expect(built.userPrompt).toContain("FAAB waivers, $100 season budget");
+  });
+
+  it("does not flag division names as unknown proper nouns", () => {
+    const divisionArticle: GeneratedArticleT = {
+      title: "Playoff race tightens",
+      summary: "The playoff picture is set.",
+      tone: "analytical",
+      sections: [
+        {
+          name: "introduction",
+          content: "East sits atop the standings while West chases the final spot.",
+          wordCount: 11,
+        },
+      ],
+      featuredTeams: [],
+      featuredPlayers: [],
+      keyStats: [],
+      quotes: [],
+      managerMentions: [],
+      claims: [],
+    };
+    const violations = verifyArticle(divisionArticle, formatFacts);
+    expect(
+      violations.some(
+        (violation) =>
+          violation.kind === "unknown_player" && (violation.detail === "East" || violation.detail === "West")
+      )
+    ).toBe(false);
+  });
+
+  it("falls back to a plain field-size warning when the payload has no playoff team count", () => {
+    const noFormatData = {
+      ...formatLeagueData,
+      leagueFormat: undefined,
+    } as unknown as LeagueDataContext;
+    const noFormatFacts = buildFactsBlock({ ...formatRequest, leagueData: noFormatData });
+    expect(noFormatFacts.format.playoffTeamCount).toBeUndefined();
+    expect(noFormatFacts.missing).toContain(
+      "playoff field size — not in the payload; do not assume a number of playoff teams"
+    );
+
+    const built = new PromptBuilder({ ...formatRequest, leagueData: noFormatData }).build();
+    expect(built.userPrompt).toContain("The payload does not say how many teams make the playoffs");
   });
 });

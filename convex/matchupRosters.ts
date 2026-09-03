@@ -4,6 +4,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { transformStats } from "./espnStatsMapping";
 import { fetchEspn, normalizeEspnCredentials } from "./lib/espnClient";
+import { matchupPeriodIdsFromSettings } from "./lib/leagueCalendar";
+import { matchupPeriodWeeks } from "./lib/espnSettings";
 
 
 
@@ -98,10 +100,13 @@ export const fetchMatchupRosters = internalAction({
 
     const creds = normalizeEspnCredentials(league.espnData);
 
-    // Determine matchup periods to fetch
-    const regularSeasonWeeks = league.settings?.regularSeasonMatchupPeriods || 14;
-    const playoffWeeks = league.settings?.playoffWeeks || 4;
-    const periodsToFetch = args.matchupPeriods || Array.from({ length: regularSeasonWeeks + playoffWeeks }, (_, i) => i + 1);
+    // Determine matchup periods to fetch (`matchupPeriodIdsFromSettings`,
+    // convex/lib/leagueCalendar.ts: the exact ESPN period ids from the
+    // league's parsed `matchupPeriods` map when available, else
+    // regularSeasonMatchupPeriods + playoffRounds x playoffMatchupPeriodLength,
+    // else the historic 14 + 4 default).
+    const leagueMatchupPeriods = league.settings?.matchupPeriods;
+    const periodsToFetch = args.matchupPeriods || matchupPeriodIdsFromSettings(league.settings);
 
     const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
     const results = [];
@@ -110,10 +115,19 @@ export const fetchMatchupRosters = internalAction({
 
     for (const matchupPeriod of periodsToFetch) {
       try {
-        console.log(`Fetching rosters for matchup period ${matchupPeriod}...`);
-        
+        // A matchup period spanning several NFL scoring periods (a 2-week
+        // playoff round) is not itself a valid `scoringPeriodId` - ESPN's
+        // roster-for-scoring-period data is keyed by the individual NFL week,
+        // so request the LAST scoring period the round spans (that week's
+        // roster/score is the round's final one; a mid-round week is never
+        // more current). A normal 1:1 period falls back to its own number.
+        const periodWeeks = matchupPeriodWeeks(leagueMatchupPeriods, matchupPeriod);
+        const scoringPeriodId = periodWeeks && periodWeeks.length > 0 ? Math.max(...periodWeeks) : matchupPeriod;
+
+        console.log(`Fetching rosters for matchup period ${matchupPeriod} (scoring period ${scoringPeriodId})...`);
+
         const { response } = await fetchEspn(
-          `${baseUrl}?scoringPeriodId=${matchupPeriod}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav`,
+          `${baseUrl}?scoringPeriodId=${scoringPeriodId}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav`,
           { creds }
         );
 

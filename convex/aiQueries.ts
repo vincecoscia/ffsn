@@ -2,13 +2,20 @@ import { v } from "convex/values";
 import { internalQuery, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { 
-  calculateStrengthOfSchedule, 
+import {
+  calculateStrengthOfSchedule,
   calculateRecentForm,
   analyzeTransactionTrends,
   calculatePlayoffProbabilities,
-  identifyMemorableMoments 
+  identifyMemorableMoments
 } from "../src/lib/ai/data-aggregation-helpers";
+// Type-only: never a value import from a convex/*.ts module here (see the repo-wide gotcha about
+// `internal` recursion). `LeagueFormat` is a plain interface with no runtime footprint.
+import type { LeagueFormat, LeagueFormatDivision } from "../src/lib/ai/prompt-builder";
+// `convex/lib/espnSettings.ts` is a deliberately pure module (no `internal`/`api` imports of its
+// own — see its file header), so importing it as a value here carries none of the recursive-`api`
+// risk the repo gotcha warns about for other convex/*.ts modules.
+import { parseEspnLeagueSettings, type ParsedLeagueSettings } from "./lib/espnSettings";
 
 /**
  * Enhanced query functions for AI content generation
@@ -82,6 +89,191 @@ async function buildManagerNames(
     );
   }
   return names;
+}
+
+/* -------------------------------------------------------------------------- *
+ * League format (audit: leagues differ in divisions, playoff structure, roster shape, scoring and
+ * waivers, and the writers had no way to know any of it).
+ *
+ * Two different shapes carry this data, both from `convex/lib/espnSettings.ts` (a settings
+ * migration landing concurrently with this work):
+ *  - `leagueSeasons.settings` is `v.any()` and holds the RAW ESPN `view=mSettings` blob for that
+ *    season (nested `scheduleSettings` / `scoringSettings` / `rosterSettings` / ...) — it must be
+ *    run through `parseEspnLeagueSettings` before any of its fields mean anything.
+ *  - `leagues.settings` holds the flat, already-parsed subset `leagues.mirrorSeasonSettings`
+ *    mirrors onto it after a sync (`MIRRORED_LEAGUE_SETTINGS_KEYS`) — read directly, and only ever
+ *    the CURRENT season's settings, which is why the season row wins when it parses to anything.
+ * Every field is optional on `ParsedLeagueSettings` besides `scoringType`, and a league the
+ * settings migration has not reached yet (or a raw blob that fails to parse) simply yields none of
+ * them — never a guess.
+ * -------------------------------------------------------------------------- */
+
+/** The last real week of the season: every real week any playoff matchup period spans. */
+function computeChampionshipWeek(
+  regularSeasonMatchupPeriods: number | undefined,
+  playoffRounds: number | undefined,
+  playoffMatchupPeriodLength: number | undefined,
+  matchupPeriods: Record<string, number[]> | undefined
+): number | undefined {
+  if (matchupPeriods) {
+    const allWeeks = Object.values(matchupPeriods).flat();
+    if (allWeeks.length > 0) return Math.max(...allWeeks);
+  }
+  if (regularSeasonMatchupPeriods !== undefined && playoffRounds !== undefined) {
+    return regularSeasonMatchupPeriods + playoffRounds * (playoffMatchupPeriodLength ?? 1);
+  }
+  return undefined;
+}
+
+/** "Weeks 15-18" (or "Week 16") — the real weeks the playoff bracket spans, plain English. */
+function computePlayoffWeeksRange(
+  regularSeasonMatchupPeriods: number | undefined,
+  playoffRounds: number | undefined,
+  playoffMatchupPeriodLength: number | undefined,
+  matchupPeriods: Record<string, number[]> | undefined
+): string | undefined {
+  if (matchupPeriods && regularSeasonMatchupPeriods !== undefined) {
+    const playoffWeeks = Object.entries(matchupPeriods)
+      .filter(([period]) => Number(period) > regularSeasonMatchupPeriods)
+      .flatMap(([, weeks]) => weeks);
+    if (playoffWeeks.length > 0) {
+      const min = Math.min(...playoffWeeks);
+      const max = Math.max(...playoffWeeks);
+      return min === max ? `Week ${min}` : `Weeks ${min}-${max}`;
+    }
+  }
+  if (regularSeasonMatchupPeriods !== undefined && playoffRounds !== undefined) {
+    const start = regularSeasonMatchupPeriods + 1;
+    const end = regularSeasonMatchupPeriods + playoffRounds * (playoffMatchupPeriodLength ?? 1);
+    return start === end ? `Week ${start}` : `Weeks ${start}-${end}`;
+  }
+  return undefined;
+}
+
+/**
+ * Pure computation over already-fetched settings, so a caller that has already loaded the season
+ * row (`getLeagueDataForAI` fetches `leagueSeasons` for other reasons) can build the format without
+ * an extra database round trip. `buildLeagueFormat` below is the query-and-compute convenience for
+ * everyone else.
+ *
+ * `seasonSettingsRaw` is `leagueSeasons.settings` — the raw ESPN blob (or `undefined`/malformed on
+ * a league the sync hasn't reached) — and is parsed here; `leagueSettings` is `leagues.settings`,
+ * already flat, read directly and only used for a key the season parse didn't produce.
+ */
+export function computeLeagueFormat(seasonSettingsRaw: unknown, leagueSettings: unknown): LeagueFormat {
+  // A raw blob that fails to parse (missing/malformed `scheduleSettings` etc.) yields an object of
+  // all-`undefined` fields save `scoringType` (which defaults to "standard") — never throws — so
+  // this is safe to call unconditionally.
+  const parsedSeason: Partial<ParsedLeagueSettings> = seasonSettingsRaw
+    ? parseEspnLeagueSettings(seasonSettingsRaw)
+    : {};
+  // `leagues.settings` was never itself ESPN's raw blob (it always held the app's own settings
+  // object), so it is read directly against the mirrored subset's flat key names, never parsed.
+  const perLeague = (leagueSettings ?? {}) as unknown as Partial<ParsedLeagueSettings>;
+
+  function pick<K extends keyof ParsedLeagueSettings>(key: K): ParsedLeagueSettings[K] | undefined {
+    return parsedSeason[key] ?? perLeague[key];
+  }
+
+  const regularSeasonMatchupPeriods = pick("regularSeasonMatchupPeriods");
+  const playoffTeamCount = pick("playoffTeamCount");
+  const playoffMatchupPeriodLength = pick("playoffMatchupPeriodLength");
+  const playoffRounds = pick("playoffRounds");
+  const matchupPeriods = pick("matchupPeriods");
+  // ESPN's division id is numeric; every other id this feature compares against (`teams.divisionId`
+  // stringified in the standings/team payload below) is a string, so it is normalized here once.
+  const divisions: LeagueFormatDivision[] | undefined = pick("divisions")?.map(division => ({
+    id: String(division.id),
+    name: division.name,
+    size: division.size,
+  }));
+
+  return {
+    scoringType: pick("scoringType"),
+    receptionPoints: pick("receptionPoints"),
+    regularSeasonMatchupPeriods,
+    playoffTeamCount,
+    playoffMatchupPeriodLength,
+    playoffRounds,
+    playoffSeedingRule: pick("playoffSeedingRule"),
+    divisions,
+    matchupPeriods,
+    lineupSlots: pick("lineupSlots"),
+    isSuperflex: pick("isSuperflex"),
+    hasIdp: pick("hasIdp"),
+    waiverType: pick("waiverType"),
+    faabBudget: pick("faabBudget"),
+    tradeDeadline: pick("tradeDeadline"),
+    fantasyChampionshipWeek: computeChampionshipWeek(
+      regularSeasonMatchupPeriods,
+      playoffRounds,
+      playoffMatchupPeriodLength,
+      matchupPeriods
+    ),
+    playoffWeeksRange: computePlayoffWeeksRange(
+      regularSeasonMatchupPeriods,
+      playoffRounds,
+      playoffMatchupPeriodLength,
+      matchupPeriods
+    ),
+  };
+}
+
+/**
+ * Query-and-compute convenience: fetches the article's season row and builds the format from it
+ * plus `league.settings`. Prefer `computeLeagueFormat` directly when the season row is already in
+ * hand (avoids a duplicate query).
+ */
+export async function buildLeagueFormat(
+  ctx: QueryCtx,
+  league: Doc<"leagues">,
+  seasonId: number
+): Promise<LeagueFormat> {
+  const seasonRow = await ctx.db
+    .query("leagueSeasons")
+    .withIndex("by_league_season", q => q.eq("leagueId", league._id).eq("seasonId", seasonId))
+    .first();
+
+  return computeLeagueFormat(seasonRow?.settings, league.settings);
+}
+
+/**
+ * Standings order (audit: `getLeagueDataForAI` used to sort league-wide by wins -> win% -> PF only,
+ * which the article's `rank` field and every downstream "the 3-seed" claim followed — even though
+ * ESPN's authoritative `record.playoffSeed` was synced right alongside it and, for a
+ * DIVISION_WINNERS league, disagrees with a wins/PF ordering. `record.playoffSeed` wins whenever
+ * both sides have one; the wins/win%/PF comparator is only the fallback for a team with no seed yet
+ * (mid-draft, or a sync that predates ESPN publishing seeds).
+ */
+export function compareStandingsForSeeding(
+  a: Pick<Doc<"teams">, "record">,
+  b: Pick<Doc<"teams">, "record">
+): number {
+  const seedA = a.record.playoffSeed;
+  const seedB = b.record.playoffSeed;
+  if (seedA !== undefined && seedB !== undefined) return seedA - seedB;
+  if (seedA !== undefined) return -1;
+  if (seedB !== undefined) return 1;
+  // Sort by wins first
+  if (a.record.wins !== b.record.wins) {
+    return (b.record.wins || 0) - (a.record.wins || 0);
+  }
+  // Then by win percentage
+  const aTotalGames = (a.record.wins || 0) + (a.record.losses || 0) + (a.record.ties || 0);
+  const bTotalGames = (b.record.wins || 0) + (b.record.losses || 0) + (b.record.ties || 0);
+  const aWinPct = aTotalGames > 0 ? (a.record.wins || 0) / aTotalGames : 0;
+  const bWinPct = bTotalGames > 0 ? (b.record.wins || 0) / bTotalGames : 0;
+  if (aWinPct !== bWinPct) {
+    return bWinPct - aWinPct;
+  }
+  // Then by points for (tiebreaker)
+  return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
+}
+
+/** `teams.divisionId` (a number) -> the division's display name, from `leagueFormat.divisions`. */
+function divisionNameLookup(leagueFormat: LeagueFormat): (divisionId: number | undefined) => string | undefined {
+  const byId = new Map((leagueFormat.divisions ?? []).map(division => [division.id, division.name]));
+  return (divisionId: number | undefined) => (divisionId === undefined ? undefined : byId.get(String(divisionId)));
 }
 
 // Get comprehensive league data for AI content generation
@@ -210,25 +402,18 @@ export const getLeagueDataForAI = internalQuery({
       // Default stays Redraft if inference fails
     }
 
-    
-    // Calculate standings
+    // League format (audit: divisions, playoff structure, roster shape, scoring, waivers). Reuses
+    // the `leagueSeasons` row already fetched above rather than issuing a second query for it.
+    const leagueFormat = computeLeagueFormat(
+      leagueSeasons.find(ls => ls.seasonId === currentSeason)?.settings,
+      league.settings
+    );
+    const divisionNameFor = divisionNameLookup(leagueFormat);
+
+    // Calculate standings, ordered by ESPN's authoritative playoff seed when known (see
+    // `compareStandingsForSeeding` below for why).
     const standings = teams
-      .sort((a, b) => {
-        // Sort by wins first
-        if (a.record.wins !== b.record.wins) {
-          return (b.record.wins || 0) - (a.record.wins || 0);
-        }
-        // Then by win percentage
-        const aTotalGames = (a.record.wins || 0) + (a.record.losses || 0) + (a.record.ties || 0);
-        const bTotalGames = (b.record.wins || 0) + (b.record.losses || 0) + (b.record.ties || 0);
-        const aWinPct = aTotalGames > 0 ? (a.record.wins || 0) / aTotalGames : 0;
-        const bWinPct = bTotalGames > 0 ? (b.record.wins || 0) / bTotalGames : 0;
-        if (aWinPct !== bWinPct) {
-          return bWinPct - aWinPct;
-        }
-        // Then by points for (tiebreaker)
-        return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
-      })
+      .sort(compareStandingsForSeeding)
       .map((team, index) => ({
         teamId: team.externalId,
         team: team.name,
@@ -239,7 +424,28 @@ export const getLeagueDataForAI = internalQuery({
         pointsFor: team.record.pointsFor || 0,
         pointsAgainst: team.record.pointsAgainst || 0,
         playoffSeed: team.record.playoffSeed,
+        division: divisionNameFor(team.divisionId),
+        divisionRecord: team.record.divisionRecord,
       }));
+
+    // One group per division (spec: format audit), only when the league actually has divisions.
+    const divisionStandings =
+      leagueFormat.divisions && leagueFormat.divisions.length > 0
+        ? leagueFormat.divisions
+            .map(division => ({
+              division: division.name,
+              teams: standings
+                .filter(row => row.division === division.name)
+                .map(row => ({
+                  rank: row.rank,
+                  teamId: row.teamId,
+                  team: row.team,
+                  record: `${row.wins}-${row.losses}-${row.ties}`,
+                  pointsFor: row.pointsFor,
+                })),
+            }))
+            .filter(group => group.teams.length > 0)
+        : undefined;
     
     // Build previousSeasons data from leagueSeasons and historical teams
     const previousSeasons: Record<number, Array<{
@@ -341,18 +547,25 @@ export const getLeagueDataForAI = internalQuery({
       record.totalPointsFor += team.record.pointsFor || 0;
       record.seasonsPlayed += 1;
       
-      // Check if this team made playoffs (assuming top 6 made playoffs)
+      // Check if this team made the playoffs, using that season's own playoff field size where a
+      // recent-season row for it is in hand (the current league's field size is only a fallback —
+      // a league that has changed its playoff count over time would otherwise misjudge every past
+      // season by today's setting).
       const seasonStandings = allHistoricalTeams
         .filter(t => t.seasonId === team.seasonId)
         .sort((a, b) => {
           if (b.record.wins !== a.record.wins) return b.record.wins - a.record.wins;
           return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
         });
-      
+
       const teamRank = seasonStandings.findIndex(t => t.externalId === team.externalId) + 1;
-      const playoffTeams = league.settings?.playoffTeamCount || 6;
-      
-      if (teamRank <= playoffTeams) {
+      const teamSeasonSettings = leagueSeasons.find(ls => ls.seasonId === team.seasonId)?.settings;
+      const seasonPlayoffTeams =
+        (teamSeasonSettings ? parseEspnLeagueSettings(teamSeasonSettings).playoffTeamCount : undefined) ??
+        leagueFormat.playoffTeamCount ??
+        6;
+
+      if (teamRank <= seasonPlayoffTeams) {
         record.playoffAppearances += 1;
       }
     });
@@ -485,6 +698,8 @@ export const getLeagueDataForAI = internalQuery({
         recentForm,
         benchPoints: 0, // Would calculate from roster data
         divisionRecord: team.record.divisionRecord,
+        divisionId: team.divisionId !== undefined ? String(team.divisionId) : undefined,
+        division: divisionNameFor(team.divisionId),
         externalId: team.externalId, // Important for matching
       };
     });
@@ -621,14 +836,14 @@ export const getLeagueDataForAI = internalQuery({
       transactions as any // Type mismatch - helper expects different format
     );
     
-    // Calculate playoff probabilities
-    const remainingWeeks = league.settings.regularSeasonMatchupPeriods 
-      ? league.settings.regularSeasonMatchupPeriods - currentWeek
-      : 13 - currentWeek;
+    // Calculate playoff probabilities. `calculatePlayoffProbabilities` clamps a negative
+    // remaining-week count itself (the season can already be past its configured length), so this
+    // call site only needs its best-known inputs, not its own clamping.
+    const remainingWeeks = (leagueFormat.regularSeasonMatchupPeriods ?? 13) - currentWeek;
     const playoffProbabilities = calculatePlayoffProbabilities(
       standings,
       remainingWeeks,
-      league.settings.playoffTeamCount || 6
+      leagueFormat.playoffTeamCount
     );
     
     // Format trades with analysis
@@ -669,6 +884,12 @@ export const getLeagueDataForAI = internalQuery({
       leagueType: inferredLeagueType,
       teams: enhancedTeams,
       standings,
+      // Present only when the league has divisions (spec: format audit).
+      divisionStandings,
+      // League-format facts: scoring, roster shape, playoff structure, divisions, waivers. Read
+      // through `facts.format` in the prompt layer; `playoffTeams` / `regularSeasonWeeks` below
+      // stay for back-compat with prompt code that reads the flat fields.
+      leagueFormat,
       recentMatchups: enrichedMatchups,
       // Unplayed games for the look-ahead week (spec 4.3). Empty once the
       // schedule runs out, which is what makes weekly_preview refuse.
@@ -679,18 +900,19 @@ export const getLeagueDataForAI = internalQuery({
       managerActivity,
       transactionTrends,
       playoffProbabilities,
-      
+
       // NEW: Historical data for season welcome packages
       previousSeasons,
       leagueHistory: {
         seasons: championshipHistory,
         allTimeRecords,
       },
-      
+
       metadata: {
         dataFreshness: Date.now(),
         totalTeams: teams.length,
-        playoffTeams: league.settings.playoffTeamCount || 6,
+        playoffTeams: leagueFormat.playoffTeamCount ?? 6,
+        regularSeasonWeeks: leagueFormat.regularSeasonMatchupPeriods,
         scoringType: league.settings.scoringType,
         historicalSeasons: Object.keys(previousSeasons).length,
         totalHistoricalTeams: allHistoricalTeams.length,
@@ -967,6 +1189,9 @@ export const getMockDraftDataForAI = internalQuery({
         }));
       }
       
+      // Reuses the season row already fetched above (spec: format audit) rather than a second query.
+      const leagueFormat = computeLeagueFormat(leagueSeason.settings, league.settings);
+
       const result: any = {
         leagueName: league.name,
         seasonId: targetSeason,
@@ -975,6 +1200,9 @@ export const getMockDraftDataForAI = internalQuery({
         leagueType: leagueSeason.draft?.some(pick => pick.keeper) ? "Keeper" : "Redraft",
         scoringType: league.settings.scoringType,
         rosterSize: league.settings.rosterSize,
+        leagueFormat,
+        playoffTeams: leagueFormat.playoffTeamCount,
+        regularSeasonWeeks: leagueFormat.regularSeasonMatchupPeriods,
         totalTeams: teams.length,
         teams: teams.map(team => ({
           id: team._id,
@@ -1769,18 +1997,23 @@ export const getWaiverWireDataForAI = internalQuery({
         }),
         rivalries: [],
         managerActivity: basicLeagueData.managerActivity,
-        
+
         // Settings
         scoringType: league.settings?.scoringType || "PPR",
         rosterSize: league.settings?.rosterSize || 16,
-        
+        // League-format facts (spec: format audit) — waiver type/FAAB and roster shape reach the
+        // waiver_wire_report prompt through this, carried through from `getLeagueDataForAI`.
+        leagueFormat: basicLeagueData.leagueFormat,
+        playoffTeams: basicLeagueData.leagueFormat?.playoffTeamCount ?? basicLeagueData.metadata?.playoffTeams,
+        regularSeasonWeeks: basicLeagueData.leagueFormat?.regularSeasonMatchupPeriods,
+
         metadata: {
           dataFreshness: Date.now(),
           availablePlayersCount: availablePlayers.length,
           trendingPlayersCount: availablePlayers.filter(p => p.ownership.percentChange > 5).length,
         },
       };
-      
+
       const executionTime = Date.now() - startTime;
       console.log("=== getWaiverWireDataForAI SUCCESS ===");
       console.log("Execution time:", executionTime + "ms");
@@ -1983,8 +2216,12 @@ export const getTradeAnalysisDataForAI = internalQuery({
         // Settings
         scoringType: league.settings?.scoringType || "PPR",
         rosterSize: league.settings?.rosterSize || 16,
-        playoffTeams: league.settings?.playoffTeamCount || 6,
-        
+        playoffTeams: basicLeagueData.leagueFormat?.playoffTeamCount ?? league.settings?.playoffTeamCount ?? 6,
+        regularSeasonWeeks: basicLeagueData.leagueFormat?.regularSeasonMatchupPeriods,
+        // League-format facts (spec: format audit) — the trade deadline reaches the
+        // trade_analysis/trade_block prompts through this.
+        leagueFormat: basicLeagueData.leagueFormat,
+
         metadata: {
           dataFreshness: Date.now(),
           tradeDate: targetTrade.tradeDate,
@@ -2031,6 +2268,11 @@ export const getWeeklyRecapDataForAI = internalQuery({
     standings: any[];
     scoringType: string;
     rosterSize: number;
+    // League-format facts (spec: format audit) — carried through so standings mentions in the
+    // weekly-recap prompt can name a division.
+    leagueFormat?: LeagueFormat;
+    playoffTeams?: number;
+    regularSeasonWeeks?: number;
     metadata: {
       dataFreshness: number;
       week: number;
@@ -2403,7 +2645,12 @@ export const getWeeklyRecapDataForAI = internalQuery({
         // Settings
         scoringType: league.settings?.scoringType || "PPR",
         rosterSize: league.settings?.rosterSize || 16,
-        
+        // League-format facts (spec: format audit), carried through so a standings mention in the
+        // recap can name a division.
+        leagueFormat: basicLeagueData.leagueFormat,
+        playoffTeams: basicLeagueData.leagueFormat?.playoffTeamCount,
+        regularSeasonWeeks: basicLeagueData.leagueFormat?.regularSeasonMatchupPeriods,
+
         metadata: {
           dataFreshness: Date.now(),
           week: args.week,

@@ -113,6 +113,49 @@ interface PlayoffBreakdown {
   championshipGame?: Matchup;
 }
 
+/** One division as the settings layer stores it: an ESPN division id plus its display name. */
+export interface LeagueFormatDivision {
+  id: string;
+  name: string;
+  size?: number;
+}
+
+/**
+ * Raw league-format settings (audit: leagues differ in scoring, roster shape, playoff structure,
+ * divisions and waivers, and the writers had no way to know any of it). Assembled once per article
+ * by `convex/aiQueries.ts#buildLeagueFormat`, preferring the article's season row over the
+ * league-level settings. Every field is optional and must be read defensively — a settings
+ * migration populates these concurrently, so older leagues simply have fewer of them.
+ */
+export interface LeagueFormat {
+  /** "ppr" | "half_ppr" | "standard" | "custom", or a legacy free-text value like "PPR". */
+  scoringType?: string;
+  receptionPoints?: number;
+  regularSeasonMatchupPeriods?: number;
+  playoffTeamCount?: number;
+  /** Real weeks per playoff round; 2 means two-week rounds. */
+  playoffMatchupPeriodLength?: number;
+  playoffRounds?: number;
+  /** "TOTAL_POINTS_SCORED" | "H2H_RECORD" | "DIVISION_WINNERS", ESPN's raw enum. */
+  playoffSeedingRule?: string;
+  divisions?: LeagueFormatDivision[];
+  /** ESPN matchup-period id -> the real week numbers it spans, e.g. `{ "15": [15, 16] }`. */
+  matchupPeriods?: Record<string, number[]>;
+  /** Roster slot label -> count, e.g. `{ QB: 1, RB: 2, FLEX: 1 }`. */
+  lineupSlots?: Record<string, number>;
+  isSuperflex?: boolean;
+  hasIdp?: boolean;
+  /** "faab" | "waivers" | "free_agency". */
+  waiverType?: string;
+  faabBudget?: number;
+  /** ms epoch. */
+  tradeDeadline?: number;
+  /** Derived: the last real week of the fantasy season (regular season + every playoff round). */
+  fantasyChampionshipWeek?: number;
+  /** Derived, plain English: "Weeks 15-18" or "Week 16". */
+  playoffWeeksRange?: string;
+}
+
 export interface PromptBuilderOptions {
   leagueId: string;
   contentType: string;
@@ -139,6 +182,10 @@ export interface LeagueDataContext {
     pointsAgainst: number;
     externalId?: string; // ESPN team ID for consistency tracking
     playoffSeed?: number;
+    /** The division's display name, when the league has divisions. */
+    division?: string;
+    /** String form of `teams.divisionId`, matching `LeagueFormatDivision.id`. */
+    divisionId?: string;
     divisionRecord?: { wins: number; losses: number; ties: number; };
     strengthOfSchedule?: number; // Calculated metric
     recentForm?: { wins: number; losses: number; avgPoints: number; }; // Last 3 weeks
@@ -274,8 +321,22 @@ export interface LeagueDataContext {
     pointsAgainst: number;
     playoffSeed?: number;
     divisionRank?: number;
+    /** The division's display name, when the league has divisions. */
+    division?: string;
+    divisionRecord?: { wins: number; losses: number; ties: number; };
     streakType?: "W" | "L";
     streakLength?: number;
+  }>;
+  /** One group per division, only present when the league has divisions. */
+  divisionStandings?: Array<{
+    division: string;
+    teams: Array<{
+      rank: number;
+      teamId: string;
+      team: string;
+      record: string;
+      pointsFor: number;
+    }>;
   }>;
   rivalries?: Array<{
     teamA: { id: string; name: string; manager: string; };
@@ -300,6 +361,9 @@ export interface LeagueDataContext {
   rosterSize?: number;
   playoffTeams?: number;
   regularSeasonWeeks?: number;
+  /** League-format facts (spec: format audit). Read through `this.facts.format` inside the prompt
+   * builder — this raw field exists so `buildFormat` in `facts.ts` has something to read. */
+  leagueFormat?: LeagueFormat;
   leagueHistory?: {
     foundedYear: number;
     totalSeasons: number;
@@ -645,6 +709,59 @@ past coverage is available to you.`];
     return parts.join('\n\n');
   }
 
+  /**
+   * A readable rendering of `this.facts.format` (spec: format audit). Every field it prints is
+   * already in the FACTS block above it — this is prose, not a new source of truth — so a section
+   * with nothing to say for the requested lines is simply omitted rather than guessed at.
+   */
+  private formatLines(fields: Array<"scoring" | "roster" | "playoffs" | "divisions" | "waivers" | "tradeDeadline">): string {
+    const format = this.facts.format;
+    const lines: string[] = [];
+
+    if (fields.includes("scoring") && format.scoring) {
+      lines.push(`- Scoring: ${format.scoring}`);
+    }
+    if (fields.includes("roster") && format.rosterShape) {
+      lines.push(`- Roster: ${format.rosterShape}`);
+    }
+    if (fields.includes("playoffs")) {
+      if (format.regularSeasonWeeks !== undefined) {
+        lines.push(`- Regular season: ${format.regularSeasonWeeks} weeks`);
+      }
+      if (format.playoffTeamCount !== undefined) {
+        let playoffLine = `- Playoffs: ${format.playoffTeamCount} teams`;
+        if (format.playoffRounds !== undefined) playoffLine += `, ${format.playoffRounds} rounds`;
+        if (format.playoffRoundLengthWeeks === 2) playoffLine += ' (two-week rounds)';
+        if (format.playoffWeeksRange) playoffLine += ` — ${format.playoffWeeksRange}`;
+        lines.push(playoffLine);
+      } else {
+        lines.push('- Playoffs: field size not in the payload. Do not assume a number of playoff teams.');
+      }
+      if (format.seedingRule) lines.push(`- Seeding: ${format.seedingRule}`);
+    }
+    if (fields.includes("divisions") && format.divisions.length > 0) {
+      lines.push(`- Divisions: ${format.divisions.map(division => division.name).join(', ')}`);
+    }
+    if (fields.includes("waivers")) {
+      if (format.waiverType) {
+        lines.push(`- Waivers: ${format.waiverType}`);
+      } else {
+        lines.push('- Waivers: type not in the payload. Do not assume FAAB or rolling waivers.');
+      }
+    }
+    if (fields.includes("tradeDeadline") && format.tradeDeadline) {
+      const status =
+        format.tradeDeadlineStatus === 'passed'
+          ? 'has passed'
+          : format.tradeDeadlineStatus === 'soon'
+            ? 'is coming up soon'
+            : undefined;
+      lines.push(`- Trade deadline: ${format.tradeDeadline}${status ? ` (${status})` : ''}`);
+    }
+
+    return lines.length > 0 ? `LEAGUE FORMAT:\n${lines.join('\n')}\n` : '';
+  }
+
   /** Template sections, with the weekly-recap playoff sections resolved against the payload. */
   private templateSections() {
     const playoffData = (this.options.leagueData as LeagueDataContext & { playoffBreakdown?: PlayoffBreakdown })
@@ -929,8 +1046,13 @@ where the two ever disagree, <FACTS> wins.
         if (team.playoffSeed) {
           recap += ` - #${team.playoffSeed} seed`;
         }
+        if (team.division) {
+          recap += ` [${team.division}]`;
+        }
         recap += '\n';
       });
+      const divisionsLine = this.formatLines(['divisions']);
+      if (divisionsLine) recap += `\n${divisionsLine}`;
     }
 
     // Manager activity highlights
@@ -1120,9 +1242,15 @@ where the two ever disagree, <FACTS> wins.
   }
 
   private buildPowerRankingsData(data: LeagueDataContext): string {
-    let rankings = 'CURRENT TEAM RECORDS:\n';
-    
+    let rankings = this.formatLines(['divisions']);
+    rankings += 'CURRENT TEAM RECORDS (playoff seed order when known):\n';
+
     const sortedTeams = [...data.teams].sort((a, b) => {
+      const seedA = a.playoffSeed;
+      const seedB = b.playoffSeed;
+      if (seedA !== undefined && seedB !== undefined) return seedA - seedB;
+      if (seedA !== undefined) return -1;
+      if (seedB !== undefined) return 1;
       const winDiff = b.record.wins - a.record.wins;
       return winDiff !== 0 ? winDiff : b.pointsFor - a.pointsFor;
     });
@@ -1132,7 +1260,9 @@ where the two ever disagree, <FACTS> wins.
       if (team.record.ties > 0) rankings += `-${team.record.ties}`;
       const pointsFor = team.pointsFor ?? team.record.pointsFor ?? 0;
       const pointsAgainst = team.pointsAgainst ?? team.record.pointsAgainst ?? 0;
-      rankings += `) - ${pointsFor.toFixed(1)} PF, ${pointsAgainst.toFixed(1)} PA\n`;
+      rankings += `) - ${pointsFor.toFixed(1)} PF, ${pointsAgainst.toFixed(1)} PA`;
+      if (team.division) rankings += ` [${team.division}]`;
+      rankings += '\n';
       
       // Add top performers from each team
       if (team.roster && team.roster.length > 0) {
@@ -1261,6 +1391,9 @@ Trade Date: ${latestTrade.date}
       tradeAnalysis += `\nINITIAL GRADES: Team A: ${latestTrade.tradeGrade.teamA}, Team B: ${latestTrade.tradeGrade.teamB}\n`;
     }
 
+    const tradeDeadlineLine = this.formatLines(['tradeDeadline']);
+    if (tradeDeadlineLine) tradeAnalysis += `\n${tradeDeadlineLine}`;
+
     tradeAnalysis += '\nAnalyze this trade considering team needs, player performance trends, injury risks, and playoff implications.';
     
     return tradeAnalysis;
@@ -1365,13 +1498,12 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     if (!data.availablePlayers || data.availablePlayers.length === 0) {
       throw new InsufficientDataError('waiver_wire_report', ['available_players (ESPN free-agent pool)']);
     }
+    const formatLines = this.formatLines(['waivers', 'roster', 'scoring']);
     let waiverData = `LEAGUE CONTEXT:
-- Scoring type: ${data.scoringType || 'PPR'}
-- Roster size: ${data.rosterSize || 16}
 - Current week: ${data.currentWeek}
 - Total teams: ${data.teams.length}
-
-`;
+${!this.facts.format.rosterShape ? `- Roster size: ${data.rosterSize || 16}\n` : ''}
+${formatLines}`;
 
     // Find available players (low ownership percentage)
     const availablePlayers: Array<{ playerId: string; playerName: string; position: string; team: string; ownership?: { percentOwned?: number; percentChange?: number; }; }> = [];
@@ -1449,8 +1581,7 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
 - ${data.teams.length} teams
 - Current leader: ${leader.name} (${leader.record.wins}-${leader.record.losses})
 - Week ${data.currentWeek} of the season
-- Scoring type: ${data.scoringType || 'PPR'}
-`;
+${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
 
     // Add league history if available
     if (data.leagueHistory) {
@@ -1500,9 +1631,9 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     const order = data.draftOrder ?? data.draftSettings?.pickOrder ?? [];
 
     let guide = `DRAFT STRATEGY CONTEXT:\n\nLEAGUE SETTINGS:\n`;
-    guide += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'} | ${data.scoringType || 'PPR'}\n`;
-    guide += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n`;
-    guide += `- ${data.playoffTeams ?? 'unknown'} playoff teams | ${data.regularSeasonWeeks ?? 'unknown'} regular season weeks\n\n`;
+    guide += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'}\n`;
+    guide += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n\n`;
+    guide += this.formatLines(['scoring', 'roster', 'playoffs']);
 
     if (order.length > 0) {
       guide += `DRAFT ORDER:\n${order.map(pick => `${pick.position}. ${pick.teamName}`).join(' | ')}\n\n`;
@@ -1570,21 +1701,31 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
       throw new InsufficientDataError('playoff_picture', ['standings']);
     }
 
-    const playoffTeams = data.playoffTeams;
+    const format = this.facts.format;
     let picture = `PLAYOFF PICTURE CONTEXT:\n`;
-    picture += `- Week ${data.currentWeek}`;
-    if (data.regularSeasonWeeks) picture += ` of ${data.regularSeasonWeeks} regular season weeks`;
-    picture += `\n- Playoff field: ${playoffTeams ?? 'not in the payload'}\n\n`;
+    picture += `- Week ${data.currentWeek}\n\n`;
+    picture += this.formatLines(['playoffs', 'divisions']);
 
-    picture += `STANDINGS:\n`;
+    picture += `\nSTANDINGS (ranked by playoff seed when known):\n`;
     data.standings.forEach(team => {
       picture += `${team.rank}. ${team.team} (${team.wins}-${team.losses}`;
       if (team.ties > 0) picture += `-${team.ties}`;
       picture += `) — ${team.pointsFor.toFixed(1)} PF, ${team.pointsAgainst.toFixed(1)} PA`;
       if (team.streakType && team.streakLength) picture += ` [${team.streakType}${team.streakLength}]`;
       if (team.playoffSeed) picture += ` [#${team.playoffSeed} seed]`;
+      if (team.division) picture += ` [${team.division}]`;
       picture += '\n';
     });
+
+    if (data.divisionStandings && data.divisionStandings.length > 0) {
+      picture += `\nSTANDINGS BY DIVISION:\n`;
+      data.divisionStandings.forEach(group => {
+        picture += `${group.division}:\n`;
+        group.teams.forEach(team => {
+          picture += `  ${team.rank}. ${team.team} (${team.record}) — ${team.pointsFor.toFixed(1)} PF\n`;
+        });
+      });
+    }
 
     if (data.recentMatchups && data.recentMatchups.length > 0) {
       picture += `\nMOST RECENT RESULTS:\n`;
@@ -1605,7 +1746,8 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     picture += `\nPLAYOFF PICTURE RULES:
 - Seeding comes from the standings above and nowhere else.
 - Every piece of elimination or clinching arithmetic shows both inputs.
-- ${playoffTeams ? `The field is ${playoffTeams} teams.` : 'The payload does not say how many teams make the playoffs. Say that instead of assuming six.'}
+- ${format.playoffTeamCount ? `The field is ${format.playoffTeamCount} teams.` : 'The payload does not say how many teams make the playoffs. Say that instead of assuming a number.'}
+- ${format.seedingRule ? `Seeding rule: ${format.seedingRule}.` : 'The payload does not say how seeding is determined beyond the standings order above.'}
 - No playoff odds. There is no odds model in this payload, so there is no percentage to print.`;
 
     return picture;
@@ -1627,8 +1769,10 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
     
     // Compact League Settings
     mockDraftData += `LEAGUE SETTINGS:\n`;
-    mockDraftData += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'} | ${data.scoringType || 'PPR'}\n`;
-    mockDraftData += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n\n`;
+    mockDraftData += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'}\n`;
+    mockDraftData += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n`;
+    mockDraftData += this.formatLines(['scoring', 'roster']);
+    mockDraftData += '\n';
     
     // Draft Order (compact format)
     if (data.draftOrder && data.draftOrder.length > 0) {
@@ -2082,6 +2226,9 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
         });
     }
     
+    const tradeDeadlineLine = this.formatLines(['tradeDeadline']);
+    if (tradeDeadlineLine) rumorData += `\n${tradeDeadlineLine}`;
+
     rumorData += `\nTHE ASKING PRICE — REPORTING RULES:
 - This column reports only three things: completed transactions, standing trade-block listings, and
   on-record manager statements. Nothing else is printable.

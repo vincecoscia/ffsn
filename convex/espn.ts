@@ -3,6 +3,7 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireIdentity } from "./lib/auth";
 import { fetchEspn, normalizeEspnCredentials, type EspnCredentials } from "./lib/espnClient";
+import { parseEspnLeagueSettings } from "./lib/espnSettings";
 
 // Helper function to fetch draft data for a specific season
 async function fetchDraftData(leagueId: string, season: number, creds: EspnCredentials): Promise<any> {
@@ -195,34 +196,48 @@ export const fetchLeagueData = action({
       const settings = leagueData.settings;
       const teams = leagueData.teams || [];
 
-      // Map scoring type
-      const scoringTypeMap: { [key: number]: string } = {
-        0: 'standard',
-        1: 'ppr',
-        2: 'half-ppr'
+      // Audit finding: the old scoring-type map above assumed
+      // `scoringSettings.scoringType` was `0|1|2`, and the old roster/playoff
+      // extraction below read `scheduleSettings.regularSeasonMatchupPeriods`
+      // and `scheduleSettings.playoffWeekCount` - none of which ESPN actually
+      // emits (`scoringType` is a string enum; PPR-ness lives in
+      // `scoringItems`; the real field names are `matchupPeriodCount` and
+      // `playoffMatchupPeriodLength` x rounds). `parseEspnLeagueSettings`
+      // (`convex/lib/espnSettings.ts`) is the tolerant, tested replacement.
+      const parsedSettings = parseEspnLeagueSettings(settings);
+
+      // Legacy roster-composition shape the setup wizard still reads directly
+      // (`EspnSettings.rosterComposition` in `src/app/setup/page.tsx`) - only
+      // QB/RB/WR/TE/FLEX/K/DST/BE, kept for backward compatibility alongside
+      // `parsedSettings.lineupSlots`, which carries the full ESPN slot set
+      // (IDP, superflex/OP, TQB, bench, IR, ...).
+      const LEGACY_SLOT_NAMES: Record<string, string> = {
+        QB: 'QB',
+        RB: 'RB',
+        WR: 'WR',
+        TE: 'TE',
+        FLEX: 'FLEX',
+        K: 'K',
+        'D/ST': 'DST',
+        BENCH: 'BE',
       };
-
-      // Parse roster composition
       const rosterComposition: { [position: string]: number } = {};
-      if (settings?.rosterSettings?.lineupSlotCounts) {
-        const slotMap: { [key: number]: string } = {
-          0: 'QB',
-          2: 'RB',
-          4: 'WR',
-          6: 'TE',
-          23: 'FLEX',
-          17: 'K',
-          16: 'DST',
-          20: 'BE'
-        };
-
-        Object.entries(settings.rosterSettings.lineupSlotCounts).forEach(([slotId, count]) => {
-          const position = slotMap[parseInt(slotId)];
-          if (position) {
-            rosterComposition[position] = count as number;
-          }
-        });
+      if (parsedSettings.lineupSlots) {
+        for (const [slotName, legacyName] of Object.entries(LEGACY_SLOT_NAMES)) {
+          const count = parsedSettings.lineupSlots[slotName];
+          if (count !== undefined) rosterComposition[legacyName] = count;
+        }
       }
+
+      // ESPN stopped emitting a direct "playoff weeks" count; derive it from
+      // rounds x weeks-per-round the same way `fantasyChampionshipWeek` does,
+      // falling back to the old hard-coded default (3) when either input is
+      // missing (e.g. `settings` came back empty).
+      const playoffWeeks =
+        parsedSettings.playoffMatchupPeriodLength !== undefined &&
+        parsedSettings.playoffRounds !== undefined
+          ? parsedSettings.playoffMatchupPeriodLength * parsedSettings.playoffRounds
+          : 3;
 
       // Fetch draft data for current season, using whichever credentials
       // (none, or the supplied ones) actually got the main fetch through.
@@ -230,11 +245,11 @@ export const fetchLeagueData = action({
 
       const processedData = {
         id: args.leagueId,
-        name: settings?.name || 'ESPN League',
-        size: settings?.size || teams.length,
-        scoringType: scoringTypeMap[settings?.scoringSettings?.scoringType] || 'standard',
+        name: parsedSettings.name || 'ESPN League',
+        size: parsedSettings.size || teams.length,
+        scoringType: parsedSettings.scoringType,
         rosterSize: Object.values(rosterComposition).reduce((sum, count) => sum + count, 0) || 16,
-        playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
+        playoffWeeks,
         seasonId: currentYear,
         currentScoringPeriod: leagueData.scoringPeriodId || leagueData.status?.currentMatchupPeriod || leagueData.status?.latestScoringPeriod || settings?.scoringSettings?.currentScoringPeriod || 1,
         isPrivate,
@@ -254,11 +269,30 @@ export const fetchLeagueData = action({
           pointsAgainst: team.record?.overall?.pointsAgainst || 0,
         })),
         settings: {
-          scoringType: scoringTypeMap[settings?.scoringSettings?.scoringType] || 'standard',
+          scoringType: parsedSettings.scoringType,
           rosterComposition,
-          playoffTeamCount: settings?.scheduleSettings?.playoffTeamCount || 6,
-          playoffWeeks: settings?.scheduleSettings?.playoffWeekCount || 3,
-          regularSeasonMatchupPeriods: settings?.scheduleSettings?.regularSeasonMatchupPeriods || 14,
+          playoffTeamCount: parsedSettings.playoffTeamCount ?? 6,
+          playoffWeeks,
+          regularSeasonMatchupPeriods: parsedSettings.regularSeasonMatchupPeriods ?? 14,
+          // Full parsed shape, so the setup wizard can pass every field
+          // through to `leagues.create` (see `src/app/setup/page.tsx`) even
+          // though the `EspnSettings` display interface there only declares
+          // the five fields above.
+          playoffMatchupPeriodLength: parsedSettings.playoffMatchupPeriodLength,
+          playoffRounds: parsedSettings.playoffRounds,
+          playoffSeedingRule: parsedSettings.playoffSeedingRule,
+          playoffReseed: parsedSettings.playoffReseed,
+          divisions: parsedSettings.divisions,
+          matchupPeriods: parsedSettings.matchupPeriods,
+          lineupSlots: parsedSettings.lineupSlots,
+          isSuperflex: parsedSettings.isSuperflex,
+          hasIdp: parsedSettings.hasIdp,
+          waiverType: parsedSettings.waiverType,
+          faabBudget: parsedSettings.faabBudget,
+          waiverHours: parsedSettings.waiverHours,
+          tradeDeadline: parsedSettings.tradeDeadline,
+          receptionPoints: parsedSettings.receptionPoints,
+          scoringSystem: parsedSettings.scoringSystem,
         },
         draftSettings: settings?.draftSettings || null,
         draftPicks: draftPicks,

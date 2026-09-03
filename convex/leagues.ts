@@ -14,6 +14,12 @@ import type { Id } from "./_generated/dataModel";
 import { requireCommissioner, requireLeagueMember } from "./lib/auth";
 import { leagueSeatAllowance } from "./credits";
 import { normalizeEspnCredentials } from "./lib/espnClient";
+import {
+  divisionValidator,
+  parsedLeagueSettingsValidator,
+  pickMirroredLeagueSettings,
+  waiverTypeValidator,
+} from "./lib/espnSettings";
 
 /**
  * The error a full league throws (spec §10.1). A machine-readable code rather
@@ -106,11 +112,24 @@ export const create = mutation({
       })),
       playoffTeamCount: v.optional(v.number()),
       regularSeasonMatchupPeriods: v.optional(v.number()),
-      divisions: v.optional(v.array(v.object({
-        id: v.string(),
-        name: v.string(),
-        size: v.number(),
-      }))),
+      // Parsed fields from `convex/lib/espnSettings.ts` the setup wizard now
+      // passes through from `espn.fetchLeagueData` (see `src/app/setup/page.tsx`).
+      // Mirrors the new optional fields on `leagues.settings` in `schema.ts`.
+      divisions: v.optional(v.array(divisionValidator)),
+      playoffMatchupPeriodLength: v.optional(v.number()),
+      playoffRounds: v.optional(v.number()),
+      playoffSeedingRule: v.optional(v.string()),
+      playoffReseed: v.optional(v.boolean()),
+      matchupPeriods: v.optional(v.record(v.string(), v.array(v.number()))),
+      lineupSlots: v.optional(v.record(v.string(), v.number())),
+      isSuperflex: v.optional(v.boolean()),
+      hasIdp: v.optional(v.boolean()),
+      waiverType: v.optional(waiverTypeValidator),
+      faabBudget: v.optional(v.number()),
+      waiverHours: v.optional(v.number()),
+      tradeDeadline: v.optional(v.number()),
+      receptionPoints: v.optional(v.number()),
+      scoringSystem: v.optional(v.string()),
     }),
     espnData: v.optional(v.object({
       seasonId: v.number(),
@@ -228,6 +247,67 @@ export const create = mutation({
     }
 
     return leagueId;
+  },
+});
+
+/**
+ * Mirrors a subset of one season's parsed ESPN settings onto `leagues.settings`
+ * so the "current" league config every non-season-scoped reader uses (setup
+ * summary, `dataProcessing.ts`'s playoff-week math, roster display) reflects
+ * the most recently synced season instead of whatever the setup wizard sent
+ * once at league creation and never again (the exact bug the audit found:
+ * `dataProcessing.ts` computing `remainingWeeks` from a `playoffWeeks` value
+ * that was 4+ months stale by the fantasy playoffs).
+ *
+ * Contract:
+ * - Caller: intended to run once per season sync, after `espnSync` parses
+ *   that season's raw ESPN settings blob with
+ *   `parseEspnLeagueSettings` (`convex/lib/espnSettings.ts`) and writes it to
+ *   `leagueSeasons.settings`. Not wired up to a caller yet - `espnSync.ts` is
+ *   being edited elsewhere; this mutation is the landing point for that call.
+ * - `args.settings` is the FULL `ParsedLeagueSettings` for `args.seasonId`.
+ *   Only `MIRRORED_LEAGUE_SETTINGS_KEYS` (`convex/lib/espnSettings.ts`) are
+ *   actually written - fields like `name`, `size`, `vetoVotesRequired`, and
+ *   `draft` are accepted but intentionally not mirrored onto
+ *   `leagues.settings` (they don't belong in that object, or aren't consumed
+ *   from it anywhere yet).
+ * - Merge semantics: `leagues.settings` is spread first, then overridden with
+ *   only the DEFINED mirrored keys (`pickMirroredLeagueSettings` drops
+ *   `undefined`s) - a field ESPN didn't emit in this particular sync is left
+ *   exactly as it was, never reset to `undefined`. Every other
+ *   `leagues.settings` field (`categories`, `rosterSize`, `rosterComposition`,
+ *   ...) is untouched.
+ * - Always stamps `settingsSyncedAt = Date.now()`, even when nothing else
+ *   changed - it's evidence the sync ran, not evidence something changed.
+ * - Idempotent and safe to call multiple times with the same input.
+ * - Does NOT check `args.seasonId` against the league's current season - the
+ *   caller must only invoke this for the season it wants mirrored (normally
+ *   the season that was just synced).
+ */
+export const mirrorSeasonSettings = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    settings: parsedLeagueSettingsValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) {
+      throw new Error(`mirrorSeasonSettings: league ${args.leagueId} not found`);
+    }
+
+    const mirrored = pickMirroredLeagueSettings(args.settings);
+
+    await ctx.db.patch(args.leagueId, {
+      settings: {
+        ...league.settings,
+        ...mirrored,
+        settingsSyncedAt: Date.now(),
+      },
+    });
+
+    return null;
   },
 });
 

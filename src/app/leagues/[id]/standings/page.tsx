@@ -323,8 +323,12 @@ export default function StandingsPage({ params }: StandingsPageProps) {
             <TabsContent value="division" className="mt-5">
               <div className="flex flex-col gap-8">
                 {Array.from(teamsByDivision.entries()).map(([divisionId, divTeams]) => {
+                  // `leagues.settings.divisions[].id` is now `v.number()`
+                  // (ESPN's division ids are numeric; matches
+                  // `teams.divisionId`), so compare directly rather than
+                  // stringifying - see `convex/lib/espnSettings.ts`.
                   const division = league.settings.divisions?.find(
-                    (d) => d.id === divisionId.toString()
+                    (d) => d.id === divisionId
                   );
                   return (
                     <div key={divisionId} className="flex flex-col gap-3">

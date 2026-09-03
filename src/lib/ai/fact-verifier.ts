@@ -332,6 +332,9 @@ export function verifyArticle(
   const managers = new Set(
     facts.teams.map(team => (team.manager ?? "").toLowerCase()).filter(name => name.length > 0)
   );
+  // Division names are proper nouns a writer legitimately prints ("the East", "Team X leads the
+  // West") and must never read as an unknown team or player (spec: format audit).
+  const divisionNames = new Set(facts.format.divisions.map(division => division.name.toLowerCase()));
   const playerById = new Map<string, FactsPlayer>(
     facts.matchups.flatMap(matchup => matchup.players).map(player => [player.id, player])
   );
@@ -520,9 +523,9 @@ export function verifyArticle(
       const lower = noun.toLowerCase();
       // "The Grinders", "Here Comes", "But Nobody" — a sentence opener, not a name (spec §11.3.11).
       if (LEADING_NOISE_WORDS.has(lower.split(/\s+/)[0])) continue;
-      if (playerNames.has(lower) || teamNames.has(lower) || managers.has(lower)) continue;
+      if (playerNames.has(lower) || teamNames.has(lower) || managers.has(lower) || divisionNames.has(lower)) continue;
       if (NFL_TEAMS.has(lower) || lower.split(/\s+/).every(word => COMMON_WORDS.has(word))) continue;
-      if ([...playerNames, ...teamNames, ...managers].some(known => known.includes(lower) || lower.includes(known))) {
+      if ([...playerNames, ...teamNames, ...managers, ...divisionNames].some(known => known.includes(lower) || lower.includes(known))) {
         continue;
       }
       violations.push({ kind: "unknown_player", detail: noun, section: section.name, severity: "warn" });

@@ -365,3 +365,136 @@ describe("processLeagueDataAfterSync", () => {
     });
   });
 });
+
+describe("getEnrichedLeagueData playoff probabilities", () => {
+  // Audit finding: `remainingWeeks` used to be computed as
+  // `league.settings.playoffWeeks - currentScoringPeriod` - subtracting the
+  // current week from a small COUNT of playoff weeks (e.g. 3), not from the
+  // week the regular season ends. That goes negative starting week 4-5 of
+  // any real season, and (unlike this call site's argument, which was never
+  // clamped) fed straight into `calculatePlayoffProbabilities`'s
+  // `1 - remainingWeeks * 0.02` term, inflating every in-playoff-position
+  // team's probability instead of decaying it as the season progresses. The
+  // fix reads `regularSeasonMatchupPeriods` (a week number) and clamps at 0.
+  async function seedEnrichedLeague(
+    t: ReturnType<typeof convexTest>,
+    externalId: string,
+    opts: { regularSeasonMatchupPeriods?: number; currentScoringPeriod: number }
+  ) {
+    const now = Date.now();
+    const leagueId = await t.run(async (ctx) =>
+      ctx.db.insert("leagues", {
+        name: "Playoff Probability League",
+        platform: "espn",
+        externalId,
+        commissionerUserId: "clerk_commish",
+        settings: {
+          scoringType: "standard",
+          rosterSize: 16,
+          // The buggy code path read this (a playoff-week COUNT) as if it
+          // were a week number - deliberately small and left unused by the
+          // fix, so a regression back to reading this field would show up
+          // as a wildly different `remainingWeeks`.
+          playoffWeeks: 3,
+          categories: [],
+          regularSeasonMatchupPeriods: opts.regularSeasonMatchupPeriods,
+        },
+        espnData: {
+          seasonId: SEASON,
+          currentScoringPeriod: opts.currentScoringPeriod,
+          size: 2,
+          lastSyncedAt: now,
+          isPrivate: false,
+        },
+        subscription: {
+          tier: "season_pass",
+          status: "active",
+          creditsRemaining: 0,
+          creditsMonthly: 0,
+          paymentStatus: "completed",
+          seasonYear: SEASON,
+        },
+        lastSync: now,
+        createdAt: now,
+      })
+    );
+
+    // Team "1" leads (5-0), team "2" trails (3-2) - both inside the default
+    // 6-team playoff cutoff `getEnrichedLeagueData` falls back to.
+    await t.run(async (ctx) => {
+      const base = { leagueId, seasonId: SEASON, createdAt: now, updatedAt: now, roster: [] };
+      await ctx.db.insert("teams", {
+        ...base,
+        externalId: "1",
+        name: "Leader",
+        owner: "Owner One",
+        record: { wins: 5, losses: 0, ties: 0, pointsFor: 0, pointsAgainst: 0 },
+      });
+      await ctx.db.insert("teams", {
+        ...base,
+        externalId: "2",
+        name: "Chaser",
+        owner: "Owner Two",
+        record: { wins: 3, losses: 2, ties: 0, pointsFor: 0, pointsAgainst: 0 },
+      });
+    });
+
+    return leagueId;
+  }
+
+  it("computes remainingWeeks from regularSeasonMatchupPeriods, not playoffWeeks", async () => {
+    const t = convexTest(schema, modules);
+    // Week 10 of a 14-week regular season: remainingWeeks = 14 - 10 = 4. The
+    // pre-fix formula (3 - 10 = -7) is not just a different number but the
+    // wrong sign - it would inflate rather than decay the leader's odds.
+    const leagueId = await seedEnrichedLeague(t, "playoff-prob-1", {
+      regularSeasonMatchupPeriods: 14,
+      currentScoringPeriod: 10,
+    });
+
+    const result = await t.query(internal.dataProcessing.getEnrichedLeagueData, { leagueId, seasonId: SEASON });
+
+    const leader = result.playoffProbabilities.find((p) => p.teamId === "1")!;
+    // Hand-computed from `calculatePlayoffProbabilities`
+    // (`src/lib/ai/data-aggregation-helpers.ts`, unchanged by this fix) with
+    // remainingWeeks=4 and the leader's own gamesBack of 0:
+    // max(0.5, 1 - 0*0.1 - 4*0.02) = 0.92. (The trailing team's probability
+    // isn't a useful assertion here: that helper computes `gamesBack` as
+    // `team.wins - standings[0].wins`, which is negative for anyone behind
+    // the leader, so its probability term goes *up* rather than down and
+    // saturates at the outer `Math.min(1, ...)` clamp regardless of
+    // remainingWeeks - a pre-existing quirk in that helper, out of scope
+    // here.)
+    expect(leader.probability).toBeCloseTo(0.92, 5);
+  });
+
+  it("never goes negative once the regular season is over (Math.max(0, ...))", async () => {
+    const t = convexTest(schema, modules);
+    // Week 20 of a 14-week regular season - regularSeasonMatchupPeriods -
+    // currentScoringPeriod is negative; the fix clamps remainingWeeks to 0.
+    const leagueId = await seedEnrichedLeague(t, "playoff-prob-2", {
+      regularSeasonMatchupPeriods: 14,
+      currentScoringPeriod: 20,
+    });
+
+    const result = await t.query(internal.dataProcessing.getEnrichedLeagueData, { leagueId, seasonId: SEASON });
+
+    const leader = result.playoffProbabilities.find((p) => p.teamId === "1")!;
+    // remainingWeeks=0: max(0.5, 1 - 0 - 0) = 1.
+    expect(leader.probability).toBe(1);
+  });
+
+  it("falls back to the 14-week default when regularSeasonMatchupPeriods is unset", async () => {
+    const t = convexTest(schema, modules);
+    const leagueId = await seedEnrichedLeague(t, "playoff-prob-3", {
+      regularSeasonMatchupPeriods: undefined,
+      currentScoringPeriod: 10,
+    });
+
+    const result = await t.query(internal.dataProcessing.getEnrichedLeagueData, { leagueId, seasonId: SEASON });
+
+    const leader = result.playoffProbabilities.find((p) => p.teamId === "1")!;
+    // Same as the first test: default 14 - 10 = 4 remaining weeks.
+    expect(leader.probability).toBeCloseTo(0.92, 5);
+  });
+});
