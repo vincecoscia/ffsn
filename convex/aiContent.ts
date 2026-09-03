@@ -562,6 +562,14 @@ export const regenerateContentWithCredits = mutation({
   },
 });
 
+/**
+ * Season backfill (convex/seasonBackfill.ts): types printed AHEAD of the week they cover - a
+ * weekly_preview for week N runs Thursday of week N, a playoff_picture for week N runs Thursday of
+ * week N too - so both are written off week N-1's results, same as the live cron already does via
+ * `resolveTargetWeek`'s FORWARD-vs-lookback split in `convex/contentScheduling.ts`.
+ */
+const FORWARD_LOOKING_CONTENT = new Set(["weekly_preview", "playoff_picture"]);
+
 // Internal action to handle the actual AI generation
 export const generateContentAction = internalAction({
   args: {
@@ -648,11 +656,29 @@ export const generateContentAction = internalAction({
       
       // For other content types, use the existing approach
       console.log("Using standard approach for content type:", args.contentType);
-      
+
+      // Season backfill (owner directive, Sept 2026): a row about a season BEFORE the league's
+      // current one is written as of the period it actually covers, not live data - otherwise a
+      // "2025 week 5" article would read 2026's in-progress standings. Current-season rows (the
+      // ordinary case) keep the untouched live path: `asOf` stays undefined.
+      let asOf: { seasonId: number; week: number; rosterWeek?: number } | undefined;
+      if (args.seasonId !== undefined && args.week !== undefined) {
+        const league = await ctx.runQuery(internal.contentScheduling.getLeagueById, {
+          leagueId: args.leagueId,
+        });
+        if (args.seasonId < leagueCurrentSeason(league)) {
+          const asOfWeek = FORWARD_LOOKING_CONTENT.has(args.contentType) ? args.week - 1 : args.week;
+          // The roster a forward-looking piece describes is the one heading INTO its week (a week-5
+          // preview talks about week-5 lineups, waiver adds included); results still stop at asOfWeek.
+          asOf = { seasonId: args.seasonId, week: asOfWeek, rosterWeek: args.week };
+        }
+      }
+
       const leagueData = await ctx.runQuery(internal.aiContent.getLeagueDataForGenerationInternal, {
         leagueId: args.leagueId,
+        asOf,
       });
-      
+
       console.log("League data fetched successfully");
 
       // The trade-rumor enrichment below predates the typed context and reaches
@@ -853,6 +879,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           leagueId: args.leagueId,
           contentType: args.contentType,
           persona: args.persona,
+          week: args.week,
           // Use prepared data for season_welcome; fallback to enriched
           leagueData: args.contentType === 'season_welcome' ? (await ctx.runQuery(internal.aiContentHelpers.getPreparedData, { articleId: args.articleId }))?.leagueData || leagueData : leagueData,
           customContext: enrichedCustomContext,
@@ -879,7 +906,10 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         title: generatedContent.title,
         content: generatedContent.content,
         summary: generatedContent.summary,
-        metadata: generatedContent.metadata,
+        // args.seasonId is the season this article is actually about (asOf.seasonId for a
+        // backfilled row); updateGeneratedContent falls back to the league's live current season
+        // when it's absent, so every non-backfill caller is unaffected.
+        metadata: { ...generatedContent.metadata, seasonId: args.seasonId },
         billing,
       });
 
@@ -1022,7 +1052,12 @@ export const createScheduledArticle = internalMutation({
 
 // Internal query for getLeagueDataForGeneration
 export const getLeagueDataForGenerationInternal = internalQuery({
-  args: { leagueId: v.id("leagues") },
+  args: {
+    leagueId: v.id("leagues"),
+    // Season backfill (convex/seasonBackfill.ts): forwarded straight through to
+    // aiQueries.getLeagueDataForAI's own `asOf` - see that function for what it does.
+    asOf: v.optional(v.object({ seasonId: v.number(), week: v.number(), rosterWeek: v.optional(v.number()) })),
+  },
   handler: async (ctx, args): Promise<LeagueDataContext> => {
     return getLeagueDataForGenerationHandler(ctx, args);
   },
@@ -1032,14 +1067,15 @@ export const getLeagueDataForGenerationInternal = internalQuery({
 // enriched payload from aiQueries.getLeagueDataForAI, reshaped for generation.
 async function getLeagueDataForGenerationHandler(
   ctx: any,
-  args: { leagueId: any }
+  args: { leagueId: any; asOf?: { seasonId: number; week: number; rosterWeek?: number } }
 ): Promise<LeagueDataContext> {
     console.log("=== getLeagueDataForGeneration START ===");
     console.log("League ID:", args.leagueId);
-    
+
       // Use our enhanced query to get all enriched data
     const enrichedData = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
       leagueId: args.leagueId,
+      asOf: args.asOf,
     });
     
     console.log("Enriched league data fetched:", {
@@ -1209,6 +1245,12 @@ export const updateGeneratedContent = internalMutation({
       // Explicit predictions the writer made (spec §8.4). Stored with
       // outcome "open" plus the byline, week and season below.
       claims: v.optional(v.array(generatedClaimValidator)),
+      // Season backfill (owner directive, Sept 2026): the season this article is actually ABOUT,
+      // from the caller (generateContentAction's `args.seasonId`, or aiContentHelpers' prepared
+      // path). Falls back to the league's live current season below when absent, which is every
+      // caller before this shipped - the row is stamped `leagueCurrentSeason(league)` exactly as it
+      // always was.
+      seasonId: v.optional(v.number()),
     }),
     // Who paid for this article (spec §10.1): the League Pass, or the
     // requester's credits. Drives the automated/manual split in the season
@@ -1279,8 +1321,14 @@ export const updateGeneratedContent = internalMutation({
     // Receipts (spec §8.4). The model emits the prediction; who made it, in which
     // week and season, and how it turned out are ours to stamp on. Everything
     // starts "open" - claims.resolveOpenClaims settles them weekly.
+    //
+    // Season backfill (owner directive, Sept 2026): `args.metadata.seasonId` is the season this
+    // article is actually ABOUT (the caller's `asOf.seasonId` for a backfilled article), and wins
+    // over the league's live current season - without this, a 2025 recap generated during the 2026
+    // season was stamped `seasonId: 2026`, which put it under the WRONG season's spend cap and made
+    // it invisible to `by_league_season`-scoped reads of the 2025 season.
     const league = await ctx.db.get(article.leagueId);
-    const season = leagueCurrentSeason(league);
+    const season = args.metadata.seasonId ?? leagueCurrentSeason(league);
     const claims = args.metadata.claims?.map((claim) => ({
       ...claim,
       week: claim.week ?? args.metadata.week,
@@ -1354,12 +1402,20 @@ export const storeBannerImage = internalMutation({
 
 async function updateContentStatusHandler(
   ctx: MutationCtx,
-  args: { articleId: Id<"aiContent">; status: string; error?: string }
+  args: {
+    articleId: Id<"aiContent">;
+    status: string;
+    error?: string;
+    // Season backfill (owner directive, Sept 2026): a backfill publish is quiet (no
+    // notifyArticlePublished fan-out) and backdated to when the article is actually about, not now.
+    silent?: boolean;
+    publishedAt?: number;
+  }
 ) {
   // Update the status and set publishedAt if publishing
   const update: Record<string, unknown> = { status: args.status };
   if (args.status === "published") {
-    update.publishedAt = Date.now();
+    update.publishedAt = args.publishedAt ?? Date.now();
   }
   await ctx.db.patch(args.articleId, update);
 
@@ -1369,7 +1425,7 @@ async function updateContentStatusHandler(
   // generateContentAction which calls updateContentStatusInternal) since
   // both funnel through this shared handler. Scheduled rather than run
   // inline so a notification/email failure can never block publishing.
-  if (args.status === "published") {
+  if (args.status === "published" && !args.silent) {
     await ctx.scheduler.runAfter(0, internal.notifications.notifyArticlePublished, {
       articleId: args.articleId,
     });
@@ -1600,21 +1656,38 @@ export const finalizeGeneratedArticle = internalMutation({
     const prefs = contentPreferenceDefaults(preferences);
     const publish = prefs.autoPublish && !prefs.requireApproval && gate.ok;
 
+    // Read once, reused for the backfill gate below AND to close the row further down - a season
+    // backfill row (convex/seasonBackfill.ts) publishes quietly and backdated, and triggers no
+    // commissioner or operator notification (owner directive, Sept 2026): the whole point of the
+    // tool is a quiet catch-up run.
+    const scheduledRow = args.scheduledContentId ? await ctx.db.get(args.scheduledContentId) : null;
+    const isBackfill = scheduledRow?.backfill === true;
+
     let notifiedCommissioner = false;
     if (publish) {
-      // Fans out reader notifications + emails through notifyArticlePublished.
+      // Fans out reader notifications + emails through notifyArticlePublished - unless this is a
+      // backfill row, which publishes silently and backdated to when it's actually about.
       await updateContentStatusHandler(ctx, {
         articleId: args.articleId,
         status: "published",
+        silent: isBackfill,
+        publishedAt: isBackfill ? scheduledRow?.scheduledFor : undefined,
       });
+      if (isBackfill && scheduledRow) {
+        console.log(
+          `[backfill] published article ${args.articleId} quietly, backdated to ${new Date(scheduledRow.scheduledFor).toISOString()}`
+        );
+      }
     } else {
       if (!gate.ok && prefs.autoPublish) {
         console.log(
           `Auto-publish suppressed on article ${args.articleId}: ${gate.reasons.join("; ")}`
         );
-        // The operator hears about every held article immediately, deduped on
-        // the article id (spec §11.3.10). Scheduled rather than awaited: an
-        // email must never be able to fail a finalize.
+        // The operator hears about every held article, deduped on the article id (spec §11.3.10).
+        // A backfill row still claims/records the notice (so it lands in the daily digest) but
+        // skips the immediate email - a 30-article catch-up run must not flood the operator's
+        // inbox one message at a time. Scheduled rather than awaited: an email must never be able
+        // to fail a finalize.
         await ctx.scheduler.runAfter(0, internal.deskMetrics.notifyOperatorOfArticle, {
           leagueId: args.leagueId,
           articleId: args.articleId,
@@ -1622,9 +1695,12 @@ export const finalizeGeneratedArticle = internalMutation({
           contentType: article.type,
           persona: article.persona,
           reasons: gate.reasons,
+          digestOnly: isBackfill,
         });
       }
-      if (prefs.notifyCommissioner) {
+      // The commissioner's "ready for your review" notice never fires for a backfill row - a held
+      // backfill article is already visible in Review, and the whole run must stay quiet.
+      if (prefs.notifyCommissioner && !isBackfill) {
         const detail = gate.ok ? undefined : `Needs your review: ${gate.reasons.join("; ")}.`;
         const notificationId: Id<"userNotifications"> | null = await ctx.runMutation(
           internal.notifications.notifyCommissionerOfContent,
@@ -1645,17 +1721,14 @@ export const finalizeGeneratedArticle = internalMutation({
     // Close the scheduled row. Only ever moves a row forward: a cancelled or
     // failed row is left alone so a later finalize cannot resurrect it.
     let scheduledRowCompleted = false;
-    if (args.scheduledContentId) {
-      const row = await ctx.db.get(args.scheduledContentId);
-      if (row && (row.status === "generating" || row.status === "pending")) {
-        await ctx.db.patch(args.scheduledContentId, {
-          status: "completed",
-          generatedContentId: args.articleId,
-          generatedAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-        scheduledRowCompleted = true;
-      }
+    if (args.scheduledContentId && scheduledRow && (scheduledRow.status === "generating" || scheduledRow.status === "pending")) {
+      await ctx.db.patch(args.scheduledContentId, {
+        status: "completed",
+        generatedContentId: args.articleId,
+        generatedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      scheduledRowCompleted = true;
     }
 
     console.log(
@@ -1721,26 +1794,28 @@ export const markGenerationLowCredits = internalMutation({
       error: "low_credits",
     });
 
-    if (args.scheduledContentId) {
-      const row = await ctx.db.get(args.scheduledContentId);
-      if (row && row.status !== "completed") {
-        const patch: Record<string, unknown> = {
-          status: "cancelled",
-          errorMessage: `low_credits: needed ${args.required}, balance ${args.available}`,
-          updatedAt: Date.now(),
-        };
-        if (scheduledContentHasField("cancelReason")) {
-          patch.cancelReason = "low_credits";
-        }
-        await ctx.db.patch(
-          args.scheduledContentId,
-          patch as Partial<Doc<"scheduledContent">>
-        );
+    const row = args.scheduledContentId ? await ctx.db.get(args.scheduledContentId) : null;
+    const isBackfill = row?.backfill === true;
+
+    if (row && row.status !== "completed") {
+      const patch: Record<string, unknown> = {
+        status: "cancelled",
+        errorMessage: `low_credits: needed ${args.required}, balance ${args.available}`,
+        updatedAt: Date.now(),
+      };
+      if (scheduledContentHasField("cancelReason")) {
+        patch.cancelReason = "low_credits";
       }
+      await ctx.db.patch(
+        args.scheduledContentId as Id<"scheduledContent">,
+        patch as Partial<Doc<"scheduledContent">>
+      );
     }
 
+    // A backfill row is covered by the League Pass and never touches credits, so this should never
+    // actually fire for one - gated anyway per the owner's "zero notifications" directive.
     const preferences = await leaguePreferencesFor(ctx, args.leagueId);
-    if (contentPreferenceDefaults(preferences).notifyFailures) {
+    if (contentPreferenceDefaults(preferences).notifyFailures && !isBackfill) {
       const week = (await ctx.db.get(args.articleId))?.metadata.week;
       await ctx.runMutation(internal.notifications.notifyCommissionerOfContent, {
         leagueId: args.leagueId,
@@ -1844,7 +1919,9 @@ export const recordScheduledGenerationFailure = internalMutation({
     });
 
     let notified = false;
-    if (!willRetry) {
+    // A backfill row (convex/seasonBackfill.ts) never notifies the commissioner of a failure - the
+    // whole run is meant to be quiet, and its outcome is visible through getSeasonBackfillStatus.
+    if (!willRetry && row.backfill !== true) {
       const preferences = await leaguePreferencesFor(ctx, args.leagueId);
       if (contentPreferenceDefaults(preferences).notifyFailures) {
         const notificationId: Id<"userNotifications"> | null = await ctx.runMutation(

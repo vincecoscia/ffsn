@@ -227,6 +227,8 @@ export interface PromptBuilderOptions {
 export interface LeagueDataContext {
   leagueName: string;
   currentWeek: number;
+  /** The season this article is about (not necessarily the wall-clock year - a backfill writes about a past one). */
+  currentSeason?: number;
   teams: Array<{
     id: string;
     name: string;
@@ -2382,9 +2384,14 @@ column is about — the player and team names, positions, and stats. Use those n
     console.log("=== buildSeasonWelcomeData START ===");
     console.log("Previous seasons available:", data.previousSeasons ? Object.keys(data.previousSeasons).length : 0);
     console.log("Previous season years:", data.previousSeasons ? Object.keys(data.previousSeasons) : []);
-    
-    let welcomeData = `WELCOME TO THE ${new Date().getFullYear()} SEASON!\n\n`;
-    
+
+    // The season this kickoff piece is about (spec: repurposed to ring in
+    // every season, not just a league's first one) - falls back to the
+    // wall-clock year only for a caller that never set it.
+    const currentSeason = data.currentSeason ?? new Date().getFullYear();
+
+    let welcomeData = `WELCOME TO THE ${currentSeason} SEASON!\n\n`;
+
     welcomeData += `LEAGUE OVERVIEW:\n`;
     welcomeData += `- League Name: ${data.leagueName}\n`;
     welcomeData += `- Number of Teams: ${data.teams.length}\n`;
@@ -2393,11 +2400,11 @@ column is about — the player and team names, positions, and stats. Use those n
     if (data.leagueType) {
       welcomeData += `- League Type: ${data.leagueType}\n`;
     }
-    
+
     if (data.leagueHistory) {
       welcomeData += `- League Founded: ${data.leagueHistory.foundedYear}\n`;
       welcomeData += `- Total Seasons Played: ${data.leagueHistory.totalSeasons}\n\n`;
-      
+
       // Add previous champions
       if (data.leagueHistory.seasons && data.leagueHistory.seasons.length > 0) {
         console.log("League history seasons:", data.leagueHistory.seasons.length);
@@ -2414,10 +2421,29 @@ column is about — the player and team names, positions, and stats. Use those n
           });
         welcomeData += '\n';
       }
+
+      // LAST SEASON: the specific story of the season immediately before this
+      // one, not just the multi-year champions list above - a kickoff piece
+      // almost always wants to open with "last year..." (Broadcast register:
+      // this stays prose, no field names or ids).
+      const lastSeason = data.leagueHistory.seasons?.find(s => s.year === currentSeason - 1);
+      if (lastSeason) {
+        welcomeData += `LAST SEASON (${lastSeason.year}):\n`;
+        if (lastSeason.champion) {
+          welcomeData += `- Champion: ${lastSeason.champion.teamName} (${lastSeason.champion.owner})\n`;
+        }
+        if (lastSeason.runnerUp) {
+          welcomeData += `- Runner-up: ${lastSeason.runnerUp.teamName} (${lastSeason.runnerUp.owner})\n`;
+        }
+        if (lastSeason.regularSeasonChampion) {
+          welcomeData += `- Regular-season champion: ${lastSeason.regularSeasonChampion.teamName} (${lastSeason.regularSeasonChampion.owner})\n`;
+        }
+        welcomeData += '\n';
+      }
     }
 
     // Current season teams and managers
-    welcomeData += `\n${new Date().getFullYear()} SEASON TEAMS:\n`;
+    welcomeData += `\n${currentSeason} SEASON TEAMS:\n`;
     data.teams.forEach((team, idx) => {
       welcomeData += `${idx + 1}. ${team.name} - Manager: ${team.manager}\n`;
     });
@@ -2564,7 +2590,7 @@ column is about — the player and team names, positions, and stats. Use those n
         });
     }
 
-    welcomeData += '\n\nUse this information to create an engaging season welcome package that gets managers excited for the new season!';
+    welcomeData += '\n\nUse this information to write an engaging season kickoff piece - the league\'s history, last season\'s story, and what to expect this year - that gets managers excited for the new season!';
     
     console.log("Season welcome data length:", welcomeData.length);
     console.log("=== buildSeasonWelcomeData END ===");

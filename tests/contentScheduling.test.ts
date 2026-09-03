@@ -746,6 +746,41 @@ describe("scheduling correctness (spec 9.2)", () => {
     expect(rows.recent?.status).toBe("generating");
   });
 
+  it("cancels with cancelReason out_of_season for a weekly type whose target week is past the league's season end, with no commissioner notification", async () => {
+    const t = makeTest();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // NFL week 19 (still PLAYOFFS phase, so the NFL-boundary gate lets it
+    // through) - weekly_recap's lookback resolves this to target week 18,
+    // one past the 17-week fallback season end (no leagueSeasons row is
+    // seeded here, so resolveSeasonEndWeek falls back to 17).
+    vi.setSystemTime(new Date(2027, 0, 17, 12, 0, 0));
+
+    const { leagueId, commissionerId } = await seedLeague(t);
+    await seedAutomation(t, leagueId);
+    const scheduledContentId = await seedScheduledRow(t, leagueId, "weekly_recap");
+
+    const result = await t.action(internal.contentScheduling.processScheduledContent, {
+      scheduledContentId,
+    });
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/Not in season/);
+
+    const row = await t.run((ctx) => ctx.db.get(scheduledContentId));
+    expect(row?.status).toBe("cancelled");
+    expect(row?.cancelReason).toBe("out_of_season");
+    // Re-stamped before the season-window check ran.
+    expect(row?.week).toBe(18);
+
+    // Expected, not a failure - the commissioner hears nothing about it.
+    const notifications = await t.run((ctx) =>
+      ctx.db
+        .query("userNotifications")
+        .withIndex("by_user", (q) => q.eq("userId", commissionerId))
+        .collect()
+    );
+    expect(notifications).toHaveLength(0);
+  });
+
   it("stamps lookback content with the week it is about, not the week it runs in", () => {
     // Tuesday-morning recaps execute inside the following NFL week.
     expect(resolveTargetWeek("weekly_recap", 7)).toBe(6);
@@ -753,5 +788,229 @@ describe("scheduling correctness (spec 9.2)", () => {
     expect(resolveTargetWeek("weekly_preview", 7)).toBe(7);
     expect(resolveTargetWeek("playoff_picture", 13)).toBe(13);
     expect(resolveTargetWeek("weekly_recap", 1)).toBe(1);
+  });
+});
+
+describe("season backfill rows never notify (owner directive, Sept 2026)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("cancels with cancelReason no_pass but sends no commissioner notification for a backfill row", async () => {
+    const t = makeTest();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(IN_SEASON);
+
+    const { leagueId, commissionerId } = await seedLeague(t, { subscriptionStatus: "pending" });
+    await seedAutomation(t, leagueId);
+    const scheduledContentId = await seedScheduledRow(t, leagueId, "trade_analysis");
+    await t.run((ctx) => ctx.db.patch(scheduledContentId, { backfill: true }));
+
+    const result = await t.action(internal.contentScheduling.processScheduledContent, {
+      scheduledContentId,
+    });
+    expect(result.success).toBe(false);
+
+    const row = await t.run((ctx) => ctx.db.get(scheduledContentId));
+    expect(row?.status).toBe("cancelled");
+    expect(row?.cancelReason).toBe("no_pass");
+
+    const notifications = await t.run((ctx) =>
+      ctx.db
+        .query("userNotifications")
+        .withIndex("by_user", (q) => q.eq("userId", commissionerId))
+        .collect()
+    );
+    expect(notifications).toHaveLength(0);
+  });
+
+  it("getPendingScheduledContent, reclaimStuckGenerations and releaseDueBatchRows all ignore backfill rows", async () => {
+    const t = makeTest();
+    const { leagueId } = await seedLeague(t);
+    const backfillId = await seedScheduledRow(t, leagueId, "weekly_recap");
+    const normalId = await seedScheduledRow(t, leagueId, "power_rankings");
+    await t.run((ctx) => ctx.db.patch(backfillId, { backfill: true }));
+
+    const pending = await t.query(internal.contentScheduling.getPendingScheduledContent, {});
+    const pendingIds = pending.map((row) => row._id);
+    expect(pendingIds).toContain(normalId);
+    expect(pendingIds).not.toContain(backfillId);
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch(backfillId, { status: "generating", lastAttemptAt: now - 3 * 60 * 60 * 1000 });
+      await ctx.db.patch(normalId, { status: "generating", lastAttemptAt: now - 3 * 60 * 60 * 1000 });
+    });
+    const swept = await t.mutation(internal.contentScheduling.reclaimStuckGenerations, {});
+    expect(swept.reclaimed).toBe(1); // only the non-backfill row
+    const rows = await t.run(async (ctx) => ({
+      backfill: await ctx.db.get(backfillId),
+      normal: await ctx.db.get(normalId),
+    }));
+    expect(rows.backfill?.status).toBe("generating"); // untouched
+    expect(rows.normal?.status).toBe("pending");
+
+    await t.run(async (ctx) => {
+      const dueAt = Date.now() - 1000;
+      await ctx.db.patch(backfillId, { status: "batched", scheduledFor: dueAt });
+      await ctx.db.patch(normalId, { status: "batched", scheduledFor: dueAt });
+    });
+    const released = await t.mutation(internal.contentScheduling.releaseDueBatchRows, {});
+    expect(released.released).toBe(1); // only the non-backfill row
+    const afterRelease = await t.run(async (ctx) => ({
+      backfill: await ctx.db.get(backfillId),
+      normal: await ctx.db.get(normalId),
+    }));
+    expect(afterRelease.backfill?.status).toBe("batched"); // untouched
+    expect(afterRelease.normal?.status).toBe("pending");
+  });
+});
+
+describe("season_welcome NFL-boundary gap fix (spec: audit finding)", () => {
+  it("allows season_welcome in the gap between preseason end and regular season start (2026: Sep 9 09:00 local)", async () => {
+    const t = makeTest();
+    await t.mutation(internal.nflSeasonSetup.ensureSeason, { year: SEASON });
+    const { leagueId } = await seedLeague(t);
+
+    const result = await t.query(internal.nflSeasonBoundaries.isContentGenerationAllowed, {
+      contentType: "season_welcome",
+      leagueId,
+      date: new Date(2026, 8, 9, 9, 0, 0).getTime(),
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("still refuses season_welcome well before the kickoff lookahead window", async () => {
+    const t = makeTest();
+    await t.mutation(internal.nflSeasonSetup.ensureSeason, { year: SEASON });
+    const { leagueId } = await seedLeague(t);
+
+    const result = await t.query(internal.nflSeasonBoundaries.isContentGenerationAllowed, {
+      contentType: "season_welcome",
+      leagueId,
+      date: new Date(2026, 5, 1).getTime(), // June 1: well before preseason even starts
+    });
+    expect(result.allowed).toBe(false);
+  });
+});
+
+describe("kickOffSeasonWelcome (spec: season kickoff every season, covered by the pass)", () => {
+  it("creates a system-billed article the first time, and is a no-op the second", async () => {
+    const t = makeTest();
+    const { leagueId } = await seedLeague(t);
+
+    const first = await t.mutation(internal.contentScheduling.kickOffSeasonWelcome, {
+      leagueId,
+      seasonId: SEASON,
+    });
+    expect(first.started).toBe(true);
+    expect(first.reason).toBeUndefined();
+
+    const articles = await t.run((ctx) =>
+      ctx.db.query("aiContent").withIndex("by_league", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(articles).toHaveLength(1);
+    expect(articles[0].type).toBe("season_welcome");
+    // Billed to the pass, not a manager's credits.
+    expect(articles[0].metadata.credits_used).toBe(0);
+
+    const second = await t.mutation(internal.contentScheduling.kickOffSeasonWelcome, {
+      leagueId,
+      seasonId: SEASON,
+    });
+    expect(second.started).toBe(false);
+    expect(second.reason).toMatch(/already/);
+
+    const articlesAfter = await t.run((ctx) =>
+      ctx.db.query("aiContent").withIndex("by_league", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(articlesAfter).toHaveLength(1);
+  });
+});
+
+describe("reconcileDefaultContentSchedules (spec: audit finding - stale calendars)", () => {
+  it("adds only the DEFAULT_SCHEDULES types a league is missing, never touching an existing row's enabled flag or times", async () => {
+    const t = makeTest();
+    const { leagueId } = await seedLeague(t);
+
+    // Simulate an old default set: only two of the current DEFAULT_SCHEDULES
+    // types exist, and one of them was hand-edited by the commissioner
+    // (moved earlier, switched off) - reconcile must leave it exactly alone.
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("contentSchedules", {
+        leagueId,
+        contentType: "weekly_recap",
+        enabled: false,
+        timezone: "America/Chicago",
+        schedule: { type: "weekly", dayOfWeek: 1, hour: 7, minute: 30 },
+        preferredPersona: "curtis-vaughn",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("contentSchedules", {
+        leagueId,
+        contentType: "draft_rankings",
+        enabled: true,
+        timezone: "America/Chicago",
+        schedule: { type: "event_triggered", trigger: "draft_completed", delayMinutes: 60 },
+        preferredPersona: "mel-diaper",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("leagueContentPreferences", {
+        leagueId,
+        contentEnabled: true,
+        timezone: "America/Chicago",
+        notifyCommissioner: true,
+        notifyFailures: true,
+        autoPublish: true,
+        requireApproval: false,
+        currentMonthSpent: 0,
+        budgetResetDate: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(internal.contentScheduling.reconcileDefaultContentSchedules, {
+      leagueId,
+    });
+
+    expect(result.leaguesChecked).toBe(1);
+    expect(result.isDone).toBe(true);
+    expect(result.added).toHaveLength(Object.keys(DEFAULT_SCHEDULES).length - 2);
+    expect(result.added.some((a) => a.contentType === "weekly_recap")).toBe(false);
+    expect(result.added.some((a) => a.contentType === "draft_rankings")).toBe(false);
+    expect(result.added.some((a) => a.contentType === "playoff_picture" && a.enabled === true)).toBe(true);
+
+    const schedules = await t.run((ctx) =>
+      ctx.db.query("contentSchedules").withIndex("by_league", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(schedules).toHaveLength(Object.keys(DEFAULT_SCHEDULES).length);
+
+    const recap = schedules.find((s) => s.contentType === "weekly_recap");
+    expect(recap?.enabled).toBe(false);
+    expect(recap?.schedule).toMatchObject({ dayOfWeek: 1, hour: 7, minute: 30 });
+
+    const playoffPicture = schedules.find((s) => s.contentType === "playoff_picture");
+    expect(playoffPicture?.timezone).toBe("America/Chicago");
+    expect(playoffPicture?.preferredPersona).toBe(contentTypePersonaMap["playoff_picture"]?.[0]);
+  });
+
+  it("dryRun reports what would be added without writing anything", async () => {
+    const t = makeTest();
+    const { leagueId } = await seedLeague(t);
+
+    const result = await t.mutation(internal.contentScheduling.reconcileDefaultContentSchedules, {
+      leagueId,
+      dryRun: true,
+    });
+    expect(result.added).toHaveLength(Object.keys(DEFAULT_SCHEDULES).length);
+
+    const schedules = await t.run((ctx) =>
+      ctx.db.query("contentSchedules").withIndex("by_league", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(schedules).toHaveLength(0);
   });
 });

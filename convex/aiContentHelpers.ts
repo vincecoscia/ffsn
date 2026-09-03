@@ -423,6 +423,7 @@ export const generateAIContentWithData = internalAction({
           leagueId: args.leagueId,
           contentType: args.contentType,
           persona: args.persona,
+          week: args.week,
           leagueData: preparedData.leagueData,
           customContext: args.customContext,
           userId: args.userId,
@@ -456,7 +457,10 @@ export const generateAIContentWithData = internalAction({
         title: generatedContent.title,
         content: generatedContent.content,
         summary: generatedContent.summary,
-        metadata: generatedContent.metadata,
+        // Season backfill (owner directive, Sept 2026): args.seasonId is the season this article is
+        // actually about; updateGeneratedContent falls back to the league's live current season
+        // when it's absent, so every non-backfill caller is unaffected.
+        metadata: { ...generatedContent.metadata, seasonId: args.seasonId },
         billing,
       });
 

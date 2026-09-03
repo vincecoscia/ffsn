@@ -11,9 +11,10 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { nflSeasonYearFor } from "./lib/season";
+import { nflSeasonYearFor, leagueCurrentSeason } from "./lib/season";
 import { requireLeagueMember, requireCommissioner } from "./lib/auth";
 import { espnConnectionBlocked, FRESHNESS_EXEMPT_CONTENT } from "./lib/espnConnection";
+import { resolveSeasonEndWeek, weeklyTargetWeekInSeason } from "./lib/seasonWindow";
 // Both of these are plain data modules (no runtime deps), so they are safe to
 // import into the Convex V8 isolate - payments.ts already imports the templates.
 import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
@@ -166,6 +167,21 @@ export function resolveTargetWeek(contentType: string, currentWeek: number): num
   }
   return currentWeek;
 }
+
+/**
+ * Weekly programming (owner directive, Sept 2026: "make sure the weekly
+ * content only generates during the season"). `processScheduledContent`
+ * cancels one of these with `cancelReason: "out_of_season"` when its
+ * lookback-resolved target week is past the league's own `seasonEndWeek`
+ * (`convex/lib/seasonWindow.ts`). `trade_analysis` is event-triggered, not a
+ * calendar week, so it is deliberately not in this set.
+ */
+const WEEKLY_CONTENT = new Set([
+  "weekly_recap",
+  "power_rankings",
+  "waiver_wire_report",
+  "weekly_preview",
+]);
 
 /** Types whose article is written off that week's matchup results. */
 const MATCHUP_DEPENDENT_CONTENT = new Set([
@@ -387,6 +403,149 @@ export const applyAutomaticDefaults = internalMutation({
   },
 });
 
+/**
+ * Fire the season kickoff article (owner directive, Sept 2026: "season
+ * welcome" is repurposed to ring in every season, not just a league's first
+ * one - "this can probably be repurposed... and should be included in the
+ * subscription"). Creates the article and schedules generation with
+ * `userId: "system"`, so `aiContent.generateContentAction` bills it to the
+ * League Pass and nothing is deducted from anyone's credits.
+ *
+ * Called directly from two fulfillment paths that activate the pass for a
+ * season - `payments.processLeaguePayment` (a real purchase) and
+ * `adminTools.compLeaguePass` (an operator comp) - which is exactly when the
+ * kickoff piece should print. The season's own calendar row
+ * (`DEFAULT_SCHEDULES.season_welcome`'s `season_based` "season_start"
+ * trigger, via `scheduleSeasonAndRelativeContentCron`) produces this same
+ * article every subsequent season without either of those callers ever
+ * running again; `checkExistingContent` is what keeps the two paths from
+ * ever double-firing for the same season.
+ */
+export const kickOffSeasonWelcome = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ started: boolean; reason?: string }> => {
+    const existing: { hasExistingContent: boolean; hasScheduledContent: boolean } = await ctx.runQuery(
+      internal.contentScheduling.checkExistingContent,
+      { leagueId: args.leagueId, contentType: "season_welcome", seasonId: args.seasonId },
+    );
+    if (existing.hasExistingContent || existing.hasScheduledContent) {
+      return { started: false, reason: "season_welcome already exists or is scheduled for this season" };
+    }
+
+    // The roster's writer for this content type (spec section 9.2.3) - never
+    // the retired "analyst" placeholder.
+    const persona = defaultPersonaFor("season_welcome");
+
+    const articleId: Id<"aiContent"> = await ctx.runMutation(internal.aiContent.createScheduledArticle, {
+      leagueId: args.leagueId,
+      type: "season_welcome",
+      persona,
+      userId: "system", // Billed to the League Pass (spec §10.1); never a manager's credits.
+    });
+
+    await ctx.scheduler.runAfter(5000, internal.aiContent.generateContentAction, {
+      articleId,
+      leagueId: args.leagueId,
+      contentType: "season_welcome",
+      persona,
+      userId: "system",
+      seasonId: args.seasonId,
+    });
+
+    return { started: true };
+  },
+});
+
+/**
+ * Backfill missing calendar rows for a league whose `contentSchedules` were
+ * seeded from an older `DEFAULT_SCHEDULES` shape (audit finding: prod's one
+ * live league has no `draft_rankings` row and no `playoff_picture` row, and
+ * ships several types enabled that today's defaults create disabled).
+ *
+ * Adds a row for every `DEFAULT_SCHEDULES` type the league has none of yet.
+ * Never touches an existing row - whatever its `enabled` flag or times -
+ * because the commissioner may have deliberately changed it; this only fills
+ * gaps, the same "insert if absent" contract `createDefaultContentSchedules`
+ * uses for a brand new league.
+ *
+ * Pass `leagueId` for one league; omit it to page over every league with a
+ * `leagueContentPreferences` row, same batching shape as
+ * `applyAutomaticDefaults`. Prod dry run:
+ *   npx convex run --prod contentScheduling:reconcileDefaultContentSchedules '{"leagueId":"<id>","dryRun":true}'
+ */
+export const reconcileDefaultContentSchedules = internalMutation({
+  args: {
+    leagueId: v.optional(v.id("leagues")),
+    dryRun: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    batchSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{
+    added: Array<{ leagueId: Id<"leagues">; contentType: string; enabled: boolean }>;
+    leaguesChecked: number;
+    isDone: boolean;
+    cursor: string | null;
+  }> => {
+    const now = Date.now();
+    const added: Array<{ leagueId: Id<"leagues">; contentType: string; enabled: boolean }> = [];
+
+    const reconcileOne = async (leagueId: Id<"leagues">, timezone: string) => {
+      const existing = await ctx.db
+        .query("contentSchedules")
+        .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+        .collect();
+      const existingTypes = new Set(existing.map((s) => s.contentType as string));
+
+      for (const [contentType, config] of Object.entries(DEFAULT_SCHEDULES)) {
+        if (existingTypes.has(contentType)) continue;
+        if (!args.dryRun) {
+          await ctx.db.insert("contentSchedules", {
+            leagueId,
+            contentType: contentType as any,
+            enabled: config.enabled,
+            timezone,
+            schedule: config.schedule,
+            preferredPersona: defaultPersonaFor(contentType),
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        added.push({ leagueId, contentType, enabled: config.enabled });
+      }
+    };
+
+    if (args.leagueId) {
+      const preferences = await ctx.db
+        .query("leagueContentPreferences")
+        .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId as Id<"leagues">))
+        .first();
+      await reconcileOne(args.leagueId, preferences?.timezone || DEFAULT_TIMEZONE);
+      return { added, leaguesChecked: 1, isDone: true, cursor: null };
+    }
+
+    const numItems = args.batchSize ?? 25;
+    const page = await ctx.db
+      .query("leagueContentPreferences")
+      .paginate({ cursor: args.cursor ?? null, numItems });
+
+    for (const preferences of page.page) {
+      await reconcileOne(preferences.leagueId, preferences.timezone || DEFAULT_TIMEZONE);
+    }
+
+    if (!page.isDone && !args.dryRun) {
+      await ctx.scheduler.runAfter(0, internal.contentScheduling.reconcileDefaultContentSchedules, {
+        cursor: page.continueCursor,
+        batchSize: numItems,
+      });
+    }
+
+    return { added, leaguesChecked: page.page.length, isDone: page.isDone, cursor: page.continueCursor };
+  },
+});
+
 // Get content schedules for a league
 export const getContentSchedules = query({
   args: { leagueId: v.id("leagues") },
@@ -580,7 +739,9 @@ export const getPendingScheduledContent = internalQuery({
       )
       .take(limit);
 
-    return pending;
+    // Season backfill rows (convex/seasonBackfill.ts) are driven directly by
+    // that tool's own chain, never by this cron queue.
+    return pending.filter((row) => !row.backfill);
   },
 });
 
@@ -700,7 +861,7 @@ export const processScheduledContent = internalAction({
       // attempt or a credit. Freshness-exempt types never read live league
       // data, so they are unaffected and generate on schedule.
       if (!FRESHNESS_EXEMPT_CONTENT.has(contentType) && espnConnectionBlocked(league)) {
-        return await backlogForBlockedConnection(ctx, args.scheduledContentId, leagueId, contentType);
+        return await backlogForBlockedConnection(ctx, args.scheduledContentId, scheduledContent);
       }
 
       // (a) Re-stamp week/season at execution time so the article is about the
@@ -722,6 +883,37 @@ export const processScheduledContent = internalAction({
         seasonId,
       });
 
+      // (a2) Weekly programming only prints during the league's own season
+      //      (owner directive, Sept 2026). A forced period (dev end-to-end
+      //      tool only) is deliberately about a period other than "now", so
+      //      it skips this - the same reason it skips the NFL-calendar
+      //      validation above. No commissioner notification: an off-season
+      //      row is expected, not a failure.
+      if (!args.forcePeriod && WEEKLY_CONTENT.has(contentType)) {
+        const leagueSeasonDoc = await ctx.runQuery(internal.contentScheduling.getLeagueSeasonDoc, {
+          leagueId,
+          seasonId,
+        });
+        const inSeason = weeklyTargetWeekInSeason({
+          contentType,
+          targetWeek,
+          seasonEndWeek: resolveSeasonEndWeek(leagueSeasonDoc?.settings),
+        });
+        if (!inSeason.inSeason) {
+          await cancel("out_of_season", `Not scheduling ${contentType}: ${inSeason.reason}`);
+          return { success: false, message: `Not in season: ${inSeason.reason}` };
+        }
+      }
+
+      // A historical period (season backfill, convex/seasonBackfill.ts) is
+      // never going to become "more synced" by re-running a CURRENT-season
+      // ESPN sync - that sync cannot fetch a past season's data at all, so
+      // both re-sync attempts below are pure waste for one. The reads that
+      // follow (matchup/finality/completeness checks) still run as normal:
+      // they confirm the historical data that should already be there.
+      const isHistoricalPeriod =
+        args.forcePeriod !== undefined && args.forcePeriod.seasonId < leagueCurrentSeason(league);
+
       // (b) Fresh data. Stale league data produces a confidently wrong article,
       //     which is worse than a late one - so sync first, and defer if the
       //     week we are writing about still has no matchups.
@@ -729,7 +921,9 @@ export const processScheduledContent = internalAction({
       if (!FRESHNESS_EXEMPT_CONTENT.has(contentType)) {
         const lastSyncedAt = league.espnData?.lastSyncedAt ?? 0;
 
-        if (Date.now() - lastSyncedAt > SIX_HOURS_MS) {
+        if (isHistoricalPeriod) {
+          console.log(`Scheduled content ${args.scheduledContentId}: historical period; not syncing`);
+        } else if (Date.now() - lastSyncedAt > SIX_HOURS_MS) {
           console.log(`League ${leagueId} ESPN data is stale (last synced ${new Date(lastSyncedAt).toISOString()}); syncing before generation`);
           try {
             // NOTE: espnSync exposes no per-league internal current-season
@@ -746,7 +940,7 @@ export const processScheduledContent = internalAction({
             // bad connection (backlog, so this row stops burning deferrals).
             const refreshedLeague = await ctx.runQuery(internal.contentScheduling.getLeagueById, { leagueId });
             if (espnConnectionBlocked(refreshedLeague)) {
-              return await backlogForBlockedConnection(ctx, args.scheduledContentId, leagueId, contentType);
+              return await backlogForBlockedConnection(ctx, args.scheduledContentId, scheduledContent);
             }
             return await deferForData(ctx, args.scheduledContentId, scheduledContent, "espn_sync_failed");
           }
@@ -804,8 +998,12 @@ export const processScheduledContent = internalAction({
       // "Re-syncs once" is per row, not per pass: a row that has already been
       // deferred for data has already had its sync, and re-running a full
       // all-leagues sync on every 30-minute retry would cost far more than the
-      // article is worth.
-      if (!completeness.complete && !syncedThisPass && (scheduledContent.deferrals ?? 0) === 0) {
+      // article is worth. A historical period skips this the same way it
+      // skipped the freshness sync above - see the comment on
+      // `isHistoricalPeriod`.
+      if (!completeness.complete && isHistoricalPeriod) {
+        console.log(`Scheduled content ${args.scheduledContentId}: historical period; not syncing`);
+      } else if (!completeness.complete && !syncedThisPass && (scheduledContent.deferrals ?? 0) === 0) {
         console.log(
           `Missing core data for ${contentType} (${completeness.missing.join(", ")}); syncing once before deferring`,
         );
@@ -824,7 +1022,7 @@ export const processScheduledContent = internalAction({
           // thing that just discovered the cookies are rejected.
           const refreshedLeague = await ctx.runQuery(internal.contentScheduling.getLeagueById, { leagueId });
           if (espnConnectionBlocked(refreshedLeague)) {
-            return await backlogForBlockedConnection(ctx, args.scheduledContentId, leagueId, contentType);
+            return await backlogForBlockedConnection(ctx, args.scheduledContentId, scheduledContent);
           }
         }
       }
@@ -847,12 +1045,18 @@ export const processScheduledContent = internalAction({
           "no_pass",
           `League Pass is not active for ${league.name}; automated content is paused`,
         );
-        await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
-          leagueId,
-          outcome: "no_pass",
-          contentType,
-          week: targetWeek,
-        });
+        // A backfill row must never spam the commissioner (owner directive,
+        // Sept 2026: "zero notifications or emails" for the backfill) - the
+        // tool that scheduled it is what surfaces a lapsed pass to whoever
+        // ran it.
+        if (!scheduledContent.backfill) {
+          await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
+            leagueId,
+            outcome: "no_pass",
+            contentType,
+            week: targetWeek,
+          });
+        }
         return { success: false, message: "League Pass is not active" };
       }
 
@@ -873,14 +1077,19 @@ export const processScheduledContent = internalAction({
           `$${capUsd.toFixed(2)} season cap (articles $${spend.automatedUsd.toFixed(2)}, ` +
           `interviews $${spend.interviewUsd.toFixed(2)})`;
         await cancel("spend_cap", detail);
-        await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
-          leagueId,
-          outcome: "spend_cap",
-          contentType,
-          week: targetWeek,
-          spentUsd: coveredUsd,
-          capUsd,
-        });
+        // Same backfill rule as `no_pass` above; `alertOperator` below stays
+        // unconditional - hitting the season spend cap is a real problem
+        // whether or not a backfill row is what tipped it over.
+        if (!scheduledContent.backfill) {
+          await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
+            leagueId,
+            outcome: "spend_cap",
+            contentType,
+            week: targetWeek,
+            spentUsd: coveredUsd,
+            capUsd,
+          });
+        }
         await alertOperator(
           ctx,
           `FFSN automation paused: league ${leagueId} hit the spend cap`,
@@ -971,7 +1180,10 @@ export const processScheduledContent = internalAction({
         nextRetryAt,
       });
 
-      if (!shouldRetry) {
+      // A backfill row's failure is the backfill tool's business, not the
+      // commissioner's (owner directive, Sept 2026: zero notifications from
+      // the backfill).
+      if (!shouldRetry && !scheduledContent.backfill) {
         await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
           leagueId,
           outcome: "failed",
@@ -1077,6 +1289,16 @@ async function scheduleBatchSubmission(
   }
 }
 
+/** The subset of a `scheduledContent` doc `deferForData`/`backlogForBlockedConnection` need. */
+type DeferrableScheduledContent = {
+  deferrals?: number;
+  contentType: string;
+  leagueId: Id<"leagues">;
+  week?: number;
+  /** Season backfill row (convex/seasonBackfill.ts) - see the notify guard below. */
+  backfill?: boolean;
+};
+
 /**
  * Push a row out by 30 minutes because the league data it needs is not there
  * yet. After MAX_DEFERRALS the row fails rather than deferring forever.
@@ -1084,7 +1306,7 @@ async function scheduleBatchSubmission(
 async function deferForData(
   ctx: any,
   scheduledContentId: Id<"scheduledContent">,
-  scheduledContent: { deferrals?: number; contentType: string; leagueId: Id<"leagues">; week?: number },
+  scheduledContent: DeferrableScheduledContent,
   reason: string,
 ): Promise<{ success: boolean; message: string; deferred: boolean; willRetry: boolean }> {
   const deferrals = (scheduledContent.deferrals ?? 0) + 1;
@@ -1097,7 +1319,11 @@ async function deferForData(
     exhausted,
   });
 
-  if (exhausted) {
+  // A backfill row that never gets its data is the backfill tool's problem to
+  // surface, not the commissioner's (owner directive, Sept 2026: zero
+  // notifications or emails from the backfill) - the tool reads `deferred`/
+  // `willRetry` on the return value below and cancels the row itself.
+  if (exhausted && !scheduledContent.backfill) {
     await ctx.runMutation(internal.contentScheduling.notifyScheduleOutcome, {
       leagueId: scheduledContent.leagueId,
       outcome: "failed",
@@ -1118,17 +1344,26 @@ async function deferForData(
 
 /**
  * Hold a row for a broken ESPN connection instead of failing or deferring it
- * (owner directive, Sept 2026). Unlike `deferForData`, this does not spend a
- * deferral or an attempt - the row is not stuck waiting on data that will show
- * up on its own, it is waiting on the commissioner to fix the connection, and
- * `resumeBacklog` is what brings it back once that happens.
+ * (owner directive, Sept 2026). Unlike a plain `deferForData` call, this does
+ * not spend a deferral or an attempt - the row is not stuck waiting on data
+ * that will show up on its own, it is waiting on the commissioner to fix the
+ * connection, and `resumeBacklog` is what brings it back once that happens.
+ *
+ * A backfill row is the one exception: it must never sit in `backlogged`
+ * (owner directive, Sept 2026 - the backfill must produce zero notifications,
+ * and nothing resumes a backlogged row but `resumeBacklog`, which the
+ * backfill tool never calls). Defer it instead; the tool reads `deferred:
+ * true` off the return value and cancels the row itself.
  */
 async function backlogForBlockedConnection(
   ctx: ActionCtx,
   scheduledContentId: Id<"scheduledContent">,
-  leagueId: Id<"leagues">,
-  contentType: string,
-): Promise<{ success: boolean; message: string }> {
+  scheduledContent: DeferrableScheduledContent,
+): Promise<{ success: boolean; message: string; deferred?: boolean; willRetry?: boolean }> {
+  if (scheduledContent.backfill) {
+    return await deferForData(ctx, scheduledContentId, scheduledContent, "espn_connection_blocked");
+  }
+
   const message =
     "ESPN rejected this league's cookies, so the desk can't read fresh data. " +
     "This story is on hold and will generate automatically once the commissioner fixes the ESPN connection.";
@@ -1139,7 +1374,7 @@ async function backlogForBlockedConnection(
   });
 
   console.log(
-    `Backlogging scheduled content ${scheduledContentId} (${contentType}) for league ${leagueId}: ESPN connection blocked`,
+    `Backlogging scheduled content ${scheduledContentId} (${scheduledContent.contentType}) for league ${scheduledContent.leagueId}: ESPN connection blocked`,
   );
 
   return { success: false, message };
@@ -1220,10 +1455,15 @@ export const reclaimStuckGenerations = internalMutation({
   },
   handler: async (ctx, args): Promise<{ reclaimed: number; failed: number }> => {
     const cutoff = Date.now() - (args.olderThanMs ?? TWO_HOURS_MS);
-    const stuck = await ctx.db
+    const stuckRows = await ctx.db
       .query("scheduledContent")
       .withIndex("by_status", (q) => q.eq("status", "generating"))
       .take(args.limit ?? 50);
+
+    // Season backfill rows (convex/seasonBackfill.ts) are driven directly by
+    // that tool, which watches its own generation rather than leaving a row
+    // in `generating` for this sweeper to find.
+    const stuck = stuckRows.filter((row) => !row.backfill);
 
     let reclaimed = 0;
     let failed = 0;
@@ -2086,11 +2326,17 @@ export const releaseDueBatchRows = internalMutation({
   returns: v.object({ released: v.number() }),
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const stuck = await ctx.db
+    const dueRows = await ctx.db
       .query("scheduledContent")
       .withIndex("by_status", (q) => q.eq("status", "batched"))
       .filter((q) => q.lte(q.field("scheduledFor"), now))
       .take(args.limit ?? 20);
+
+    // Season backfill rows (convex/seasonBackfill.ts) never go through
+    // batching (processScheduledContent's batch lookahead only ever sees rows
+    // this cron queue already excludes them from), but the contract with the
+    // backfill tool is the same as the other sweepers: leave them alone.
+    const stuck = dueRows.filter((row) => !row.backfill);
 
     for (const row of stuck) {
       await ctx.db.patch(row._id, {
@@ -2366,9 +2612,15 @@ function shouldScheduleContent(contentType: string, seasonPhase: string): { shou
     return { should: true, reason: "season-independent content" };
   }
 
-  // Season-dependent content only during active season phases
+  // Season-dependent content only during active season phases. REGULAR_SEASON
+  // only (owner directive, Sept 2026): a fantasy league's own playoffs are
+  // still inside the NFL's REGULAR_SEASON phase (the NFL's own PLAYOFFS/
+  // SUPER_BOWL phases start well after every real fantasy league has already
+  // crowned a champion), so weekly programming never needs either of those.
+  // `weeklyTargetWeekInSeason` (convex/lib/seasonWindow.ts) is the
+  // league-relative half of this gate; this is the NFL-phase half.
   if (SEASON_DEPENDENT_CONTENT.has(contentType)) {
-    const activePhasesForContent = ["REGULAR_SEASON", "PLAYOFFS", "SUPER_BOWL"];
+    const activePhasesForContent = ["REGULAR_SEASON"];
     if (activePhasesForContent.includes(seasonPhase)) {
       return { should: true, reason: `active season phase: ${seasonPhase}` };
     } else {
@@ -2459,6 +2711,32 @@ export const scheduleWeeklyContentCron = internalAction({
         const weekAtRun = await getCurrentNFLWeek(ctx, nextScheduledTime);
         const targetWeek = resolveTargetWeek(schedule.contentType, weekAtRun);
         const targetSeason = seasonIdForLeague ?? nflSeasonYearFor(new Date(nextScheduledTime));
+
+        // Weekly content only runs during the league's OWN season (owner
+        // directive, Sept 2026) - the NFL calendar keeps going through the
+        // playoffs and Super Bowl long after a 14+3 league's championship is
+        // decided, and without this a row kept being created every week of
+        // that gap, deferring on no_matchups_week_N up to MAX_DEFERRALS times
+        // and then failing with a commissioner notification.
+        const leagueSeasonDoc = await ctx.runQuery(internal.contentScheduling.getLeagueSeasonDoc, {
+          leagueId: schedule.leagueId,
+          seasonId: targetSeason,
+        });
+        const inSeason = weeklyTargetWeekInSeason({
+          contentType: schedule.contentType,
+          targetWeek,
+          seasonEndWeek: resolveSeasonEndWeek(leagueSeasonDoc?.settings),
+        });
+        if (!inSeason.inSeason) {
+          skipped++;
+          schedulingDetails.push({
+            contentType: schedule.contentType,
+            leagueId: schedule.leagueId,
+            action: "skipped",
+            reason: inSeason.reason,
+          });
+          continue;
+        }
 
         // Idempotency (spec section 9.2.6): one row per league/type/season/week,
         // whatever the 4-hour window would have said.
@@ -3185,16 +3463,26 @@ async function shouldScheduleContentForLeague(
   // Season-specific content logic
   switch (contentType) {
     case "season_welcome":
-      // Only schedule during preseason/offseason, and only for new leagues or start of new season
+      // Rings in every season, not just a league's first one (owner
+      // directive, Sept 2026: "this can probably be repurposed... and should
+      // be included in the subscription"). Allowed in PRESEASON or
+      // OFFSEASON - OFFSEASON is the fallback `nflSeasonBoundaries` also
+      // reports for the gap between preseason end and regular season start,
+      // which is exactly when the `season_start` trigger lands - for either
+      // a brand-new league, or inside that year's kickoff window.
       if (currentSeasonPhase === "PRESEASON" || currentSeasonPhase === "OFFSEASON") {
         // If league is brand new (less than 7 days old), allow season_welcome
         if (daysSinceCreation < 7) {
           return { should: true, reason: `new league in ${currentSeasonPhase} phase` };
         }
-        // Otherwise, only at the true start of a new season
-        const currentYear = new Date().getFullYear();
-        const seasonStart = new Date(currentYear, 7, 1).getTime(); // August 1st
-        if (scheduledFor >= seasonStart && scheduledFor < seasonStart + (30 * 24 * 60 * 60 * 1000)) {
+        // Aug 1 through Sep 30 of `scheduledFor`'s OWN year (audit finding:
+        // this used to be Aug 1-31 of the wall-clock year, not scheduledFor's
+        // - the season_start trigger lands Sep 8-10 depending on the year, so
+        // the old window missed it every single year).
+        const scheduledYear = new Date(scheduledFor).getFullYear();
+        const kickoffWindowStart = new Date(scheduledYear, 7, 1).getTime(); // Aug 1
+        const kickoffWindowEnd = new Date(scheduledYear, 9, 1).getTime(); // Oct 1 (exclusive)
+        if (scheduledFor >= kickoffWindowStart && scheduledFor < kickoffWindowEnd) {
           return { should: true, reason: `new season start in ${currentSeasonPhase} phase` };
         }
       }
@@ -3342,17 +3630,30 @@ export const checkExistingContent = internalQuery({
     const seasonWindowStart = new Date(targetSeason, 7, 1).getTime(); // Aug 1 of targetSeason
     const seasonWindowEnd = new Date(targetSeason + 1, 7, 1).getTime(); // Aug 1 of targetSeason + 1
 
+    // A row counts for `targetSeason` when its own `seasonId` says so
+    // directly, or - for a legacy row written before that stamp existed -
+    // when `seasonId` is absent and `createdAt` falls in the season window.
+    // A row whose `seasonId` is set to a DIFFERENT season never counts,
+    // whatever its `createdAt` says: this is what keeps a backfilled 2025
+    // article (createdAt in 2026, seasonId 2025) from reading as "2026
+    // content already exists" (audit finding: aiContent.seasonId used to be
+    // stamped with the league's CURRENT season regardless of the period the
+    // article was actually about).
+    const seasonMatch = (q: any) =>
+      q.or(
+        q.eq(q.field("seasonId"), targetSeason),
+        q.and(
+          q.eq(q.field("seasonId"), undefined),
+          q.gte(q.field("createdAt"), seasonWindowStart),
+          q.lt(q.field("createdAt"), seasonWindowEnd),
+        ),
+      );
+
     // Check aiContent table for existing content of this type for this league/season
     const existingContent = await ctx.db
       .query("aiContent")
       .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("type"), args.contentType),
-          q.gte(q.field("createdAt"), seasonWindowStart),
-          q.lt(q.field("createdAt"), seasonWindowEnd)
-        )
-      )
+      .filter((q) => q.and(q.eq(q.field("type"), args.contentType), seasonMatch(q)))
       .first();
 
     // Also check scheduled content table for pending/generating content
@@ -3369,9 +3670,7 @@ export const checkExistingContent = internalQuery({
             // schedule a second one behind it (owner directive, Sept 2026).
             q.eq(q.field("status"), "backlogged")
           ),
-          // Check if contextData contains this season
-          q.gte(q.field("createdAt"), seasonWindowStart),
-          q.lt(q.field("createdAt"), seasonWindowEnd)
+          seasonMatch(q),
         )
       )
       .first();

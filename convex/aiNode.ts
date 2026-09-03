@@ -65,6 +65,8 @@ export const generateArticle = internalAction({
       leagueData: v.any(),
       customContext: v.optional(v.string()),
       userId: v.string(),
+      // The week the article covers (a preview is about the week after leagueData.currentWeek).
+      week: v.optional(v.number()),
       commentResponses: v.optional(v.array(commentResponseDataValidator)),
       nonRespondents: v.optional(v.array(nonRespondentValidator)),
       relationships: v.optional(v.array(writerRelationshipContextValidator)),

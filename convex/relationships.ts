@@ -6,8 +6,14 @@
  * changes how the writer treats that manager in the next article.
  *
  * Storage: `writerRelationships` (one row per league × manager × persona, created lazily)
- * and `relationshipEvents` (append-only ledger). A missing row reads as
- * `{ score: 0, tier: "neutral" }` - no row is created until the first event.
+ * and `relationshipEvents`. A missing row reads as `{ score: 0, tier: "neutral" }` - no
+ * row is created until the first event.
+ *
+ * The ledger is append-only, with one exception: reaction rows (type "reaction") mirror
+ * the reader's CURRENT `articleReactions` row for an article, not the history of taps.
+ * `syncReactionEvent` reconciles - deletes and, if a reaction is still set, re-inserts -
+ * so there is at most one reaction row per (article, reader, persona), and none once the
+ * reaction is removed. Every other event type is append-only as before.
  */
 
 import { v } from "convex/values";
@@ -203,8 +209,10 @@ async function isDuplicateEvent(
 
 /**
  * Upsert the relationship row, append the ledger entry, recompute the tier.
- * Shared by `recordEvent`, `recordArticleMentions` and `recordReactionEvent` so the
- * mutations stay in one transaction instead of nesting `ctx.runMutation`.
+ * Shared by `recordEvent` and `recordArticleMentions` so the mutations stay in one
+ * transaction instead of nesting `ctx.runMutation`. Reaction events do NOT go through
+ * here - `reconcileReactionForUser` below reconciles the ledger against current state
+ * instead of appending, so `isDuplicateEvent` never sees `type: "reaction"`.
  */
 async function applyEvent(
   ctx: MutationCtx,
@@ -524,20 +532,147 @@ export const recordArticleMentions = internalMutation({
 });
 
 /**
- * A reader reaction on an article moves that article writer's relationship with the
- * reacting manager. Called from `articleEngagement.toggleReaction`.
- * `userId` is the reactor's Clerk id (the `articleReactions.userId` convention).
+ * Reconcile the ledger + score for one (article, user) pair against the reader's
+ * CURRENT `articleReactions` row - never against whatever reaction triggered the
+ * call. `toggleReaction` schedules `syncReactionEvent` with `runAfter(0)`, so two
+ * rapid taps can run their scheduled mutations out of order; reconciling against
+ * stored state (rather than an in-flight "add this reaction" instruction) makes
+ * every run converge on the correct result regardless of order.
+ *
+ * There may be several legacy `type: "reaction"` rows for this (article, user,
+ * persona) left over from the old append-only behavior - "reset then apply"
+ * collapses them: delete every existing row, then insert exactly one fresh row
+ * matching the current reaction (or none, if the reaction was removed). Inserting
+ * fresh rather than patching keeps the surviving entry sorted as the newest event.
+ *
+ * Shared by `syncReactionEvent` (called after every reaction change) and
+ * `reconcileReactionEvents` (the one-time backfill over legacy duplicates).
  */
-export const recordReactionEvent = internalMutation({
+async function reconcileReactionForUser(
+  ctx: MutationCtx,
+  article: Doc<"aiContent">,
+  user: Doc<"users">
+): Promise<{ recorded: boolean; score: number; tier: RelationshipTier }> {
+  const existingRows = (
+    await ctx.db
+      .query("relationshipEvents")
+      .withIndex("by_article", (q) => q.eq("articleId", article._id))
+      .take(500)
+  ).filter(
+    (e) =>
+      e.userId === user._id &&
+      e.persona === article.persona &&
+      e.type === "reaction"
+  );
+
+  const current = await ctx.db
+    .query("articleReactions")
+    .withIndex("by_article_user", (q) =>
+      q.eq("articleId", article._id).eq("userId", user.clerkId)
+    )
+    .unique();
+
+  const targetDelta = current ? DELTAS.reaction[current.reaction] : 0;
+  const evidence = current
+    ? truncateEvidence(`Reacted "${current.reaction}" to "${article.title}"`)
+    : undefined;
+
+  const relationshipRow = await ctx.db
+    .query("writerRelationships")
+    .withIndex("by_league_user_persona", (q) =>
+      q
+        .eq("leagueId", article.leagueId)
+        .eq("userId", user._id)
+        .eq("persona", article.persona)
+    )
+    .unique();
+
+  const isNoop =
+    (existingRows.length === 0 && !current) ||
+    (existingRows.length === 1 &&
+      current !== null &&
+      existingRows[0].evidence === evidence);
+  if (isNoop) {
+    const score = relationshipRow?.score ?? 0;
+    return { recorded: false, score, tier: tierForScore(score) };
+  }
+
+  for (const existing of existingRows) {
+    await ctx.db.delete(existing._id);
+  }
+
+  const now = Date.now();
+  if (current) {
+    await ctx.db.insert("relationshipEvents", {
+      leagueId: article.leagueId,
+      userId: user._id,
+      persona: article.persona,
+      type: "reaction",
+      delta: targetDelta,
+      articleId: article._id,
+      week: article.metadata?.week,
+      evidence: evidence!,
+      createdAt: now,
+    });
+  }
+
+  const priorDelta = existingRows.reduce((sum, e) => sum + e.delta, 0);
+  const score = clampScore(
+    (relationshipRow?.score ?? 0) - priorDelta + targetDelta
+  );
+  const tier = tierForScore(score);
+  const eventCount = Math.max(
+    0,
+    (relationshipRow?.eventCount ?? 0) - existingRows.length + (current ? 1 : 0)
+  );
+  const lastEventAt = current ? now : relationshipRow?.lastEventAt;
+
+  const league = await ctx.db.get(article.leagueId);
+  const team = await teamForUser(
+    ctx,
+    article.leagueId,
+    user,
+    leagueCurrentSeason(league)
+  );
+
+  if (relationshipRow) {
+    await ctx.db.patch(relationshipRow._id, {
+      score,
+      tier,
+      eventCount,
+      lastEventAt,
+      teamId: team?._id ?? relationshipRow.teamId,
+      updatedAt: now,
+    });
+  } else {
+    await ctx.db.insert("writerRelationships", {
+      leagueId: article.leagueId,
+      userId: user._id,
+      teamId: team?._id,
+      persona: article.persona,
+      score,
+      tier,
+      eventCount,
+      lastEventAt,
+      updatedAt: now,
+    });
+  }
+
+  return { recorded: true, score, tier };
+}
+
+/**
+ * A reader reaction on an article moves that article writer's relationship with the
+ * reacting manager. Called from `articleEngagement.toggleReaction` after every
+ * add/switch/remove. Does NOT take the reaction as an argument - it reads the truth
+ * from `articleReactions` and reconciles the ledger to match (see
+ * `reconcileReactionForUser`). `userId` is the reactor's Clerk id (the
+ * `articleReactions.userId` convention).
+ */
+export const syncReactionEvent = internalMutation({
   args: {
     articleId: v.id("aiContent"),
     userId: v.string(),
-    reaction: v.union(
-      v.literal("fire"),
-      v.literal("lol"),
-      v.literal("salty"),
-      v.literal("respect")
-    ),
   },
   returns: recordResultValidator,
   handler: async (ctx, args) => {
@@ -548,25 +683,71 @@ export const recordReactionEvent = internalMutation({
     const user = await userByClerkId(ctx, args.userId);
     if (!user) return neutral;
 
-    const league = await ctx.db.get(article.leagueId);
-    const team = await teamForUser(
-      ctx,
-      article.leagueId,
-      user,
-      leagueCurrentSeason(league)
-    );
+    return await reconcileReactionForUser(ctx, article, user);
+  },
+});
 
-    return await applyEvent(ctx, {
-      leagueId: article.leagueId,
-      userId: user._id,
-      persona: article.persona,
-      type: "reaction",
-      delta: DELTAS.reaction[args.reaction],
-      evidence: `Reacted "${args.reaction}" to "${article.title}"`,
-      teamId: team?._id,
-      articleId: article._id,
-      week: article.metadata?.week,
-    });
+/**
+ * One-time backfill: collapse every legacy duplicate `type: "reaction"` ledger row
+ * (from the old append-only behavior, before `syncReactionEvent` existed) down to at
+ * most one row per (article, user, persona), matching each reader's current reaction.
+ * Batched across transactions by `_creationTime` cursor, mirroring `decayRelationships`.
+ */
+export const reconcileReactionEvents = internalMutation({
+  args: {
+    after: v.optional(v.number()),
+    batchSize: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    reconciled: v.number(),
+    isDone: v.boolean(),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ scanned: number; reconciled: number; isDone: boolean }> => {
+    const batchSize = Math.min(Math.max(args.batchSize ?? 200, 1), 200);
+    const after = args.after ?? -1;
+
+    const rows = await ctx.db
+      .query("relationshipEvents")
+      .withIndex("by_creation_time", (q) => q.gt("_creationTime", after))
+      .take(batchSize);
+
+    // Capture the cursor from the batch as READ, before `reconcileReactionForUser`
+    // deletes/re-inserts any rows in it (a re-inserted row gets a NEW
+    // `_creationTime`, which must not push the cursor backward or forward here).
+    const lastReadCreationTime =
+      rows.length > 0 ? rows[rows.length - 1]._creationTime : after;
+
+    const seen = new Set<string>();
+    let reconciled = 0;
+    for (const eventRow of rows) {
+      if (eventRow.type !== "reaction" || !eventRow.articleId) continue;
+      const key = `${eventRow.articleId}:${eventRow.userId}:${eventRow.persona}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const article = await ctx.db.get(eventRow.articleId);
+      if (!article) continue;
+      const user = await ctx.db.get(eventRow.userId);
+      if (!user) continue;
+
+      const result = await reconcileReactionForUser(ctx, article, user);
+      if (result.recorded) reconciled++;
+    }
+
+    const isDone = rows.length < batchSize;
+    if (!isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.relationships.reconcileReactionEvents,
+        { after: lastReadCreationTime, batchSize }
+      );
+    }
+
+    return { scanned: rows.length, reconciled, isDone };
   },
 });
 

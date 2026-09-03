@@ -30,6 +30,9 @@ import {
   classifyTransactionStatus,
   type TransactionOutcome as ImportedTransactionOutcome,
 } from "./lib/espnTransactions";
+// `convex/lib/standingsThroughWeek.ts` is likewise a deliberately pure module (see its file
+// header) - season backfill's historical-mode standings computation (brief A deliverable 1).
+import { computeStandingsThroughWeek } from "./lib/standingsThroughWeek";
 
 /**
  * Enhanced query functions for AI content generation
@@ -474,8 +477,13 @@ export async function buildWaiverLedger(
     .order("desc")
     .take(500);
 
+  // Bounded by the week being written about, not just the season: a backfilled
+  // week-5 article must not surface a week-12 bid as the season's biggest.
   const executedWaivers = seasonTransactions.filter(
-    t => t.type === "WAIVER" && transactionOutcome(t) === "executed"
+    t =>
+      t.type === "WAIVER" &&
+      transactionOutcome(t) === "executed" &&
+      t.scoringPeriod <= opts.throughScoringPeriod
   );
 
   const spentByTeam = new Map<number, number>();
@@ -576,14 +584,23 @@ export const getLeagueDataForAI = internalQuery({
   args: {
     leagueId: v.id("leagues"),
     currentWeek: v.optional(v.number()),
+    // Season backfill (convex/seasonBackfill.ts): write about a PAST week as
+    // it actually stood, rather than the league's live current week. Absent
+    // on every existing caller, so the live path below is untouched -
+    // `historicalMode` is false and every branch takes the original path.
+    asOf: v.optional(v.object({ seasonId: v.number(), week: v.number(), rosterWeek: v.optional(v.number()) })),
   },
   async handler(ctx, args) {
     const league = await ctx.db.get(args.leagueId);
     if (!league) throw new Error("League not found");
-    
-    const currentSeason = league.espnData?.seasonId || new Date().getFullYear();
-    const currentWeek = args.currentWeek || league.espnData?.currentScoringPeriod || 1;
-    
+
+    const historicalMode = args.asOf !== undefined;
+    const currentSeason = args.asOf?.seasonId ?? (league.espnData?.seasonId || new Date().getFullYear());
+    // asOf.week may be 0 (before the first game of the season) - `|| 1` on
+    // the live fallback chain would wrongly turn that into week 1, so the
+    // historical value is read directly rather than folded into that chain.
+    const currentWeek = historicalMode ? args.asOf!.week : (args.currentWeek || league.espnData?.currentScoringPeriod || 1);
+
     // Fetch all data in parallel
     const [
       teams,
@@ -601,12 +618,12 @@ export const getLeagueDataForAI = internalQuery({
       ctx.db.query("teams")
         .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .collect(),
-      
+
       // Get all matchups
       ctx.db.query("matchups")
         .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .collect(),
-      
+
       // Get recent matchups (last 3 weeks, never a future week). Without the upper bound every
       // unplayed game of the season came back as "recent" in preseason and a writer read 0-0
       // scheduled games as prior meetings.
@@ -619,45 +636,78 @@ export const getLeagueDataForAI = internalQuery({
           )
         )
         .collect(),
-      
-      // Get recent trades
+
+      // Get recent trades. In historical mode the whole season's rows are read (the table is
+      // normally empty - see convex/seasonBackfill.ts's header) and bounded/filtered to the week
+      // below, so a future trade can never leak into a backdated article.
       ctx.db.query("trades")
         .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .order("desc")
-        .take(20),
-      
-      // Get recent transactions
+        .take(historicalMode ? 500 : 20),
+
+      // Get recent transactions. Historical mode reads a wider window (bounded) and filters/slices
+      // to the same 50-row shape below, since the ordinary top-50-by-recency read would otherwise
+      // include transactions from weeks after the one this article is about.
       ctx.db.query("transactions")
         .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .order("desc")
-        .take(50),
-      
+        .take(historicalMode ? 400 : 50),
+
       // Get rivalries
       ctx.db.query("rivalries")
         .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
         .collect(),
-      
+
       // Get manager activity
       ctx.db.query("managerActivity")
         .withIndex("by_league_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .collect(),
-      
+
       // Get player data for rosters
       ctx.db.query("playersEnhanced")
         .withIndex("by_espn_id_season")
         .take(1000), // Get a sample of players for now
-      
+
       // Get league seasons for historical data
       ctx.db.query("leagueSeasons")
         .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
         .order("desc")
         .take(10),
-      
+
       // Get all historical teams for all-time records
       ctx.db.query("teams")
         .withIndex("by_league", q => q.eq("leagueId", args.leagueId))
         .collect(),
     ]);
+
+    // "Played" (spec: brief A deliverable 1) = matchupPeriod <= currentWeek. In live mode this is
+    // every matchup (currentWeek is the live week, and future weeks are still 0-0 rows anyway); in
+    // historical mode the full season is already in the table, so later weeks' REAL results must be
+    // stripped from every calculation that isn't explicitly about the schedule itself.
+    const playedMatchups = historicalMode ? matchups.filter(m => m.matchupPeriod <= currentWeek) : matchups;
+
+    // Trades before the end of `currentWeek`, from nflSeasons.weekBoundaries when that row exists.
+    // No boundary row (2025 has none in prod - see convex/seasonBackfill.ts's header) leaves trades
+    // unfiltered, matching the live path exactly - a conservative no-op given the table is normally
+    // empty regardless.
+    let scopedTrades = trades;
+    if (historicalMode) {
+      const seasonBoundary = await ctx.db
+        .query("nflSeasons")
+        .withIndex("by_year", q => q.eq("year", currentSeason))
+        .first();
+      const weekEnd = seasonBoundary?.weekBoundaries.find(w => w.week === currentWeek)?.end;
+      if (weekEnd !== undefined) {
+        scopedTrades = trades.filter(t => t.tradeDate <= weekEnd).slice(0, 20);
+      } else {
+        scopedTrades = trades.slice(0, 20);
+      }
+    }
+
+    // Transactions through currentWeek, sliced back to the live path's normal 50-row shape.
+    const scopedTransactions = historicalMode
+      ? transactions.filter(t => t.scoringPeriod <= currentWeek).slice(0, 50)
+      : transactions;
     // Infer league type (Redraft | Keeper | Dynasty)
     let inferredLeagueType: string = "Redraft";
     try {
@@ -705,23 +755,59 @@ export const getLeagueDataForAI = internalQuery({
     );
     const divisionNameFor = divisionNameLookup(leagueFormat);
 
-    // Calculate standings, ordered by ESPN's authoritative playoff seed when known (see
-    // `compareStandingsForSeeding` below for why).
-    const standings = teams
-      .sort(compareStandingsForSeeding)
-      .map((team, index) => ({
-        teamId: team.externalId,
-        team: team.name,
-        rank: index + 1,
-        wins: team.record.wins,
-        losses: team.record.losses,
-        ties: team.record.ties,
-        pointsFor: team.record.pointsFor || 0,
-        pointsAgainst: team.record.pointsAgainst || 0,
-        playoffSeed: team.record.playoffSeed,
-        division: divisionNameFor(team.divisionId),
-        divisionRecord: team.record.divisionRecord,
-      }));
+    // Standings (spec: brief A deliverable 1). In historical mode `teams.record` is the
+    // END-OF-SEASON record - useless (worse, actively wrong) for an article about an earlier week -
+    // so standings are computed fresh from played regular-season matchups only
+    // (`computeStandingsThroughWeek`, convex/lib/standingsThroughWeek.ts). Live mode is untouched:
+    // ESPN's own authoritative playoff seed, via `compareStandingsForSeeding`.
+    const standingsThroughWeek = historicalMode
+      ? computeStandingsThroughWeek(
+          teams.map(team => ({ externalId: team.externalId, divisionId: team.divisionId })),
+          matchups.map(m => ({
+            homeTeamId: m.homeTeamId,
+            awayTeamId: m.awayTeamId,
+            homeScore: m.homeScore,
+            awayScore: m.awayScore,
+            winner: m.winner,
+            matchupPeriod: m.matchupPeriod,
+            playoffTier: m.playoffTier,
+          })),
+          { throughWeek: currentWeek, lastRegularSeasonWeek: leagueFormat.regularSeasonMatchupPeriods ?? 14 }
+        )
+      : undefined;
+    const standingsByExternalId = new Map((standingsThroughWeek ?? []).map(row => [row.externalId, row]));
+
+    const standings = historicalMode
+      ? (standingsThroughWeek ?? []).map(row => ({
+          teamId: row.externalId,
+          team: teams.find(team => team.externalId === row.externalId)?.name ?? `Team ${row.externalId}`,
+          rank: row.rank,
+          wins: row.wins,
+          losses: row.losses,
+          ties: row.ties,
+          pointsFor: row.pointsFor,
+          pointsAgainst: row.pointsAgainst,
+          playoffSeed: row.playoffSeed,
+          division: divisionNameFor(row.divisionId),
+          // Not cheaply derivable through-week (would need a second, division-scoped pass over
+          // played matchups) - left undefined rather than showing the wrong (end-of-season) split.
+          divisionRecord: undefined as { wins: number; losses: number; ties: number } | undefined,
+        }))
+      : teams
+          .sort(compareStandingsForSeeding)
+          .map((team, index) => ({
+            teamId: team.externalId,
+            team: team.name,
+            rank: index + 1,
+            wins: team.record.wins,
+            losses: team.record.losses,
+            ties: team.record.ties,
+            pointsFor: team.record.pointsFor || 0,
+            pointsAgainst: team.record.pointsAgainst || 0,
+            playoffSeed: team.record.playoffSeed,
+            division: divisionNameFor(team.divisionId),
+            divisionRecord: team.record.divisionRecord,
+          }));
 
     // One group per division (spec: format audit), only when the league actually has divisions.
     const divisionStandings =
@@ -761,9 +847,12 @@ export const getLeagueDataForAI = internalQuery({
       }>;
     }>> = {};
     
-    // Group historical teams by season (excluding current season)
+    // Group historical teams by season, strictly BEFORE currentSeason - not just "!==" - so a
+    // 2026 team row (0-0, mid-draft) can never masquerade as a "previous season" while backfilling
+    // 2025. A no-op for the live path: a team row for a season later than the league's own current
+    // season is not a shape that occurs there.
     const pastSeasons = [...new Set(allHistoricalTeams
-      .filter(team => team.seasonId !== currentSeason)
+      .filter(team => team.seasonId < currentSeason)
       .map(team => team.seasonId))]
       .sort((a, b) => b - a); // Most recent first
     
@@ -835,11 +924,19 @@ export const getLeagueDataForAI = internalQuery({
         };
       }
       
+      // The CURRENT season's contribution is the computed through-week record in historical mode
+      // (`team.record` is that season's END-OF-SEASON record - the whole point of this feature is
+      // that later weeks' real results must not leak into an earlier week's article).
+      const computedForThisSeason =
+        historicalMode && team.seasonId === currentSeason
+          ? standingsByExternalId.get(team.externalId)
+          : undefined;
+
       const record = allTimeRecords[externalId];
-      record.wins += team.record.wins;
-      record.losses += team.record.losses;
-      record.ties += team.record.ties;
-      record.totalPointsFor += team.record.pointsFor || 0;
+      record.wins += computedForThisSeason?.wins ?? team.record.wins;
+      record.losses += computedForThisSeason?.losses ?? team.record.losses;
+      record.ties += computedForThisSeason?.ties ?? team.record.ties;
+      record.totalPointsFor += computedForThisSeason?.pointsFor ?? (team.record.pointsFor || 0);
       record.seasonsPlayed += 1;
       
       // Check if this team made the playoffs, using that season's own playoff field size where a
@@ -860,13 +957,19 @@ export const getLeagueDataForAI = internalQuery({
         leagueFormat.playoffTeamCount ??
         6;
 
-      if (teamRank <= seasonPlayoffTeams) {
+      // In historical mode the target season's stored standing is the final one,
+      // which an early-week article cannot know yet - leave that season out.
+      const unknowableYet = historicalMode && team.seasonId === currentSeason;
+      if (!unknowableYet && teamRank <= seasonPlayoffTeams) {
         record.playoffAppearances += 1;
       }
     });
     
-    // Count championships from leagueSeasons
+    // Count championships from leagueSeasons. In historical mode the CURRENT (backfill target)
+    // season is really a completed season in the database - it already has a real `champion` row -
+    // so an early-week article must not count it: that reveals who eventually wins.
     leagueSeasons.forEach(season => {
+      if (historicalMode && season.seasonId >= currentSeason) return;
       if (season.champion) {
         const championId = String(season.champion.teamId);
         if (allTimeRecords[championId]) {
@@ -874,10 +977,15 @@ export const getLeagueDataForAI = internalQuery({
         }
       }
     });
-    
-    // Build championship history from leagueSeasons
+
+    // Build championship history from leagueSeasons. Same historical-mode guard as above; the live
+    // path keeps its original (unfiltered-by-season) behaviour exactly, since a season only ever
+    // lands here once it already has a champion/runnerUp/regularSeasonChampion recorded.
     const championshipHistory = leagueSeasons
-      .filter(season => season.champion || season.runnerUp || season.regularSeasonChampion)
+      .filter(season =>
+        (season.champion || season.runnerUp || season.regularSeasonChampion) &&
+        (!historicalMode || season.seasonId < currentSeason)
+      )
       .map(season => ({
         seasonId: season.seasonId,
         champion: season.champion,
@@ -901,9 +1009,40 @@ export const getLeagueDataForAI = internalQuery({
     });
     
     // Enhance team data with calculated metrics
+    // Roster-at-week (historical mode only): a team's roster as it stood in its `rosterWeek`
+    // matchup, not the stored `teams.roster` (always the END-OF-SEASON roster) - a week-5 power
+    // ranking must not mention a player this team only acquired in week 11. Falls back to the
+    // stored roster only when that matchup has no captured lineup (a bye, or a sync gap).
+    const rosterWeek = Math.max(args.asOf?.rosterWeek ?? currentWeek, 1);
+    // Loosely typed (matches the existing `rosterPlayer: any` convention just below): this can
+    // return either a stored `teams.roster` entry or a matchup-roster-shaped one, and the
+    // enrichment map right after this treats both the same way.
+    const historicalRosterFor = (team: Doc<"teams">): any[] => {
+      const matchup = matchups.find(
+        m => m.matchupPeriod === rosterWeek && (m.homeTeamId === team.externalId || m.awayTeamId === team.externalId)
+      );
+      const side = matchup
+        ? (matchup.homeTeamId === team.externalId ? matchup.homeRoster : matchup.awayRoster)
+        : undefined;
+      if (!side) return team.roster;
+      return side.players.map(player => ({
+        playerId: String(player.espnId),
+        playerName: player.fullName,
+        position: player.position,
+        team: "",
+        acquisitionType: "UNKNOWN",
+        lineupSlotId: player.lineupSlotId,
+        // Not part of `teams.roster`'s shape, but the `...rosterPlayer` spread below carries them
+        // into the payload for the prompt layer - real per-week numbers, unlike a season total.
+        points: player.points,
+        projectedPoints: player.projectedPoints,
+      }));
+    };
+
     const enhancedTeams = teams.map(team => {
-      // Transform matchups for calculations
-      const matchupData = matchups.map(m => ({
+      // Transform matchups for calculations. Historical mode only ever sees PLAYED matchups here -
+      // strength of schedule and recent form must never be computed off a later week's real result.
+      const matchupData = playedMatchups.map(m => ({
         teamA: m.homeTeamId,
         teamB: m.awayTeamId,
         scoreA: m.homeScore,
@@ -931,8 +1070,11 @@ export const getLeagueDataForAI = internalQuery({
       const standing = standings.find(s => s.teamId === team.externalId);
       const playoffSeed = standing?.playoffSeed || standing?.rank;
       
-      // Enrich roster with player stats from playersEnhanced
-      const enrichedRoster = team.roster.map((rosterPlayer: any) => {
+      // Enrich roster with player stats from playersEnhanced. Historical mode sources the roster
+      // from this team's `rosterWeek` matchup instead of the stored (end-of-season) `team.roster` -
+      // see `historicalRosterFor` above.
+      const rosterSource = historicalMode ? historicalRosterFor(team) : team.roster;
+      const enrichedRoster = rosterSource.map((rosterPlayer: any) => {
         // Find the enhanced player data
         const enhancedPlayer = playersEnhanced.find((p: any) => 
           p.espnId === rosterPlayer.playerId && p.season === currentSeason
@@ -984,15 +1126,32 @@ export const getLeagueDataForAI = internalQuery({
         manager: managerNames.get(team._id) ?? UNKNOWN_MANAGER,
         logo: team.logo,
         abbreviation: team.abbreviation,
-        record: team.record,
-        pointsFor: team.record.pointsFor ?? 0,
-        pointsAgainst: team.record.pointsAgainst ?? 0,
+        // `team.record` is REPLACED by the computed through-week record in historical mode - the
+        // stored one is always the end-of-season record (spec: brief A deliverable 1).
+        record: historicalMode
+          ? {
+              wins: standingsByExternalId.get(team.externalId)?.wins ?? 0,
+              losses: standingsByExternalId.get(team.externalId)?.losses ?? 0,
+              ties: standingsByExternalId.get(team.externalId)?.ties ?? 0,
+              pointsFor: standingsByExternalId.get(team.externalId)?.pointsFor ?? 0,
+              pointsAgainst: standingsByExternalId.get(team.externalId)?.pointsAgainst ?? 0,
+              playoffSeed: standingsByExternalId.get(team.externalId)?.playoffSeed,
+            }
+          : team.record,
+        pointsFor: historicalMode
+          ? standingsByExternalId.get(team.externalId)?.pointsFor ?? 0
+          : team.record.pointsFor ?? 0,
+        pointsAgainst: historicalMode
+          ? standingsByExternalId.get(team.externalId)?.pointsAgainst ?? 0
+          : team.record.pointsAgainst ?? 0,
         roster: enrichedRoster,
         playoffSeed,
         strengthOfSchedule,
         recentForm,
         benchPoints: 0, // Would calculate from roster data
-        divisionRecord: team.record.divisionRecord,
+        // Not cheaply derivable through-week (see the `standings` computation above) - never the
+        // stale end-of-season split in historical mode.
+        divisionRecord: historicalMode ? undefined : team.record.divisionRecord,
         divisionId: team.divisionId !== undefined ? String(team.divisionId) : undefined,
         division: divisionNameFor(team.divisionId),
         externalId: team.externalId, // Important for matching
@@ -1005,9 +1164,79 @@ export const getLeagueDataForAI = internalQuery({
     const playedRecentMatchups = recentMatchups.filter(
       matchup => matchup.winner !== undefined || matchup.homeScore > 0 || matchup.awayScore > 0
     );
+    /**
+     * Per-matchup top performers for the generic path (power rankings, previews, awards, playoff
+     * picture, season recap). The weekly-recap query has always built these; this path never did,
+     * so `facts.matchups[].players` was empty for every generic article and the verifier had no
+     * player ids to check a writer's featured players against - each one came back as an
+     * "unknown player" block (found by the 2025 season backfill, but the gap is the same live).
+     * Shape mirrors the recap query's `topPerformers` so `src/lib/ai/facts.ts#buildMatchupPlayers`
+     * reads both identically. Starters are lineup slots other than bench (20) and IR (21).
+     */
+    type LineupPlayer = {
+      lineupSlotId: number;
+      espnId: number;
+      fullName: string;
+      position: string;
+      points: number;
+      projectedPoints?: number;
+    };
+    const BENCH_SLOT = 20;
+    const IR_SLOT = 21;
+    const topPerformersFor = (
+      side: { players: LineupPlayer[] } | undefined,
+      team: Doc<"teams"> | undefined,
+      externalId: string,
+    ) => {
+      const players = side?.players ?? [];
+      const asPerformer = (p: LineupPlayer, isStarter: boolean) => ({
+        playerId: String(p.espnId),
+        playerName: p.fullName,
+        position: p.position,
+        points: p.points,
+        projectedPoints: p.projectedPoints ?? 0,
+        fantasyTeamId: externalId,
+        fantasyTeamName: team?.name ?? externalId,
+        isStarter,
+        lineupSlotId: p.lineupSlotId,
+        overPerformance: p.projectedPoints
+          ? (((p.points - p.projectedPoints) / p.projectedPoints) * 100).toFixed(1)
+          : 0,
+      });
+      const starters = players.filter(p => p.lineupSlotId !== BENCH_SLOT && p.lineupSlotId !== IR_SLOT);
+      const bench = players.filter(p => p.lineupSlotId === BENCH_SLOT);
+      const topStarters = [...starters]
+        .sort((a, b) => b.points - a.points)
+        .slice(0, 3)
+        .map(p => asPerformer(p, true));
+      const impactfulBench = bench
+        .filter(b => {
+          if (b.points < 15) return false;
+          const samePosition = starters.filter(s => s.position === b.position);
+          if (samePosition.length === 0) return false;
+          const worst = [...samePosition].sort((a, c) => a.points - c.points)[0];
+          return b.points - worst.points >= 10;
+        })
+        .sort((a, b) => b.points - a.points)
+        .slice(0, 1)
+        .map(b => {
+          const worst = [...starters.filter(s => s.position === b.position)].sort((a, c) => a.points - c.points)[0];
+          return {
+            ...asPerformer(b, false),
+            benchImpact: true,
+            wouldHaveReplacedPlayer: worst.fullName,
+            pointImprovementIfStarted: (b.points - worst.points).toFixed(1),
+          };
+        });
+      const benchPoints = bench.reduce((sum, p) => sum + p.points, 0);
+      return { performers: [...topStarters, ...impactfulBench], benchPoints };
+    };
+
     const enrichedMatchups = playedRecentMatchups.map(matchup => {
       const homeTeam = teams.find(t => t.externalId === matchup.homeTeamId);
       const awayTeam = teams.find(t => t.externalId === matchup.awayTeamId);
+      const homeSide = topPerformersFor(matchup.homeRoster, homeTeam, matchup.homeTeamId);
+      const awaySide = topPerformersFor(matchup.awayRoster, awayTeam, matchup.awayTeamId);
       
       const matchupData = {
         teamA: matchup.homeTeamId,
@@ -1021,14 +1250,17 @@ export const getLeagueDataForAI = internalQuery({
           ? (matchup.homeProjectedScore > matchup.awayProjectedScore && matchup.awayScore > matchup.homeScore) ||
             (matchup.awayProjectedScore > matchup.homeProjectedScore && matchup.homeScore > matchup.awayScore)
           : false,
-        benchPointsA: 0, // Would calculate
-        benchPointsB: 0, // Would calculate
+        benchPointsA: homeSide.benchPoints,
+        benchPointsB: awaySide.benchPoints,
       };
       
       const memorableMoment = identifyMemorableMoments(matchupData);
       
       return {
         ...matchup,
+        topPerformers: [...homeSide.performers, ...awaySide.performers],
+        benchPointsA: homeSide.benchPoints,
+        benchPointsB: awaySide.benchPoints,
         // Same shape getWeeklyRecapDataForAI produces: names, external ids and
         // manager display names, so the prompt layer never has to guess which
         // of teamA/teamB is a name and which is an id.
@@ -1065,18 +1297,35 @@ export const getLeagueDataForAI = internalQuery({
 
     // Preview the current week while none of its games have been played; once
     // the week is under way (or over), the look-ahead is the following week.
+    // Historical mode already knows exactly which week is "played" (asOf.week), so the look-ahead
+    // is always the very next one - `asOf.week + 1` (1 when week is 0, before the first game) -
+    // rather than this live-only "has anything in the current week kicked off yet" inference, whose
+    // ambiguity does not exist once every matchup's outcome is already on record.
     const currentWeekGames = matchups.filter(m => m.matchupPeriod === currentWeek);
-    const previewWeek =
-      currentWeekGames.length > 0 && currentWeekGames.every(game => !hasBeenPlayed(game))
+    const previewWeek = historicalMode
+      ? currentWeek + 1
+      : currentWeekGames.length > 0 && currentWeekGames.every(game => !hasBeenPlayed(game))
         ? currentWeek
         : currentWeek + 1;
 
     const teamByExternalId = new Map(teams.map(team => [team.externalId, team]));
 
-    const formatTeamRecord = (team: Doc<"teams"> | undefined) =>
-      team
-        ? `${team.record.wins ?? 0}-${team.record.losses ?? 0}-${team.record.ties ?? 0}`
-        : undefined;
+    // Through-week wins/losses/ties in historical mode - `team.record` is the end-of-season record.
+    const formatTeamRecord = (team: Doc<"teams"> | undefined) => {
+      if (!team) return undefined;
+      const computed = historicalMode ? standingsByExternalId.get(team.externalId) : undefined;
+      const wins = computed?.wins ?? team.record.wins ?? 0;
+      const losses = computed?.losses ?? team.record.losses ?? 0;
+      const ties = computed?.ties ?? team.record.ties ?? 0;
+      return `${wins}-${losses}-${ties}`;
+    };
+
+    // Through-week pointsFor in historical mode, same reasoning as `formatTeamRecord` above.
+    const pointsForOf = (team: Doc<"teams"> | undefined): number | undefined => {
+      if (!team) return undefined;
+      if (!historicalMode) return team.record.pointsFor;
+      return standingsByExternalId.get(team.externalId)?.pointsFor;
+    };
 
     /** Meetings already played this season, home/away agnostic. Ties count for neither side. */
     const headToHeadFor = (teamAId: string, teamBId: string) => {
@@ -1116,8 +1365,8 @@ export const getLeagueDataForAI = internalQuery({
           teamBOwner: awayTeam ? managerNames.get(awayTeam._id) ?? UNKNOWN_MANAGER : UNKNOWN_MANAGER,
           teamARecord: formatTeamRecord(homeTeam),
           teamBRecord: formatTeamRecord(awayTeam),
-          teamAPointsFor: homeTeam?.record.pointsFor,
-          teamBPointsFor: awayTeam?.record.pointsFor,
+          teamAPointsFor: pointsForOf(homeTeam),
+          teamBPointsFor: pointsForOf(awayTeam),
           // Only present once ESPN publishes a projection for the week; never invented here.
           projectedScoreA: game.homeProjectedScore,
           projectedScoreB: game.awayProjectedScore,
@@ -1128,7 +1377,7 @@ export const getLeagueDataForAI = internalQuery({
 
     // Analyze transaction trends
     const transactionTrends = analyzeTransactionTrends(
-      transactions as any // Type mismatch - helper expects different format
+      scopedTransactions as any // Type mismatch - helper expects different format
     );
     
     // Calculate playoff probabilities. `calculatePlayoffProbabilities` clamps a negative
@@ -1142,14 +1391,16 @@ export const getLeagueDataForAI = internalQuery({
     );
     
     // Format trades with analysis
-    const enrichedTrades = trades.map(trade => ({
+    const enrichedTrades = scopedTrades.map(trade => ({
       ...trade,
       daysAgo: Math.floor((Date.now() - trade.tradeDate) / (1000 * 60 * 60 * 24)),
     }));
     
-    // Format rivalries with recent matchups
+    // Format rivalries with recent matchups. `playedMatchups` (live mode: identical to `matchups`;
+    // historical mode: only matchupPeriod <= currentWeek) so a rivalry's "recent games" can never
+    // include a later week's real result.
     const enrichedRivalries = rivalries.map(rivalry => {
-      const recentGames = matchups.filter(m => 
+      const recentGames = playedMatchups.filter(m =>
         (m.homeTeamId === rivalry.teamA.teamId && m.awayTeamId === rivalry.teamB.teamId) ||
         (m.homeTeamId === rivalry.teamB.teamId && m.awayTeamId === rivalry.teamA.teamId)
       ).slice(-3);
@@ -1190,7 +1441,7 @@ export const getLeagueDataForAI = internalQuery({
       // schedule runs out, which is what makes weekly_preview refuse.
       upcomingMatchups,
       trades: enrichedTrades,
-      transactions: transactions.slice(0, 20), // Most recent 20
+      transactions: scopedTransactions.slice(0, 20), // Most recent 20
       rivalries: enrichedRivalries,
       managerActivity,
       transactionTrends,

@@ -119,7 +119,7 @@ const CONTENT_TYPE_CONFIG = {
   },
   season_welcome: {
     icon: FileText,
-    title: "Season Welcome Package",
+    title: "Season Kickoff",
     description: "Welcome article for newly imported league with history",
     defaultSchedule: "At season start"
   }

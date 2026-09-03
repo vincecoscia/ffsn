@@ -3,8 +3,6 @@ import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { leagueCurrentSeason } from "./lib/season";
 import { INCLUDED_MANAGERS_DEFAULT } from "./credits";
-import { contentTemplates } from "../src/lib/ai/content-templates";
-import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
 
 /** Credits one top-up unit buys (spec §10.1: 100 credits for $5). */
 const CREDITS_PER_TOPUP_UNIT = 100;
@@ -106,73 +104,15 @@ export const processLeaguePayment = internalMutation({
     // 100 credits for every manager, commissioner included.
     await ctx.runMutation(internal.credits.grantPassCredits, { leagueId, seasonId });
 
-    // Auto-generate season_welcome content for the new league
+    // Season kickoff (owner directive, Sept 2026: "season_welcome" rings in
+    // every season, not just a league's first one, and is included in the
+    // subscription). `kickOffSeasonWelcome` owns the existence check, article
+    // creation and generation scheduling, billed to the pass (userId
+    // "system") - no credit check or deduction here anymore.
     try {
-      // Check if season_welcome content already exists for this league/season
-      const existingCheck = await ctx.runQuery(internal.contentScheduling.checkExistingContent, {
-        leagueId,
-        contentType: "season_welcome",
-        seasonId,
-      });
-
-      if (!existingCheck.hasExistingContent && !existingCheck.hasScheduledContent) {
-        // Use the template's real credit cost (was previously hardcoded to a
-        // stale "5" here while the actual generation cost is higher, which
-        // let this check under-report what was actually about to be spent).
-        const template = contentTemplates["season_welcome"];
-        const cost = template?.creditCost ?? 5;
-
-        const userCredits = await ctx.runQuery(internal.credits.checkSufficientCredits, {
-          userId,
-          requiredAmount: cost,
-        });
-
-        if (userCredits.hasSufficientCredits) {
-          console.log(`Auto-generating season_welcome content for league ${leagueId}`);
-
-          // Deduct up front (in this same transaction) rather than relying
-          // on generateContentAction's post-generation deduction, matching
-          // the checkSufficientCredits -> deductCredits -> generate pattern
-          // used by regenerateContentWithCredits.
-          await ctx.runMutation(internal.credits.deductCredits, {
-            userId,
-            amount: cost,
-            description: `Auto-generated season welcome content`,
-            leagueId,
-          });
-
-          // The roster's writer for this content type (spec section 9.2.3) -
-          // never the retired "analyst" placeholder.
-          const persona = contentTypePersonaMap["season_welcome"]?.[0] ?? DEFAULT_PERSONA;
-
-          // Create the article first
-          const articleId = await ctx.runMutation(internal.aiContent.createScheduledArticle, {
-            leagueId,
-            type: "season_welcome",
-            persona,
-            userId: userId,
-          });
-
-          // Schedule immediate generation of season_welcome
-          await ctx.scheduler.runAfter(5000, internal.aiContent.generateContentAction, {
-            articleId,
-            leagueId,
-            contentType: "season_welcome",
-            persona,
-            userId: userId,
-            seasonId,
-            creditsDeductedUpFront: cost,
-          });
-
-          console.log(`Season welcome content generation scheduled for league ${leagueId}`);
-        } else {
-          console.log(`User ${userId} has insufficient credits for auto season_welcome generation. Required: ${cost}, Available: ${userCredits.currentBalance}`);
-        }
-      } else {
-        console.log(`Season welcome content already exists or is scheduled for league ${leagueId}`);
-      }
+      await ctx.runMutation(internal.contentScheduling.kickOffSeasonWelcome, { leagueId, seasonId });
     } catch (error) {
-      console.error("Error auto-generating season welcome content:", error);
+      console.error("Error kicking off the season welcome article:", error);
       // Don't fail the entire payment process if content generation fails
     }
 

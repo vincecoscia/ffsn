@@ -25,9 +25,14 @@ interface PassGrant {
   seasonId: number;
   expiresAt: number;
 }
+interface WelcomeKickoff {
+  started: boolean;
+  reason?: string;
+}
 interface CompResult {
   subscription: CompSubscription;
   credits: { granted: number; skipped: number; amountPerManager: number };
+  welcome: WelcomeKickoff;
 }
 
 /**
@@ -89,6 +94,7 @@ export const compLeaguePass = internalAction({
   returns: v.object({
     subscription: v.object({ changed: v.boolean(), status: v.string(), seasonId: v.number() }),
     credits: v.object({ granted: v.number(), skipped: v.number(), amountPerManager: v.number() }),
+    welcome: v.object({ started: v.boolean(), reason: v.optional(v.string()) }),
   }),
   // Explicit types throughout: this action references `internal.adminTools.*`, and without them
   // TypeScript sees the handler's return type in its own initializer (TS7022) and gives up.
@@ -102,13 +108,23 @@ export const compLeaguePass = internalAction({
       leagueId: args.leagueId,
       seasonId: subscription.seasonId,
     });
+    // A comp activates the pass the same as a real purchase does, so the
+    // season kickoff piece (owner directive, Sept 2026) fires here too -
+    // `processLeaguePayment` is the only other caller, and a comped league
+    // never goes through it.
+    const welcome: WelcomeKickoff = await ctx.runMutation(internal.contentScheduling.kickOffSeasonWelcome, {
+      leagueId: args.leagueId,
+      seasonId: subscription.seasonId,
+    });
     console.log(
       `[adminTools] comped League Pass for ${args.leagueId}: subscription ${subscription.status} ` +
-        `(changed=${subscription.changed}), credits granted to ${grant.granted} manager(s), ${grant.skipped} already had them`
+        `(changed=${subscription.changed}), credits granted to ${grant.granted} manager(s), ${grant.skipped} already had them, ` +
+        `season welcome ${welcome.started ? "started" : `not started (${welcome.reason})`}`
     );
     return {
       subscription,
       credits: { granted: grant.granted, skipped: grant.skipped, amountPerManager: grant.amountPerManager },
+      welcome,
     };
   },
 });

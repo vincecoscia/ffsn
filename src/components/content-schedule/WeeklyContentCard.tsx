@@ -160,7 +160,7 @@ export function WeeklyContentCard({ leagueId, canManage, className }: WeeklyCont
 
       <div className="mt-6 flex flex-col gap-5">
         <div className={cn("flex flex-col gap-2", !contentEnabled && "opacity-60")}>
-          <span className="bc-label-sm text-bc-text-3">Every week</span>
+          <span className="bc-label-sm text-bc-text-3">Every week during the season</span>
           {weeklyRows.length > 0 ? (
             <p className="text-[15px] leading-relaxed text-bc-ink">
               {weeklyRows.map((row, index) => (
@@ -181,6 +181,9 @@ export function WeeklyContentCard({ leagueId, canManage, className }: WeeklyCont
           <p className="text-[13px] text-bc-text-3">
             All times {timeZoneCity(timeZone)}
             {zoneAbbreviation ? ` (${zoneAbbreviation})` : ""}.
+          </p>
+          <p className="text-[13px] text-bc-text-3">
+            Runs from the league&apos;s first week through its championship. Nothing prints in the offseason.
           </p>
           {otherEnabled.length > 0 && (
             <p className="text-[13px] text-bc-text-3">

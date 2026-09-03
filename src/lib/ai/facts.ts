@@ -143,6 +143,17 @@ export interface FactsPlayer {
   benchImpact?: { wouldHaveReplaced: string; pointGain: number };
 }
 
+/**
+ * One team's roster as the writer may cite it: every rostered player, id first. Matchup lines
+ * only carry each side's top performers, so before this block a bench player or a quiet starter
+ * the writer featured had no id in FACTS and was blocked as an unknown player (found by the 2025
+ * season backfill; the gap was the same live). Names and positions only - no numbers to misread.
+ */
+export interface FactsRoster {
+  teamId: string;
+  players: Array<{ id: string; name: string; pos: string }>;
+}
+
 export interface FactsMatchup {
   id: string;
   week: number;
@@ -186,6 +197,8 @@ export interface FactsBlock {
   waivers: FactsWaivers;
   teams: FactsTeam[];
   matchups: FactsMatchup[];
+  /** Full rosters (see FactsRoster); absent when the payload carries no team rosters. */
+  rosters?: FactsRoster[];
   /** Games that have NOT been played, for `weekly_preview`. Empty for every other type. */
   upcoming: FactsUpcoming[];
   standings: Array<{
@@ -895,6 +908,26 @@ function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming
   });
 }
 
+function buildRosters(data: LeagueDataContext, teams: TeamIndex): FactsRoster[] {
+  const rosters: FactsRoster[] = [];
+  for (const team of data.teams ?? []) {
+    const loose = asLoose(team);
+    const teamId = teams.resolve(str(loose.externalId), team.name, str(loose.owner));
+    if (teamId === "T?") continue;
+    const players = (team.roster ?? [])
+      .map(player => {
+        const p = asLoose(player);
+        const id = str(p.playerId) ?? str(p.espnId);
+        const name = str(p.playerName) ?? str(p.fullName);
+        if (!id || !name) return undefined;
+        return { id: `P${id}`, name, pos: str(p.position) ?? "FLEX" };
+      })
+      .filter((player): player is { id: string; name: string; pos: string } => player !== undefined);
+    if (players.length > 0) rosters.push({ teamId, players });
+  }
+  return rosters;
+}
+
 export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const data = req.leagueData;
   const teams = new TeamIndex(data);
@@ -902,6 +935,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
 
   const matchups = buildMatchups(data, teams);
   const upcoming = buildUpcoming(data, teams);
+  const rosters = buildRosters(data, teams);
 
   const standings = (data.standings ?? []).map(row => ({
     rank: row.rank,
@@ -1055,6 +1089,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     waivers,
     teams: teams.teams,
     matchups,
+    rosters: rosters.length > 0 ? rosters : undefined,
     upcoming,
     standings,
     transactions,

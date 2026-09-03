@@ -57,7 +57,7 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
   playoff_picture: "Playoff picture",
   championship_manifesto: "Championship manifesto",
   season_recap: "Season recap",
-  season_welcome: "Season welcome package",
+  season_welcome: "Season kickoff",
   commissioner_corner: "Commissioner's corner",
   hall_of_shame: "Hall of shame",
   custom_roast: "Custom roast",

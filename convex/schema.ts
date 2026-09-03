@@ -1261,6 +1261,11 @@ export default defineSchema({
     resumedAt: v.optional(v.number()),
     // Resumed rows that are days old generate without opening interviews.
     skipCommentRequests: v.optional(v.boolean()),
+    // Season backfill rows (convex/seasonBackfill.ts): written about a past
+    // period on purpose, run by the backfill chain only. The cron, the stuck-row
+    // sweeper and the retry loop leave them alone, they open no interviews, and
+    // their article publishes quietly, backdated to `scheduledFor`.
+    backfill: v.optional(v.boolean()),
     // How many times execution was deferred for stale/absent league data.
     deferrals: v.optional(v.number()),
     // Dedupe key for event-triggered rows (trade id, draft id, ...).
@@ -1979,7 +1984,10 @@ export default defineSchema({
     .index("by_league_persona", ["leagueId", "persona"])
     .index("by_league_user_persona", ["leagueId", "userId", "persona"]),
 
-  // Append-only ledger of everything that moved a relationship score.
+  // Append-only ledger of everything that moved a relationship score, with one
+  // exception: `type: "reaction"` rows mirror the reader's CURRENT reaction on an
+  // article (relationships.syncReactionEvent reconciles - deletes and re-inserts -
+  // so switching or removing a reaction never leaves a stale row behind).
   relationshipEvents: defineTable({
     leagueId: v.id("leagues"),
     userId: v.id("users"),

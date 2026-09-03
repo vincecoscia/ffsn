@@ -291,6 +291,8 @@ export interface GenerationRequest {
   leagueData: LeagueDataContext;
   customContext?: string;
   userId: string;
+  /** The week the article is about, when the caller knows it (a preview covers the week AFTER leagueData.currentWeek). */
+  week?: number;
   commentResponses?: CommentResponseData[];
   nonRespondents?: NonRespondent[];
   relationships?: WriterRelationshipContext[];
@@ -1464,7 +1466,9 @@ export async function completeArticleFromMessage(
     .map(player => player.playerName);
 
   const metadata: GeneratedContent['metadata'] = {
-    week: request.leagueData.currentWeek,
+    // The week the article is ABOUT: a preview or playoff picture is written off the prior week's
+    // results (leagueData.currentWeek) but covers the week the caller asked for.
+    week: request.week ?? request.leagueData.currentWeek,
     featuredTeams,
     featuredPlayers,
     tags: generateTags(request.contentType, request.persona),
