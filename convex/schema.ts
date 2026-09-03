@@ -1126,6 +1126,7 @@ export default defineSchema({
       v.literal("trade_analysis"),
       v.literal("power_rankings"),
       v.literal("waiver_wire_report"),
+      v.literal("bank_statement"),
       v.literal("mock_draft"),
       v.literal("draft_rankings"),
       v.literal("rivalry_week_special"),

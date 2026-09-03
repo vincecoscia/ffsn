@@ -219,6 +219,7 @@ describe("summarizeMatchup - shape", () => {
       awayScore: 0,
       homeProjected: null,
       awayProjected: null,
+      isBye: false,
     });
   });
 

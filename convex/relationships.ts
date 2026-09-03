@@ -39,7 +39,7 @@ import {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The six selectable writers (spec §3), in roster order.
+ * The seven selectable writers (spec §3), in roster order.
  *
  * Hard-coded here rather than imported from `src/lib/ai/persona-prompts.ts`: that module
  * carries prompt copy and pulls in app-side types, and Convex isolate code should not
@@ -51,6 +51,7 @@ export const ACTIVE_WRITERS = [
   "nina-sharpe",
   "dex-alvarez",
   "mel-diaper",
+  "reggie-banks",
   "walt-brennan",
 ] as const;
 

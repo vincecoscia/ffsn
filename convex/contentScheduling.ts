@@ -27,6 +27,10 @@ import { automationSpendCapUsd } from "./deskMetrics";
 import { resolveScheduledDraftDate, nextMorningAfter } from "./lib/draftDate";
 import { weekToMatchupPeriod } from "./lib/espnSettings";
 import { deriveLeagueCalendar, describeLeagueCalendar, leagueCalendarInputFromSettings } from "./lib/leagueCalendar";
+// `./lib/playoffs` is a deliberately pure module (no `internal`/`api` imports of its own - see its
+// file header), safe to import as a value here per the repo-wide gotcha about cross-module value
+// imports of a convex/*.ts module that references `internal`.
+import { isByeMatchup } from "./lib/playoffs";
 
 /** The roster default writer for a content type (spec section 9.2.3). */
 export function defaultPersonaFor(contentType: string): string {
@@ -144,6 +148,13 @@ export const DEFAULT_SCHEDULES: Record<string, CalendarEntry> = {
     enabled: false,
     schedule: { type: "weekly", dayOfWeek: 1, hour: 10, minute: 0 },
   },
+  bank_statement: {
+    enabled: false,
+    // Reggie Banks' results ledger, the afternoon after the recap. Created
+    // disabled: it is one more weekly article per league, so the commissioner
+    // switches it on from the schedule manager.
+    schedule: { type: "weekly", dayOfWeek: 2, hour: 12, minute: 0 }, // Tuesday 12:00
+  },
 };
 
 /**
@@ -157,6 +168,7 @@ const LOOKBACK_CONTENT = new Set([
   "weekly_recap",
   "power_rankings",
   "waiver_wire_report",
+  "bank_statement",
   "mid_season_awards",
   "hall_of_shame",
 ]);
@@ -180,6 +192,7 @@ const WEEKLY_CONTENT = new Set([
   "weekly_recap",
   "power_rankings",
   "waiver_wire_report",
+  "bank_statement",
   "weekly_preview",
 ]);
 
@@ -189,6 +202,7 @@ const MATCHUP_DEPENDENT_CONTENT = new Set([
   "weekly_preview",
   "power_rankings",
   "waiver_wire_report",
+  "bank_statement",
   "playoff_picture",
   "mid_season_awards",
 ]);
@@ -1681,7 +1695,12 @@ async function resolveMatchupPeriodForWeek(
   return weekToMatchupPeriod(matchupPeriods, week) ?? week;
 }
 
-/** True when the league has at least one matchup row for the target week. */
+/**
+ * True when the league has at least one REAL matchup row for the target week - a round-one bye
+ * (`isByeMatchup`; see `convex/lib/playoffs.ts`'s header comment) doesn't count, so a week that is
+ * only byes reads as having no matchups rather than tricking a caller that took just the first row
+ * into thinking the week is covered.
+ */
 export const hasMatchupsForWeek = internalQuery({
   args: {
     leagueId: v.id("leagues"),
@@ -1696,9 +1715,9 @@ export const hasMatchupsForWeek = internalQuery({
         q.eq("leagueId", args.leagueId).eq("matchupPeriod", matchupPeriod),
       )
       .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
-      .take(1);
+      .take(MAX_MATCHUPS_PER_WEEK);
 
-    return matchups.length > 0;
+    return matchups.some((matchup) => !isByeMatchup(matchup));
   },
 });
 
@@ -1725,6 +1744,13 @@ export const hasMatchupsForWeek = internalQuery({
  * A week with no matchups at all is NOT final - there is nothing to be final
  * about, and the caller should defer for data rather than publish an empty
  * recap. `matchupPeriod` is the column, matching `hasMatchupsForWeek`.
+ *
+ * A round-one bye (`isByeMatchup`) is dropped before any of the above: it has no `winner` and
+ * `awayScore` is always 0, so it used to read as an unfinished game forever and hold the whole week
+ * (and everything gated on it - the recap, power rankings, ...) as `week_not_final` indefinitely.
+ * Verified on the 2025 dev backfill: week 15's two byes were exactly that failure. A week that is
+ * ONLY byes has no real matchups left after this filter and reports `no_matchups`, same as an empty
+ * week.
  */
 export const isWeekFinal = internalQuery({
   args: {
@@ -1751,13 +1777,14 @@ export const isWeekFinal = internalQuery({
     // finds that round's matchup row, instead of finding nothing and
     // reporting `no_matchups`.
     const matchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
-    const matchups = await ctx.db
+    const allMatchups = await ctx.db
       .query("matchups")
       .withIndex("by_league_period", (q) =>
         q.eq("leagueId", args.leagueId).eq("matchupPeriod", matchupPeriod),
       )
       .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
       .take(MAX_MATCHUPS_PER_WEEK);
+    const matchups = allMatchups.filter((matchup) => !isByeMatchup(matchup));
 
     const season = await ctx.db
       .query("nflSeasons")
@@ -1837,7 +1864,9 @@ export const checkDataCompleteness = internalQuery({
       if (teams.length === 0) missing.push("teams");
     }
 
-    // The week this article is about.
+    // The week this article is about. A round-one bye (`isByeMatchup`) doesn't count as a matchup -
+    // a week that is only byes must defer the same as an empty week, not read as "covered" off
+    // whichever row `.take` happened to grab first.
     if (needs(REQUIRES_WEEK_MATCHUPS)) {
       const matchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
       const played = await ctx.db
@@ -1846,11 +1875,12 @@ export const checkDataCompleteness = internalQuery({
           q.eq("leagueId", args.leagueId).eq("matchupPeriod", matchupPeriod),
         )
         .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
-        .take(1);
-      if (played.length === 0) missing.push(`matchups_week_${args.week}`);
+        .take(MAX_MATCHUPS_PER_WEEK);
+      if (!played.some((matchup) => !isByeMatchup(matchup))) missing.push(`matchups_week_${args.week}`);
     }
 
-    // The week a preview is about: the slate that has not been played yet.
+    // The week a preview is about: the slate that has not been played yet. Same bye exclusion as
+    // above - a bye is not a game to preview either.
     if (needs(REQUIRES_UPCOMING_MATCHUPS)) {
       const upcomingWeek = args.week + 1;
       const upcomingMatchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, upcomingWeek);
@@ -1860,10 +1890,10 @@ export const checkDataCompleteness = internalQuery({
           q.eq("leagueId", args.leagueId).eq("matchupPeriod", upcomingMatchupPeriod),
         )
         .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
-        .take(1);
+        .take(MAX_MATCHUPS_PER_WEEK);
       // A preview may legitimately be written about the current week's slate
       // when that week has not started; accept either.
-      if (upcoming.length === 0) {
+      if (!upcoming.some((matchup) => !isByeMatchup(matchup))) {
         const thisWeekMatchupPeriod = await resolveMatchupPeriodForWeek(ctx, args.leagueId, args.seasonId, args.week);
         const thisWeek = await ctx.db
           .query("matchups")
@@ -1871,8 +1901,8 @@ export const checkDataCompleteness = internalQuery({
             q.eq("leagueId", args.leagueId).eq("matchupPeriod", thisWeekMatchupPeriod),
           )
           .filter((q) => q.eq(q.field("seasonId"), args.seasonId))
-          .take(1);
-        if (thisWeek.length === 0) missing.push(`upcoming_matchups_week_${upcomingWeek}`);
+          .take(MAX_MATCHUPS_PER_WEEK);
+        if (!thisWeek.some((matchup) => !isByeMatchup(matchup))) missing.push(`upcoming_matchups_week_${upcomingWeek}`);
       }
     }
 

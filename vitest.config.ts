@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -11,6 +12,14 @@ export default defineConfig({
       deps: {
         inline: ["convex-test"],
       },
+    },
+  },
+  resolve: {
+    // Mirrors tsconfig.json's "@/*" -> "./src/*" path mapping, so a test can import
+    // an src/ module the same way app code does (e.g. src/components/broadcast/*,
+    // which imports its own siblings via "@/lib/ai/...").
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
     },
   },
 });

@@ -324,6 +324,32 @@ const WaltIllustration: Illustration = ({ variant }) => (
   </>
 );
 
+/** Reggie Banks — The Results Desk: backwards cap + chain. */
+const ReggieIllustration: Illustration = ({ variant }) => (
+  <>
+    <DiagonalHighlight variant={variant} />
+    <Bust />
+    {/* Backwards cap: crown filling the top of the head, above the band. */}
+    <path
+      d="M84 90 C84 52 172 52 172 90 C172 94 168 96 164 96 L92 96 C88 96 84 94 84 90 Z"
+      fill={RED}
+    />
+    {/* Band across the forehead, slight curve. */}
+    <path d="M84 92 C84 76 172 76 172 92 C168 84 88 84 84 92 Z" fill={RED} />
+    {/* Bill, sticking out behind the head to the right. */}
+    <path d="M168 84 C182 82 198 84 206 90 C198 96 182 96 168 96 Z" fill={RED_DEEP} />
+    {/* Thick chain across the upper chest, with a small pendant at its low point. */}
+    <path
+      d="M100 212 C108 222 148 222 156 212"
+      stroke={INK}
+      strokeWidth="5"
+      fill="none"
+      strokeLinecap="round"
+    />
+    <rect x="123" y="220" width="10" height="12" fill={INK} />
+  </>
+);
+
 /**
  * Slug- and name-matched illustrations. Active writers are tested first so a
  * retired pattern can never shadow one of them; the five retired entries stay
@@ -337,6 +363,7 @@ const ILLUSTRATIONS: Array<{ test: RegExp; render: Illustration }> = [
   { test: /dex|alvarez/i, render: DexIllustration },
   { test: /walt|brennan/i, render: WaltIllustration },
   { test: /mel|diaper/i, render: MelIllustration },
+  { test: /reggie|banks/i, render: ReggieIllustration },
   // Retired — archived bylines only.
   { test: /stan|deviation/i, render: StanIllustration },
   { test: /vinny|marinara/i, render: VinnyIllustration },

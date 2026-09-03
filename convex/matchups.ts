@@ -3,6 +3,13 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { getLeagueMembership } from "./lib/auth";
 import { isPreDraftRedraft, summarizeMatchup } from "./lib/matchupSummary";
+// `./lib/playoffs` and `./lib/playoffValidators` are deliberately pure modules (no `internal`/`api`
+// imports of their own - see their file headers), safe to import as values here per the repo-wide
+// gotcha about cross-module value imports of a convex/*.ts module that references `internal`.
+import { buildPlayoffContext, highestFinishedMatchupPeriod } from "./lib/playoffs";
+import { playoffContextValidator } from "./lib/playoffValidators";
+import type { PlayoffContext } from "./lib/playoffTypes";
+import { parseEspnLeagueSettings } from "./lib/espnSettings";
 
 /**
  * Slim per-season schedule for the schedule/scores pages (spec: audit
@@ -40,6 +47,7 @@ export const getScheduleBySeason = query({
       awayScore: v.number(),
       homeProjected: v.union(v.number(), v.null()),
       awayProjected: v.union(v.number(), v.null()),
+      isBye: v.boolean(),
     })
   ),
   handler: async (ctx, args) => {
@@ -68,6 +76,114 @@ export const getScheduleBySeason = query({
     return matchups
       .map((doc) => summarizeMatchup(doc, { hideProjections }))
       .sort((a, b) => a.matchupPeriod - b.matchupPeriod || a.scoringPeriod - b.scoringPeriod);
+  },
+});
+
+/**
+ * Placeholder `PlayoffContext` for a caller `getPlayoffBracket` can't build a real one for: a
+ * non-member (spec: return data, not an error, matching `getScheduleBySeason`'s `[]`) or a
+ * pre-draft redraft season (`isPreDraftRedraft` - carried-over previous-season rosters/pairings
+ * make any bracket projection meaningless before this season's own draft has happened). `seeds: []`
+ * with `mode: "projected"` is the signal the schedule page's bracket component reads as "nothing to
+ * show yet".
+ */
+function emptyPlayoffContext(): PlayoffContext {
+  return {
+    mode: "projected",
+    playoffTeamCount: 0,
+    rounds: 0,
+    byes: 0,
+    playoffStartWeek: 0,
+    championshipWeek: 0,
+    currentRound: undefined,
+    seeds: [],
+    bubble: [],
+    bracket: [],
+    consolation: [],
+    alive: [],
+    eliminated: [],
+    champion: undefined,
+    runnerUp: undefined,
+  };
+}
+
+/**
+ * The playoff picture and bracket for one league-season (spec: owner ask - a bracket at playoff
+ * time, an "if the season ended today" bracket during the regular season). Pure math lives in
+ * `convex/lib/playoffs.ts#buildPlayoffContext`; this just gathers its inputs the same bounded way
+ * `getScheduleBySeason` above does (one `.collect()` per season-scoped index - a season's rows are
+ * naturally bounded) and resolves every team id to that season's real name.
+ */
+export const getPlayoffBracket = query({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  returns: playoffContextValidator,
+  handler: async (ctx, args) => {
+    const membership = await getLeagueMembership(ctx, args.leagueId);
+    if (!membership) {
+      return emptyPlayoffContext();
+    }
+
+    const [matchups, teams, season] = await Promise.all([
+      ctx.db
+        .query("matchups")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .collect(),
+      ctx.db
+        .query("teams")
+        .withIndex("by_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+        .collect(),
+      ctx.db
+        .query("leagueSeasons")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .first(),
+    ]);
+
+    // Before this season's own draft, ESPN's carried-over previous-season pairings/rosters make a
+    // bracket projection meaningless - same guard `getScheduleBySeason` uses to hide projections.
+    if (isPreDraftRedraft(season ?? undefined)) {
+      return emptyPlayoffContext();
+    }
+
+    const parsed = parseEspnLeagueSettings(season?.settings);
+
+    return buildPlayoffContext({
+      teams: teams.map((team) => ({
+        externalId: team.externalId,
+        name: team.name,
+        record: {
+          wins: team.record.wins,
+          losses: team.record.losses,
+          ties: team.record.ties,
+          pointsFor: team.record.pointsFor,
+          playoffSeed: team.record.playoffSeed,
+        },
+      })),
+      matchups: matchups.map((m) => ({
+        matchupPeriod: m.matchupPeriod,
+        homeTeamId: m.homeTeamId,
+        awayTeamId: m.awayTeamId,
+        homeScore: m.homeScore,
+        awayScore: m.awayScore,
+        winner: m.winner,
+        playoffTier: m.playoffTier,
+      })),
+      format: {
+        playoffTeamCount: parsed.playoffTeamCount,
+        regularSeasonMatchupPeriods: parsed.regularSeasonMatchupPeriods,
+        playoffMatchupPeriodLength: parsed.playoffMatchupPeriodLength,
+        playoffSeedingRule: parsed.playoffSeedingRule,
+      },
+      // The highest matchup period with any decided game - not `league.espnData.currentScoringPeriod`,
+      // which can lead or lag the last week that actually finished (see this helper's doc comment).
+      throughWeek: highestFinishedMatchupPeriod(matchups),
+    });
   },
 });
 

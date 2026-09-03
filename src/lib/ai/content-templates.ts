@@ -248,6 +248,48 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     ]
   },
 
+  "bank_statement": {
+    id: "bank_statement",
+    name: "The Bank Statement",
+    description: "Reggie Banks' weekly results ledger: who cashed in, who's overdrawn, judged on the scoreboard and nothing else. Draft position is never evidence here.",
+    creditCost: 15,
+    estimatedWords: 900,
+    requiredData: ["standings", "matchup_results", "point_totals"],
+    optionalData: ["waiver_claims", "trades_made", "lineup_changes", "team_rosters"],
+    sections: [
+      {
+        name: "opening_bell",
+        description: "The single biggest result of the week, score first, and what it says about the manager who produced it",
+        required: true,
+        wordCount: 120
+      },
+      {
+        name: "deposits",
+        description: "Managers who cashed in: wins, waiver claims that produced points, lineup calls that won the week. Each entry ends on its result",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "overdrawn",
+        description: "Managers who left it on the table: points left on the bench, an ignored wire, a loss that was the lineup's fault. Attack the lineup, never the person",
+        required: true,
+        wordCount: 300
+      },
+      {
+        name: "the_homework",
+        description: "One paragraph answering the draft-desk view of the week without using its evidence: what the standings say versus what the draft board said",
+        required: false,
+        wordCount: 100
+      },
+      {
+        name: "team_comments",
+        description: "Quotes from managers with the writer's response to each",
+        required: false,
+        wordCount: 150
+      }
+    ]
+  },
+
   "mock_draft": {
     id: "mock_draft",
     name: "Mock Draft",

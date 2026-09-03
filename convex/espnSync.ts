@@ -25,6 +25,10 @@ import {
   normalizedTransactionValidator,
   type RawEspnTransaction,
 } from "./lib/espnTransactions";
+// `./lib/playoffs` is a deliberately pure module (no `internal`/`api` imports of its own - see its
+// file header), safe to import as a value here per the repo-wide gotcha about cross-module value
+// imports of a convex/*.ts module that references `internal`.
+import { deriveSeasonResults } from "./lib/playoffs";
 
 // Helper functions for ESPN data mapping
 const getPositionName = (positionId: number): string => {
@@ -1139,51 +1143,134 @@ export const syncHistoricalData = action({
         };
 
         // Process champion and runner-up from final standings
-        let champion, runnerUp;
-        
-        // First try to use rankCalculatedFinal for the most accurate results
-        const finalRankings = teams
-          .filter((team: any) => team.rankCalculatedFinal)
-          .sort((a: any, b: any) => a.rankCalculatedFinal - b.rankCalculatedFinal);
-          
-        if (finalRankings.length >= 2) {
-          champion = finalRankings[0]; // rankCalculatedFinal: 1
-          runnerUp = finalRankings[1];  // rankCalculatedFinal: 2
-        } else {
-          // Fallback: Use playoff seeds for completed seasons
-          const finalStandings = teams
-            .filter((team: any) => team.playoffSeed)
-            .sort((a: any, b: any) => a.playoffSeed - b.playoffSeed);
-            
-          if (finalStandings.length >= 2) {
-            champion = finalStandings[0];
-            runnerUp = finalStandings[1];
+        let champion, runnerUp, regularSeasonChamp;
+
+        // Bracket-derived results (`convex/lib/playoffs.ts#deriveSeasonResults`) are ground truth
+        // whenever this season's `schedule` has a decided championship game - preferred over every
+        // fallback below, none of which can tell a genuinely-final season from one whose ESPN
+        // payload was rolled over from a LATER season (verified in prod: 2025 stored champion
+        // "joey's Scary Team" - a 0-0 team, owner "Unknown" - actually a 2026 team; `rankCalculatedFinal`
+        // agreed with the bad payload, so that fallback alone could never have caught it). Left
+        // `undefined` (falls through to the fallback chain) when this season's bracket isn't decided
+        // yet or the derivation throws - never blocks the sync over it.
+        try {
+          const bracketMatchups = schedule.map((matchup: any) => ({
+            matchupPeriod: matchup.matchupPeriodId,
+            homeTeamId: matchup.home?.teamId?.toString() || '',
+            awayTeamId: matchup.away?.teamId?.toString() || '',
+            homeScore: matchup.home?.totalPoints || 0,
+            awayScore: matchup.away?.totalPoints || 0,
+            winner: matchup.winner === 'HOME' ? 'home' as const :
+                   matchup.winner === 'AWAY' ? 'away' as const :
+                   matchup.winner === 'TIE' ? 'tie' as const : undefined,
+            playoffTier: matchup.playoffTierType,
+          }));
+          const parsedSettings = parseEspnLeagueSettings(settings);
+          const derivedResults = deriveSeasonResults({
+            teams: teams.map((t: any) => ({
+              externalId: t.id?.toString() || '',
+              name: t.name || `${t.location ?? ''} ${t.nickname ?? ''}`.trim(),
+              record: {
+                wins: t.record?.overall?.wins || 0,
+                losses: t.record?.overall?.losses || 0,
+                ties: t.record?.overall?.ties || 0,
+                pointsFor: t.record?.overall?.pointsFor,
+                playoffSeed: t.playoffSeed,
+              },
+            })),
+            matchups: bracketMatchups,
+            format: {
+              playoffTeamCount: parsedSettings.playoffTeamCount,
+              regularSeasonMatchupPeriods: parsedSettings.regularSeasonMatchupPeriods,
+              playoffMatchupPeriodLength: parsedSettings.playoffMatchupPeriodLength,
+              playoffSeedingRule: parsedSettings.playoffSeedingRule,
+            },
+            // The whole season's matchups are already synced by this point in a historical-data
+            // sync, so the max matchup period is always at or past the championship - enough to put
+            // `buildPlayoffContext` in "final" mode when the bracket actually is decided.
+            throughWeek: bracketMatchups.length > 0 ? Math.max(...bracketMatchups.map((m: { matchupPeriod: number }) => m.matchupPeriod)) : 0,
+          });
+
+          if (derivedResults.champion) {
+            const teamById = (teamId: string) => teams.find((t: any) => t.id?.toString() === teamId);
+            champion = teamById(derivedResults.champion.teamId);
+            runnerUp = derivedResults.runnerUp ? teamById(derivedResults.runnerUp.teamId) : undefined;
+            regularSeasonChamp = derivedResults.regularSeasonChampion
+              ? teamById(derivedResults.regularSeasonChampion.teamId)
+              : undefined;
+          }
+        } catch (error) {
+          console.warn(`Bracket-derived season results failed for year ${year}, falling back to ESPN's own ranking fields:`, error);
+        }
+
+        // Fallback chain (pre-existing behaviour) - only runs when the bracket above didn't decide
+        // a champion (no playoff bracket in `schedule` yet, e.g. a season still in its regular
+        // season, or genuinely missing schedule data for a very old season).
+        if (!champion) {
+          // First try to use rankCalculatedFinal for the most accurate results
+          const finalRankings = teams
+            .filter((team: any) => team.rankCalculatedFinal)
+            .sort((a: any, b: any) => a.rankCalculatedFinal - b.rankCalculatedFinal);
+
+          if (finalRankings.length >= 2) {
+            champion = finalRankings[0]; // rankCalculatedFinal: 1
+            runnerUp = finalRankings[1];  // rankCalculatedFinal: 2
           } else {
-            // Last resort: Use best regular season records for historical data
-            const sortedByRecord = teams
-              .sort((a: any, b: any) => {
-                const aWinPct = (a.record?.overall?.wins || 0) / ((a.record?.overall?.wins || 0) + (a.record?.overall?.losses || 0) || 1);
-                const bWinPct = (b.record?.overall?.wins || 0) / ((b.record?.overall?.wins || 0) + (b.record?.overall?.losses || 0) || 1);
-                if (aWinPct !== bWinPct) return bWinPct - aWinPct;
-                return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
-              });
-            
-            // Only set champion/runnerUp if we have valid record data
-            if (sortedByRecord[0]?.record?.overall?.wins > 0) {
-              champion = sortedByRecord[0];
-              runnerUp = sortedByRecord[1];
+            // Fallback: Use playoff seeds for completed seasons
+            const finalStandings = teams
+              .filter((team: any) => team.playoffSeed)
+              .sort((a: any, b: any) => a.playoffSeed - b.playoffSeed);
+
+            if (finalStandings.length >= 2) {
+              champion = finalStandings[0];
+              runnerUp = finalStandings[1];
+            } else {
+              // Last resort: Use best regular season records for historical data
+              const sortedByRecord = teams
+                .sort((a: any, b: any) => {
+                  const aWinPct = (a.record?.overall?.wins || 0) / ((a.record?.overall?.wins || 0) + (a.record?.overall?.losses || 0) || 1);
+                  const bWinPct = (b.record?.overall?.wins || 0) / ((b.record?.overall?.wins || 0) + (b.record?.overall?.losses || 0) || 1);
+                  if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+                  return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
+                });
+
+              // Only set champion/runnerUp if we have valid record data
+              if (sortedByRecord[0]?.record?.overall?.wins > 0) {
+                champion = sortedByRecord[0];
+                runnerUp = sortedByRecord[1];
+              }
             }
           }
         }
 
-        // Find regular season champion (best record)
-        const regularSeasonChamp = teams
-          .sort((a: any, b: any) => {
-            const aWinPct = a.record?.overall?.wins / (a.record?.overall?.wins + a.record?.overall?.losses || 1);
-            const bWinPct = b.record?.overall?.wins / (b.record?.overall?.wins + b.record?.overall?.losses || 1);
-            if (aWinPct !== bWinPct) return bWinPct - aWinPct;
-            return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
-          })[0];
+        // Find regular season champion (best record) - only when the bracket above didn't already
+        // supply one (it did whenever it supplied a champion at all).
+        if (!regularSeasonChamp) {
+          regularSeasonChamp = teams
+            .sort((a: any, b: any) => {
+              const aWinPct = a.record?.overall?.wins / (a.record?.overall?.wins + a.record?.overall?.losses || 1);
+              const bWinPct = b.record?.overall?.wins / (b.record?.overall?.wins + b.record?.overall?.losses || 1);
+              if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+              return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
+            })[0];
+        }
+
+        // Never write an obviously-corrupted result: a 0-0-0 champion while a playoff bracket
+        // exists in this sync is exactly the prod 2025 failure mode (a rolled-over payload's teams
+        // all read 0-0 against the WRONG season). Leaving these `undefined` here means
+        // `updateLeagueSeason` skips the field entirely rather than overwriting a possibly-correct
+        // existing value with a sync artifact.
+        const hasPlayoffBracketInSchedule = schedule.some((m: any) => m.playoffTierType === "WINNERS_BRACKET");
+        const isZeroRecord = (team: any) =>
+          !(team?.record?.overall?.wins || team?.record?.overall?.losses || team?.record?.overall?.ties);
+        if (hasPlayoffBracketInSchedule) {
+          if (champion && isZeroRecord(champion)) {
+            console.warn(`Refusing to write a 0-0 champion for year ${year} - a playoff bracket exists in the synced schedule.`);
+            champion = undefined;
+          }
+          if (runnerUp && isZeroRecord(runnerUp)) runnerUp = undefined;
+          if (regularSeasonChamp && isZeroRecord(regularSeasonChamp)) regularSeasonChamp = undefined;
+        }
 
         // Create league season record
         await ctx.runMutation(internal.espnSync.updateLeagueSeason, {

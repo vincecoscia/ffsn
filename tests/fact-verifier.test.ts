@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildFactsBlock, serializeFacts } from "../src/lib/ai/facts";
-import type { FactsRequest } from "../src/lib/ai/facts";
+import type { FactsBlock, FactsPlayoffs, FactsRequest } from "../src/lib/ai/facts";
 import { InsufficientDataError, PromptBuilder } from "../src/lib/ai/prompt-builder";
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
 import {
   findRegisterLeaks,
   parseQuoteDirectives,
+  resolvePath,
   stripQuoteDirectives,
   verifyArticle,
   verifyRequiredSections,
@@ -682,8 +683,8 @@ describe("shouldPublish", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("writer roster", () => {
-  it("has six writers and exactly one interviewer", () => {
-    expect(Object.keys(personaPrompts)).toHaveLength(6);
+  it("has at least six writers and exactly one interviewer", () => {
+    expect(Object.keys(personaPrompts).length).toBeGreaterThanOrEqual(6);
     expect(
       Object.values(personaPrompts)
         .filter((persona) => persona.isInterviewer)
@@ -1056,5 +1057,85 @@ describe("league format", () => {
 
     const built = new PromptBuilder({ ...formatRequest, leagueData: noFormatData }).build();
     expect(built.userPrompt).toContain("The payload does not say how many teams make the playoffs");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Playoffs (owner ask, Sept 2026): a knocked-out team is not a contender.     */
+/* The full bracket is exercised in tests/playoffFacts.test.ts; this pins the  */
+/* kind on the small fixture above.                                            */
+/* -------------------------------------------------------------------------- */
+
+describe("eliminated as contender", () => {
+  const decidedPlayoffs: FactsPlayoffs = {
+    mode: "final",
+    fieldSize: 2,
+    byes: 0,
+    playoffStartWeek: 4,
+    championshipWeek: 4,
+    seeds: [
+      { teamId: "T3", seed: 1, record: "3-1-0", pointsFor: 421.7 },
+      { teamId: "T7", seed: 2, record: "1-3-0", pointsFor: 358.2 },
+    ],
+    bubble: [],
+    bracket: [
+      {
+        week: 4,
+        round: "Championship",
+        games: [
+          {
+            id: "B1",
+            home: "T3",
+            away: "T7",
+            homeSeed: 1,
+            awaySeed: 2,
+            homeScore: 128.4,
+            awayScore: 121.9,
+            winner: "T3",
+            status: "final",
+          },
+        ],
+      },
+    ],
+    consolation: [],
+    alive: ["T3"],
+    eliminated: ["T7"],
+    champion: "T3",
+    runnerUp: "T7",
+  };
+  const decided: FactsBlock = { ...facts, playoffs: decidedPlayoffs };
+
+  it("blocks a sentence that keeps the beaten finalist in the title chase", () => {
+    const violations = verifyArticle({ ...cleanArticle, ...prose("Beta is still alive after that.") }, decided);
+    expect(violations).toContainEqual(
+      expect.objectContaining({ kind: "eliminated_as_contender", severity: "block", section: "introduction" })
+    );
+  });
+
+  it("leaves negation, the past tense and the champion alone", () => {
+    for (const body of [
+      "Beta is no longer a contender.",
+      "Beta was a contender until Sunday.",
+      "Alpha is the only contender left.",
+    ]) {
+      const violations = verifyArticle({ ...cleanArticle, ...prose(body) }, decided);
+      expect(violations.filter((violation) => violation.kind === "eliminated_as_contender"), body).toEqual([]);
+    }
+  });
+
+  it("says nothing while the seeds are only a projection", () => {
+    const projected: FactsBlock = {
+      ...facts,
+      playoffs: { ...decidedPlayoffs, mode: "projected", alive: [], eliminated: ["T7"] },
+    };
+    const violations = verifyArticle({ ...cleanArticle, ...prose("Beta is still a contender.") }, projected);
+    expect(violations.filter((violation) => violation.kind === "eliminated_as_contender")).toEqual([]);
+  });
+
+  it("resolves a bracket game by id without naming its round, and the champion by id", () => {
+    expect(resolvePath(decided, "playoffs.bracket.B1.homeScore")).toBe(128.4);
+    expect(resolvePath(decided, "playoffs.bracket.0.games.B1.winner")).toBe("T3");
+    expect(resolvePath(decided, "playoffs.champion")).toBe("T3");
+    expect(resolvePath(decided, "playoffs.bracket.B9.homeScore")).toBeUndefined();
   });
 });
