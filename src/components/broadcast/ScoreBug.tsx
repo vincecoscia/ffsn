@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 
-export type ScoreBugMode = "final" | "projected";
+export type ScoreBugMode = "final" | "projected" | "live";
 export type ScoreBugStripTone = "default" | "highlight" | "muted";
 
 export interface ScoreBugTeam {
@@ -14,6 +14,8 @@ export interface ScoreBugTeam {
   score?: ReactNode;
   /** Marks the row as the winner in `mode="final"` (gets the red bar + caret). */
   winner?: boolean;
+  /** Optional leading slot (e.g. a `TeamTile`) rendered between the color bar and the name column. */
+  leading?: ReactNode;
 }
 
 export interface ScoreBugProps {
@@ -55,8 +57,14 @@ function ScoreBugRow({ team, mode }: { team: ScoreBugTeam; mode: ScoreBugMode })
   const isFinalLoser = mode === "final" && !team.winner;
 
   return (
-    <div className="grid min-h-[42px] grid-cols-[5px_1fr_auto] items-center gap-3 border-t border-bc-hairline pr-3">
+    <div
+      className={cn(
+        "grid min-h-[42px] items-center gap-3 border-t border-bc-hairline pr-3",
+        team.leading ? "grid-cols-[5px_auto_1fr_auto]" : "grid-cols-[5px_1fr_auto]"
+      )}
+    >
       <span className={cn("self-stretch", isWinner ? "bg-bc-red" : "bg-bc-hairline")} />
+      {team.leading && <span className="flex flex-none items-center">{team.leading}</span>}
       <span className="flex min-w-0 flex-col gap-0.5">
         <span
           className={cn(
@@ -75,6 +83,9 @@ function ScoreBugRow({ team, mode }: { team: ScoreBugTeam; mode: ScoreBugMode })
       {team.score !== undefined && (
         <span className="flex items-center gap-2">
           {isWinner && <Caret className="text-bc-red" />}
+          {mode === "projected" && (
+            <span className="bc-label-sm text-[10px] text-bc-text-3">Proj</span>
+          )}
           <span
             className={cn(
               "bc-num",
@@ -95,6 +106,8 @@ function ScoreBugRow({ team, mode }: { team: ScoreBugTeam; mode: ScoreBugMode })
  * The broadcast matchup graphic: an optional strip, then two team rows with
  * a winner/loser color bar. In `mode="projected"` scores render lighter in
  * signal blue and no caret/winner marker is drawn.
+ * In `mode="live"` both rows render at full final-score weight in ink with no
+ * winner marker - nothing has been decided yet, so nobody is dimmed as the loser.
  */
 export function ScoreBug({
   home,

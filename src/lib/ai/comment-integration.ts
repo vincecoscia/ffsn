@@ -72,6 +72,8 @@ USING THE LEDGER
 - Where only one side spoke, say so plainly rather than balancing it with invention.
 `,
     waiver_wire_report: `- Use stated FAAB reasoning where the ledger has it; otherwise report the claim without motive.
+- Cite the bid and the remaining budget the FAAB ledger (facts.waivers) shows; never invent a figure
+  or estimate what a manager has left.
 `,
     power_rankings: `- A quote may support or contradict a ranking. If it contradicts, show the number and let both stand.
 `,

@@ -3,6 +3,9 @@ import { mutation, query, internalAction, internalMutation, internalQuery } from
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
+// Type-only: never a value import from a convex/*.ts module here (see the repo-wide gotcha about
+// `internal` recursion). `WaiverLedger` is a plain interface with no runtime footprint.
+import type { WaiverLedger } from "../src/lib/ai/prompt-builder";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
 import { leagueCurrentSeason } from "./lib/season";
 import { espnConnectionBlocked } from "./lib/espnConnection";
@@ -805,6 +808,113 @@ export const buildConversationContext = internalQuery({
       recentMentions,
     };
 
+    /* ---------------------------------------------------------------------- */
+    /* FAAB/waiver context (owner goal, 2026-09-02): this manager's remaining   */
+    /* budget, their winning/losing claims from the latest processed run with   */
+    /* competitors' bids, and season highlights - so Sam's opener can be         */
+    /* specific ("You threw $23 at Bigsby and still have $61 - was that the      */
+    /* plan?"). Only fetched for waiver-report interviews, where it is relevant. */
+    /* Called through `internal.aiQueries` rather than importing                 */
+    /* `buildWaiverLedger` as a value - a cross-module value import of a         */
+    /* convex/*.ts module that references `internal` can make the generated api  */
+    /* type recursive.                                                           */
+    /* ---------------------------------------------------------------------- */
+    let waiverBudget:
+      | { budget?: number; spent?: number; remaining?: number; acquisitions?: number }
+      | undefined;
+    let waiverClaimsThisRun:
+      | Array<{
+          scoringPeriod: number;
+          player: string;
+          position?: string;
+          result: "won" | "lost";
+          bid: number;
+          competingBids: Array<{ teamName: string; bid: number }>;
+        }>
+      | undefined;
+    let waiverSeasonHighlights:
+      | {
+          biggestBid?: { teamName: string; player: string; bid: number; week: number };
+          mostActive?: { teamName: string; acquisitions: number };
+          lowestRemaining: Array<{ teamName: string; remaining: number }>;
+        }
+      | undefined;
+
+    if (team && request.contentType === "waiver_wire_report") {
+      // Explicit type annotation: a cross-module `ctx.runQuery(internal.aiQueries...)` call whose
+      // result feeds back into this same handler's inferred return type can make the generated api
+      // type recursive (repo-wide gotcha) - anchoring it here breaks the cycle.
+      const ledger: WaiverLedger = await ctx.runQuery(internal.aiQueries.getWaiverLedgerForAI, {
+        leagueId: request.leagueId,
+        seasonId: seasonIdUsed,
+        throughScoringPeriod: week,
+      });
+      const myTeamId = team._id;
+
+      const myBudget = ledger.budgets.find(entry => entry.teamId === myTeamId);
+      if (myBudget) {
+        waiverBudget = {
+          budget: myBudget.budget,
+          spent: myBudget.spent,
+          remaining: myBudget.remaining,
+          acquisitions: myBudget.acquisitions,
+        };
+      }
+
+      if (ledger.latestRun) {
+        const claims: NonNullable<typeof waiverClaimsThisRun> = [];
+        for (const claim of ledger.latestRun.claims) {
+          if (claim.teamId === myTeamId) {
+            claims.push({
+              scoringPeriod: ledger.latestRun.scoringPeriod,
+              player: claim.player.name,
+              position: claim.player.pos,
+              result: "won",
+              bid: claim.bid,
+              competingBids: claim.competingBids.map(bid => ({ teamName: bid.teamName, bid: bid.bid })),
+            });
+            continue;
+          }
+          const myLosingBid = claim.competingBids.find(bid => bid.teamId === myTeamId);
+          if (myLosingBid) {
+            claims.push({
+              scoringPeriod: ledger.latestRun.scoringPeriod,
+              player: claim.player.name,
+              position: claim.player.pos,
+              result: "lost",
+              bid: myLosingBid.bid,
+              competingBids: [{ teamName: claim.teamName, bid: claim.bid }],
+            });
+          }
+        }
+        if (claims.length > 0) waiverClaimsThisRun = claims;
+      }
+
+      if (
+        ledger.season.biggestBid ||
+        ledger.season.mostActive ||
+        ledger.season.lowestRemaining.length > 0
+      ) {
+        waiverSeasonHighlights = {
+          biggestBid: ledger.season.biggestBid
+            ? {
+                teamName: ledger.season.biggestBid.teamName,
+                player: ledger.season.biggestBid.player,
+                bid: ledger.season.biggestBid.bid,
+                week: ledger.season.biggestBid.week,
+              }
+            : undefined,
+          mostActive: ledger.season.mostActive
+            ? { teamName: ledger.season.mostActive.teamName, acquisitions: ledger.season.mostActive.acquisitions }
+            : undefined,
+          lowestRemaining: ledger.season.lowestRemaining.map(entry => ({
+            teamName: entry.teamName,
+            remaining: entry.remaining,
+          })),
+        };
+      }
+    }
+
     // Debug logging for team identification in buildConversationContext
     console.log("buildConversationContext team identification debug:", {
       userId: request.targetUserId,
@@ -846,6 +956,15 @@ export const buildConversationContext = internalQuery({
       rivalry,
       priorQuotes,
       writerContext,
+
+      // FAAB/waiver context (owner goal, 2026-09-02, waiver-report interviews only): this manager's
+      // remaining budget, their winning/losing claims from the latest processed run with
+      // competitors' bids, and season highlights. `ConversationContext`
+      // (src/lib/ai/conversation-service.ts) does not yet declare these fields - wiring the
+      // interview prompt to read them is a follow-up outside this change's file allowlist.
+      waiverBudget,
+      waiverClaimsThisRun,
+      waiverSeasonHighlights,
 
       teamPerformance: {
         teamId: team?._id || request.targetUserId,

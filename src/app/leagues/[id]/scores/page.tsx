@@ -36,23 +36,6 @@ interface ScoresPageProps {
   params: Promise<{ id: string }>;
 }
 
-interface Player {
-  lineupSlotId: number;
-  espnId: number;
-  firstName?: string;
-  lastName?: string;
-  fullName: string;
-  position: string;
-  points: number;
-  projectedPoints?: number;
-  projectedStats?: Record<string, number>;
-}
-
-interface Roster {
-  appliedStatTotal: number;
-  players: Player[];
-}
-
 type SingleWeekScore = {
   score: number;
   teamId: string;
@@ -71,32 +54,6 @@ type TwoWeekScore = {
   startWeek: number;
   matchupIds: string[];
   isHome: boolean;
-};
-
-// Calculate projected score from roster data
-const calculateProjectedScore = (roster?: Roster): number => {
-  if (!roster || !roster.players) {
-    return 0;
-  }
-
-  return roster.players
-    .filter((player) => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
-    .reduce((total, player) => {
-      return total + (player.projectedPoints || 0);
-    }, 0);
-};
-
-// Calculate actual score from roster data
-const calculateActualScore = (roster?: Roster): number => {
-  if (!roster || !roster.players) {
-    return 0;
-  }
-
-  return roster.players
-    .filter((player) => player.lineupSlotId !== 20) // Exclude bench players (lineupSlotId 20)
-    .reduce((total, player) => {
-      return total + (player.points || 0);
-    }, 0);
 };
 
 export default function ScoresPage({ params }: ScoresPageProps) {
@@ -159,13 +116,17 @@ export default function ScoresPage({ params }: ScoresPageProps) {
     [teamsDataBySeason]
   );
 
-  // Get matchups for the selected week
-  const matchups =
-    useQuery(api.matchups.getByLeagueAndPeriod, {
-      leagueId,
-      seasonId: selectedSeason,
-      matchupPeriod: selectedWeek || currentWeek,
-    }) || [];
+  // Full season schedule in one query — server computes `status`, trust it.
+  const schedule = useQuery(api.matchups.getScheduleBySeason, {
+    leagueId,
+    seasonId: selectedSeason,
+  });
+
+  // Matchups for the selected week, filtered client-side from the schedule.
+  const matchups = React.useMemo(
+    () => (schedule ?? []).filter((matchup) => matchup.matchupPeriod === (selectedWeek || currentWeek)),
+    [schedule, selectedWeek, currentWeek]
+  );
 
   // Get top scores all time
   const topScoresAllTime =
@@ -253,14 +214,12 @@ export default function ScoresPage({ params }: ScoresPageProps) {
     return <LoadingScreen message="Loading scores" />;
   }
 
-  // Find the closest completed matchup this week for the "game of the week" strip
+  // Find the closest final matchup this week for the "game of the week" strip
   let gameOfWeekId: string | null = null;
   let smallestMargin = Infinity;
   matchups.forEach((m) => {
-    if (!m.winner) return;
-    const home = m.homeRoster ? calculateActualScore(m.homeRoster) : m.homeScore;
-    const away = m.awayRoster ? calculateActualScore(m.awayRoster) : m.awayScore;
-    const margin = Math.abs(home - away);
+    if (m.status !== "final") return;
+    const margin = Math.abs(m.homeScore - m.awayScore);
     if (margin < smallestMargin) {
       smallestMargin = margin;
       gameOfWeekId = m._id;
@@ -348,66 +307,60 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                     {matchups.map((matchup) => {
                       const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                       const awayTeam = getTeamByExternalId(matchup.awayTeamId);
-                      const isComplete = !!matchup.winner;
-                      const isLive = !isComplete && currentWeek === matchup.matchupPeriod;
-                      const isFuture = !isComplete && currentWeek < matchup.matchupPeriod;
-
-                      // Calculate projected scores from roster data if available, otherwise use stored values
-                      const homeProjectedScore = matchup.homeRoster
-                        ? calculateProjectedScore(matchup.homeRoster)
-                        : matchup.homeProjectedScore || 0;
-
-                      const awayProjectedScore = matchup.awayRoster
-                        ? calculateProjectedScore(matchup.awayRoster)
-                        : matchup.awayProjectedScore || 0;
-
-                      // Calculate actual scores from roster data if available, otherwise use stored values
-                      const homeActualScore = matchup.homeRoster
-                        ? calculateActualScore(matchup.homeRoster)
-                        : matchup.homeScore;
-
-                      const awayActualScore = matchup.awayRoster
-                        ? calculateActualScore(matchup.awayRoster)
-                        : matchup.awayScore;
-
-                      const homeLiveScore =
-                        matchup.homePointsByScoringPeriod?.[matchup.matchupPeriod] ??
-                        homeActualScore;
-                      const awayLiveScore =
-                        matchup.awayPointsByScoringPeriod?.[matchup.matchupPeriod] ??
-                        awayActualScore;
-
-                      const homeScoreValue = isFuture
-                        ? homeProjectedScore.toFixed(1)
-                        : isLive
-                          ? homeLiveScore.toFixed(1)
-                          : homeActualScore.toFixed(1);
-                      const awayScoreValue = isFuture
-                        ? awayProjectedScore.toFixed(1)
-                        : isLive
-                          ? awayLiveScore.toFixed(1)
-                          : awayActualScore.toFixed(1);
-
-                      const strip = isComplete ? "Final" : isLive ? "Live" : "Scheduled";
+                      const isFuture = matchup.status === "scheduled";
                       const isGameOfWeek = matchup._id === gameOfWeekId;
+
+                      const strip =
+                        matchup.status === "final" ? (
+                          "Final"
+                        ) : matchup.status === "live" ? (
+                          <span className="flex items-center gap-1.5 text-bc-signal">
+                            <span className="bc-pulse size-[7px] rounded-full bg-current" />
+                            Live
+                          </span>
+                        ) : (
+                          "Scheduled · Projected"
+                        );
 
                       return (
                         <ScoreBug
                           key={matchup._id}
-                          mode={isFuture ? "projected" : "final"}
+                          mode={isFuture ? "projected" : matchup.status === "live" ? "live" : "final"}
                           strip={strip}
                           stripRight={isGameOfWeek ? "Game of the week" : undefined}
                           stripRightTone="highlight"
                           away={{
+                            leading: awayTeam && (
+                              <TeamLogo
+                                teamId={awayTeam._id}
+                                teamName={awayTeam.name}
+                                espnLogo={awayTeam.logo}
+                                customLogo={awayTeam.customLogo}
+                                size="sm"
+                              />
+                            ),
                             name: awayTeam?.name || "Unknown team",
                             sub: awayTeam?.owner,
-                            score: awayScoreValue,
+                            score: isFuture
+                              ? (matchup.awayProjected?.toFixed(1) ?? "—")
+                              : matchup.awayScore.toFixed(1),
                             winner: matchup.winner === "away",
                           }}
                           home={{
+                            leading: homeTeam && (
+                              <TeamLogo
+                                teamId={homeTeam._id}
+                                teamName={homeTeam.name}
+                                espnLogo={homeTeam.logo}
+                                customLogo={homeTeam.customLogo}
+                                size="sm"
+                              />
+                            ),
                             name: homeTeam?.name || "Unknown team",
                             sub: homeTeam?.owner,
-                            score: homeScoreValue,
+                            score: isFuture
+                              ? (matchup.homeProjected?.toFixed(1) ?? "—")
+                              : matchup.homeScore.toFixed(1),
                             winner: matchup.winner === "home",
                           }}
                         />
@@ -443,26 +396,14 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                         {matchups.map((matchup) => {
                           const homeTeam = getTeamByExternalId(matchup.homeTeamId);
                           const awayTeam = getTeamByExternalId(matchup.awayTeamId);
-                          const isComplete = !!matchup.winner;
+                          const isFuture = matchup.status === "scheduled";
 
-                          const homeActualScore = matchup.homeRoster
-                            ? calculateActualScore(matchup.homeRoster)
-                            : matchup.homeScore;
-
-                          const awayActualScore = matchup.awayRoster
-                            ? calculateActualScore(matchup.awayRoster)
-                            : matchup.awayScore;
-
-                          const homeScoreValue = isComplete
-                            ? homeActualScore.toFixed(1)
-                            : matchup.homePointsByScoringPeriod?.[
-                                matchup.matchupPeriod
-                              ]?.toFixed(1) || homeActualScore.toFixed(1);
-                          const awayScoreValue = isComplete
-                            ? awayActualScore.toFixed(1)
-                            : matchup.awayPointsByScoringPeriod?.[
-                                matchup.matchupPeriod
-                              ]?.toFixed(1) || awayActualScore.toFixed(1);
+                          const homeScoreValue = isFuture
+                            ? (matchup.homeProjected?.toFixed(1) ?? "—")
+                            : matchup.homeScore.toFixed(1);
+                          const awayScoreValue = isFuture
+                            ? (matchup.awayProjected?.toFixed(1) ?? "—")
+                            : matchup.awayScore.toFixed(1);
 
                           return (
                             <TableRow
@@ -531,10 +472,12 @@ export default function ScoresPage({ params }: ScoresPageProps) {
                                 </div>
                               </TableCell>
                               <TableCell className="hidden text-center md:table-cell">
-                                {isComplete && currentWeek > matchup.matchupPeriod ? (
+                                {matchup.status === "final" ? (
                                   <Badge variant="secondary">Final</Badge>
-                                ) : currentWeek === matchup.matchupPeriod ? (
-                                  <Badge variant="signal">In progress</Badge>
+                                ) : matchup.status === "live" ? (
+                                  <Chip variant="signal" live>
+                                    Live
+                                  </Chip>
                                 ) : (
                                   <Badge variant="outline">Scheduled</Badge>
                                 )}

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { action, internalMutation, internalAction, type ActionCtx } from "./_generated/server";
+import { action, internalMutation, internalAction, internalQuery, type ActionCtx } from "./_generated/server";
 import { v, type ObjectType } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -19,6 +19,12 @@ import {
   type ParsedLeagueSettings,
 } from "./lib/espnSettings";
 import { matchupPeriodIdsFromSettings, type MatchupPeriodIdSource } from "./lib/leagueCalendar";
+import {
+  classifyTransactionStatus,
+  normalizeEspnTransaction,
+  normalizedTransactionValidator,
+  type RawEspnTransaction,
+} from "./lib/espnTransactions";
 
 // Helper functions for ESPN data mapping
 const getPositionName = (positionId: number): string => {
@@ -421,6 +427,8 @@ export const syncLeagueData = action({
           },
           roster: getRosterData(team),
             divisionId: team.divisionId,
+            transactionCounter: team.transactionCounter,
+            waiverRank: team.waiverRank,
           };
         })
       });
@@ -553,6 +561,35 @@ export const syncLeagueData = action({
         seasonId: currentYear,
       });
 
+      // FAAB waiver-wire report data: fetch ESPN's transaction log
+      // (view=mTransactions2) for the current and previous scoring period -
+      // waivers process overnight Tue/Wed, so the previous period's claims
+      // settle after the period rolls over. On the first sync of a season
+      // (no transaction_log rows stored for it yet), backfill every period
+      // from 1..current instead. Never fatal - this is report data, not
+      // core sync.
+      if (typeof currentScoringPeriod === "number" && currentScoringPeriod > 0) {
+        try {
+          const hasLog: boolean = await ctx.runQuery(internal.espnSync.hasTransactionLogForSeason, {
+            leagueId: args.leagueId,
+            seasonId: currentYear,
+          });
+
+          const periodsToSync: number[] = hasLog
+            ? [currentScoringPeriod, ...(currentScoringPeriod > 1 ? [currentScoringPeriod - 1] : [])]
+            : Array.from({ length: currentScoringPeriod }, (_, i) => i + 1);
+
+          const transactionLogResult = await ctx.runAction(internal.espnSync.syncTransactionLog, {
+            leagueId: args.leagueId,
+            seasonId: currentYear,
+            scoringPeriods: periodsToSync,
+          });
+          console.log(`Transaction log sync for league ${league.name}:`, transactionLogResult.message);
+        } catch (transactionLogError) {
+          console.error(`Error syncing transaction log for league ${league.name}:`, transactionLogError);
+        }
+      }
+
       // Fetch rosters using the dedicated roster endpoint
       console.log('Fetching current season rosters...');
       try {
@@ -657,6 +694,24 @@ export const updateTeams = internalMutation({
         })),
       })),
       divisionId: v.optional(v.number()),
+      // FAAB accounting from ESPN's `view=mTeam` team objects (spec: waiver
+      // wire report needs remaining budgets alongside winning/losing bids).
+      // Every field ESPN's `team.transactionCounter` actually sends must be
+      // listed - this validator is strict, and call sites pass the raw
+      // object straight through (see tests/fixtures/espn-teams-public-2025.json).
+      transactionCounter: v.optional(v.object({
+        acquisitionBudgetSpent: v.optional(v.number()),
+        acquisitions: v.optional(v.number()),
+        drops: v.optional(v.number()),
+        trades: v.optional(v.number()),
+        moveToActive: v.optional(v.number()),
+        moveToIR: v.optional(v.number()),
+        matchupAcquisitionTotals: v.optional(v.record(v.string(), v.number())),
+        paid: v.optional(v.number()),
+        teamCharges: v.optional(v.number()),
+        misc: v.optional(v.number()),
+      })),
+      waiverRank: v.optional(v.number()),
     })),
   },
   handler: async (ctx, args) => {
@@ -691,6 +746,8 @@ export const updateTeams = internalMutation({
         roster: teamData.roster,
         seasonId: args.seasonId,
         divisionId: teamData.divisionId,
+        transactionCounter: teamData.transactionCounter,
+        waiverRank: teamData.waiverRank,
         updatedAt: now,
       };
 
@@ -1219,6 +1276,8 @@ export const syncHistoricalData = action({
             },
             roster: getRosterData(team),
             divisionId: team.divisionId,
+            transactionCounter: team.transactionCounter,
+            waiverRank: team.waiverRank,
             };
           })
         });
@@ -2155,6 +2214,8 @@ export const syncAllLeagueData = action({
               } : undefined,
             })) : [], // Historical rosters can be fetched separately using fetchHistoricalRosters
             divisionId: team.divisionId,
+            transactionCounter: team.transactionCounter,
+            waiverRank: team.waiverRank,
             };
           })
         });
@@ -3375,16 +3436,22 @@ export const storePlayerTransactions = internalMutation({
         continue;
       }
       
-      // Check if transaction already exists by ESPN ID
+      // Check if transaction already exists by ESPN ID. A transaction_log
+      // row (from `upsertTransactions`) is authoritative for the same ESPN
+      // id, so a player_feed row never overwrites one - it just skips.
       const existingTransaction = await ctx.db
         .query("transactions")
         .withIndex("by_espn_id", q => q.eq("espnTransactionId", transaction.espnTransactionId))
         .first();
-      
+
       if (!existingTransaction) {
+        const outcome = classifyTransactionStatus(transaction.status, transaction.isPending);
         await ctx.db.insert("transactions", {
           ...transaction,
           teamId: transaction.teamId, // Explicitly ensure teamId is number (not undefined)
+          outcome,
+          failureReason: outcome === "failed" ? transaction.status : undefined,
+          source: "player_feed",
           createdAt: now,
         });
         stored++;
@@ -3392,8 +3459,179 @@ export const storePlayerTransactions = internalMutation({
         skipped++;
       }
     }
-    
+
     return { stored, skipped };
+  },
+});
+
+/**
+ * Fetch ESPN's `view=mTransactions2` transaction log for one or more
+ * scoring periods and upsert the results. This is the FAAB waiver wire
+ * report's real data source (spec: `syncPlayerTransactions`'s per-player
+ * `transactions` arrays miss most of the log - production had none before
+ * December 2025). One ESPN request per requested scoring period - ESPN's
+ * `mTransactions2` view only returns a `transactions` array when the
+ * request names a single `scoringPeriodId` (verified against
+ * `tests/fixtures/espn-transactions-public.json`). Sequential with a short
+ * delay between requests to stay polite to ESPN on top of `fetchEspn`'s own
+ * 429/5xx retry/backoff. Never throws - a failed period is recorded in the
+ * result and the rest continue.
+ */
+export const syncTransactionLog = internalAction({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    scoringPeriods: v.array(v.number()),
+  },
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    periodsFetched: number;
+    periodsFailed: number;
+    transactionsUpserted: number;
+    message: string;
+  }> => {
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
+    if (!league) {
+      return {
+        success: false,
+        periodsFetched: 0,
+        periodsFailed: 0,
+        transactionsUpserted: 0,
+        message: "League not found",
+      };
+    }
+    if (!league.espnData) {
+      return {
+        success: false,
+        periodsFetched: 0,
+        periodsFailed: 0,
+        transactionsUpserted: 0,
+        message: "No ESPN data configured for this league",
+      };
+    }
+
+    const creds = normalizeEspnCredentials(league.espnData);
+    const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
+
+    let periodsFetched = 0;
+    let periodsFailed = 0;
+    let transactionsUpserted = 0;
+
+    for (const period of args.scoringPeriods) {
+      try {
+        const { response, classification } = await fetchEspn(
+          `${baseUrl}?view=mTransactions2&scoringPeriodId=${period}`,
+          { creds }
+        );
+
+        if (!response.ok) {
+          console.error(
+            `syncTransactionLog: ESPN returned ${response.status} for league ${league.name} period ${period} (${classification})`
+          );
+          periodsFailed++;
+          continue;
+        }
+
+        const data = await response.json();
+        const rawTransactions: RawEspnTransaction[] = Array.isArray(data.transactions)
+          ? data.transactions
+          : [];
+
+        if (rawTransactions.length > 0) {
+          const normalized = rawTransactions.map((raw) =>
+            normalizeEspnTransaction(raw, {
+              leagueId: args.leagueId,
+              seasonId: args.seasonId,
+              scoringPeriod: period,
+            })
+          );
+
+          const result: { inserted: number; updated: number } = await ctx.runMutation(
+            internal.espnSync.upsertTransactions,
+            { transactions: normalized }
+          );
+          transactionsUpserted += result.inserted + result.updated;
+        }
+
+        periodsFetched++;
+      } catch (error) {
+        console.error(
+          `syncTransactionLog: failed to sync period ${period} for league ${league.name}:`,
+          error
+        );
+        periodsFailed++;
+      }
+
+      // Small delay between per-period requests, mirroring the delay
+      // pattern already used elsewhere in this file to avoid rate limiting.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    return {
+      success: periodsFailed === 0,
+      periodsFetched,
+      periodsFailed,
+      transactionsUpserted,
+      message: `Fetched ${periodsFetched}/${args.scoringPeriods.length} scoring period(s), upserted ${transactionsUpserted} transaction(s)`,
+    };
+  },
+});
+
+/**
+ * Upsert normalized transaction-log rows by `espnTransactionId`. Always
+ * authoritative: patches an existing row regardless of its prior `source`
+ * (so a transaction_log row overwrites an older `player_feed` row for the
+ * same ESPN id), and a later re-fetch of the same period legitimately
+ * updates a row it already wrote as ESPN resolves it (e.g. `pending` ->
+ * `executed`/`failed` once the overnight waiver run processes) - idempotent
+ * either way, `createdAt` is preserved across updates.
+ */
+export const upsertTransactions = internalMutation({
+  args: {
+    transactions: v.array(normalizedTransactionValidator),
+  },
+  handler: async (ctx, args): Promise<{ inserted: number; updated: number }> => {
+    const now = Date.now();
+    let inserted = 0;
+    let updated = 0;
+
+    for (const transaction of args.transactions) {
+      const existing = await ctx.db
+        .query("transactions")
+        .withIndex("by_espn_id", (q) => q.eq("espnTransactionId", transaction.espnTransactionId))
+        .first();
+
+      if (!existing) {
+        await ctx.db.insert("transactions", { ...transaction, createdAt: now });
+        inserted++;
+      } else {
+        await ctx.db.patch(existing._id, { ...transaction, createdAt: existing.createdAt });
+        updated++;
+      }
+    }
+
+    return { inserted, updated };
+  },
+});
+
+/**
+ * Whether any transaction_log-sourced row exists for this league/season -
+ * the "first sync of a season" signal `syncOneLeagueCurrentSeasonBody` and
+ * `syncLeagueData` use to decide between a full 1..current backfill and the
+ * normal current+previous-period fetch.
+ */
+export const hasTransactionLogForSeason = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    const row = await ctx.db
+      .query("transactions")
+      .withIndex("by_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+      .filter((q) => q.eq(q.field("source"), "transaction_log"))
+      .first();
+    return row !== null;
   },
 });
 
@@ -3826,6 +4064,8 @@ async function syncOneLeagueCurrentSeasonBody(
           },
           roster: teamRosters.get(team.id.toString()) || [], // Use fetched roster data or empty array
           divisionId: team.divisionId,
+          transactionCounter: team.transactionCounter,
+          waiverRank: team.waiverRank,
         };
       })
     });
@@ -3952,6 +4192,34 @@ async function syncOneLeagueCurrentSeasonBody(
       currentScoringPeriod: currentScoringPeriod,
       seasonId: currentYear,
     });
+
+    // FAAB waiver-wire report data: fetch ESPN's transaction log
+    // (view=mTransactions2) for the current and previous scoring period -
+    // waivers process overnight Tue/Wed, so the previous period's claims
+    // settle after the period rolls over. On the first sync of a season (no
+    // transaction_log rows stored for it yet), backfill every period from
+    // 1..current instead. Never fatal - this is report data, not core sync.
+    if (typeof currentScoringPeriod === "number" && currentScoringPeriod > 0) {
+      try {
+        const hasLog: boolean = await ctx.runQuery(internal.espnSync.hasTransactionLogForSeason, {
+          leagueId: league._id,
+          seasonId: currentYear,
+        });
+
+        const periodsToSync: number[] = hasLog
+          ? [currentScoringPeriod, ...(currentScoringPeriod > 1 ? [currentScoringPeriod - 1] : [])]
+          : Array.from({ length: currentScoringPeriod }, (_, i) => i + 1);
+
+        const transactionLogResult = await ctx.runAction(internal.espnSync.syncTransactionLog, {
+          leagueId: league._id,
+          seasonId: currentYear,
+          scoringPeriods: periodsToSync,
+        });
+        console.log(`Transaction log sync for league ${league.name}:`, transactionLogResult.message);
+      } catch (transactionLogError) {
+        console.error(`Error syncing transaction log for league ${league.name}:`, transactionLogError);
+      }
+    }
 
     // Fetch rosters for current season as fallback if not already captured
     let rostersFetched = teamRosters.size;

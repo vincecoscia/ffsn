@@ -26,6 +26,8 @@ export type ViolationKind =
   | "llm_contradicted"
   /** Optional Sonnet 5 pass: the body states something FACTS neither supports nor denies. */
   | "llm_unsupported"
+  /** A `$N` dollar figure in the body does not match any `facts.waivers` claim or budget line. */
+  | "faab_amount_unverified"
   /** Far fewer sections or words than the template calls for; held for review, never published as-is. */
   | "thin_article"
   /** Every section the template calls required is present, but an optional one is not (spec §11.2.5). */
@@ -145,9 +147,9 @@ const REGISTER_PATTERNS: Array<{ pattern: RegExp; why: string }> = [
     pattern: /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g,
     why: "an ISO-8601 timestamp",
   },
-  // Internal ids (T3, M1, Q2, U1, D19, X4, TR2). Never preceded by a letter or a digit, so player
-  // initials ("TJ") and ids inside longer tokens ("M1Pp204") do not match.
-  { pattern: /(?<![A-Za-z0-9])(?:TR|[TMQUDX])\d+\b/g, why: "an internal id" },
+  // Internal ids (T3, M1, Q2, U1, D19, X4, TR2, W3, B2). Never preceded by a letter or a digit, so
+  // player initials ("TJ") and ids inside longer tokens ("M1Pp204") do not match.
+  { pattern: /(?<![A-Za-z0-9])(?:TR|[TMQUDXWB])\d+\b/g, why: "an internal id" },
 ];
 
 /** Quote directives are markup for the renderer, not prose; their ids must not read as leaks. */
@@ -358,11 +360,34 @@ export function verifyArticle(
   for (const player of playerById.values()) {
     if (player.benchImpact?.wouldHaveReplaced) playerNames.add(player.benchImpact.wouldHaveReplaced.toLowerCase());
   }
+  // Waiver-ledger players (winners, competing bidders' targets, and drops) are real players in
+  // FACTS even though they carry no matchup line; they must not read as unknown proper nouns.
+  for (const claim of facts.waivers.latestRun?.claims ?? []) {
+    if (claim.player.name) playerNames.add(claim.player.name.toLowerCase());
+    if (claim.dropped?.name) playerNames.add(claim.dropped.name.toLowerCase());
+  }
   const quoteById = new Map(facts.quotes.map(quote => [quote.id, quote]));
   const ledgerTexts = facts.quotes.map(quote => normalizeQuote(quote.text));
   const silentSpeakers = new Set(facts.nonRespondents.map(entry => entry.speaker.toLowerCase()));
   const numberStrings = collectNumbers(facts, new Set<string>());
   const numberValues = [...numberStrings].map(Number).filter(Number.isFinite);
+
+  // Every dollar figure a waiver claim or budget can support (spec: FAAB ledger). A `$N` in the
+  // body that matches none of these is either an invented bid or a mangled real one — dollar
+  // amounts have no meaning in this app outside the waiver ledger, so this check runs unconditionally.
+  const faabAmounts = new Set<number>();
+  for (const claim of facts.waivers.latestRun?.claims ?? []) {
+    faabAmounts.add(claim.bid);
+    for (const bid of claim.competingBids) faabAmounts.add(bid.bid);
+  }
+  for (const budget of facts.waivers.budgets) {
+    if (budget.budget !== undefined) faabAmounts.add(budget.budget);
+    if (budget.spent !== undefined) faabAmounts.add(budget.spent);
+    if (budget.remaining !== undefined) faabAmounts.add(budget.remaining);
+  }
+  if (facts.waivers.season.biggestBid) faabAmounts.add(facts.waivers.season.biggestBid.bid);
+  if (facts.waivers.season.totalSpent !== undefined) faabAmounts.add(facts.waivers.season.totalSpent);
+  if (facts.waivers.season.averageWinningBid !== undefined) faabAmounts.add(facts.waivers.season.averageWinningBid);
 
   // `facts.upcoming` needs no block kind of its own: its sides carry the same `T…` team ids as
   // everything else, so a featuredTeams entry for an upcoming opponent resolves through `teamById`
@@ -495,6 +520,18 @@ export function verifyArticle(
     for (const decimal of content.match(/\b\d+\.\d\b/g) ?? []) {
       if (!numberStrings.has(decimal) && !isDerivable(Number(decimal), numberValues)) {
         violations.push({ kind: "unverified_number", detail: decimal, section: section.name, severity: "warn" });
+      }
+    }
+
+    for (const match of content.matchAll(/\$(\d+(?:\.\d+)?)/g)) {
+      const amount = Number(match[1]);
+      if (!faabAmounts.has(amount)) {
+        violations.push({
+          kind: "faab_amount_unverified",
+          detail: `$${match[1]}`,
+          section: section.name,
+          severity: "warn",
+        });
       }
     }
 

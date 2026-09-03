@@ -1,8 +1,12 @@
+"use client";
+
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 export interface TeamTileProps {
   initials: string;
-  /** Team logo image; falls back to the diagonal-split monogram tile when omitted. */
+  /** Team logo image; falls back to the diagonal-split monogram tile when omitted or when it fails to load. */
   src?: string;
   alt?: string;
   /** Tile size in px. Default 36. */
@@ -14,7 +18,16 @@ export interface TeamTileProps {
 
 /** Square team monogram tile with the diagonal-split background, or a team logo image when `src` is given. */
 export function TeamTile({ initials, src, alt, size = 36, tone = "default", className }: TeamTileProps) {
-  if (src) {
+  const [failed, setFailed] = useState(false);
+  // A new `src` deserves a fresh attempt, even if a previous one failed. Adjusting
+  // state during render (rather than in an effect) avoids an extra commit/paint.
+  const [lastSrc, setLastSrc] = useState(src);
+  if (src !== lastSrc) {
+    setLastSrc(src);
+    setFailed(false);
+  }
+
+  if (src && !failed) {
     return (
       <span
         className={cn(
@@ -23,7 +36,12 @@ export function TeamTile({ initials, src, alt, size = 36, tone = "default", clas
         )}
         style={{ width: size, height: size }}
       >
-        <img src={src} alt={alt ?? initials} className="h-full w-full object-cover" />
+        <img
+          src={src}
+          alt={alt ?? initials}
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
       </span>
     );
   }

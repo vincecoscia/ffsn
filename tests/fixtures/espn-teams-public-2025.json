@@ -1,0 +1,949 @@
+{
+ "_source": "public league 899513, 2025, view=mTeam (owners/members removed)",
+ "teams": [
+  {
+   "abbrev": "LLM",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 9,
+   "id": 1,
+   "name": "ChadGPT",
+   "playoffSeed": 3,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.3333333333333333,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 2
+    },
+    "division": {
+     "gamesBack": 1.0,
+     "losses": 6,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 8
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 2,
+     "percentage": 0.75,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 6
+    },
+    "overall": {
+     "gamesBack": 1.0,
+     "losses": 6,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 1410.9899999999998,
+     "pointsFor": 1551.26,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 8
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 199,
+    "acquisitions": 28,
+    "drops": 29,
+    "matchupAcquisitionTotals": {
+     "2": 1,
+     "3": 2,
+     "4": 3,
+     "5": 1,
+     "6": 2,
+     "7": 2,
+     "8": 3,
+     "9": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "13": 2,
+     "14": 2,
+     "15": 4,
+     "16": 2
+    },
+    "misc": 0,
+    "moveToActive": 42,
+    "moveToIR": 4,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 2
+   },
+   "waiverRank": 10
+  },
+  {
+   "abbrev": "ME",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 12,
+   "id": 2,
+   "name": "ATX Cochino",
+   "playoffSeed": 4,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 4
+    },
+    "division": {
+     "gamesBack": 1.0,
+     "losses": 6,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 8
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 2,
+     "percentage": 0.6666666666666666,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 4
+    },
+    "overall": {
+     "gamesBack": 1.0,
+     "losses": 6,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 1377.0400000000002,
+     "pointsFor": 1438.6600000000003,
+     "streakLength": 2,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 8
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 195,
+    "acquisitions": 15,
+    "drops": 15,
+    "matchupAcquisitionTotals": {
+     "1": 1,
+     "2": 1,
+     "3": 1,
+     "5": 2,
+     "7": 1,
+     "8": 3,
+     "9": 1,
+     "10": 1,
+     "12": 1,
+     "13": 2,
+     "14": 1
+    },
+    "misc": 0,
+    "moveToActive": 52,
+    "moveToIR": 2,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 1
+   },
+   "waiverRank": 9
+  },
+  {
+   "abbrev": "GOON",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 3,
+   "id": 3,
+   "name": "GOONERS",
+   "playoffSeed": 6,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 3,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 3
+    },
+    "division": {
+     "gamesBack": 2.0,
+     "losses": 7,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 7
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 4
+    },
+    "overall": {
+     "gamesBack": 2.0,
+     "losses": 7,
+     "percentage": 0.5,
+     "pointsAgainst": 1492.3899999999999,
+     "pointsFor": 1453.1100000000001,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 7
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 65,
+    "acquisitions": 6,
+    "drops": 5,
+    "matchupAcquisitionTotals": {
+     "6": 1,
+     "9": 2,
+     "12": 3
+    },
+    "misc": 0,
+    "moveToActive": 34,
+    "moveToIR": 1,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 1
+   },
+   "waiverRank": 7
+  },
+  {
+   "abbrev": "\ud83c\udf5f",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 7,
+   "id": 4,
+   "name": "Would you like fries with that?",
+   "playoffSeed": 9,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 3,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 3
+    },
+    "division": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 6
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 3
+    },
+    "overall": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 1394.8000000000002,
+     "pointsFor": 1399.3600000000001,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 6
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 8,
+    "acquisitions": 4,
+    "drops": 2,
+    "matchupAcquisitionTotals": {
+     "2": 1,
+     "5": 1,
+     "9": 1,
+     "11": 1
+    },
+    "misc": 0,
+    "moveToActive": 28,
+    "moveToIR": 2,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 0
+   },
+   "waiverRank": 4
+  },
+  {
+   "abbrev": "ANDY",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 6,
+   "id": 5,
+   "name": "The Juggernaut",
+   "playoffSeed": 1,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 3
+    },
+    "division": {
+     "gamesBack": 0.0,
+     "losses": 5,
+     "percentage": 0.6428571428571429,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 9
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 1,
+     "percentage": 0.8571428571428571,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 4,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 6
+    },
+    "overall": {
+     "gamesBack": 0.0,
+     "losses": 5,
+     "percentage": 0.6428571428571429,
+     "pointsAgainst": 1271.74,
+     "pointsFor": 1465.5299999999997,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 9
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 200,
+    "acquisitions": 34,
+    "drops": 35,
+    "matchupAcquisitionTotals": {
+     "2": 3,
+     "3": 1,
+     "4": 2,
+     "5": 3,
+     "6": 1,
+     "7": 3,
+     "9": 1,
+     "10": 3,
+     "11": 3,
+     "12": 2,
+     "13": 2,
+     "14": 2,
+     "15": 5,
+     "16": 3
+    },
+    "misc": 0,
+    "moveToActive": 86,
+    "moveToIR": 1,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 2
+   },
+   "waiverRank": 12
+  },
+  {
+   "abbrev": "SAD",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 4,
+   "id": 6,
+   "name": "Tortured Tight Ends Department",
+   "playoffSeed": 7,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 3,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 4
+    },
+    "division": {
+     "gamesBack": 2.0,
+     "losses": 7,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 7
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 3
+    },
+    "overall": {
+     "gamesBack": 2.0,
+     "losses": 7,
+     "percentage": 0.5,
+     "pointsAgainst": 1455.21,
+     "pointsFor": 1242.45,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 7
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 194,
+    "acquisitions": 5,
+    "drops": 6,
+    "matchupAcquisitionTotals": {
+     "3": 1,
+     "5": 1,
+     "9": 1,
+     "16": 2
+    },
+    "misc": 0,
+    "moveToActive": 56,
+    "moveToIR": 2,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 0
+   },
+   "waiverRank": 6
+  },
+  {
+   "abbrev": "TONY",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 11,
+   "id": 7,
+   "name": "Dak Shots",
+   "playoffSeed": 11,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.3333333333333333,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 2
+    },
+    "division": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 6
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 4
+    },
+    "overall": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 1400.8199999999997,
+     "pointsFor": 1291.7199999999998,
+     "streakLength": 2,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 6
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 199,
+    "acquisitions": 28,
+    "drops": 31,
+    "matchupAcquisitionTotals": {
+     "2": 2,
+     "3": 2,
+     "4": 1,
+     "5": 2,
+     "6": 1,
+     "7": 3,
+     "8": 3,
+     "9": 2,
+     "10": 2,
+     "11": 1,
+     "12": 1,
+     "13": 1,
+     "14": 3,
+     "15": 4
+    },
+    "misc": 0,
+    "moveToActive": 93,
+    "moveToIR": 0,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 1
+   },
+   "waiverRank": 2
+  },
+  {
+   "abbrev": "BBT",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 1,
+   "id": 8,
+   "name": "Big Boy Toys",
+   "playoffSeed": 2,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 3,
+     "percentage": 0.625,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 5
+    },
+    "division": {
+     "gamesBack": 0.0,
+     "losses": 5,
+     "percentage": 0.6428571428571429,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 3,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 9
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 2,
+     "percentage": 0.6666666666666666,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 4
+    },
+    "overall": {
+     "gamesBack": 0.0,
+     "losses": 5,
+     "percentage": 0.6428571428571429,
+     "pointsAgainst": 1336.4200000000003,
+     "pointsFor": 1432.9699999999998,
+     "streakLength": 3,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 9
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 191,
+    "acquisitions": 20,
+    "drops": 21,
+    "matchupAcquisitionTotals": {
+     "2": 1,
+     "3": 3,
+     "4": 3,
+     "5": 1,
+     "6": 1,
+     "7": 3,
+     "8": 1,
+     "9": 1,
+     "10": 1,
+     "11": 1,
+     "12": 1,
+     "15": 2,
+     "16": 1
+    },
+    "misc": 0,
+    "moveToActive": 56,
+    "moveToIR": 2,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 0
+   },
+   "waiverRank": 11
+  },
+  {
+   "abbrev": "RAFI",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 8,
+   "id": 9,
+   "name": "RAFI CUNADO",
+   "playoffSeed": 12,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 7,
+     "percentage": 0.0,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 7,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 0
+    },
+    "division": {
+     "gamesBack": 5.0,
+     "losses": 10,
+     "percentage": 0.2857142857142857,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 5,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 4
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 3,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 4
+    },
+    "overall": {
+     "gamesBack": 5.0,
+     "losses": 10,
+     "percentage": 0.2857142857142857,
+     "pointsAgainst": 1429.3600000000001,
+     "pointsFor": 1347.05,
+     "streakLength": 5,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 4
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 20,
+    "acquisitions": 11,
+    "drops": 11,
+    "matchupAcquisitionTotals": {
+     "2": 2,
+     "6": 1,
+     "7": 1,
+     "8": 1,
+     "9": 1,
+     "10": 1,
+     "11": 1,
+     "14": 2,
+     "16": 1
+    },
+    "misc": 0,
+    "moveToActive": 38,
+    "moveToIR": 0,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 0
+   },
+   "waiverRank": 1
+  },
+  {
+   "abbrev": "SLB",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 10,
+   "id": 10,
+   "name": "Schotty a Lil Baddie",
+   "playoffSeed": 5,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 3
+    },
+    "division": {
+     "gamesBack": 1.0,
+     "losses": 6,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 8
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 2,
+     "percentage": 0.7142857142857143,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 3,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 5
+    },
+    "overall": {
+     "gamesBack": 1.0,
+     "losses": 6,
+     "percentage": 0.5714285714285714,
+     "pointsAgainst": 1324.5399999999997,
+     "pointsFor": 1347.69,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 8
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 153,
+    "acquisitions": 21,
+    "drops": 22,
+    "matchupAcquisitionTotals": {
+     "2": 2,
+     "3": 1,
+     "4": 3,
+     "5": 2,
+     "6": 1,
+     "7": 1,
+     "8": 4,
+     "9": 3,
+     "10": 2,
+     "12": 1,
+     "14": 1
+    },
+    "misc": 0,
+    "moveToActive": 61,
+    "moveToIR": 0,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 1
+   },
+   "waiverRank": 8
+  },
+  {
+   "abbrev": "361",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 2,
+   "id": 11,
+   "name": "Half Chubb",
+   "playoffSeed": 8,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 3
+    },
+    "division": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 6
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 4,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 3
+    },
+    "overall": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 1432.0,
+     "pointsFor": 1412.5099999999998,
+     "streakLength": 2,
+     "streakType": "WIN",
+     "ties": 0,
+     "wins": 6
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 200,
+    "acquisitions": 31,
+    "drops": 30,
+    "matchupAcquisitionTotals": {
+     "1": 2,
+     "3": 1,
+     "4": 1,
+     "5": 2,
+     "6": 4,
+     "7": 1,
+     "8": 4,
+     "9": 1,
+     "10": 3,
+     "11": 2,
+     "12": 4,
+     "13": 3,
+     "14": 2,
+     "15": 1
+    },
+    "misc": 0,
+    "moveToActive": 72,
+    "moveToIR": 4,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 2
+   },
+   "waiverRank": 5
+  },
+  {
+   "abbrev": "JST",
+   "currentProjectedRank": 0,
+   "divisionId": 0,
+   "draftDayProjectedRank": 5,
+   "id": 12,
+   "name": "Javier's Scary Team",
+   "playoffSeed": 10,
+   "record": {
+    "away": {
+     "gamesBack": 0.0,
+     "losses": 5,
+     "percentage": 0.375,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 2,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 3
+    },
+    "division": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 3,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 6
+    },
+    "home": {
+     "gamesBack": 0.0,
+     "losses": 3,
+     "percentage": 0.5,
+     "pointsAgainst": 0.0,
+     "pointsFor": 0.0,
+     "streakLength": 1,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 3
+    },
+    "overall": {
+     "gamesBack": 3.0,
+     "losses": 8,
+     "percentage": 0.42857142857142855,
+     "pointsAgainst": 1374.7499999999998,
+     "pointsFor": 1317.75,
+     "streakLength": 3,
+     "streakType": "LOSS",
+     "ties": 0,
+     "wins": 6
+    }
+   },
+   "transactionCounter": {
+    "acquisitionBudgetSpent": 60,
+    "acquisitions": 4,
+    "drops": 4,
+    "matchupAcquisitionTotals": {
+     "3": 1,
+     "9": 1,
+     "10": 1,
+     "11": 1
+    },
+    "misc": 0,
+    "moveToActive": 20,
+    "moveToIR": 0,
+    "paid": 0.0,
+    "teamCharges": 0.0,
+    "trades": 0
+   },
+   "waiverRank": 3
+  }
+ ]
+}

@@ -156,6 +156,60 @@ export interface LeagueFormat {
   playoffWeeksRange?: string;
 }
 
+/* -------------------------------------------------------------------------- *
+ * Waiver / FAAB ledger (owner goal, 2026-09-02: waiver wire report must take FAAB spend into
+ * account). Built server-side by `convex/aiQueries.ts#buildWaiverLedger` from the `transactions`
+ * and `teams` tables; `facts.ts#buildWaivers` turns this into the id-bearing, citable
+ * `FactsBlock.waivers`. This raw shape carries no id of its own and no team-id resolution — that
+ * happens once, in `facts.ts`'s `TeamIndex` — so it stays a plain data shape a Convex module can
+ * build without importing anything from the prompt layer as a value.
+ * -------------------------------------------------------------------------- */
+
+/** One winning waiver claim in the league's most recently processed run. */
+export interface WaiverLedgerClaim {
+  week: number;
+  player: { id: string; name: string; pos: string; nflTeam?: string };
+  teamId: string;
+  teamName: string;
+  manager?: string;
+  bid: number;
+  /** Losing bids for this same player in this same run, highest first. Empty for an uncontested claim. */
+  competingBids: Array<{ teamId: string; teamName: string; bid: number }>;
+  dropped?: { name: string; pos?: string };
+}
+
+/** One team's FAAB position: budget, spend and what is left, for the whole season so far. */
+export interface WaiverLedgerBudget {
+  teamId: string;
+  teamName: string;
+  manager?: string;
+  budget?: number;
+  spent?: number;
+  remaining?: number;
+  acquisitions?: number;
+}
+
+export interface WaiverLedgerSeason {
+  biggestBid?: { teamId: string; teamName: string; player: string; bid: number; week: number };
+  mostActive?: { teamId: string; teamName: string; acquisitions: number };
+  /** Teams with the least FAAB left, ascending. */
+  lowestRemaining: Array<{ teamId: string; teamName: string; remaining: number }>;
+  totalSpent?: number;
+  averageWinningBid?: number;
+}
+
+/** The waiver/FAAB ledger for one league-season. */
+export interface WaiverLedger {
+  /** The most recent scoring period with at least one executed waiver claim, if any. */
+  latestRun?: { scoringPeriod: number; processedAt?: number; claims: WaiverLedgerClaim[] };
+  budgets: WaiverLedgerBudget[];
+  season: WaiverLedgerSeason;
+  /** "faab" | "waivers" | "free_agency", mirrors `LeagueFormat.waiverType`. */
+  waiverType?: string;
+  /** The season FAAB budget every team started with, mirrors `LeagueFormat.faabBudget`. */
+  budget?: number;
+}
+
 export interface PromptBuilderOptions {
   leagueId: string;
   contentType: string;
@@ -364,6 +418,10 @@ export interface LeagueDataContext {
   /** League-format facts (spec: format audit). Read through `this.facts.format` inside the prompt
    * builder — this raw field exists so `buildFormat` in `facts.ts` has something to read. */
   leagueFormat?: LeagueFormat;
+  /** The waiver/FAAB ledger (owner goal: waivers must take FAAB spend into account). Read through
+   * `this.facts.waivers` inside the prompt builder — this raw field exists so `buildWaivers` in
+   * `facts.ts` has something to read. */
+  waivers?: WaiverLedger;
   leagueHistory?: {
     foundedYear: number;
     totalSeasons: number;
@@ -1097,6 +1155,11 @@ where the two ever disagree, <FACTS> wins.
       });
     }
 
+    if (this.facts.waivers.latestRun && this.facts.waivers.latestRun.claims.length > 0) {
+      recap += `\nIf a waiver claim from this week is relevant to a team in this recap, facts.waivers
+in the <FACTS> block above has it (W… lines). You may cite one; keep it to a line, never the focus.\n`;
+    }
+
     return recap;
   }
 
@@ -1305,6 +1368,12 @@ where the two ever disagree, <FACTS> wins.
       });
     }
 
+    if (this.facts.waivers.isFaab && this.facts.waivers.budgets.length > 0) {
+      rankings += `\nFAAB remaining is a standings-adjacent fact: facts.waivers.budgets in the <FACTS>
+block above has each team's B… line. If a team's waiver spend is relevant to its ranking, you may
+cite it; keep it to a line, never the focus.\n`;
+    }
+
     return rankings;
   }
 
@@ -1505,6 +1574,8 @@ ${team2.recentForm ? `- Recent Form: ${team2.recentForm.wins}-${team2.recentForm
 ${!this.facts.format.rosterShape ? `- Roster size: ${data.rosterSize || 16}\n` : ''}
 ${formatLines}`;
 
+    waiverData += this.buildWaiverLedgerData();
+
     // Find available players (low ownership percentage)
     const availablePlayers: Array<{ playerId: string; playerName: string; position: string; team: string; ownership?: { percentOwned?: number; percentChange?: number; }; }> = [];
     const ownedPlayers = new Set<string>();
@@ -1568,8 +1639,66 @@ ${formatLines}`;
     });
 
     waiverData += '\nCreate waiver wire recommendations with statistical backing based on the available players and team needs.';
-    
+
     return waiverData;
+  }
+
+  /**
+   * Renders `facts.waivers` as readable prose (owner goal, 2026-09-02: the waiver wire report must
+   * take FAAB spend into account) — the latest processed run, every team's budget, and season
+   * highlights, each line already computed and citable by id in the FACTS block above. For a
+   * non-FAAB league this describes waiver priority instead and never mentions a dollar figure.
+   */
+  private buildWaiverLedgerData(): string {
+    const waivers = this.facts.waivers;
+
+    if (!waivers.isFaab) {
+      return `\nWAIVER TYPE: this league does not use FAAB. Describe waiver-priority or first-come,
+first-served activity in plain English. Never print a dollar figure or invent a bid amount.\n`;
+    }
+
+    const lines: string[] = [
+      '\nFAAB WAIVER LEDGER:',
+      'Every dollar figure and every claim below must come from one of these lines; never estimate a bid or a remaining budget.',
+    ];
+
+    if (waivers.latestRun && waivers.latestRun.claims.length > 0) {
+      lines.push(`\nMost recent processed run — Week ${waivers.latestRun.week}:`);
+      waivers.latestRun.claims.forEach(claim => lines.push(`- ${claim.line}`));
+    } else {
+      lines.push('\nNo waiver claims have been processed yet this season.');
+    }
+
+    if (waivers.budgets.length > 0) {
+      lines.push('\nBUDGETS:');
+      waivers.budgets.forEach(budget => lines.push(`- ${budget.line}`));
+    }
+
+    const season = waivers.season;
+    if (season.biggestBid || season.mostActive || season.lowestRemaining.length > 0) {
+      lines.push('\nSEASON HIGHLIGHTS:');
+      if (season.biggestBid) {
+        lines.push(
+          `- Biggest bid of the season: ${season.biggestBid.teamName} spent $${season.biggestBid.bid} on ${season.biggestBid.player} in Week ${season.biggestBid.week}.`
+        );
+      }
+      if (season.mostActive) {
+        lines.push(`- Most active team: ${season.mostActive.teamName}, ${season.mostActive.acquisitions} pickups.`);
+      }
+      if (season.lowestRemaining.length > 0) {
+        lines.push(
+          `- Least FAAB remaining: ${season.lowestRemaining.map(entry => `${entry.teamName} ($${entry.remaining})`).join(', ')}.`
+        );
+      }
+      if (season.totalSpent !== undefined) {
+        lines.push(`- League-wide FAAB spent so far: $${season.totalSpent}.`);
+      }
+      if (season.averageWinningBid !== undefined) {
+        lines.push(`- Average winning bid: $${season.averageWinningBid}.`);
+      }
+    }
+
+    return lines.join('\n') + '\n';
   }
 
   private buildGenericData(data: LeagueDataContext): string {
