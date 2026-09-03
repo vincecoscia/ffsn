@@ -11,11 +11,25 @@ import {
 } from "../src/lib/ai/data-aggregation-helpers";
 // Type-only: never a value import from a convex/*.ts module here (see the repo-wide gotcha about
 // `internal` recursion). `LeagueFormat` is a plain interface with no runtime footprint.
-import type { LeagueFormat, LeagueFormatDivision } from "../src/lib/ai/prompt-builder";
+import type {
+  LeagueFormat,
+  LeagueFormatDivision,
+  WaiverLedger,
+  WaiverLedgerBudget,
+  WaiverLedgerClaim,
+  WaiverLedgerSeason,
+} from "../src/lib/ai/prompt-builder";
 // `convex/lib/espnSettings.ts` is a deliberately pure module (no `internal`/`api` imports of its
 // own — see its file header), so importing it as a value here carries none of the recursive-`api`
 // risk the repo gotcha warns about for other convex/*.ts modules.
 import { parseEspnLeagueSettings, type ParsedLeagueSettings } from "./lib/espnSettings";
+// `convex/lib/espnTransactions.ts` is likewise deliberately pure (no `internal`/`api` imports of
+// its own — see its file header) — the canonical, tested classifier the sync path itself uses to
+// write `transactions.outcome`. Reused here so the waiver ledger can never disagree with it.
+import {
+  classifyTransactionStatus,
+  type TransactionOutcome as ImportedTransactionOutcome,
+} from "./lib/espnTransactions";
 
 /**
  * Enhanced query functions for AI content generation
@@ -275,6 +289,287 @@ function divisionNameLookup(leagueFormat: LeagueFormat): (divisionId: number | u
   const byId = new Map((leagueFormat.divisions ?? []).map(division => [division.id, division.name]));
   return (divisionId: number | undefined) => (divisionId === undefined ? undefined : byId.get(String(divisionId)));
 }
+
+/* -------------------------------------------------------------------------- *
+ * Waiver / FAAB ledger (owner goal, 2026-09-02: the waiver wire report must take FAAB spend into
+ * account — winning bids, losing bids, each team's remaining budget, season highlights, and Sam's
+ * interview questions should all use these numbers).
+ *
+ * Outcome classification is delegated to `classifyTransactionStatus` (`convex/lib/espnTransactions.ts`
+ * — the same pure, `internal`-free classifier `espnSync.ts` uses to write `transactions.outcome`), so
+ * this can never disagree with what the sync path stored, and it needs no fallback of its own: it
+ * reads only `status` + `isPending`, which have always been required fields, unlike the newer
+ * `outcome`/`processDate` (on `transactions`) and `transactionCounter` (on `teams`) — all
+ * `v.optional`, so an older row simply carries none of them.
+ *
+ * From the live ESPN log (verified against `tests/fixtures/espn-transactions-public.json`, player
+ * 4362478 / scoring period 5: winner $41 EXECUTED, losing bids [35, 18, 10, 5] all
+ * FAILED_INVALIDPLAYERSOURCE, and a $0 CANCELED bid correctly excluded):
+ *  - A winning claim: `type === "WAIVER"`, outcome "executed".
+ *  - A competing losing bid for the SAME player in the SAME scoring period: `type === "WAIVER"`,
+ *    outcome "failed", and its ADD item's playerId matches the winner's. A "cancelled" bid (the
+ *    manager withdrew; always $0) is never competition, and a failure on a different player is not
+ *    competition for this claim either.
+ *  - An immediate free-agent add carries `type` "FREEAGENT"/"ROSTER", not "WAIVER" — the `type`
+ *    filter alone (matching `summarizeWaiverRun`'s own contract) excludes it as a pickup, not a
+ *    waiver win, from both the ledger and the bid stats.
+ * -------------------------------------------------------------------------- */
+
+type TransactionOutcome = ImportedTransactionOutcome;
+
+/**
+ * Classifies every transaction row from `status` + `isPending` alone. Reuses
+ * `classifyTransactionStatus`, the same classifier `convex/espnSync.ts` writes `outcome` with, so a
+ * ledger built here can never disagree with what the sync path stored (and never needs to read the
+ * stored `outcome` itself).
+ */
+function transactionOutcome(t: Doc<"transactions">): TransactionOutcome {
+  return classifyTransactionStatus(t.status, t.isPending);
+}
+
+function waiverAddPlayerId(t: Doc<"transactions">): number | undefined {
+  return t.items.find(item => item.type === "ADD")?.playerId;
+}
+
+function waiverDropPlayerId(t: Doc<"transactions">): number | undefined {
+  return t.items.find(item => item.type === "DROP")?.playerId;
+}
+
+/** ESPN player id -> name/position/NFL team, one lookup per distinct id, via `playersEnhanced`. */
+async function waiverPlayerLookup(
+  ctx: QueryCtx,
+  seasonId: number,
+  playerIds: Iterable<number>
+): Promise<Map<number, { name: string; pos: string; nflTeam?: string }>> {
+  const out = new Map<number, { name: string; pos: string; nflTeam?: string }>();
+  for (const playerId of new Set(playerIds)) {
+    const player = await ctx.db
+      .query("playersEnhanced")
+      .withIndex("by_espn_id_season", q => q.eq("espnId", String(playerId)).eq("season", seasonId))
+      .first();
+    if (player) {
+      out.set(playerId, { name: player.fullName, pos: player.defaultPosition, nflTeam: player.proTeamAbbrev });
+    }
+  }
+  return out;
+}
+
+/**
+ * The waiver/FAAB ledger for one league-season: the most recently processed waiver run (winning and
+ * losing bids), every team's remaining budget, and season-level highlights. Bounded throughout: a
+ * scoring-period-indexed lookback (capped) locates the latest run so this stays correct even when
+ * called long after the season has moved on; a single capped `by_season` scan backs the season
+ * highlights, with `teams.transactionCounter` preferred wherever it is present since ESPN's own
+ * running totals are authoritative for the whole season, not just the scanned window.
+ */
+export async function buildWaiverLedger(
+  ctx: QueryCtx,
+  league: Doc<"leagues">,
+  seasonId: number,
+  opts: { throughScoringPeriod: number }
+): Promise<WaiverLedger> {
+  const leagueFormat = await buildLeagueFormat(ctx, league, seasonId);
+  const waiverType = leagueFormat.waiverType;
+  const budget = leagueFormat.faabBudget;
+
+  const teams = await ctx.db
+    .query("teams")
+    .withIndex("by_season", q => q.eq("leagueId", league._id).eq("seasonId", seasonId))
+    .collect();
+  const managerNames = await buildManagerNames(ctx, teams, seasonId);
+  const teamByExternalId = new Map(teams.map(team => [Number(team.externalId), team]));
+
+  const identityFor = (externalTeamId: number): { teamId: string; teamName: string; manager?: string } => {
+    const team = teamByExternalId.get(externalTeamId);
+    return {
+      teamId: team?._id ?? String(externalTeamId),
+      teamName: team?.name ?? `Team ${externalTeamId}`,
+      manager: team ? managerNames.get(team._id) : undefined,
+    };
+  };
+
+  /* ---- Latest processed run: bounded lookback by scoring period, newest first. ---- */
+  const MAX_LOOKBACK_PERIODS = 25;
+  let latestPeriod: number | undefined;
+  let latestPeriodTransactions: Doc<"transactions">[] = [];
+  for (
+    let period = opts.throughScoringPeriod;
+    period >= 1 && opts.throughScoringPeriod - period < MAX_LOOKBACK_PERIODS;
+    period--
+  ) {
+    const periodTransactions = await ctx.db
+      .query("transactions")
+      .withIndex("by_scoring_period", q =>
+        q.eq("leagueId", league._id).eq("seasonId", seasonId).eq("scoringPeriod", period)
+      )
+      .take(300);
+    const hasWinner = periodTransactions.some(
+      t => t.type === "WAIVER" && transactionOutcome(t) === "executed"
+    );
+    if (hasWinner) {
+      latestPeriod = period;
+      latestPeriodTransactions = periodTransactions;
+      break;
+    }
+  }
+
+  let latestRun: WaiverLedger["latestRun"];
+  if (latestPeriod !== undefined) {
+    const winners = latestPeriodTransactions.filter(
+      t => t.type === "WAIVER" && transactionOutcome(t) === "executed"
+    );
+    const losers = latestPeriodTransactions.filter(
+      t => t.type === "WAIVER" && transactionOutcome(t) === "failed"
+    );
+
+    const playerIds = new Set<number>();
+    for (const t of [...winners, ...losers]) {
+      const addId = waiverAddPlayerId(t);
+      if (addId !== undefined) playerIds.add(addId);
+      const dropId = waiverDropPlayerId(t);
+      if (dropId !== undefined) playerIds.add(dropId);
+    }
+    const players = await waiverPlayerLookup(ctx, seasonId, playerIds);
+
+    const claims: WaiverLedgerClaim[] = winners.map(winner => {
+      const addPlayerId = waiverAddPlayerId(winner);
+      const dropPlayerId = waiverDropPlayerId(winner);
+      const player = addPlayerId !== undefined ? players.get(addPlayerId) : undefined;
+      const dropped = dropPlayerId !== undefined ? players.get(dropPlayerId) : undefined;
+      const identity = identityFor(winner.teamId);
+
+      const competingBids = losers
+        .filter(loser => waiverAddPlayerId(loser) === addPlayerId)
+        .map(loser => ({ ...identityFor(loser.teamId), bid: loser.bidAmount }))
+        .sort((a, b) => b.bid - a.bid);
+
+      return {
+        week: latestPeriod!,
+        player: {
+          id: addPlayerId !== undefined ? String(addPlayerId) : "unknown",
+          name: player?.name ?? (addPlayerId !== undefined ? `Player ${addPlayerId}` : "Unknown player"),
+          pos: player?.pos ?? "",
+          nflTeam: player?.nflTeam,
+        },
+        teamId: identity.teamId,
+        teamName: identity.teamName,
+        manager: identity.manager,
+        bid: winner.bidAmount,
+        competingBids,
+        dropped: dropped ? { name: dropped.name, pos: dropped.pos } : undefined,
+      };
+    });
+
+    latestRun = {
+      scoringPeriod: latestPeriod,
+      processedAt: winners[0]?.processDate ?? winners[0]?.proposedDate,
+      claims,
+    };
+  }
+
+  /* ---- Season highlights + per-team budget fallback: one bounded scan. ---- */
+  const seasonTransactions = await ctx.db
+    .query("transactions")
+    .withIndex("by_season", q => q.eq("leagueId", league._id).eq("seasonId", seasonId))
+    .order("desc")
+    .take(500);
+
+  const executedWaivers = seasonTransactions.filter(
+    t => t.type === "WAIVER" && transactionOutcome(t) === "executed"
+  );
+
+  const spentByTeam = new Map<number, number>();
+  const countByTeam = new Map<number, number>();
+  let biggestBid: WaiverLedgerSeason["biggestBid"];
+  for (const t of executedWaivers) {
+    spentByTeam.set(t.teamId, (spentByTeam.get(t.teamId) ?? 0) + t.bidAmount);
+    countByTeam.set(t.teamId, (countByTeam.get(t.teamId) ?? 0) + 1);
+    if (!biggestBid || t.bidAmount > biggestBid.bid) {
+      const identity = identityFor(t.teamId);
+      const addPlayerId = waiverAddPlayerId(t);
+      biggestBid = {
+        teamId: identity.teamId,
+        teamName: identity.teamName,
+        // Resolved to a real name below, once every candidate id is known.
+        player: addPlayerId !== undefined ? String(addPlayerId) : "unknown",
+        bid: t.bidAmount,
+        week: t.scoringPeriod,
+      };
+    }
+  }
+  if (biggestBid) {
+    const resolved = await waiverPlayerLookup(ctx, seasonId, [Number(biggestBid.player)]);
+    biggestBid.player = resolved.get(Number(biggestBid.player))?.name ?? biggestBid.player;
+  }
+
+  // ESPN's own running totals (`transactionCounter`) are authoritative for the whole season and are
+  // preferred whenever every team on the roster carries one; the bounded scan above is only the
+  // fallback for a league the sync migration has not reached yet.
+  const teamsHaveCounters =
+    teams.length > 0 && teams.every(team => team.transactionCounter?.acquisitionBudgetSpent !== undefined);
+
+  const budgets: WaiverLedgerBudget[] = teams.map(team => {
+    const externalId = Number(team.externalId);
+    const counter = team.transactionCounter;
+    const spent = counter?.acquisitionBudgetSpent ?? spentByTeam.get(externalId) ?? 0;
+    const acquisitions = counter?.acquisitions ?? countByTeam.get(externalId);
+    return {
+      teamId: team._id,
+      teamName: team.name,
+      manager: managerNames.get(team._id),
+      budget,
+      spent,
+      remaining: budget !== undefined ? Math.max(0, budget - spent) : undefined,
+      acquisitions,
+    };
+  });
+
+  const totalSpent = teamsHaveCounters
+    ? budgets.reduce((sum, entry) => sum + (entry.spent ?? 0), 0)
+    : executedWaivers.reduce((sum, t) => sum + t.bidAmount, 0);
+  const winCount = teamsHaveCounters
+    ? budgets.reduce((sum, entry) => sum + (entry.acquisitions ?? 0), 0)
+    : executedWaivers.length;
+  const averageWinningBid = winCount > 0 ? Math.round((totalSpent / winCount) * 10) / 10 : undefined;
+
+  const mostActive = budgets.reduce<WaiverLedgerSeason["mostActive"]>((best, entry) => {
+    if (entry.acquisitions === undefined) return best;
+    if (!best || entry.acquisitions > best.acquisitions) {
+      return { teamId: entry.teamId, teamName: entry.teamName, acquisitions: entry.acquisitions };
+    }
+    return best;
+  }, undefined);
+
+  const lowestRemaining = budgets
+    .filter((entry): entry is WaiverLedgerBudget & { remaining: number } => entry.remaining !== undefined)
+    .sort((a, b) => a.remaining - b.remaining)
+    .slice(0, 3)
+    .map(entry => ({ teamId: entry.teamId, teamName: entry.teamName, remaining: entry.remaining }));
+
+  return {
+    latestRun,
+    budgets,
+    season: { biggestBid, mostActive, lowestRemaining, totalSpent: totalSpent || undefined, averageWinningBid },
+    waiverType,
+    budget,
+  };
+}
+
+/** Cross-module entry point for `buildWaiverLedger` (never import it as a value — see the repo-wide
+ * gotcha about `internal` recursion on convex/*.ts modules); call via
+ * `ctx.runQuery(internal.aiQueries.getWaiverLedgerForAI, {...})`. */
+export const getWaiverLedgerForAI = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    throughScoringPeriod: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) throw new Error("League not found");
+    return buildWaiverLedger(ctx, league, args.seasonId, { throughScoringPeriod: args.throughScoringPeriod });
+  },
+});
 
 // Get comprehensive league data for AI content generation
 export const getLeagueDataForAI = internalQuery({
@@ -1829,12 +2124,18 @@ export const getWaiverWireDataForAI = internalQuery({
       
       const currentSeason = league.espnData?.seasonId || new Date().getFullYear();
       const currentWeek = league.espnData?.currentScoringPeriod || 1;
-      
+
+      // The FAAB/waiver ledger (owner goal: winning bids, losing bids, remaining budgets, season
+      // highlights). Built independently of the rest of this query's data.
+      const waiverLedger = await buildWaiverLedger(ctx, league, currentSeason, {
+        throughScoringPeriod: currentWeek,
+      });
+
       // Get basic league data
       const basicLeagueData: any = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
         leagueId: args.leagueId,
       });
-      
+
       // Get all rostered players to determine available players
       const allRosteredPlayerIds = new Set<string>();
       basicLeagueData.teams.forEach((team: any) => {
@@ -1844,14 +2145,24 @@ export const getWaiverWireDataForAI = internalQuery({
           });
         }
       });
-      
+
       // Get recent transactions to identify trending players
       const recentTransactions = await ctx.db
         .query("transactions")
         .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", currentSeason))
         .order("desc")
         .take(100);
-      
+
+      // Real names/positions for every ADD or DROP item across these transactions — resolved once
+      // here instead of the "Player 12345" / "Unknown" placeholders this query used to print.
+      const transactionPlayerIds = new Set<number>();
+      recentTransactions.forEach(transaction => {
+        transaction.items?.forEach(item => {
+          if (item.type === "ADD" || item.type === "DROP") transactionPlayerIds.add(item.playerId);
+        });
+      });
+      const transactionPlayers = await waiverPlayerLookup(ctx, currentSeason, transactionPlayerIds);
+
       // Track transaction trends
       const transactionCounts: Record<string, number> = {};
       const recentAdds: Array<{
@@ -1860,8 +2171,10 @@ export const getWaiverWireDataForAI = internalQuery({
         position: string;
         date: string;
         teamName: string;
+        bid?: number;
+        outcome: TransactionOutcome;
       }> = [];
-      
+
       recentTransactions.forEach(transaction => {
         // Process transactions based on the new schema with items array
         if (transaction.items && transaction.items.length > 0) {
@@ -1869,16 +2182,19 @@ export const getWaiverWireDataForAI = internalQuery({
             if (item.type === "ADD" && item.toTeamId !== 0) {
               const playerId = item.playerId.toString();
               transactionCounts[playerId] = (transactionCounts[playerId] || 0) + 1;
-              
+
               // Get team info from teams data
               const team = basicLeagueData.teams.find((t: any) => t.externalId === item.toTeamId.toString());
-              
+              const resolved = transactionPlayers.get(item.playerId);
+
               recentAdds.push({
                 playerId: playerId,
-                playerName: `Player ${playerId}`, // We'll need to look up player names separately
-                position: "Unknown", // Position data not in transaction items
+                playerName: resolved?.name ?? `Player ${playerId}`,
+                position: resolved?.pos ?? "Unknown",
                 date: new Date(transaction.proposedDate).toISOString(),
                 teamName: team?.name || `Team ${item.toTeamId}`,
+                bid: transaction.bidAmount > 0 ? transaction.bidAmount : undefined,
+                outcome: transactionOutcome(transaction),
               });
             }
           }
@@ -1974,22 +2290,24 @@ export const getWaiverWireDataForAI = internalQuery({
           const addItem = t.items?.find((item: any) => item.type === "ADD");
           const dropItem = t.items?.find((item: any) => item.type === "DROP");
           const team = basicLeagueData.teams.find((team: any) => team.externalId === t.teamId);
-          
+          const addedPlayer = addItem ? transactionPlayers.get(addItem.playerId) : undefined;
+          const droppedPlayer = dropItem ? transactionPlayers.get(dropItem.playerId) : undefined;
+
           return {
             teamId: t.teamId,
             teamName: team?.name || `Team ${t.teamId}`,
             type: t.type,
             playerAdded: addItem ? {
               playerId: addItem.playerId.toString(),
-              playerName: `Player ${addItem.playerId}`, // Would need player lookup
-              position: "Unknown",
-              team: "Unknown"
+              playerName: addedPlayer?.name ?? `Player ${addItem.playerId}`,
+              position: addedPlayer?.pos ?? "Unknown",
+              team: addedPlayer?.nflTeam ?? "Unknown"
             } : undefined,
             playerDropped: dropItem ? {
               playerId: dropItem.playerId.toString(),
-              playerName: `Player ${dropItem.playerId}`, // Would need player lookup
-              position: "Unknown",
-              team: "Unknown"
+              playerName: droppedPlayer?.name ?? `Player ${dropItem.playerId}`,
+              position: droppedPlayer?.pos ?? "Unknown",
+              team: droppedPlayer?.nflTeam ?? "Unknown"
             } : undefined,
             date: new Date(t.proposedDate).toISOString(),
             faabBid: t.bidAmount > 0 ? t.bidAmount : undefined,
@@ -1997,6 +2315,10 @@ export const getWaiverWireDataForAI = internalQuery({
         }),
         rivalries: [],
         managerActivity: basicLeagueData.managerActivity,
+
+        // The FAAB/waiver ledger (owner goal: waiver wire reports must take FAAB spend into
+        // account) — winning bids, losing bids, remaining budgets, season highlights.
+        waivers: waiverLedger,
 
         // Settings
         scoringType: league.settings?.scoringType || "PPR",
@@ -2273,6 +2595,8 @@ export const getWeeklyRecapDataForAI = internalQuery({
     leagueFormat?: LeagueFormat;
     playoffTeams?: number;
     regularSeasonWeeks?: number;
+    // The FAAB/waiver ledger (owner goal: recaps can cite the week's waiver drama — keep it light).
+    waivers?: WaiverLedger;
     metadata: {
       dataFreshness: number;
       week: number;
@@ -2281,11 +2605,15 @@ export const getWeeklyRecapDataForAI = internalQuery({
   }> => {
     console.log("=== getWeeklyRecapDataForAI START ===");
     const startTime = Date.now();
-    
+
     try {
       const league = await ctx.db.get(args.leagueId);
       if (!league) throw new Error("League not found");
-      
+
+      const waiverLedger = await buildWaiverLedger(ctx, league, args.seasonId, {
+        throughScoringPeriod: args.week,
+      });
+
       // Get basic league data
       const basicLeagueData = await ctx.runQuery(internal.aiQueries.getLeagueDataForAI, {
         leagueId: args.leagueId,
@@ -2641,7 +2969,11 @@ export const getWeeklyRecapDataForAI = internalQuery({
         transactions: basicLeagueData.transactions.slice(0, 10), // Recent transactions
         managerActivity: basicLeagueData.managerActivity,
         standings: standingsAtWeek,
-        
+
+        // The FAAB/waiver ledger (owner goal): recaps can cite the week's waiver drama by id, kept
+        // light per the prompt-layer guidance in `buildWeeklyRecapData`.
+        waivers: waiverLedger,
+
         // Settings
         scoringType: league.settings?.scoringType || "PPR",
         rosterSize: league.settings?.rosterSize || 16,

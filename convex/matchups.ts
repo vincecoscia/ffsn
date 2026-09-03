@@ -1,6 +1,75 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { query } from "./_generated/server";
 import { v } from "convex/values";
+import { getLeagueMembership } from "./lib/auth";
+import { isPreDraftRedraft, summarizeMatchup } from "./lib/matchupSummary";
+
+/**
+ * Slim per-season schedule for the schedule/scores pages (spec: audit
+ * finding that the schedule page fired 18 `getByLeagueAndPeriod` queries -
+ * one per week - and summed full home/away rosters client-side, which
+ * double-counted IR players as starters and showed "in progress 0.0-0.0"
+ * before kickoff; see `convex/lib/matchupSummary.ts`'s header comment for
+ * the fix). Returns one row per matchup, sorted by `matchupPeriod` then
+ * `scoringPeriod`, with no roster payload - roughly 90 rows/season instead
+ * of 18 round trips each carrying both full rosters.
+ *
+ * Also reads the season's `leagueSeasons` row to null out every row's
+ * projected fields when `isPreDraftRedraft` is true (matchupSummary.ts's
+ * header comment, finding 3) - a redraft league before its draft has no
+ * real lineups yet, only ESPN's carried-over previous-season ones. Pairings
+ * and status are untouched: the pages read the draft flags themselves from
+ * `leagues.getLeagueSeasonByYear` for any messaging beyond the numbers.
+ */
+export const getScheduleBySeason = query({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("matchups"),
+      matchupPeriod: v.number(),
+      scoringPeriod: v.number(),
+      homeTeamId: v.string(),
+      awayTeamId: v.string(),
+      winner: v.union(v.literal("home"), v.literal("away"), v.literal("tie"), v.null()),
+      status: v.union(v.literal("final"), v.literal("live"), v.literal("scheduled")),
+      playoffTier: v.union(v.string(), v.null()),
+      homeScore: v.number(),
+      awayScore: v.number(),
+      homeProjected: v.union(v.number(), v.null()),
+      awayProjected: v.union(v.number(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const membership = await getLeagueMembership(ctx, args.leagueId);
+    if (!membership) {
+      return [];
+    }
+
+    const [matchups, season] = await Promise.all([
+      ctx.db
+        .query("matchups")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .collect(),
+      ctx.db
+        .query("leagueSeasons")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .first(),
+    ]);
+
+    const hideProjections = isPreDraftRedraft(season ?? undefined);
+
+    return matchups
+      .map((doc) => summarizeMatchup(doc, { hideProjections }))
+      .sort((a, b) => a.matchupPeriod - b.matchupPeriod || a.scoringPeriod - b.scoringPeriod);
+  },
+});
 
 export const getByLeagueAndPeriod = query({
   args: { 

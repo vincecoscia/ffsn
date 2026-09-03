@@ -18,7 +18,8 @@ General rules for consumers:
 - Numeric `size`/pixel props (e.g. `TeamTile`'s `size`, `PersonaAvatar`'s `size`) are applied via inline
   `style`, not Tailwind arbitrary-value classes — Tailwind can't statically see a runtime-computed
   `w-[${n}px]` string, so don't try to override those dimensions with a `w-*`/`h-*` className.
-- Components that need `usePathname` or theme state (`AppHeader`, `ThemeToggle`) are Client Components.
+- Components that need `usePathname`, theme state (`AppHeader`, `ThemeToggle`), or local UI state
+  (`TeamTile`, to fall back to initials when a logo image fails to load) are Client Components.
   Everything else has no hooks and is server-render-safe, including when composed with Clerk's
   `SignedIn`/`SignedOut`/`UserButton` (those are Client Components internally; rendering them from a
   Server Component is fine, that's normal RSC composition).
@@ -237,12 +238,16 @@ The matchup graphic: an optional strip (left text + right text/tone), then two t
 winner/loser color bar. `mode="final"` shows scores in ink/muted with a red caret (◀) next to the winner;
 `mode="projected"` shows scores in lighter signal blue with no winner marker.
 
-Props: `home: ScoreBugTeam`, `away: ScoreBugTeam`, `mode?: "final" | "projected"` (default `"final"`),
+Props: `home: ScoreBugTeam`, `away: ScoreBugTeam`, `mode?: "final" | "projected" | "live"` (`"live"`: full-weight ink scores, no winner marker or loser dimming) (default `"final"`),
 `strip?: ReactNode`, `stripRight?: ReactNode`, `stripRightTone?: "default" | "highlight" | "muted"`
 (default `"default"`; `"highlight"` = red text, e.g. "Game of the week"), `href?: string` (wraps in a
 `Link`), `className?`.
 
-`ScoreBugTeam`: `{ name: ReactNode; sub?: ReactNode; score?: ReactNode; winner?: boolean }`.
+`ScoreBugTeam`: `{ name: ReactNode; sub?: ReactNode; score?: ReactNode; winner?: boolean; leading?: ReactNode }`.
+`leading` renders between the color bar and the name column — e.g. a `TeamTile` — and only changes the
+row grid when given, so a bug with no `leading` on any team stays pixel-identical to before. The name
+column is always `min-w-0` + `truncate`, so long team names never overflow. In `mode="projected"` each
+score is preceded by a small "Proj" label so a projection can never be mistaken for a real score.
 
 ```tsx
 <ScoreBug
@@ -250,8 +255,19 @@ Props: `home: ScoreBugTeam`, `away: ScoreBugTeam`, `mode?: "final" | "projected"
   strip="Week 3 · Final"
   stripRight="Game of the week"
   stripRightTone="highlight"
-  home={{ name: "Lamar's Army", sub: "Priya Natarajan · 2-1", score: "124.6", winner: true }}
-  away={{ name: "Waddle It Be", sub: "Chris Baptiste · 1-2", score: "122.9" }}
+  home={{
+    name: "Lamar's Army",
+    sub: "Priya Natarajan · 2-1",
+    score: "124.6",
+    winner: true,
+    leading: <TeamTile initials="LA" src={homeTeam.logo} size={32} />,
+  }}
+  away={{
+    name: "Waddle It Be",
+    sub: "Chris Baptiste · 1-2",
+    score: "122.9",
+    leading: <TeamTile initials="WI" src={awayTeam.logo} size={32} />,
+  }}
   href="/leagues/123/scores/week-3"
 />
 ```
@@ -266,9 +282,10 @@ Props: `rank: ReactNode`, `tone?: "default" | "first" | "outline"` (`"first"` = 
 <RankPlate rank={1} tone="first" />
 ```
 
-### `TeamTile`
+### `TeamTile` (Client Component)
 Square team monogram tile with the diagonal-split background, or a team logo image (`object-cover`) when
-`src` is given.
+`src` is given. If the image fails to load (`onError`, e.g. a hot-link-blocked ESPN logo URL), it falls
+back to the initials tile — this needs local state, so it's a Client Component (see the hooks note above).
 
 Props: `initials: string`, `src?: string`, `alt?: string`, `size?: number` (px, default 36),
 `tone?: "default" | "accent"` (`"accent"` = solid red, e.g. the viewer's own team), `className?`.

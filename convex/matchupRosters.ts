@@ -6,6 +6,7 @@ import { transformStats } from "./espnStatsMapping";
 import { fetchEspn, normalizeEspnCredentials } from "./lib/espnClient";
 import { matchupPeriodIdsFromSettings } from "./lib/leagueCalendar";
 import { matchupPeriodWeeks } from "./lib/espnSettings";
+import { isPreDraftRedraft } from "./lib/matchupSummary";
 
 
 
@@ -126,8 +127,10 @@ export const fetchMatchupRosters = internalAction({
 
         console.log(`Fetching rosters for matchup period ${matchupPeriod} (scoring period ${scoringPeriodId})...`);
 
+        // view=mDraftDetail adds `draftDetail` to the response - see the
+        // pre-draft-redraft check below.
         const { response } = await fetchEspn(
-          `${baseUrl}?scoringPeriodId=${scoringPeriodId}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav`,
+          `${baseUrl}?scoringPeriodId=${scoringPeriodId}&view=mBoxscore&view=mMatchupScore&view=mRoster&view=mSettings&view=mStatus&view=mTeam&view=mTransactions2&view=modular&view=mNav&view=mDraftDetail`,
           { creds }
         );
 
@@ -139,21 +142,43 @@ export const fetchMatchupRosters = internalAction({
 
         const data = await response.json();
         const schedule = data.schedule || [];
-        
+
+        // Pre-draft-redraft check (convex/lib/matchupSummary.ts header
+        // comment, finding 3): before a redraft league's draft, ESPN's
+        // `schedule[].home/away.rosterForCurrentScoringPeriod` still holds
+        // each team's FINAL PREVIOUS-SEASON lineup (with new-season
+        // projections attached) even though nobody has been drafted onto
+        // this season's team yet. Storing that as this season's matchup
+        // roster would sum a lineup that won't exist post-draft. Keeper/
+        // dynasty leagues are exempt (isPreDraftRedraft handles that).
+        const preDraft = isPreDraftRedraft({
+          draftInfo: data.draftDetail,
+          draftSettings: data.settings?.draftSettings,
+        });
+
         // Filter schedule to only this matchup period and update rosters
         const matchupsForPeriod = schedule.filter((matchup: any) => matchup.matchupPeriodId === matchupPeriod);
-        
+
         if (matchupsForPeriod.length > 0) {
           console.log(`Found ${matchupsForPeriod.length} matchups for period ${matchupPeriod}`);
-          
-          // Prepare roster updates for this period
+
+          const rostersFound = matchupsForPeriod.filter(
+            (m: any) => m.home?.rosterForCurrentScoringPeriod || m.away?.rosterForCurrentScoringPeriod
+          ).length;
+
+          // Prepare roster updates for this period. Pre-draft-redraft:
+          // explicitly store `undefined` for both rosters rather than the
+          // transformed carried-over lineup - `ctx.db.patch` with an
+          // `undefined` field value REMOVES that field, which also clears
+          // any stale carried-over roster `updateMatchups` (espnSync.ts)
+          // already wrote for this matchup earlier in the same sync.
           const rosterUpdates = matchupsForPeriod.map((matchup: any) => ({
             matchupPeriod: matchup.matchupPeriodId,
             scoringPeriod: matchup.id,
             homeTeamId: matchup.home?.teamId?.toString() || '',
             awayTeamId: matchup.away?.teamId?.toString() || '',
-            homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
-            awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
+            homeRoster: preDraft ? undefined : transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
+            awayRoster: preDraft ? undefined : transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
           }));
 
           // Update matchups with roster data using internal mutation
@@ -164,12 +189,11 @@ export const fetchMatchupRosters = internalAction({
             matchupsData: rosterUpdates,
           });
 
-          results.push({ 
-            matchupPeriod, 
-            success: true, 
-            matchupsCount: matchupsForPeriod.length,
-            rostersFound: matchupsForPeriod.filter((m: any) => m.home?.rosterForCurrentScoringPeriod || m.away?.rosterForCurrentScoringPeriod).length
-          });
+          results.push(
+            preDraft
+              ? { matchupPeriod, success: true, preDraft: true, rostersCleared: rostersFound }
+              : { matchupPeriod, success: true, matchupsCount: matchupsForPeriod.length, rostersFound }
+          );
         } else {
           results.push({ matchupPeriod, success: false, error: 'No matchups found for this period' });
         }

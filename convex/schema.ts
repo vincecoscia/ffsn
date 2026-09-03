@@ -273,6 +273,27 @@ export default defineSchema({
     })),
     seasonId: v.number(),
     divisionId: v.optional(v.number()),
+    // FAAB accounting straight from ESPN's `view=mTeam` team objects (spec:
+    // the waiver wire report needs winning/losing bids AND remaining
+    // budgets - `acquisitionBudgetSpent` is this team's season-to-date FAAB
+    // spend; `matchupAcquisitionTotals` is acquisitions per matchup period).
+    // Verified against tests/fixtures/espn-teams-public-2025.json, which
+    // passes `team.transactionCounter` straight through here - the object
+    // validator is strict, so every field ESPN actually sends must be
+    // listed or a real sync throws on the very first team.
+    transactionCounter: v.optional(v.object({
+      acquisitionBudgetSpent: v.optional(v.number()),
+      acquisitions: v.optional(v.number()),
+      drops: v.optional(v.number()),
+      trades: v.optional(v.number()),
+      moveToActive: v.optional(v.number()),
+      moveToIR: v.optional(v.number()),
+      matchupAcquisitionTotals: v.optional(v.record(v.string(), v.number())),
+      paid: v.optional(v.number()),
+      teamCharges: v.optional(v.number()),
+      misc: v.optional(v.number()),
+    })),
+    waiverRank: v.optional(v.number()),
     isActive: v.optional(v.boolean()), // Used to mark teams as inactive instead of deleting
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -923,7 +944,28 @@ export default defineSchema({
     status: v.string(),
     scoringPeriod: v.number(),
     teamId: v.number(), // Primary team involved
-    
+
+    // FAAB waiver-wire report fields (spec: account for winning/losing bids
+    // and remaining budgets). `outcome`/`failureReason` are the normalized
+    // read of `status`+`isPending` (see `convex/lib/espnTransactions.ts`'s
+    // `classifyTransactionStatus`) - kept alongside the raw ESPN `status`
+    // rather than replacing it. `source` distinguishes a row synced from
+    // the ESPN transaction log (`view=mTransactions2`, complete but only
+    // available per-scoring-period) from the older per-player-payload feed
+    // (`syncPlayerTransactions`, which misses most of the log - production
+    // had none before December 2025).
+    processDate: v.optional(v.number()),
+    outcome: v.optional(v.union(
+      v.literal("executed"),
+      v.literal("failed"),
+      v.literal("pending"),
+      v.literal("cancelled")
+    )),
+    failureReason: v.optional(v.string()),
+    source: v.optional(v.union(v.literal("player_feed"), v.literal("transaction_log"))),
+    rating: v.optional(v.number()),
+    relatedTransactionId: v.optional(v.string()),
+
     createdAt: v.number(),
   })
     .index("by_league", ["leagueId"])

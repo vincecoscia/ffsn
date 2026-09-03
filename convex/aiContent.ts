@@ -1058,6 +1058,16 @@ async function getLeagueDataForGenerationHandler(
     const league = enrichedData.league;
     console.log("League found:", league.name);
 
+    // The FAAB/waiver ledger (owner goal, 2026-09-02): power rankings can cite remaining budget as
+    // a standings-adjacent fact. Called through `internal.aiQueries` rather than importing
+    // `buildWaiverLedger` as a value — a cross-module value import of a convex/*.ts module that
+    // references `internal` can make the generated api type recursive.
+    const waivers = await ctx.runQuery(internal.aiQueries.getWaiverLedgerForAI, {
+      leagueId: args.leagueId,
+      seasonId: enrichedData.currentSeason,
+      throughScoringPeriod: enrichedData.currentWeek,
+    });
+
     // Transform enriched data to match the expected format for AI generation
       const result = {
       // Core league info
@@ -1094,7 +1104,10 @@ async function getLeagueDataForGenerationHandler(
       trades: enrichedData.trades,
       transactions: enrichedData.transactions,
       transactionTrends: enrichedData.transactionTrends,
-      
+      // The FAAB/waiver ledger (owner goal: budget remaining is a standings-adjacent fact for
+      // power rankings; harmless for every other content type sharing this payload).
+      waivers,
+
       // Rivalry data
       rivalries: enrichedData.rivalries,
       

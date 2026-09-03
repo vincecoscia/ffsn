@@ -93,6 +93,23 @@ export interface ConversationContext {
     received: string[];
     timestamp?: number;
   }>;
+  /* --- FAAB ledger (waiver_wire_report interviews) --------------------------- */
+  // Populated by commentRequests.buildConversationContext from the waiver ledger.
+  // Every dollar figure Sam uses must come from here; she never estimates a bid.
+  waiverBudget?: { budget?: number; spent?: number; remaining?: number; acquisitions?: number };
+  waiverClaimsThisRun?: Array<{
+    scoringPeriod: number;
+    player: string;
+    position?: string;
+    result: "won" | "lost";
+    bid: number;
+    competingBids: Array<{ teamName: string; bid: number }>;
+  }>;
+  waiverSeasonHighlights?: {
+    biggestBid?: { teamName: string; player: string; bid: number; week: number };
+    mostActive?: { teamName: string; acquisitions: number };
+    lowestRemaining: Array<{ teamName: string; remaining: number }>;
+  };
   rivalry?: {
     opponent: string;
     /** e.g. "2-7" from this manager's point of view, ties appended when non-zero. */
@@ -811,6 +828,45 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
       lines.push(`Trade with ${trade.withTeam}: sent ${trade.gave.join(', ') || 'nothing'}, received ${trade.received.join(', ') || 'nothing'}`);
     }
 
+    // FAAB ledger: the claims this manager made in the latest waiver run, their
+    // remaining budget, and the league-wide highlights. Dollar figures are quoted
+    // verbatim so Sam can cite them; she is told not to invent any.
+    for (const claim of (context.waiverClaimsThisRun ?? []).slice(0, 4)) {
+      const who = claim.position ? `${claim.player} (${claim.position})` : claim.player;
+      const rivals = claim.competingBids
+        .slice(0, 3)
+        .map((b) => `${b.teamName} $${fmt(b.bid, 0)}`)
+        .join(', ');
+      if (claim.result === 'won') {
+        lines.push(
+          `Waiver claim (week ${claim.scoringPeriod}): won ${who} for $${fmt(claim.bid, 0)}` +
+            (rivals ? `, outbidding ${rivals}` : ' unopposed'),
+        );
+      } else {
+        const winner = claim.competingBids[0];
+        lines.push(
+          `Waiver claim (week ${claim.scoringPeriod}): lost ${who} with a $${fmt(claim.bid, 0)} bid` +
+            (winner ? ` (${winner.teamName} won at $${fmt(winner.bid, 0)})` : ''),
+        );
+      }
+    }
+    if (context.waiverBudget && context.waiverBudget.remaining !== undefined) {
+      const b = context.waiverBudget;
+      const ofBudget = b.budget !== undefined ? ` of $${fmt(b.budget, 0)}` : '';
+      const pickups = b.acquisitions !== undefined ? `, ${b.acquisitions} pickups this season` : '';
+      lines.push(`FAAB remaining: $${fmt(b.remaining, 0)}${ofBudget}${pickups}`);
+    }
+    if (context.waiverSeasonHighlights) {
+      const h = context.waiverSeasonHighlights;
+      if (h.biggestBid) {
+        lines.push(`League's biggest bid: ${h.biggestBid.teamName} paid $${fmt(h.biggestBid.bid, 0)} for ${h.biggestBid.player} in week ${h.biggestBid.week}`);
+      }
+      if (h.mostActive) lines.push(`Most active on waivers: ${h.mostActive.teamName} (${h.mostActive.acquisitions} pickups)`);
+      if (h.lowestRemaining.length > 0) {
+        lines.push(`Lowest budgets left: ${h.lowestRemaining.slice(0, 3).map((t) => `${t.teamName} $${fmt(t.remaining, 0)}`).join(', ')}`);
+      }
+    }
+
     if (context.rivalry) {
       lines.push(`Rivalry: ${context.rivalry.allTimeRecord} all-time against ${context.rivalry.opponent}`);
     }
@@ -866,10 +922,24 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     const lineupPhrase = context.lineupDecisions?.[0]
       ? `starting ${context.lineupDecisions[0].startedPlayer} (${fmt(context.lineupDecisions[0].startedPoints)}) over ${context.lineupDecisions[0].benchedPlayer} (${fmt(context.lineupDecisions[0].benchedPoints)})`
       : null;
+    // Prefer the ledger (wins, losses and the budget left) over the raw transaction feed.
+    const wonClaim = (context.waiverClaimsThisRun ?? []).find((c) => c.result === 'won');
+    const lostClaim = (context.waiverClaimsThisRun ?? []).find((c) => c.result === 'lost');
+    const remaining = context.waiverBudget?.remaining;
+    const remainingPhrase = remaining !== undefined ? ` with $${fmt(remaining, 0)} still in the bank` : '';
+    const ledgerPhrase = wonClaim
+      ? `the $${fmt(wonClaim.bid, 0)} winning bid on ${wonClaim.player}` +
+        (wonClaim.competingBids[0] ? ` over ${wonClaim.competingBids[0].teamName}'s $${fmt(wonClaim.competingBids[0].bid, 0)}` : '') +
+        remainingPhrase
+      : lostClaim
+        ? `getting outbid on ${lostClaim.player} ($${fmt(lostClaim.bid, 0)}` +
+          (lostClaim.competingBids[0] ? ` against ${lostClaim.competingBids[0].teamName}'s $${fmt(lostClaim.competingBids[0].bid, 0)}` : '') +
+          `)${remainingPhrase}`
+        : null;
     const faabTx = (context.transactionsThisWeek ?? []).find((t) => t.bidAmount && t.bidAmount > 0);
-    const faabPhrase = faabTx
-      ? `the $${fmt(faabTx.bidAmount, 0)} FAAB bid on ${faabTx.playersAdded[0] ?? 'their claim'}`
-      : null;
+    const faabPhrase =
+      ledgerPhrase ??
+      (faabTx ? `the $${fmt(faabTx.bidAmount, 0)} FAAB bid on ${faabTx.playersAdded[0] ?? 'their claim'}` : null);
     const anyAdd = (context.transactionsThisWeek ?? []).find((t) => t.playersAdded.length > 0);
     const addPhrase = anyAdd ? `adding ${anyAdd.playersAdded[0]}` : null;
     const tradePhrase = context.tradesThisWeek?.[0]
