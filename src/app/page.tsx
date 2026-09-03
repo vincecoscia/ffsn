@@ -52,7 +52,12 @@ const TICKER_ITEMS: TickerItem[] = [
 ];
 
 // The lineup is the roster — adding or retiring a writer in persona-prompts.ts
-// changes this section with no edit here.
+// changes this section, and every headcount in the copy, with no edit here.
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+const WRITER_COUNT = writerRoster.length;
+const writerCount = NUMBER_WORDS[WRITER_COUNT] ?? String(WRITER_COUNT);
+const WriterCount = writerCount.charAt(0).toUpperCase() + writerCount.slice(1);
+
 const WRITERS: WriterPlateProps[] = writerRoster.map((writer, index) => ({
   persona: writer.name,
   index: index + 1,
@@ -89,7 +94,7 @@ const INCLUDES = [
   "Up to 12 managers included",
   "$10 per extra manager",
   "Top up 100 credits for $5",
-  "ESPN sync, all six writers",
+  `ESPN sync, all ${writerCount} writers`,
 ];
 
 export default function Home() {
@@ -116,7 +121,7 @@ export default function Home() {
                 <span className="text-bc-red-text">your league.</span>
               </h1>
               <p className="max-w-xl text-[15px] leading-relaxed text-bc-text-2 sm:text-[17px]">
-                FFSN syncs with your ESPN league and puts a six-writer broadcast desk on the
+                FFSN syncs with your ESPN league and puts a {writerCount}-writer broadcast desk on the
                 beat — weekly recaps, power rankings, transactions and draft grades about your
                 teams, your trades, and your bad decisions.
               </p>
@@ -147,7 +152,7 @@ export default function Home() {
               <div className="flex flex-wrap items-center gap-3">
                 <span className="bc-label text-bc-text-3">ESPN sync</span>
                 <span className="bc-sep bc-sep-muted" aria-hidden="true" />
-                <span className="bc-label text-bc-text-3">Six writers</span>
+                <span className="bc-label text-bc-text-3">{WriterCount} writers</span>
                 <span className="bc-sep bc-sep-muted" aria-hidden="true" />
                 <span className="bc-label text-bc-text-3">
                   One price covers the whole league
@@ -225,15 +230,15 @@ export default function Home() {
               <div className="flex flex-col gap-3.5">
                 <SegmentSlate code="Seg 01" label="On-air talent" />
                 <h2 className="bc-display text-bc-ink text-[32px] sm:text-[44px] lg:text-[52px]">
-                  Ten teams. Six writers. Zero chill.
+                  Ten teams. {WriterCount} writers. Zero chill.
                 </h2>
               </div>
               <p className="text-[16px] leading-relaxed text-bc-text-2 sm:text-[17px]">
-                No real headshots, no real credentials, no real restraint. Six AI sportswriters,
+                No real headshots, no real credentials, no real restraint. {WriterCount} AI sportswriters,
                 each with a beat, an ego and a grudge against at least one manager in your league.
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 min-[1800px]:grid-cols-7">
               {WRITERS.map((writer) => (
                 <WriterPlate key={writer.persona} {...writer} />
               ))}

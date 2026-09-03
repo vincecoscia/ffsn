@@ -13,7 +13,14 @@
 
 import { contentTemplates } from "./content-templates";
 import type { RelationshipTier } from "./persona-prompts";
-import type { LeagueDataContext, LeagueFormat, WaiverLedger, WaiverLedgerSeason } from "./prompt-builder";
+import type {
+  LeagueDataContext,
+  LeagueFormat,
+  PlayerBoard,
+  PlayerBoardEntry,
+  WaiverLedger,
+  WaiverLedgerSeason,
+} from "./prompt-builder";
 // Types only (the module has no Convex imports), so this is safe from the prompt layer.
 import type { BracketGame, BracketTeam, PlayoffMode } from "../../../convex/lib/playoffTypes";
 import type {
@@ -179,6 +186,25 @@ export interface FactsUpcomingSide {
   projected?: number;
 }
 
+/**
+ * A featured starter on one side of an unplayed game (owner directive, 2026-09-03: previews name
+ * notable players and their rankings). The id is the same `P<espnId>` the rosters and the board
+ * use, so the verifier already knows the player.
+ */
+export interface FactsKeyPlayer {
+  id: string;
+  name: string;
+  side: "home" | "away";
+  /** This week's projection for the player. Never a result. */
+  projected?: number;
+  /** "WR3": positional rank among this league's rostered players, by `FactsBoard.basis`. */
+  rank?: string;
+  /** Overall pick number, when the player was drafted. */
+  draftPick?: number;
+  /** Points to date; absent before kickoff, when there are none. */
+  seasonPoints?: number;
+}
+
 /** A game on the look-ahead slate (spec 4.3). Its id space is `U1`, `U2`, ... */
 export interface FactsUpcoming {
   id: string;
@@ -192,6 +218,46 @@ export interface FactsUpcoming {
   round?: string;
   /** Plain-English bracket: "winners bracket", "third-place ladder", "consolation ladder". */
   bracket?: string;
+  /** The top projected starters per side, with their positional rank; absent without a board. */
+  keyPlayers?: FactsKeyPlayer[];
+}
+
+/* -------------------------------------------------------------------------- *
+ * BOARD block (owner directive, 2026-09-03: previews go on projections week by week and name
+ * notable players with their rankings, "WR1 in the league vs WR12"). `buildBoard` turns
+ * `LeagueDataContext.playerBoard` (built server-side from the stored lineups, the draft and the
+ * season's points) into the top of every position, id first, so a writer can rank a player
+ * without inventing the number and the verifier knows every player it names.
+ * -------------------------------------------------------------------------- */
+
+export interface FactsBoardPlayer {
+  /** The same `P<espnId>` the rosters block uses. */
+  id: string;
+  name: string;
+  teamId: string;
+  /** 1-based rank among this league's rostered players at the position, by `FactsBoard.basis`. */
+  rank: number;
+  seasonPoints: number;
+  upcomingProjected?: number;
+  /** Overall pick number; absent for an undrafted player. */
+  draftPick?: number;
+  lineup: "starter" | "bench";
+}
+
+export interface FactsBoardPosition {
+  pos: string;
+  /** Rostered players at this position league-wide, so "WR3 of 30" is citable. */
+  count: number;
+  /** The top of the position by rank: 12 at RB/WR, 8 at QB/TE, 5 at K/DST. */
+  top: FactsBoardPlayer[];
+}
+
+export interface FactsBoard {
+  /** What the ranks are by: points to date once games have been played, projections before week 1. */
+  basis: "points to date" | "this week's projections";
+  /** The last played week the points cover; 0 before kickoff. */
+  throughWeek: number;
+  positions: FactsBoardPosition[];
 }
 
 /* -------------------------------------------------------------------------- *
@@ -293,6 +359,8 @@ export interface FactsBlock {
   upcoming: FactsUpcoming[];
   /** The playoff picture and bracket (see FactsPlayoffs); absent when the payload carries none. */
   playoffs?: FactsPlayoffs;
+  /** Positional ranks league-wide (see FactsBoard); absent when the payload carries no board. */
+  board?: FactsBoard;
   standings: Array<{
     rank: number;
     teamId: string;
@@ -1010,6 +1078,80 @@ function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[
   });
 }
 
+/** How deep the board goes at a position: the top 12 at RB/WR, 8 at QB/TE, 5 at K/DST. */
+const BOARD_TOP_COUNTS: Record<string, number> = { QB: 8, RB: 12, WR: 12, TE: 8, K: 5, DST: 5, "D/ST": 5 };
+const BOARD_POSITION_ORDER = ["QB", "RB", "WR", "TE", "K", "DST", "D/ST"];
+
+function boardPositionOrder(pos: string): number {
+  const index = BOARD_POSITION_ORDER.indexOf(pos);
+  return index === -1 ? BOARD_POSITION_ORDER.length : index;
+}
+
+/** Raw board entries by ESPN player id, for the key-player and projected-total lookups. */
+function boardEntryIndex(data: LeagueDataContext): Map<string, PlayerBoardEntry> {
+  const index = new Map<string, PlayerBoardEntry>();
+  const entries = Array.isArray(data.playerBoard?.entries) ? data.playerBoard.entries : [];
+  for (const entry of entries) {
+    const id = str(entry.playerId);
+    if (id) index.set(id, entry);
+  }
+  return index;
+}
+
+/**
+ * Each team's projected total from its starters' projections. ESPN's team-level projection is
+ * absent on some slate rows; the lineup the sync stored still carries every starter's number, and
+ * their sum is the figure a preview needs.
+ */
+function boardProjectedTotals(data: LeagueDataContext, teams: TeamIndex): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const entry of boardEntryIndex(data).values()) {
+    if (entry.lineup !== "starter") continue;
+    const projected = num(entry.upcomingProjected);
+    if (projected === undefined) continue;
+    const teamId = teams.resolve(entry.fantasyTeamId, entry.fantasyTeamName);
+    if (teamId === "T?") continue;
+    totals.set(teamId, (totals.get(teamId) ?? 0) + projected);
+  }
+  for (const [teamId, total] of totals) totals.set(teamId, round1(total));
+  return totals;
+}
+
+/** "WR3": the positional rank as the prose states it, from the position and the 1-based rank. */
+function rankLabel(position: string | undefined, rank: number | undefined): string | undefined {
+  if (!position || rank === undefined) return undefined;
+  return `${position.toUpperCase()}${rank}`;
+}
+
+/**
+ * The key players on one slate row (the top projected starters per side), with the rank, draft
+ * slot and points to date the board knows for each. Everything the prose says about them is a
+ * FACTS value here, so "WR3 in this league, drafted 14th overall" is never a guess.
+ */
+function buildKeyPlayers(game: Loose, board: Map<string, PlayerBoardEntry>, pointsToDate: boolean): FactsKeyPlayer[] | undefined {
+  const raw = Array.isArray(game.keyPlayers) ? game.keyPlayers : [];
+  const players: FactsKeyPlayer[] = [];
+  for (const candidate of raw) {
+    const p = asLoose(candidate);
+    const playerId = str(p.playerId);
+    const name = str(p.name);
+    if (!playerId || !name) continue;
+    const entry = board.get(playerId);
+    const position = str(p.position) ?? entry?.position;
+    const positionRank = num(p.positionRank) ?? entry?.positionRank;
+    players.push({
+      id: `P${playerId}`,
+      name,
+      side: p.side === "B" ? "away" : "home",
+      projected: num(p.projected) ?? num(entry?.upcomingProjected),
+      rank: rankLabel(position, positionRank),
+      draftPick: entry?.draftPick,
+      seasonPoints: pointsToDate && entry ? round1(num(entry.seasonPoints) ?? 0) : undefined,
+    });
+  }
+  return players.length > 0 ? players : undefined;
+}
+
 /**
  * The look-ahead slate. These rows come from the ESPN season schedule, where a future game is a
  * matchup row with zero scores and no winner, so nothing here carries a score: a `weekly_preview`
@@ -1020,6 +1162,13 @@ function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming
   // writer never previews a blank side as a missing opponent.
   const knowsByes = payloadKnowsByes(data);
   const rows = (data.upcomingMatchups ?? []).filter(row => !isRestRow(row, knowsByes)).map(asLoose);
+
+  // Owner directive (2026-09-03): a preview goes on projections. A slate row ESPN gave no
+  // team-level number gets the sum of its starters' projections from the board, and each side's
+  // key players carry their positional rank so "WR3 in this league" comes from FACTS.
+  const board = boardEntryIndex(data);
+  const boardTotals = boardProjectedTotals(data, teams);
+  const pointsToDate = data.playerBoard?.basis === "season_points";
 
   return rows.map((game, index) => {
     const week = num(game.week) ?? data.currentWeek + 1;
@@ -1050,13 +1199,13 @@ function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming
         teamId: homeId,
         record: str(game.teamARecord) ?? homeTeam?.record,
         pointsFor: num(game.teamAPointsFor) ?? homeTeam?.pointsFor,
-        projected: num(game.projectedScoreA),
+        projected: num(game.projectedScoreA) ?? boardTotals.get(homeId),
       },
       away: {
         teamId: awayId,
         record: str(game.teamBRecord) ?? awayTeam?.record,
         pointsFor: num(game.teamBPointsFor) ?? awayTeam?.pointsFor,
-        projected: num(game.projectedScoreB),
+        projected: num(game.projectedScoreB) ?? boardTotals.get(awayId),
       },
       headToHead:
         homeWins !== undefined && awayWins !== undefined && homeWins + awayWins > 0
@@ -1065,6 +1214,7 @@ function buildUpcoming(data: LeagueDataContext, teams: TeamIndex): FactsUpcoming
       isPlayoff: game.isPlayoff === true || (bracket !== undefined && bracket !== "regular") ? true : undefined,
       round,
       bracket,
+      keyPlayers: buildKeyPlayers(game, board, pointsToDate),
     };
   });
 }
@@ -1165,6 +1315,53 @@ export function buildPlayoffs(data: LeagueDataContext, teams: TeamIndex): FactsP
     eliminated: raw.eliminated.map(id => resolve(id) ?? "T?"),
     champion: resolve(raw.champion?.teamId),
     runnerUp: resolve(raw.runnerUp?.teamId),
+  };
+}
+
+/**
+ * Assembles the BOARD facts from `data.playerBoard`. Every entry's id is the same `P<espnId>` the
+ * rosters block uses, so the verifier already knows the player, and every team is resolved
+ * through the same `TeamIndex` as the rest of FACTS. Absent entirely (a payload from before the
+ * board existed) yields nothing, never a guess.
+ */
+export function buildBoard(data: LeagueDataContext, teams: TeamIndex): FactsBoard | undefined {
+  const raw: PlayerBoard | undefined = data.playerBoard;
+  if (!raw) return undefined;
+
+  const byPosition = new Map<string, PlayerBoardEntry[]>();
+  for (const entry of boardEntryIndex(data).values()) {
+    if (!str(entry.name)) continue;
+    const pos = str(entry.position)?.toUpperCase() ?? "FLEX";
+    const bucket = byPosition.get(pos) ?? [];
+    bucket.push(entry);
+    byPosition.set(pos, bucket);
+  }
+
+  const positions: FactsBoardPosition[] = [...byPosition.entries()]
+    .sort(([a], [b]) => boardPositionOrder(a) - boardPositionOrder(b) || a.localeCompare(b))
+    .map(([pos, entries]) => {
+      const ranked = [...entries].sort((a, b) => a.positionRank - b.positionRank);
+      const declared = ranked.find(entry => (num(entry.positionCount) ?? 0) > 0)?.positionCount ?? 0;
+      return {
+        pos,
+        count: Math.max(declared, ranked.length),
+        top: ranked.slice(0, BOARD_TOP_COUNTS[pos] ?? 5).map(entry => ({
+          id: `P${str(entry.playerId)}`,
+          name: entry.name,
+          teamId: teams.resolve(entry.fantasyTeamId, entry.fantasyTeamName),
+          rank: entry.positionRank,
+          seasonPoints: round1(num(entry.seasonPoints) ?? 0),
+          upcomingProjected: num(entry.upcomingProjected),
+          draftPick: entry.draftPick,
+          lineup: entry.lineup === "bench" ? "bench" : "starter",
+        })),
+      };
+    });
+
+  return {
+    basis: raw.basis === "upcoming_projection" ? "this week's projections" : "points to date",
+    throughWeek: num(raw.throughWeek) ?? 0,
+    positions,
   };
 }
 
@@ -1276,8 +1473,16 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const format = buildFormat(data);
   const waivers = buildWaivers(data, teams);
   const playoffs = buildPlayoffs(data, teams);
+  const board = buildBoard(data, teams);
 
   const missing = computeMissingRequiredData(req.contentType, data);
+  // Before kickoff every record is a blank and every standing is alphabetical; a writer handed
+  // them anyway wrote "0-0 Halyard Bay leads the league". The board is the material instead.
+  if (board?.basis === "this week's projections") {
+    missing.push(
+      "no games played yet - every record is 0-0; do not cite records, standings or scores as if they meant something; projections, draft slots and positional rank are the material"
+    );
+  }
   // The playoff picture is either a projection or a bracket with teams already out of it; the
   // writer is told which in plain English, so a regular-season piece never "clinches" a seed and
   // a playoff piece never previews a knocked-out team as a contender.
@@ -1348,6 +1553,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     rosters: rosters.length > 0 ? rosters : undefined,
     upcoming,
     playoffs,
+    board,
     standings,
     transactions,
     trades,

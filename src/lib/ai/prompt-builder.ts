@@ -8,8 +8,10 @@ import {
   playoffTierLabel,
   serializeFacts,
   type FactsBlock,
+  type FactsBoard,
   type FactsBracketGame,
   type FactsConsolationGame,
+  type FactsKeyPlayer,
   type FactsPlayoffs,
   type FactsUpcoming,
 } from './facts';
@@ -224,6 +226,59 @@ export interface WaiverLedger {
   budget?: number;
 }
 
+/* -------------------------------------------------------------------------- *
+ * Player board (owner directive, 2026-09-03: previews go on projections week by week and name
+ * notable players with their rankings, "WR1 in the league vs WR12"). Built server-side by
+ * `convex/aiQueries.ts` from the stored lineups, the draft and the season's points;
+ * `facts.ts#buildBoard` turns it into the id-bearing `FactsBlock.board`. Plain data with no ids
+ * resolved, so a Convex module can build it without importing anything from the prompt layer as
+ * a value.
+ * -------------------------------------------------------------------------- */
+
+export interface PlayerBoardEntry {
+  /** ESPN player id as a string: the id the rosters carry and FACTS prints as `P<id>`. */
+  playerId: string;
+  name: string;
+  /** QB | RB | WR | TE | K | DST, as stored. */
+  position: string;
+  nflTeam?: string;
+  /** The fantasy team's ESPN external id. */
+  fantasyTeamId: string;
+  fantasyTeamName: string;
+  lineup: "starter" | "bench";
+  /** This week's projection from the upcoming matchup's lineup (starters). */
+  upcomingProjected?: number;
+  /** Fantasy points to date: the stored lineup points of every played week. */
+  seasonPoints: number;
+  gamesPlayed: number;
+  /** 1-based rank among rostered players at this position, by `PlayerBoard.basis`. */
+  positionRank: number;
+  /** Rostered players at this position league-wide. */
+  positionCount: number;
+  /** Overall pick number; absent for an undrafted player, or a keeper when unknown. */
+  draftPick?: number;
+  injuryStatus?: string;
+}
+
+export interface PlayerBoard {
+  /** Week 2 on: points to date. Week 1, or no games played: this week's projection. */
+  basis: "season_points" | "upcoming_projection";
+  /** The last played week the points cover; 0 before week 1. */
+  throughWeek: number;
+  /** Every rostered player, sorted by position then rank. */
+  entries: PlayerBoardEntry[];
+}
+
+/** One of the top projected starters on a side of an unplayed game (three per side). */
+export interface UpcomingKeyPlayer {
+  side: "A" | "B";
+  playerId: string;
+  name: string;
+  position: string;
+  projected?: number;
+  positionRank?: number;
+}
+
 /** One unplayed game on the look-ahead slate. */
 export interface UpcomingMatchup {
   week: number;
@@ -249,6 +304,8 @@ export interface UpcomingMatchup {
   round?: string;
   /** ESPN's raw playoff tier. FACTS turns it into plain English; the prose never prints it. */
   tier?: string;
+  /** The top projected starters per side, when the payload carries a player board. */
+  keyPlayers?: UpcomingKeyPlayer[];
 }
 
 /** A top seed's round-one rest on the slate: no opponent, no game, the team advances. */
@@ -261,6 +318,35 @@ export interface UpcomingBye {
 
 export function isUpcomingBye(row: UpcomingMatchup | UpcomingBye): row is UpcomingBye {
   return 'bye' in row && row.bye !== undefined;
+}
+
+/** "1st", "2nd", "3rd", "14th", "21st", "112th": a draft slot as a broadcaster says it. */
+function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+/**
+ * "WR3" as a broadcaster says it. Kickers and defenses are spelled out ("the No. 1 kicker"): the
+ * verifier reads "K1" as an internal id, and "DST1" is nobody's English.
+ */
+function rankPhrase(rank: string): string {
+  const match = /^([A-Z/]+)(\d+)$/.exec(rank);
+  if (!match) return rank;
+  const [, pos, n] = match;
+  if (pos === 'K') return `the No. ${n} kicker`;
+  if (pos === 'DST' || pos === 'D/ST') return `the No. ${n} defense`;
+  return rank;
 }
 
 export interface PromptBuilderOptions {
@@ -464,6 +550,10 @@ export interface LeagueDataContext {
   playoffs?: PlayoffContext;
   /** Weekly-recap payloads: the top seeds that rested this week instead of playing. */
   byes?: Array<{ teamId: string; teamName: string; seed: number }>;
+  /** Positional ranks league-wide (owner directive, 2026-09-03). Read through `this.facts.board`
+   * inside the prompt builder; this raw field exists so `buildBoard` in `facts.ts` has something
+   * to read. */
+  playerBoard?: PlayerBoard;
   leagueHistory?: {
     foundedYear: number;
     totalSeasons: number;
@@ -1634,20 +1724,39 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
     }
 
     const week = upcoming[0].week ?? data.currentWeek + 1;
+    // Owner directive (2026-09-03): before kickoff nobody has played a snap, so the piece is
+    // projections, draft slots and positional rank and never records; from week 2 the projections
+    // and the player matchups lead and the records follow. Without a board the prompt is what it
+    // was before the board existed.
+    const board = this.facts.board;
+    const beforeKickoff = data.currentWeek === 0 || board?.basis === "this week's projections";
+    const playoffs = this.facts.playoffs;
+    const bracketWeek = playoffs !== undefined && playoffs.mode !== 'projected' && week >= playoffs.playoffStartWeek;
+
     let preview = `WEEK ${week} SLATE — NONE OF THESE GAMES HAS BEEN PLAYED.\n`;
     preview += `There is no score, no winner and no box score for any of them. Everything below is\n`;
-    preview += `season-to-date form and, where ESPN published one, a projection.\n`;
+    preview += beforeKickoff
+      ? `the draft, this week's projections and where each player ranks at his position in this league.\n`
+      : `season-to-date form and, where ESPN published one, a projection.\n`;
+
+    preview += this.previewProjectionLines(upcoming, week, beforeKickoff);
 
     upcoming.forEach((game, index) => {
       const home = game.teamAOwner ? `${game.teamA} (${game.teamAOwner})` : game.teamA;
       const away = game.teamBOwner ? `${game.teamB} (${game.teamBOwner})` : game.teamB;
-      const homeForm = this.formatPreviewForm(game.teamARecord, game.teamAPointsFor);
-      const awayForm = this.formatPreviewForm(game.teamBRecord, game.teamBPointsFor);
+      // A 0-0 record and 0.0 points for are true before kickoff and mean nothing; they stay off the line.
+      const homeForm = beforeKickoff ? '' : this.formatPreviewForm(game.teamARecord, game.teamAPointsFor);
+      const awayForm = beforeKickoff ? '' : this.formatPreviewForm(game.teamBRecord, game.teamBPointsFor);
 
       preview += `\nGAME ${index + 1}${this.previewGameTag(this.facts.upcoming[index], game)}: ${home}${homeForm} vs ${away}${awayForm}`;
 
-      if (game.projectedScoreA !== undefined && game.projectedScoreB !== undefined) {
-        preview += `\n  Projected: ${game.projectedScoreA.toFixed(1)} - ${game.projectedScoreB.toFixed(1)} (a projection, not a result)`;
+      // FACTS fills a missing team-level projection from the board's starters; the row's own
+      // number is printed as before when it has one.
+      const fact = this.facts.upcoming[index];
+      const projectedA = game.projectedScoreA ?? fact?.home.projected;
+      const projectedB = game.projectedScoreB ?? fact?.away.projected;
+      if (projectedA !== undefined && projectedB !== undefined) {
+        preview += `\n  Projected: ${projectedA.toFixed(1)} - ${projectedB.toFixed(1)} (a projection, not a result)`;
       } else {
         preview += `\n  Projected: not published for this game`;
       }
@@ -1663,14 +1772,17 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
         preview += `\n  Head-to-head on record: ${leader}`;
       }
 
-      const homeLast = this.lastResultLine(data, game.teamA, game.teamAId);
-      const awayLast = this.lastResultLine(data, game.teamB, game.teamBId);
-      if (homeLast) preview += `\n  ${game.teamA} last time out: ${homeLast}`;
-      if (awayLast) preview += `\n  ${game.teamB} last time out: ${awayLast}`;
+      if (!beforeKickoff) {
+        const homeLast = this.lastResultLine(data, game.teamA, game.teamAId);
+        const awayLast = this.lastResultLine(data, game.teamB, game.teamBId);
+        if (homeLast) preview += `\n  ${game.teamA} last time out: ${homeLast}`;
+        if (awayLast) preview += `\n  ${game.teamB} last time out: ${awayLast}`;
+      }
       preview += '\n';
     });
 
-    if (data.standings && data.standings.length > 0) {
+    // Standings before kickoff are alphabetical and all blank; the owner does not want them read out.
+    if (!beforeKickoff && data.standings && data.standings.length > 0) {
       preview += `\nSTANDINGS GOING IN:\n`;
       data.standings.forEach(team => {
         const row = team as typeof team & { teamName?: string; pointsFor?: number };
@@ -1692,18 +1804,117 @@ in the <FACTS> block above has it (W… lines). You may cite one; keep it to a l
     }
 
     preview += this.previewPlayoffLines(week, slateByes);
+    preview += this.previewRules(beforeKickoff, board !== undefined, bracketWeek);
 
-    preview += `\nWEEKLY PREVIEW RULES:
+    return preview;
+  }
+
+  /**
+   * The projections block (owner directive, 2026-09-03). Before kickoff it is the whole story and
+   * the heading says so; from week 2 it leads and the records follow it. Every number in it is in
+   * facts.upcoming or facts.board, and a rank is printed the way a broadcaster says it.
+   */
+  private previewProjectionLines(upcoming: UpcomingMatchup[], week: number, beforeKickoff: boolean): string {
+    const board = this.facts.board;
+    if (!beforeKickoff && !board) return '';
+
+    let lines = beforeKickoff
+      ? `\nWEEK ${week} - PROJECTIONS, NOT RESULTS. Nobody has played a snap; the records are all blank and say nothing.\n`
+      : `\nTHIS WEEK - PROJECTIONS FIRST. Lead with these and the player matchups; the records below come second.\n`;
+
+    upcoming.forEach((game, index) => {
+      const fact = this.facts.upcoming[index];
+      const projected =
+        fact?.home.projected !== undefined && fact?.away.projected !== undefined
+          ? `projected ${fact.home.projected.toFixed(1)} - ${fact.away.projected.toFixed(1)} (a projection, not a result)`
+          : 'no projection published';
+      lines += `GAME ${index + 1}: ${game.teamA} vs ${game.teamB}, ${projected}\n`;
+      const sides: Array<[string, FactsKeyPlayer['side']]> = [[game.teamA, 'home'], [game.teamB, 'away']];
+      for (const [teamName, side] of sides) {
+        const players = (fact?.keyPlayers ?? []).filter(player => player.side === side);
+        if (players.length === 0) continue;
+        lines += `  ${teamName}'s key players: ${players.map(player => this.keyPlayerPhrase(player, beforeKickoff)).join('; ')}\n`;
+      }
+    });
+
+    lines += board
+      ? this.boardLeaderLines(board, beforeKickoff)
+      : `Key players, positional ranks and draft slots are not in the facts for this piece; the projections above are what there is.\n`;
+    return lines;
+  }
+
+  /** "Puka Nacua (WR3 in this league, drafted 14th overall, projected 17.4)". */
+  private keyPlayerPhrase(player: FactsKeyPlayer, beforeKickoff: boolean): string {
+    const notes: string[] = [];
+    if (player.rank) notes.push(`${rankPhrase(player.rank)} ${beforeKickoff ? 'in this league' : 'in the league'}`);
+    if (!beforeKickoff && player.seasonPoints !== undefined) notes.push(`${player.seasonPoints.toFixed(1)} points to date`);
+    if (player.draftPick !== undefined) notes.push(`drafted ${ordinal(player.draftPick)} overall`);
+    if (player.projected !== undefined) notes.push(`projected ${player.projected.toFixed(1)}`);
+    return notes.length > 0 ? `${player.name} (${notes.join(', ')})` : player.name;
+  }
+
+  /** The top of every position in this league, so "WR1 against WR12" is a fact and never a guess. */
+  private boardLeaderLines(board: FactsBoard, beforeKickoff: boolean): string {
+    if (board.positions.length === 0) return '';
+    const basis = beforeKickoff ? "by this week's projections" : `by points to date through week ${board.throughWeek}`;
+    let lines = `Top of each position in this league (${basis}; the board in <FACTS> goes deeper):\n`;
+    for (const position of board.positions) {
+      const leaders = position.top.slice(0, 3).map(player => {
+        const notes: string[] = [this.teamName(player.teamId)];
+        if (beforeKickoff) {
+          if (player.upcomingProjected !== undefined) notes.push(`projected ${player.upcomingProjected.toFixed(1)}`);
+        } else {
+          notes.push(`${player.seasonPoints.toFixed(1)} points`);
+        }
+        if (player.draftPick !== undefined) notes.push(`drafted ${ordinal(player.draftPick)} overall`);
+        return `${rankPhrase(`${position.pos}${player.rank}`)} ${player.name} (${notes.join(', ')})`;
+      });
+      lines += `- ${position.pos}, ${position.count} rostered: ${leaders.join('; ')}\n`;
+    }
+    return lines;
+  }
+
+  /** The closing rules of a preview: the standing ones, plus the owner's projections-first rules. */
+  private previewRules(beforeKickoff: boolean, hasBoard: boolean, bracketWeek: boolean): string {
+    if (beforeKickoff) {
+      return `\nWEEKLY PREVIEW RULES:
+- Every game above is unplayed. Write about it in the future tense only. No result, no winner, no
+  margin, no "held on", no "survived": none of that exists yet for these games.
+- Nobody has played a snap. No records, no "0-0", no standings talk, no "points for": none of it
+  means anything yet, so none of it goes in the piece.
+- The draft and the projections are the story. Say where a player was taken and where he ranks at
+  his position in this league. Notable players and their rankings, WR1 against WR12, are what a
+  reader wants from this preview; a kicker or a defense is "the No. 1 kicker", never a code.
+- A projection is a projection. Say so when you use one, and never report it as a score or as a
+  prediction of an exact final.
+- The only facts about these games are the projections, the key players, their ranks and their
+  draft slots above. Anything else about them has not happened.`;
+    }
+
+    const lead = !hasBoard
+      ? ''
+      : bracketWeek
+        ? `
+- The bracket leads (see PLAYOFFS above). Inside each game, lead with the projections and the
+  player matchups, then the records and the stats to date. A positional rank is "RB2 in the
+  league", by points to date; a kicker or a defense is "the No. 1 kicker", never a code.`
+        : `
+- Lead with the projections and the player matchups (who is projected where, WR1 against WR12),
+  then the records and the stats to date. A positional rank is "RB2 in the league", by points to
+  date; a kicker or a defense is "the No. 1 kicker", never a code.`;
+    const material = hasBoard
+      ? 'records, points for, projections, key players and head-to-head'
+      : 'records, points for, projections and head-to-head';
+
+    return `\nWEEKLY PREVIEW RULES:
 - Every game above is unplayed. Write about it in the future tense only. No result, no winner, no
   margin, no "held on", no "survived" — none of that exists yet for these games.
 - Last week is context, never the subject. One line of it per team is the ceiling, and only where it
-  sets up the game ahead. If you find yourself recapping, you have written the wrong article.
+  sets up the game ahead. If you find yourself recapping, you have written the wrong article.${lead}
 - A projection is a projection. Say so when you use one, and never report it as a score.
 - Head-to-head numbers above are games already played and may be cited as history.
-- The only facts about these games are the records, points for, projections and head-to-head above.
+- The only facts about these games are the ${material} above.
   Anything else about them has not happened.`;
-
-    return preview;
   }
 
   /** " [PLAYOFF - Semifinals]", " [third-place ladder]", " [PLAYOFF]" or nothing. Never ESPN's enum. */

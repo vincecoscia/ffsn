@@ -31,6 +31,9 @@ import { deriveLeagueCalendar, describeLeagueCalendar, leagueCalendarInputFromSe
 // file header), safe to import as a value here per the repo-wide gotcha about cross-module value
 // imports of a convex/*.ts module that references `internal`.
 import { isByeMatchup } from "./lib/playoffs";
+// `./lib/weekOneGate` is likewise deliberately pure (see its file header) - the week-1 preview
+// scheduling gate (owner directive, 2026-09-03).
+import { weekOnePreviewDecision } from "./lib/weekOneGate";
 
 /** The roster default writer for a content type (spec section 9.2.3). */
 export function defaultPersonaFor(contentType: string): string {
@@ -898,9 +901,13 @@ export const processScheduledContent = internalAction({
       //     period that is actually current, not the one the cron guessed a day
       //     earlier, and so the idempotency index reflects reality.
       const currentWeek = await getCurrentNFLWeek(ctx);
+      // Before kickoff the NFL clock reads week 0; the one row that legitimately runs then is the
+      // week-1 preview (scheduleWeekOnePreview stamps it week 1), so keep the row's own week.
       const targetWeek = args.forcePeriod
         ? args.forcePeriod.week
-        : resolveTargetWeek(contentType, currentWeek);
+        : currentWeek < 1 && contentType === "weekly_preview" && scheduledContent.week === 1
+          ? 1
+          : resolveTargetWeek(contentType, currentWeek);
       const seasonId =
         args.forcePeriod?.seasonId ??
         league.espnData?.seasonId ??
@@ -2416,6 +2423,111 @@ export const updateMonthlySpending = internalMutation({
   },
 });
 
+/**
+ * A league's `weekly_preview` `contentSchedules` row, if it has one. `scheduleWeeklyContentCron`
+ * already has this (it iterates `getWeeklySchedules`); `triggerEventBasedContent`'s
+ * `draft_completed` branch needs it to find the row's `_id`/`preferredPersona` when scheduling
+ * the week-1 preview. Narrowed to this one literal type (rather than `v.string()`) so the
+ * `.eq("contentType", ...)` index call below stays typed against the schema's own union.
+ */
+export const getContentScheduleByType = internalQuery({
+  args: { leagueId: v.id("leagues"), contentType: v.literal("weekly_preview") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("contentSchedules")
+      .withIndex("by_league_type", (q) => q.eq("leagueId", args.leagueId).eq("contentType", args.contentType))
+      .first();
+  },
+});
+
+/**
+ * Week-1 preview scheduling (owner directive, 2026-09-03 - see `convex/lib/weekOneGate.ts`'s
+ * header). Shared by `scheduleWeeklyContentCron` (checked once a day until the window opens or
+ * closes) and `triggerEventBasedContent`'s `draft_completed` branch (a second, earlier chance the
+ * same day the draft finishes). Both dedupe through the same `findScheduledContentForPeriod` row
+ * every other content type uses, so whichever path gets there first creates the only row.
+ *
+ * `processScheduledContent`'s own season-boundary gate
+ * (`nflSeasonBoundaries.isContentGenerationAllowed`) only allows `weekly_preview` during
+ * REGULAR_SEASON/PLAYOFFS - but the entire point of this gate is to fire BEFORE kickoff, while
+ * the league is still in PRESEASON (or the dateless gap between preseason end and kickoff - see
+ * `validateSeasonWelcomeContent`'s comment in `convex/nflSeasonBoundaries.ts` for that same gap).
+ * `forcePeriod` is that action's own documented escape hatch for "write about a named period
+ * instead of re-reading the clock" (its own doc comment); scheduled here to run at (as close as
+ * Convex's scheduler gets to) the row's own `scheduledFor` instant so it claims the row well
+ * ahead of the generic 15-minute sweep (`processScheduledContentCron`), which would otherwise
+ * process it without `forcePeriod` and have the season-boundary gate reject it.
+ */
+async function scheduleWeekOnePreview(
+  ctx: ActionCtx,
+  args: {
+    leagueId: Id<"leagues">;
+    seasonId: number;
+    contentScheduleId: Id<"contentSchedules">;
+    preferredPersona?: string | null;
+    now: number;
+    /** draft-grades-row-time + 2h, for the `draft_completed` path only - overrides the gate's own
+     * `now + 5 minutes` so the preview never prints before (or at the same moment as) the grades. */
+    scheduledForOverride?: number;
+  }
+): Promise<{ scheduled: boolean; reason: string }> {
+  const [leagueSeason, boundaries] = await Promise.all([
+    ctx.runQuery(internal.contentScheduling.getLeagueSeasonDoc, {
+      leagueId: args.leagueId,
+      seasonId: args.seasonId,
+    }),
+    ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonBoundaries, { year: args.seasonId }),
+  ]);
+
+  if (!boundaries) {
+    return { scheduled: false, reason: "no_season_boundaries" };
+  }
+
+  const decision = weekOnePreviewDecision({
+    now: args.now,
+    drafted: leagueSeason?.draftInfo?.drafted === true,
+    draftInProgress: leagueSeason?.draftInfo?.inProgress === true,
+    kickoffAt: boundaries.phases.regularSeason.start,
+    week1TuesdayAt: boundaries.weekBoundaries.find((w) => w.week === 1)?.start,
+  });
+
+  if (!decision.schedule) {
+    return { scheduled: false, reason: decision.reason };
+  }
+
+  // Idempotency (spec section 9.2.6), same as every other content type - and the reason it is
+  // safe for both callers to reach this function for the same league/season: whichever runs
+  // first wins, and `findScheduledContentForPeriod` ignores a cancelled/failed row, so a bad
+  // earlier attempt does not permanently block a retry while the window is still open.
+  const existing = await ctx.runQuery(internal.contentScheduling.findScheduledContentForPeriod, {
+    leagueId: args.leagueId,
+    contentType: "weekly_preview",
+    seasonId: args.seasonId,
+    week: 1,
+  });
+  if (existing) {
+    return { scheduled: false, reason: "already_scheduled" };
+  }
+
+  const scheduledFor = args.scheduledForOverride ?? decision.scheduledFor!;
+  await ctx.runMutation(internal.contentScheduling.scheduleContentGeneration, {
+    leagueId: args.leagueId,
+    contentScheduleId: args.contentScheduleId,
+    contentType: "weekly_preview",
+    scheduledFor,
+    week: 1,
+    seasonId: args.seasonId,
+    writerPersona: args.preferredPersona || defaultPersonaFor("weekly_preview"),
+    contextData: {
+      week: 1,
+      seasonId: args.seasonId,
+      additionalContext: { scheduleType: "week_one_preview" },
+    },
+  });
+
+  return { scheduled: true, reason: decision.reason };
+}
+
 // Trigger event-based content generation (e.g., when a trade occurs)
 export const triggerEventBasedContent = internalAction({
   args: {
@@ -2433,6 +2545,10 @@ export const triggerEventBasedContent = internalAction({
     const eventKey = buildEventKey(args.eventType, args.eventData);
     const scheduledJobs = [];
     let skipped = 0;
+    // Captured when this batch includes the draft-grades (draft_rankings) row - the week-1
+    // preview step below prints 2 hours after it, never before (owner directive, 2026-09-03 -
+    // see scheduleWeekOnePreview's header).
+    let draftGradesScheduledFor: number | undefined;
 
     for (const schedule of eventSchedules) {
       if (!schedule.enabled) continue;
@@ -2478,6 +2594,7 @@ export const triggerEventBasedContent = internalAction({
           convertUTCToTimeZone,
           convertTimeZoneToUTC,
         );
+        draftGradesScheduledFor = scheduledFor;
       } else {
         const delayMs = schedule.schedule.type === "event_triggered"
           ? (schedule.schedule.delayMinutes || 0) * 60 * 1000
@@ -2509,6 +2626,34 @@ export const triggerEventBasedContent = internalAction({
         await ctx.scheduler.runAfter(0, internal.contentScheduling.processScheduledContent, {
           scheduledContentId: scheduledContentId.scheduledContentId,
         });
+      }
+    }
+
+    // Week 1's preview (owner directive, 2026-09-03 - see convex/lib/weekOneGate.ts's header):
+    // the draft completing is one of its two conditions, so this is the earlier of its two
+    // chances to create that row (the other is scheduleWeeklyContentCron's daily check). Prints 2
+    // hours after the draft-grades row when this run scheduled one, or on the gate's own
+    // now+5-minute default otherwise (e.g. the league has draft_rankings disabled). A league with
+    // no weekly_preview schedule at all (deleted, never seeded) has nothing to attach the row to
+    // and is silently skipped - the same as any other league missing that row today.
+    if (args.eventType === "draft_completed" && args.eventData?.seasonId !== undefined) {
+      const weeklyPreviewSchedule = await ctx.runQuery(internal.contentScheduling.getContentScheduleByType, {
+        leagueId: args.leagueId,
+        contentType: "weekly_preview",
+      });
+      if (weeklyPreviewSchedule?.enabled) {
+        const result = await scheduleWeekOnePreview(ctx, {
+          leagueId: args.leagueId,
+          seasonId: args.eventData.seasonId,
+          contentScheduleId: weeklyPreviewSchedule._id,
+          preferredPersona: weeklyPreviewSchedule.preferredPersona,
+          now: Date.now(),
+          scheduledForOverride:
+            draftGradesScheduledFor !== undefined ? draftGradesScheduledFor + TWO_HOURS_MS : undefined,
+        });
+        if (!result.scheduled) {
+          console.log(`Week-1 preview not scheduled for league ${args.leagueId}: ${result.reason}`);
+        }
       }
     }
 
@@ -2757,6 +2902,31 @@ export const scheduleWeeklyContentCron = internalAction({
         const weekAtRun = await getCurrentNFLWeek(ctx, nextScheduledTime);
         const targetWeek = resolveTargetWeek(schedule.contentType, weekAtRun);
         const targetSeason = seasonIdForLeague ?? nflSeasonYearFor(new Date(nextScheduledTime));
+
+        // Week 1's preview never uses this schedule's generic Thursday-of-that-week slot (owner
+        // directive, 2026-09-03 - see convex/lib/weekOneGate.ts's header): by the time `targetWeek`
+        // resolves to 1 here, kickoff is at most a few days away, so `scheduleWeekOnePreview`'s own
+        // gate decides both whether and exactly when to fire. This is also the ONLY place besides
+        // `triggerEventBasedContent`'s `draft_completed` branch that may create a week-1
+        // `weekly_preview` row - every other content type falls through to the generic path below.
+        if (schedule.contentType === "weekly_preview" && targetWeek === 1) {
+          const result = await scheduleWeekOnePreview(ctx, {
+            leagueId: schedule.leagueId,
+            seasonId: targetSeason,
+            contentScheduleId: schedule._id,
+            preferredPersona: schedule.preferredPersona,
+            now: Date.now(),
+          });
+          if (result.scheduled) scheduled++;
+          else skipped++;
+          schedulingDetails.push({
+            contentType: schedule.contentType,
+            leagueId: schedule.leagueId,
+            action: result.scheduled ? "scheduled" : "skipped",
+            reason: `week_one_gate: ${result.reason}`,
+          });
+          continue;
+        }
 
         // Weekly content only runs during the league's OWN season (owner
         // directive, Sept 2026) - the NFL calendar keeps going through the

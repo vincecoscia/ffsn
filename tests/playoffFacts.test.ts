@@ -498,6 +498,23 @@ describe("playoff prompt framing", () => {
     expect(prompt).not.toContain("THE BRACKET IS THE STORY");
   });
 
+  it("keeps the bracket first when a player board rides along with a playoff-week preview", () => {
+    const playerBoard = { basis: "season_points" as const, throughWeek: 14, entries: [] };
+    const bracketPrompt = new PromptBuilder(
+      request("weekly_preview", { ...quarterfinalPreview, playerBoard })
+    ).build().userPrompt;
+    expect(bracketPrompt).toContain("PLAYOFFS - QUARTERFINALS (WEEK 15). THE BRACKET IS THE STORY.");
+    expect(bracketPrompt).toContain("THIS WEEK - PROJECTIONS FIRST");
+    expect(bracketPrompt).toContain("- The bracket leads (see PLAYOFFS above).");
+
+    const regularPrompt = new PromptBuilder(
+      request("weekly_preview", { ...regularSeasonPreview, playerBoard: { ...playerBoard, throughWeek: 12 } })
+    ).build().userPrompt;
+    expect(regularPrompt).toContain("PLAYOFF PICTURE - IF THE SEASON ENDED TODAY");
+    expect(regularPrompt).toContain("- Lead with the projections and the player matchups");
+    expect(regularPrompt).not.toContain("The bracket leads");
+  });
+
   it("splits a live power ranking into the alive and the eliminated, labelled and in that order", () => {
     const data = leagueData({
       currentWeek: 16,

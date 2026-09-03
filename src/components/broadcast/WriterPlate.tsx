@@ -23,7 +23,7 @@ function formatIndex(index: number | string) {
 }
 
 /**
- * The on-air-talent lineup card: a 300px portrait with a faint index number,
+ * The on-air-talent lineup card: a 3:2 portrait with a faint index number,
  * a name plate + red role strip, an italic tagline, and a "Writes" beat line.
  */
 export function WriterPlate({
@@ -37,7 +37,7 @@ export function WriterPlate({
 }: WriterPlateProps) {
   return (
     <div className={cn("flex flex-col border border-bc-hairline bg-bc-panel", className)}>
-      <div className="bc-scan relative h-[240px] flex-none overflow-hidden bg-bc-panel-2 lg:h-[260px]">
+      <div className="bc-scan relative aspect-[3/2] w-full flex-none overflow-hidden bg-bc-panel-2">
         <span
           className="bc-outline-num absolute top-1.5 left-3 text-[76px] opacity-[0.12] sm:text-[84px]"
           aria-hidden="true"

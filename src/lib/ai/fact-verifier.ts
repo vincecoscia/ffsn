@@ -36,6 +36,8 @@ export type ViolationKind =
   | "data_speak"
   /** Playoffs under way or decided, and a sentence calls a team the bracket has knocked out a contender. */
   | "eliminated_as_contender"
+  /** A weekly_preview written before kickoff cites a record beside a team, or "points for": nobody has played yet. */
+  | "records_before_kickoff"
   /** Editor pass scored the facts below 3; the article is held for review (spec §11.2.7). */
   | "editor_hold"
   /** Editor pass scored the voice below 3. A warning; voice never blocks (spec §11.2.7). */
@@ -118,6 +120,11 @@ const FACTS_FIELD_NAMES = [
   "pointGain",
   "questionTopic",
   "priorClaims",
+  "positionRank",
+  "seasonPoints",
+  "upcomingProjected",
+  "draftPick",
+  "keyPlayers",
 ];
 
 /** What a leak is, for the regeneration prompt: the phrase plus why it is not English. */
@@ -266,7 +273,11 @@ function isDerivable(candidate: number, numbers: number[]): boolean {
   return false;
 }
 
-/** Walks a dotted path like `matchups.M1.players.M1P3.points` or `teams.T3.pointsFor`. */
+/**
+ * Walks a dotted path like `matchups.M1.players.M1P3.points`, `teams.T3.pointsFor`,
+ * `board.positions.WR.top.P4262921.rank` or `upcoming.U1.keyPlayers.P4262921.projected`. An array
+ * entry is found by its id, its team id, or (the board) its position label.
+ */
 export function resolvePath(facts: FactsBlock, path: string): unknown {
   let current: unknown = facts;
   for (const segment of path.split(".")) {
@@ -274,7 +285,7 @@ export function resolvePath(facts: FactsBlock, path: string): unknown {
     if (Array.isArray(current)) {
       const byId = current.find(entry => {
         const row = entry as Record<string, unknown>;
-        return row?.id === segment || row?.teamId === segment;
+        return row?.id === segment || row?.teamId === segment || row?.pos === segment;
       });
       if (byId !== undefined) {
         current = byId;
@@ -362,6 +373,39 @@ export function findEliminatedAsContender(
       const at = match.index ?? 0;
       if (CONTENDER_NEGATION.test(sentence.slice(Math.max(0, at - 30), at))) continue;
       for (const team of named) hits.push({ team, phrase: match[0], sentence: sentence.trim() });
+    }
+  }
+  return hits;
+}
+
+/**
+ * Records before kickoff (owner directive, 2026-09-03: a week-1 preview is projections, draft
+ * slots and positional rank, because nobody has played a snap). A "w-l" beside a team name, or the
+ * stat "points for", has no meaning yet. Kept narrow: a decimal on either side of the dash is a
+ * projected score line ("118.2-109.4"), and "121.5 points for the opener" is a projection
+ * sentence, not the stat.
+ */
+const RECORD_PATTERN = /(?<![\d.])\b\d+-\d+(?:-\d+)?\b(?!\.\d)/g;
+const POINTS_FOR_PATTERN = /\bpoints for\b/gi;
+const POINTS_FOR_AFTER_NUMBER = /\d[\d.]*\s+(?:fantasy\s+|projected\s+)?$/i;
+
+/** Sentences of a before-kickoff preview that put a record beside one of `teamNames`, or say "points for". */
+export function findRecordsBeforeKickoff(
+  text: string,
+  teamNames: string[]
+): Array<{ phrase: string; sentence: string }> {
+  const hits: Array<{ phrase: string; sentence: string }> = [];
+  if (!text) return hits;
+  // Whole-name matches only, as for contention: "their squad" is not the team "IR Squad".
+  const patterns = teamNames.map(name => new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(name)}(?![A-Za-z0-9])`, "i"));
+  for (const sentence of splitSentences(text)) {
+    if (patterns.some(pattern => pattern.test(sentence))) {
+      for (const match of sentence.matchAll(RECORD_PATTERN)) hits.push({ phrase: match[0], sentence: sentence.trim() });
+    }
+    for (const match of sentence.matchAll(POINTS_FOR_PATTERN)) {
+      const at = match.index ?? 0;
+      if (POINTS_FOR_AFTER_NUMBER.test(sentence.slice(Math.max(0, at - 24), at))) continue;
+      hits.push({ phrase: match[0], sentence: sentence.trim() });
     }
   }
   return hits;
@@ -672,6 +716,27 @@ export function verifyArticle(
           detail: `${team} is out of the title race, but "${hit.phrase}" shares a sentence with it: "${hit.sentence.slice(0, 80)}"`,
           section,
           severity: "block",
+        });
+      }
+    }
+  }
+
+  // 4c. Records before kickoff (owner directive, 2026-09-03). A preview written before week 1 has
+  //     the projections and the draft to go on; a record beside a team, or "points for", is the
+  //     stat the owner does not want yet. A warning: the piece publishes, flagged.
+  if (facts.board?.basis === "this week's projections" && options?.template?.id === "weekly_preview") {
+    const names = facts.teams.map(team => team.name).filter(name => name.length > 0);
+    const texts: Array<[string, string]> = [
+      [TITLE_SECTION, article.title ?? ""],
+      ...(article.sections ?? []).map((section): [string, string] => [section.name, section.content ?? ""]),
+    ];
+    for (const [section, text] of texts) {
+      for (const hit of findRecordsBeforeKickoff(text, names)) {
+        violations.push({
+          kind: "records_before_kickoff",
+          detail: `"${hit.phrase}" in a preview written before kickoff; no game has been played, so records, standings and points for are not material yet: "${hit.sentence.slice(0, 80)}"`,
+          section,
+          severity: "warn",
         });
       }
     }
