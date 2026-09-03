@@ -3,6 +3,7 @@ import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { requireLeagueMemberFromAction } from "./lib/auth";
+import { seasonsToSync } from "./lib/seasonToSync";
 
 // Sync all players for the last 10 seasons
 export const syncHistoricalPlayers = internalAction({
@@ -146,7 +147,11 @@ export const dailyPlayerSync = internalAction({
     timestamp: number;
     error?: string;
   }> => {
-    const currentSeason = new Date().getFullYear();
+    // Aug->Jul, not the raw calendar year (ESPN refresh audit, section 2 -
+    // rollover): this used to jump to the wrong season every January, weeks
+    // before this app's own season boundary agrees a new one has started.
+    const league = leagueId ? await ctx.runQuery(internal.leagues.getByIdInternal, { id: leagueId }) : null;
+    const currentSeason = seasonsToSync({ league, seasons: [], now: Date.now() }).current;
     const results = {
       defaultStats: null as any,
       leagueStats: null as any,
@@ -210,14 +215,13 @@ export const dailyAllLeaguesPlayerStatsSync = internalAction({
     }>;
     timestamp: number;
   }> => {
-    const currentSeason = new Date().getFullYear();
     const results = [];
-    
+
     console.log(`Starting daily sync for all leagues' player stats`);
-    
+
     // Get all active leagues
     const leagues = await ctx.runQuery(internal.leagues.listLeagues, {});
-    
+
     if (!leagues || leagues.length === 0) {
       return {
         status: "no_leagues",
@@ -227,11 +231,16 @@ export const dailyAllLeaguesPlayerStatsSync = internalAction({
         timestamp: Date.now()
       };
     }
-    
+
     // Sync each league's player stats for current season and backfill missing older seasons' caches
     for (const league of leagues) {
       console.log(`Syncing stats for league: ${league.name} (${league._id})`);
-      
+
+      // Aug->Jul per-league (ESPN refresh audit, section 2 - rollover): a
+      // single calendar-year `currentSeason` shared across every league used
+      // to jump to the wrong season for all of them at once every January.
+      const currentSeason = seasonsToSync({ league, seasons: [], now: Date.now() }).current;
+
       try {
         const result = await ctx.runAction(internal.playerSync.syncAllLeaguePlayerStats, {
           leagueId: league._id,
@@ -246,8 +255,10 @@ export const dailyAllLeaguesPlayerStatsSync = internalAction({
           playersProcessed: result.totalPlayersProcessed
         });
         
-        // Backfill: limit to at most 1 older season per run to avoid timeouts (and add small delay between heavy ops)
-        // Note: Only sync player stats for past seasons, but skip leagueTopPerformers cache (only current season matters)
+        // Backfill: limit to at most 1 older season per run to avoid timeouts (and add small delay between heavy ops).
+        // `syncAllLeaguePlayerStats` now refreshes the leagueTopPerformers cache for whichever season it's
+        // given (ESPN refresh audit gap 4.8 - it used to gate on "current season only"), so a backfilled
+        // season's cache lands too, not just its raw stats.
         const teams = await ctx.runQuery(internal.teams.getTeamsByLeagueInternal, { leagueId: league._id });
         const uniqueSeasons = [...new Set(teams.map((t: any) => t.seasonId))] as number[];
         let backfilled = 0;

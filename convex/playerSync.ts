@@ -901,18 +901,19 @@ export const syncAllLeaguePlayerStats = internalAction({
       }
     }
     
-    // After completing stats sync, compute and cache top performers (only for current season)
-    const currentSeason = new Date().getFullYear();
-    if (season === currentSeason) {
-      try {
-        await ctx.runMutation(internal.playerSyncInternal.computeLeagueTopPerformers, {
-          leagueId,
-          season,
-          limitPerPosition: 20,
-        });
-      } catch (e) {
-        console.warn("Failed to compute top performers cache", e);
-      }
+    // After completing stats sync, compute and cache top performers for the
+    // season that was actually just synced (ESPN refresh audit gap 4.8:
+    // this used to gate on `season === calendar year`, so a past-season
+    // stats sync - a manual re-import, or the season-closed job - never
+    // refreshed that season's cache even though the stats themselves landed).
+    try {
+      await ctx.runMutation(internal.playerSyncInternal.computeLeagueTopPerformers, {
+        leagueId,
+        season,
+        limitPerPosition: 20,
+      });
+    } catch (e) {
+      console.warn("Failed to compute top performers cache", e);
     }
 
     return {

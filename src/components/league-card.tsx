@@ -42,10 +42,14 @@ export function LeagueCard({ league }: LeagueCardProps) {
 
     setIsRefetching(true);
     try {
-      const result = await refreshLeagueData({ leagueId: league._id });
+      // Current season only (ESPN refresh audit, Sept 2026, section 5.v) - the old default of
+      // 10 historical years turned one dashboard click into several hundred ESPN requests with
+      // no warning. A past season never goes stale on its own, so there's nothing routine to
+      // catch up on here; use the league's own "Full re-import" settings tool for that.
+      const result = await refreshLeagueData({ leagueId: league._id, includeCurrentSeason: true, historicalYears: 0 });
       if (result.success) {
-        toast.success("League data refreshed successfully!", {
-          description: "All league data has been updated from ESPN."
+        toast.success("Current season refreshed successfully!", {
+          description: "Teams, rosters, matchups and scores have been updated from ESPN."
         });
       } else {
         toast.error("Failed to refresh league data", {
@@ -96,10 +100,10 @@ export function LeagueCard({ league }: LeagueCardProps) {
             variant="outline"
             size="sm"
             className="w-full sm:w-auto"
-            title="Refresh league data from ESPN"
+            title="Refresh the current season from ESPN"
           >
             <RefreshCw className={cn("size-4", isRefetching && "animate-spin")} strokeWidth={2} />
-            {isRefetching ? "Syncing…" : "Sync ESPN"}
+            {isRefetching ? "Syncing…" : "Sync current season"}
           </Button>
         )}
 

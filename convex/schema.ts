@@ -241,6 +241,15 @@ export default defineSchema({
       pointsFor: v.optional(v.number()),
       pointsAgainst: v.optional(v.number()),
       playoffSeed: v.optional(v.number()),
+      // ESPN final-rank and form fields (refresh audit, Sept 2026); absent on rows written before then.
+      rankCalculatedFinal: v.optional(v.number()),
+      rankFinal: v.optional(v.number()),
+      currentProjectedRank: v.optional(v.number()),
+      draftDayProjectedRank: v.optional(v.number()),
+      streakLength: v.optional(v.number()),
+      streakType: v.optional(v.string()),
+      gamesBack: v.optional(v.number()),
+      percentage: v.optional(v.number()),
       divisionRecord: v.optional(v.object({
         wins: v.number(),
         losses: v.number(),
@@ -389,6 +398,17 @@ export default defineSchema({
     // scheduled for this draft date" apart from "the draft date changed,
     // schedule again" without re-reading the scheduler's queue.
     postDraftSyncScheduledFor: v.optional(v.number()),
+    // Per-season sync bookkeeping (ESPN refresh audit, Sept 2026): a season is complete because
+    // we recorded that we closed it out, not because the calendar moved on.
+    /** Last time this season was pulled in full (every period, transactions, draft, teams). */
+    lastFullSyncAt: v.optional(v.number()),
+    /** Matchup periods whose final results, lineups and transaction log have been re-pulled after the week ended. */
+    periodsFinal: v.optional(v.array(v.number())),
+    /** Set once the season-closed pull ran and the champion was derived from the bracket. */
+    finalizedAt: v.optional(v.number()),
+    finalizedSource: v.optional(v.literal("bracket")),
+    /** The one follow-up pull for stat corrections, scheduled a week after finalization. */
+    finalizationRecheckAt: v.optional(v.number()),
     draft: v.optional(v.array(v.object({
       autoDraftTypeId: v.number(),
       bidAmount: v.number(),
@@ -853,6 +873,8 @@ export default defineSchema({
     leagueId: v.id("leagues"),
     seasonId: v.number(),
     tradeDate: v.number(),
+    /** ESPN transaction id of the TRADE_ACCEPT row this trade was derived from (dedupe key). */
+    espnTransactionId: v.optional(v.string()),
     status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("rejected"), v.literal("completed")),
     
     // Teams involved
@@ -909,7 +931,8 @@ export default defineSchema({
     .index("by_season", ["leagueId", "seasonId"])
     .index("by_date", ["leagueId", "tradeDate"])
     .index("by_team", ["leagueId", "teamA.teamId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_espn_transaction", ["espnTransactionId"]),
 
   // ESPN transactions with complete data model
   transactions: defineTable({

@@ -19,16 +19,13 @@ import {
   type ParsedLeagueSettings,
 } from "./lib/espnSettings";
 import { matchupPeriodIdsFromSettings, type MatchupPeriodIdSource } from "./lib/leagueCalendar";
+import { seasonsToSync } from "./lib/seasonToSync";
 import {
   classifyTransactionStatus,
   normalizeEspnTransaction,
   normalizedTransactionValidator,
   type RawEspnTransaction,
 } from "./lib/espnTransactions";
-// `./lib/playoffs` is a deliberately pure module (no `internal`/`api` imports of its own - see its
-// file header), safe to import as a value here per the repo-wide gotcha about cross-module value
-// imports of a convex/*.ts module that references `internal`.
-import { deriveSeasonResults } from "./lib/playoffs";
 
 // Helper functions for ESPN data mapping
 const getPositionName = (positionId: number): string => {
@@ -37,6 +34,31 @@ const getPositionName = (positionId: number): string => {
   };
   return positionMap[positionId] || 'FLEX';
 };
+
+/**
+ * Whether ESPN's `draftDetail` reports the draft as complete. ESPN sends a
+ * BOOLEAN on `draftDetail.drafted` (verified live, Sept 2026) - every call
+ * site in this file used to compare `=== 1`, a `mDraftDetail.drafted === 1`
+ * check that can never be true, so the four sites that gated on it (writing
+ * `leagueSeasons.draft`, and `fetchHistoricalRostersImpl`'s "has the draft
+ * happened yet" guard) never fired automatically; only the manual "Draft
+ * data" button (`fetchDraftDataForSeason`, which reads `.picks` directly
+ * without this gate) ever wrote picks. Accepts `true`/`1` so a stale caller
+ * or a future ESPN response shaped like the old numeric flag still works.
+ */
+function isDrafted(draftDetail: { drafted?: boolean | number } | null | undefined): boolean {
+  return draftDetail?.drafted === true || draftDetail?.drafted === 1;
+}
+
+/**
+ * The one notion of "current season" every sync/probe entry point in this
+ * file shares (`convex/lib/seasonToSync.ts`) - Aug->Jul, unless the league's
+ * own last-synced season is already ahead of that. Every call site here
+ * only needs `current` (not `alsoSync`), so `seasons` is always `[]`.
+ */
+function currentSeasonForLeague(league: { espnData?: { seasonId?: number } } | null | undefined): number {
+  return seasonsToSync({ league: league ?? null, seasons: [], now: Date.now() }).current;
+}
 
 const getTeamAbbreviation = (teamId: number): string => {
   // ESPN team ID to abbreviation mapping (simplified)
@@ -177,483 +199,6 @@ const transformRosterData = (rosterData: any) => {
 // Matchup roster fetching is now in matchupRosters.ts to avoid circular dependencies
 
 
-export const syncLeagueData = action({
-  args: {
-    leagueId: v.id("leagues"),
-  },
-  handler: async (ctx, args) => {
-    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
-
-    // Get the league with ESPN auth data using internal query
-    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
-    
-    if (!league) {
-      throw new Error("League not found");
-    }
-
-    if (!league.espnData) {
-      throw new Error("No ESPN data found for league");
-    }
-
-    try {
-      // Use the stored ESPN auth data to fetch updated league information
-      const currentYear = new Date().getFullYear();
-      const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${league.externalId}`;
-      
-      // Add fantasy filter for all matchup periods to get roster data
-      // Use league settings or reasonable defaults (most leagues are 14 regular + 4 playoff weeks)
-      const creds = normalizeEspnCredentials(league.espnData);
-
-      // Get comprehensive league data including players, matchups, draft info, and transactions
-      const { response: leagueResponse, classification } = await fetchEspn(
-        `${baseUrl}?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard`,
-        { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(league.settings) } }
-      );
-
-      if (!leagueResponse.ok) {
-        throw new Error(`ESPN API returned ${leagueResponse.status}: ${leagueResponse.statusText} (${classification})`);
-      }
-
-      const leagueData = await leagueResponse.json();
-      const teams = leagueData.teams || [];
-      const members = leagueData.members || [];
-      const settings = leagueData.settings;
-      const schedule = leagueData.schedule || [];
-      const players = leagueData.players || [];
-      const draftDetail = leagueData.draftDetail;
-      const communication = leagueData.communication || {};
-      
-      // Debug: Log available fields for currentScoringPeriod
-      console.log(`League ${league.name} - ESPN API response fields:`, {
-        rootScoringPeriodId: leagueData.scoringPeriodId,
-        statusCurrentMatchupPeriod: leagueData.status?.currentMatchupPeriod,
-        statusLatestScoringPeriod: leagueData.status?.latestScoringPeriod,
-        settingsScoringCurrentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod,
-        availableRootFields: Object.keys(leagueData).filter(key => key.toLowerCase().includes('period') || key.toLowerCase().includes('scoring')),
-        availableStatusFields: leagueData.status ? Object.keys(leagueData.status).filter(key => key.toLowerCase().includes('period') || key.toLowerCase().includes('scoring')) : 'no status',
-        availableScoringSettingsFields: settings?.scoringSettings ? Object.keys(settings.scoringSettings).filter(key => key.toLowerCase().includes('period') || key.toLowerCase().includes('scoring')) : 'no scoringSettings'
-      });
-
-      // Create a map of member IDs to member data for easy lookup
-      const memberMap = new Map();
-      members.forEach((member: any) => {
-        memberMap.set(member.id, member);
-      });
-      
-      // Log member map for debugging
-      if (members.length > 0 && teams.length > 0) {
-        console.log('Member/Owner data mapping:', {
-          memberCount: members.length,
-          sampleMemberId: members[0].id,
-          memberMapSize: memberMap.size,
-          firstTeamOwner: teams[0]?.owners?.[0],
-          ownerType: typeof teams[0]?.owners?.[0],
-          ownerInMap: teams[0]?.owners?.[0] ? memberMap.has(teams[0].owners[0]) : 'No owner'
-        });
-      }
-
-      // Log data availability for debugging
-      console.log('ESPN API Data Check:', {
-        hasTeams: !!teams.length,
-        teamsCount: teams.length,
-        hasMembers: !!members.length,
-        membersCount: members.length,
-        sampleTeam: teams[0] ? {
-          hasOwners: !!teams[0].owners,
-          ownersLength: teams[0].owners?.length || 0,
-          hasPrimaryOwner: !!teams[0].primaryOwner,
-          hasLogo: !!teams[0].logo,
-          logoUrl: teams[0].logo
-        } : null
-      });
-
-      // Store draft data for current season
-      if (settings || draftDetail) {
-        const { seasonSettings, parsed: parsedSettings } = buildSeasonSettings(
-          settings,
-          'ESPN League',
-          teams.length
-        );
-        const seasonData: any = {
-          settings: seasonSettings,
-        };
-
-        // Only include draftSettings if it exists
-        if (settings?.draftSettings) {
-          seasonData.draftSettings = settings.draftSettings;
-        }
-
-        // Only include draft picks if draft has actually occurred
-        if (draftDetail?.drafted === 1 && draftDetail.picks) {
-          seasonData.draft = draftDetail.picks;
-        }
-
-        // Always include draftInfo to prevent it from becoming empty
-        // Set it to undefined if no draftDetail exists (will preserve existing value)
-        seasonData.draftInfo = draftDetail ? {
-          draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
-          draftType: draftDetail.type,
-          timePerPick: draftDetail.timePerPick,
-          drafted: draftDetail.drafted,
-          inProgress: draftDetail.inProgress,
-        } : undefined;
-
-        await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
-          leagueId: args.leagueId,
-          seasonId: currentYear,
-          seasonData,
-        });
-
-        // Refresh the "current" league config (spec: mirrorSeasonSettings's
-        // doc comment in leagues.ts) so non-season-scoped readers pick up
-        // this season's real ESPN settings. Only when we actually fetched a
-        // settings blob (not a draftDetail-only sync); non-fatal.
-        if (settings) {
-          try {
-            await ctx.runMutation(internal.leagues.mirrorSeasonSettings, {
-              leagueId: args.leagueId,
-              seasonId: currentYear,
-              settings: parsedSettings,
-            });
-          } catch (error) {
-            console.error(`Failed to mirror season settings for league ${args.leagueId}:`, error);
-          }
-        }
-      }
-
-      // Helper function for roster data
-      // Note: The general league endpoint doesn't reliably return roster data
-      // We'll use fetchHistoricalRosters after team sync for accurate roster data
-      const getRosterData = (team: any) => {
-        // Return empty array - rosters will be fetched separately using fetchHistoricalRosters
-        return [];
-      };
-
-      // Helper function to get owner info with fallback logic
-      const getOwnerInfo = (team: any) => {
-        // First try to get owner from team.owners array
-        if (team.owners?.[0]) {
-          const owner = team.owners[0];
-          
-          // Check if owner is just a string ID (historical data) or an object (current data)
-          if (typeof owner === 'string') {
-            // Owner is just an ID, need to look up in members
-            const member = memberMap.get(owner);
-            if (member) {
-              return {
-                ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
-                ownerInfo: {
-                  displayName: member.displayName,
-                  firstName: member.firstName,
-                  lastName: member.lastName,
-                  id: member.id?.toString() || owner,
-                }
-              };
-            }
-          } else if (owner.displayName || owner.firstName || owner.lastName) {
-            // Owner is an object with properties
-            return {
-              ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
-              ownerInfo: {
-                displayName: owner.displayName,
-                firstName: owner.firstName,
-                lastName: owner.lastName,
-                id: owner.id?.toString(),
-              }
-            };
-          }
-        }
-        
-        // Fallback to member data using primaryOwner
-        if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
-          const member = memberMap.get(team.primaryOwner);
-          return {
-            ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
-            ownerInfo: {
-              displayName: member.displayName,
-              firstName: member.firstName,
-              lastName: member.lastName,
-              id: member.id?.toString(),
-            }
-          };
-        }
-        
-        // Last resort - try to find member by matching team name
-        const matchingMember = members.find((m: any) => 
-          team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
-        );
-        if (matchingMember) {
-          return {
-            ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
-            ownerInfo: {
-              displayName: matchingMember.displayName,
-              firstName: matchingMember.firstName,
-              lastName: matchingMember.lastName,
-              id: matchingMember.id?.toString(),
-            }
-          };
-        }
-        
-        return {
-          ownerName: 'Unknown',
-          ownerInfo: undefined
-        };
-      };
-
-
-      // Update teams with comprehensive data
-      await ctx.runMutation(internal.espnSync.updateTeams, {
-        leagueId: args.leagueId,
-        seasonId: currentYear,
-        teamsData: teams.map((team: any) => {
-          const { ownerName, ownerInfo } = getOwnerInfo(team);
-          return {
-            externalId: team.id.toString(),
-            name: team.name || (team.location && team.nickname ? `${team.location} ${team.nickname}` : 'Unknown Team'),
-            abbreviation: team.abbrev,
-            location: team.location,
-            nickname: team.nickname,
-            logo: team.logo || team.logoURL || team.logoUrl || undefined,
-            owner: ownerName,
-            ownerInfo: ownerInfo,
-          record: {
-            wins: team.record?.overall?.wins || 0,
-            losses: team.record?.overall?.losses || 0,
-            ties: team.record?.overall?.ties || 0,
-            pointsFor: team.record?.overall?.pointsFor || 0,
-            pointsAgainst: team.record?.overall?.pointsAgainst || 0,
-            playoffSeed: team.playoffSeed,
-            divisionRecord: team.record?.division ? {
-              wins: team.record.division.wins || 0,
-              losses: team.record.division.losses || 0,
-              ties: team.record.division.ties || 0,
-            } : undefined,
-          },
-          roster: getRosterData(team),
-            divisionId: team.divisionId,
-            transactionCounter: team.transactionCounter,
-            waiverRank: team.waiverRank,
-          };
-        })
-      });
-
-      // Carry manager <-> team claims forward from the prior season now that
-      // this season's teams exist (spec: claim rollover). A team is a
-      // per-season document, so without this every manager would see their
-      // team as "unclaimed" again at the start of each new season. Never let
-      // a rollover problem fail the sync itself - the teams are already
-      // synced above regardless of what happens here.
-      try {
-        await ctx.runMutation(internal.claimRollover.rollForwardClaims, {
-          leagueId: args.leagueId,
-          seasonId: currentYear,
-        });
-      } catch (rolloverError) {
-        console.error("Error rolling forward team claims:", rolloverError);
-      }
-
-      // Refresh derived metrics (team metrics, rivalries, manager activity)
-      // that the article pipeline reads (aiQueries.ts, commentRequests.ts).
-      // Scheduled rather than awaited so it runs in its own transaction and
-      // never extends this action's runtime or fails the sync itself.
-      try {
-        await ctx.scheduler.runAfter(0, internal.dataProcessing.processLeagueDataAfterSync, {
-          leagueId: args.leagueId,
-          seasonId: currentYear,
-        });
-      } catch (dataProcessingError) {
-        console.error("Error scheduling post-sync data processing:", dataProcessingError);
-      }
-
-      // Sync players data if available
-      if (players.length > 0) {
-        await ctx.runMutation(internal.espnSync.updatePlayers, {
-          playersData: players.map((player: any) => ({
-            externalId: player.id?.toString() || '',
-            fullName: player.fullName || 'Unknown Player',
-            firstName: player.firstName,
-            lastName: player.lastName,
-            defaultPosition: getPositionName(player.defaultPositionId),
-            eligiblePositions: player.eligibleSlots?.map((slot: number) => getPositionName(slot)) || [],
-            proTeamId: player.proTeamId,
-            proTeamAbbrev: getTeamAbbreviation(player.proTeamId),
-            injuryStatus: player.injuryStatus,
-            stats: player.stats ? {
-              seasonStats: {
-                appliedTotal: player.stats.appliedTotal,
-                projectedTotal: player.stats.projectedTotal,
-                averagePoints: player.stats.averagePoints,
-              }
-            } : undefined,
-            ownership: player.ownership ? {
-              percentOwned: player.ownership.percentOwned,
-              percentChange: player.ownership.percentChange,
-              percentStarted: player.ownership.percentStarted,
-            } : undefined,
-          }))
-        });
-
-        // Sync player transactions if available
-        console.log('Processing player transactions...');
-        try {
-          const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
-            leagueId: args.leagueId,
-            seasonId: currentYear,
-            players: players,
-            currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
-          });
-          
-          if (transactionResult.success) {
-            console.log(`Successfully synced ${transactionResult.transactionsProcessed} transactions`);
-          } else {
-            console.warn('Failed to sync some transactions:', transactionResult.message);
-          }
-        } catch (transactionError) {
-          console.error('Error syncing player transactions:', transactionError);
-          // Don't fail the entire sync if transaction syncing fails
-        }
-      }
-
-      // Sync matchups data
-      if (schedule.length > 0) {
-        await ctx.runMutation(internal.espnSync.updateMatchups, {
-          leagueId: args.leagueId,
-          seasonId: currentYear,
-          matchupsData: schedule.map((matchup: any) => ({
-            matchupPeriod: matchup.matchupPeriodId,
-            scoringPeriod: matchup.id,
-            homeTeamId: matchup.home?.teamId?.toString() || '',
-            awayTeamId: matchup.away?.teamId?.toString() || '',
-            homeScore: matchup.home?.totalPoints || 0,
-            awayScore: matchup.away?.totalPoints || 0,
-            homeProjectedScore: matchup.home?.totalProjectedPoints,
-            awayProjectedScore: matchup.away?.totalProjectedPoints,
-            homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
-            awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
-            winner: matchup.winner === 'HOME' ? 'home' as const : 
-                   matchup.winner === 'AWAY' ? 'away' as const : 
-                   matchup.winner === 'TIE' ? 'tie' as const : undefined,
-            playoffTier: matchup.playoffTierType,
-            // Transform and clean roster data from current scoring period
-            homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
-            awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
-          }))
-        });
-      }
-
-      // Determine current scoring period from multiple possible sources
-      const currentScoringPeriod = leagueData.scoringPeriodId || 
-                                  leagueData.status?.currentMatchupPeriod || 
-                                  leagueData.status?.latestScoringPeriod || 
-                                  settings?.scoringSettings?.currentScoringPeriod || 
-                                  league.espnData.currentScoringPeriod;
-
-      // Debug logging for currentScoringPeriod
-      console.log(`League ${league.name} - ESPN API currentScoringPeriod:`, {
-        rootScoringPeriodId: leagueData.scoringPeriodId,
-        statusCurrentMatchupPeriod: leagueData.status?.currentMatchupPeriod,
-        statusLatestScoringPeriod: leagueData.status?.latestScoringPeriod,
-        settingsCurrentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod,
-        fallback: league.espnData.currentScoringPeriod,
-        final: currentScoringPeriod
-      });
-
-      // Update league's ESPN data with new sync timestamp
-      await ctx.runMutation(internal.espnSync.updateLeagueSync, {
-        leagueId: args.leagueId,
-        currentScoringPeriod: currentScoringPeriod,
-        seasonId: currentYear,
-      });
-
-      // FAAB waiver-wire report data: fetch ESPN's transaction log
-      // (view=mTransactions2) for the current and previous scoring period -
-      // waivers process overnight Tue/Wed, so the previous period's claims
-      // settle after the period rolls over. On the first sync of a season
-      // (no transaction_log rows stored for it yet), backfill every period
-      // from 1..current instead. Never fatal - this is report data, not
-      // core sync.
-      if (typeof currentScoringPeriod === "number" && currentScoringPeriod > 0) {
-        try {
-          const hasLog: boolean = await ctx.runQuery(internal.espnSync.hasTransactionLogForSeason, {
-            leagueId: args.leagueId,
-            seasonId: currentYear,
-          });
-
-          const periodsToSync: number[] = hasLog
-            ? [currentScoringPeriod, ...(currentScoringPeriod > 1 ? [currentScoringPeriod - 1] : [])]
-            : Array.from({ length: currentScoringPeriod }, (_, i) => i + 1);
-
-          const transactionLogResult = await ctx.runAction(internal.espnSync.syncTransactionLog, {
-            leagueId: args.leagueId,
-            seasonId: currentYear,
-            scoringPeriods: periodsToSync,
-          });
-          console.log(`Transaction log sync for league ${league.name}:`, transactionLogResult.message);
-        } catch (transactionLogError) {
-          console.error(`Error syncing transaction log for league ${league.name}:`, transactionLogError);
-        }
-      }
-
-      // Fetch rosters using the dedicated roster endpoint
-      console.log('Fetching current season rosters...');
-      try {
-        const rosterResult = await ctx.runAction(internal.espnSync.fetchHistoricalRostersInternal, {
-          leagueId: args.leagueId,
-          seasonId: currentYear,
-        });
-        
-        if (rosterResult.success) {
-          console.log(`Successfully fetched rosters for ${rosterResult.totalRostersFetched} teams`);
-        } else {
-          console.warn('Failed to fetch some rosters:', rosterResult.message);
-        }
-      } catch (rosterError) {
-        console.error('Error fetching rosters:', rosterError);
-        // Don't fail the entire sync if roster fetching fails
-      }
-
-      // Fetch matchup rosters for all scoring periods
-      console.log('Fetching matchup rosters for all scoring periods...');
-      try {
-        const matchupRosterResult = await ctx.runAction(internal.matchupRosters.fetchMatchupRosters, {
-          leagueId: args.leagueId,
-          seasonId: currentYear,
-        });
-        
-        if (matchupRosterResult.success) {
-          console.log(`Successfully fetched matchup rosters for ${matchupRosterResult.successfulPeriods}/${matchupRosterResult.totalPeriods} periods`);
-        } else {
-          console.warn('Failed to fetch matchup rosters:', matchupRosterResult.message);
-        }
-      } catch (matchupRosterError) {
-        console.error('Error fetching matchup rosters:', matchupRosterError);
-        // Don't fail the entire sync if matchup roster fetching fails
-      }
-
-      // Note: Transaction processing is now handled via player transactions in the player sync section above
-      // The old communication message approach is deprecated
-
-      // Run data processing pipeline after successful sync
-      // Note: This would be called separately after sync completes
-      // to avoid circular dependencies and internal mutation issues
-      console.log("Sync completed. Data processing should be triggered separately.");
-
-      return {
-        success: true,
-        message: "League data synced successfully",
-        syncedAt: Date.now(),
-      };
-
-    } catch (error) {
-      console.error("Failed to sync ESPN league data:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown sync error",
-      };
-    }
-  },
-});
-
 export const updateTeams = internalMutation({
   args: {
     leagueId: v.id("leagues"),
@@ -679,6 +224,18 @@ export const updateTeams = internalMutation({
         pointsFor: v.optional(v.number()),
         pointsAgainst: v.optional(v.number()),
         playoffSeed: v.optional(v.number()),
+        // ESPN final-rank and form fields (refresh audit, Sept 2026) - the
+        // schema already carries these (`convex/schema.ts`'s `teams.record`);
+        // this args validator just used to drop them on the floor before
+        // they ever reached `ctx.db.insert`/`patch`.
+        rankCalculatedFinal: v.optional(v.number()),
+        rankFinal: v.optional(v.number()),
+        currentProjectedRank: v.optional(v.number()),
+        draftDayProjectedRank: v.optional(v.number()),
+        streakLength: v.optional(v.number()),
+        streakType: v.optional(v.string()),
+        gamesBack: v.optional(v.number()),
+        percentage: v.optional(v.number()),
         divisionRecord: v.optional(v.object({
           wins: v.number(),
           losses: v.number(),
@@ -900,13 +457,15 @@ export const updateMatchups = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const processedMatchupKeys = new Set<string>();
+    const payloadPeriods = new Set<number>();
 
     // Upsert matchups - update if exists, insert if new
     for (const matchupData of args.matchupsData) {
       // Create a unique key for this matchup
       const matchupKey = `${matchupData.matchupPeriod}-${matchupData.homeTeamId}-${matchupData.awayTeamId}`;
       processedMatchupKeys.add(matchupKey);
-      
+      payloadPeriods.add(matchupData.matchupPeriod);
+
       // Check if matchup already exists
       const existingMatchup = await ctx.db
         .query("matchups")
@@ -951,463 +510,40 @@ export const updateMatchups = internalMutation({
       }
     }
 
-    // Remove matchups that are no longer in the data
-    // This handles cases where matchups are removed or corrected
-    const allMatchupsForSeason = await ctx.db
-      .query("matchups")
-      .withIndex("by_league_season", (q) => 
-        q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
-      )
-      .collect();
+    // Remove matchups that are no longer in the data - guarded (ESPN refresh
+    // audit, gap 4.3/recommendation): a payload covering fewer periods than
+    // the league's own format implies is a partial or truncated sync, not a
+    // real schedule change, and must never be allowed to erase a season. A
+    // period the league has already closed out (`leagueSeasons.periodsFinal`)
+    // is additionally protected row-by-row even when the rest of the payload
+    // is complete - a finalized period has no business disappearing from a
+    // later sync's payload. The season row is read here (not passed in by
+    // the caller) so every call site gets this protection for free.
+    const season = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+      .first();
+    const periodsFinal = new Set(season?.periodsFinal ?? []);
+    const expectedPeriods = matchupPeriodIdsFromSettings(season?.settings);
+    const payloadIsComplete = payloadPeriods.size >= expectedPeriods.length;
 
-    for (const matchup of allMatchupsForSeason) {
-      const matchupKey = `${matchup.matchupPeriod}-${matchup.homeTeamId}-${matchup.awayTeamId}`;
-      if (!processedMatchupKeys.has(matchupKey)) {
-        // Safe to delete - this matchup no longer exists in the source data
-        await ctx.db.delete(matchup._id);
+    if (payloadIsComplete) {
+      const allMatchupsForSeason = await ctx.db
+        .query("matchups")
+        .withIndex("by_league_season", (q) =>
+          q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId)
+        )
+        .collect();
+
+      for (const matchup of allMatchupsForSeason) {
+        const matchupKey = `${matchup.matchupPeriod}-${matchup.homeTeamId}-${matchup.awayTeamId}`;
+        if (!processedMatchupKeys.has(matchupKey) && !periodsFinal.has(matchup.matchupPeriod)) {
+          // Safe to delete - this matchup no longer exists in the source
+          // data, the payload was complete, and this period isn't finalized.
+          await ctx.db.delete(matchup._id);
+        }
       }
     }
-  },
-});;
-
-export const syncHistoricalData = action({
-  args: {
-    leagueId: v.id("leagues"),
-    years: v.optional(v.array(v.number())), // If not provided, will sync last 10 seasons
-  },
-  handler: async (ctx, args) => {
-    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
-
-    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
-    
-    if (!league) {
-      throw new Error("League not found");
-    }
-
-    if (!league.espnData) {
-      throw new Error("No ESPN data found for league");
-    }
-
-    const currentYear = new Date().getFullYear();
-    const yearsToSync = args.years || Array.from({length: 10}, (_, i) => currentYear - (i + 1));
-
-    const results = [];
-
-    for (const year of yearsToSync) {
-      try {
-        const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${league.externalId}`;
-        
-        // Add fantasy filter for all matchup periods to get roster data
-        const creds = normalizeEspnCredentials(league.espnData);
-
-        // Get historical league data including player information
-        const { response: leagueResponse } = await fetchEspn(
-          `${baseUrl}?view=mSettings&view=mTeams&view=mStandings&view=mMatchup&view=mDraftDetail&view=players_wl&view=kona_player_info&view=mRoster&view=mBoxscore&view=mPositionalRatings&view=kona_playercard`,
-          { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(league.settings) } }
-        );
-
-        if (!leagueResponse.ok) {
-          console.warn(`Failed to fetch data for year ${year}: ${leagueResponse.status}`);
-          continue;
-        }
-
-        const leagueData = await leagueResponse.json();
-        
-        // Debug logging for historical data
-        if (year !== currentYear) {
-          console.log(`Historical data for ${year}:`, {
-            hasTeams: !!leagueData.teams,
-            teamsCount: leagueData.teams?.length || 0,
-            hasMembers: !!leagueData.members,
-            membersCount: leagueData.members?.length || 0,
-            hasStatus: !!leagueData.status,
-            sampleTeam: leagueData.teams?.[0] ? {
-              id: leagueData.teams[0].id,
-              name: leagueData.teams[0].name,
-              location: leagueData.teams[0].location,
-              nickname: leagueData.teams[0].nickname,
-              abbrev: leagueData.teams[0].abbrev,
-              hasRecord: !!leagueData.teams[0].record,
-              hasOwners: !!leagueData.teams[0].owners,
-              recordOverall: leagueData.teams[0].record?.overall,
-              owners: leagueData.teams[0].owners,
-              allKeys: Object.keys(leagueData.teams[0])
-            } : null,
-            sampleMember: leagueData.members?.[0] ? {
-              id: leagueData.members[0].id,
-              displayName: leagueData.members[0].displayName,
-              isLeagueManager: leagueData.members[0].isLeagueManager
-            } : null
-          });
-        }
-        const teams = leagueData.teams || [];
-        const members = leagueData.members || [];
-        const settings = leagueData.settings;
-        const schedule = leagueData.schedule || [];
-        const draftDetail = leagueData.draftDetail;
-
-        // Create a map of member IDs to member data for easy lookup
-        const memberMap = new Map();
-        members.forEach((member: any) => {
-          memberMap.set(member.id, member);
-        });
-        
-        // Log member map for debugging in historical data
-        if (year !== currentYear && members.length > 0) {
-          console.log(`Member data for ${year}:`, {
-            memberCount: members.length,
-            sampleMemberId: members[0].id,
-            memberMapSize: memberMap.size,
-            firstTeamOwner: teams[0]?.owners?.[0],
-            ownerInMap: teams[0]?.owners?.[0] ? memberMap.has(teams[0].owners[0]) : 'No owner'
-          });
-        }
-
-        // Helper function for roster data
-        // Note: The general league endpoint doesn't reliably return roster data
-        // We'll use fetchHistoricalRosters after team sync for accurate roster data
-        const getRosterData = (team: any) => {
-          // Return empty array - rosters will be fetched separately using fetchHistoricalRosters
-          return [];
-        };
-
-        // Helper function to get owner info with fallback logic
-      const getOwnerInfo = (team: any) => {
-        // First try to get owner from team.owners array
-        if (team.owners?.[0]) {
-          const owner = team.owners[0];
-          
-          // Check if owner is just a string ID (historical data) or an object (current data)
-          if (typeof owner === 'string') {
-            // Owner is just an ID, need to look up in members
-            const member = memberMap.get(owner);
-            if (member) {
-              return {
-                ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
-                ownerInfo: {
-                  displayName: member.displayName,
-                  firstName: member.firstName,
-                  lastName: member.lastName,
-                  id: member.id?.toString() || owner,
-                }
-              };
-            }
-          } else if (owner.displayName || owner.firstName || owner.lastName) {
-            // Owner is an object with properties
-            return {
-              ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
-              ownerInfo: {
-                displayName: owner.displayName,
-                firstName: owner.firstName,
-                lastName: owner.lastName,
-                id: owner.id?.toString(),
-              }
-            };
-          }
-        }
-          
-          // Fallback to member data using primaryOwner
-          if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
-            const member = memberMap.get(team.primaryOwner);
-            return {
-              ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
-              ownerInfo: {
-                displayName: member.displayName,
-                firstName: member.firstName,
-                lastName: member.lastName,
-                id: member.id?.toString(),
-              }
-            };
-          }
-          
-          // Last resort - try to find member by matching team name  
-          const matchingMember = members.find((m: any) => 
-            team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
-          );
-          if (matchingMember) {
-            return {
-              ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
-              ownerInfo: {
-                displayName: matchingMember.displayName,
-                firstName: matchingMember.firstName,
-                lastName: matchingMember.lastName,
-                id: matchingMember.id?.toString(),
-              }
-            };
-          }
-          
-          return {
-            ownerName: 'Unknown',
-            ownerInfo: undefined
-          };
-        };
-
-        // Process champion and runner-up from final standings
-        let champion, runnerUp, regularSeasonChamp;
-
-        // Bracket-derived results (`convex/lib/playoffs.ts#deriveSeasonResults`) are ground truth
-        // whenever this season's `schedule` has a decided championship game - preferred over every
-        // fallback below, none of which can tell a genuinely-final season from one whose ESPN
-        // payload was rolled over from a LATER season (verified in prod: 2025 stored champion
-        // "joey's Scary Team" - a 0-0 team, owner "Unknown" - actually a 2026 team; `rankCalculatedFinal`
-        // agreed with the bad payload, so that fallback alone could never have caught it). Left
-        // `undefined` (falls through to the fallback chain) when this season's bracket isn't decided
-        // yet or the derivation throws - never blocks the sync over it.
-        try {
-          const bracketMatchups = schedule.map((matchup: any) => ({
-            matchupPeriod: matchup.matchupPeriodId,
-            homeTeamId: matchup.home?.teamId?.toString() || '',
-            awayTeamId: matchup.away?.teamId?.toString() || '',
-            homeScore: matchup.home?.totalPoints || 0,
-            awayScore: matchup.away?.totalPoints || 0,
-            winner: matchup.winner === 'HOME' ? 'home' as const :
-                   matchup.winner === 'AWAY' ? 'away' as const :
-                   matchup.winner === 'TIE' ? 'tie' as const : undefined,
-            playoffTier: matchup.playoffTierType,
-          }));
-          const parsedSettings = parseEspnLeagueSettings(settings);
-          const derivedResults = deriveSeasonResults({
-            teams: teams.map((t: any) => ({
-              externalId: t.id?.toString() || '',
-              name: t.name || `${t.location ?? ''} ${t.nickname ?? ''}`.trim(),
-              record: {
-                wins: t.record?.overall?.wins || 0,
-                losses: t.record?.overall?.losses || 0,
-                ties: t.record?.overall?.ties || 0,
-                pointsFor: t.record?.overall?.pointsFor,
-                playoffSeed: t.playoffSeed,
-              },
-            })),
-            matchups: bracketMatchups,
-            format: {
-              playoffTeamCount: parsedSettings.playoffTeamCount,
-              regularSeasonMatchupPeriods: parsedSettings.regularSeasonMatchupPeriods,
-              playoffMatchupPeriodLength: parsedSettings.playoffMatchupPeriodLength,
-              playoffSeedingRule: parsedSettings.playoffSeedingRule,
-            },
-            // The whole season's matchups are already synced by this point in a historical-data
-            // sync, so the max matchup period is always at or past the championship - enough to put
-            // `buildPlayoffContext` in "final" mode when the bracket actually is decided.
-            throughWeek: bracketMatchups.length > 0 ? Math.max(...bracketMatchups.map((m: { matchupPeriod: number }) => m.matchupPeriod)) : 0,
-          });
-
-          if (derivedResults.champion) {
-            const teamById = (teamId: string) => teams.find((t: any) => t.id?.toString() === teamId);
-            champion = teamById(derivedResults.champion.teamId);
-            runnerUp = derivedResults.runnerUp ? teamById(derivedResults.runnerUp.teamId) : undefined;
-            regularSeasonChamp = derivedResults.regularSeasonChampion
-              ? teamById(derivedResults.regularSeasonChampion.teamId)
-              : undefined;
-          }
-        } catch (error) {
-          console.warn(`Bracket-derived season results failed for year ${year}, falling back to ESPN's own ranking fields:`, error);
-        }
-
-        // Fallback chain (pre-existing behaviour) - only runs when the bracket above didn't decide
-        // a champion (no playoff bracket in `schedule` yet, e.g. a season still in its regular
-        // season, or genuinely missing schedule data for a very old season).
-        if (!champion) {
-          // First try to use rankCalculatedFinal for the most accurate results
-          const finalRankings = teams
-            .filter((team: any) => team.rankCalculatedFinal)
-            .sort((a: any, b: any) => a.rankCalculatedFinal - b.rankCalculatedFinal);
-
-          if (finalRankings.length >= 2) {
-            champion = finalRankings[0]; // rankCalculatedFinal: 1
-            runnerUp = finalRankings[1];  // rankCalculatedFinal: 2
-          } else {
-            // Fallback: Use playoff seeds for completed seasons
-            const finalStandings = teams
-              .filter((team: any) => team.playoffSeed)
-              .sort((a: any, b: any) => a.playoffSeed - b.playoffSeed);
-
-            if (finalStandings.length >= 2) {
-              champion = finalStandings[0];
-              runnerUp = finalStandings[1];
-            } else {
-              // Last resort: Use best regular season records for historical data
-              const sortedByRecord = teams
-                .sort((a: any, b: any) => {
-                  const aWinPct = (a.record?.overall?.wins || 0) / ((a.record?.overall?.wins || 0) + (a.record?.overall?.losses || 0) || 1);
-                  const bWinPct = (b.record?.overall?.wins || 0) / ((b.record?.overall?.wins || 0) + (b.record?.overall?.losses || 0) || 1);
-                  if (aWinPct !== bWinPct) return bWinPct - aWinPct;
-                  return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
-                });
-
-              // Only set champion/runnerUp if we have valid record data
-              if (sortedByRecord[0]?.record?.overall?.wins > 0) {
-                champion = sortedByRecord[0];
-                runnerUp = sortedByRecord[1];
-              }
-            }
-          }
-        }
-
-        // Find regular season champion (best record) - only when the bracket above didn't already
-        // supply one (it did whenever it supplied a champion at all).
-        if (!regularSeasonChamp) {
-          regularSeasonChamp = teams
-            .sort((a: any, b: any) => {
-              const aWinPct = a.record?.overall?.wins / (a.record?.overall?.wins + a.record?.overall?.losses || 1);
-              const bWinPct = b.record?.overall?.wins / (b.record?.overall?.wins + b.record?.overall?.losses || 1);
-              if (aWinPct !== bWinPct) return bWinPct - aWinPct;
-              return (b.record?.overall?.pointsFor || 0) - (a.record?.overall?.pointsFor || 0);
-            })[0];
-        }
-
-        // Never write an obviously-corrupted result: a 0-0-0 champion while a playoff bracket
-        // exists in this sync is exactly the prod 2025 failure mode (a rolled-over payload's teams
-        // all read 0-0 against the WRONG season). Leaving these `undefined` here means
-        // `updateLeagueSeason` skips the field entirely rather than overwriting a possibly-correct
-        // existing value with a sync artifact.
-        const hasPlayoffBracketInSchedule = schedule.some((m: any) => m.playoffTierType === "WINNERS_BRACKET");
-        const isZeroRecord = (team: any) =>
-          !(team?.record?.overall?.wins || team?.record?.overall?.losses || team?.record?.overall?.ties);
-        if (hasPlayoffBracketInSchedule) {
-          if (champion && isZeroRecord(champion)) {
-            console.warn(`Refusing to write a 0-0 champion for year ${year} - a playoff bracket exists in the synced schedule.`);
-            champion = undefined;
-          }
-          if (runnerUp && isZeroRecord(runnerUp)) runnerUp = undefined;
-          if (regularSeasonChamp && isZeroRecord(regularSeasonChamp)) regularSeasonChamp = undefined;
-        }
-
-        // Create league season record
-        await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
-          leagueId: args.leagueId,
-          seasonId: year,
-          seasonData: {
-            settings: buildSeasonSettings(settings, league.name, teams.length).seasonSettings as any,
-            champion: champion ? {
-              teamId: champion.id?.toString() || '',
-              teamName: champion.name || champion.location + ' ' + champion.nickname,
-              owner: champion.owners?.[0]?.displayName || 
-                    (champion.owners?.[0]?.firstName && champion.owners?.[0]?.lastName 
-                      ? `${champion.owners[0].firstName} ${champion.owners[0].lastName}` 
-                      : champion.owners?.[0]?.firstName || champion.owners?.[0]?.lastName || 'Unknown'),
-              record: {
-                wins: champion.record?.overall?.wins || 0,
-                losses: champion.record?.overall?.losses || 0,
-                ties: champion.record?.overall?.ties || 0,
-              },
-              pointsFor: champion.record?.overall?.pointsFor,
-            } : undefined,
-            runnerUp: runnerUp ? {
-              teamId: runnerUp.id?.toString() || '',
-              teamName: runnerUp.name || runnerUp.location + ' ' + runnerUp.nickname,
-              owner: runnerUp.owners?.[0]?.displayName || 
-                    (runnerUp.owners?.[0]?.firstName && runnerUp.owners?.[0]?.lastName 
-                      ? `${runnerUp.owners[0].firstName} ${runnerUp.owners[0].lastName}` 
-                      : runnerUp.owners?.[0]?.firstName || runnerUp.owners?.[0]?.lastName || 'Unknown'),
-              record: {
-                wins: runnerUp.record?.overall?.wins || 0,
-                losses: runnerUp.record?.overall?.losses || 0,
-                ties: runnerUp.record?.overall?.ties || 0,
-              },
-              pointsFor: runnerUp.record?.overall?.pointsFor,
-            } : undefined,
-            regularSeasonChampion: regularSeasonChamp ? {
-              teamId: regularSeasonChamp.id?.toString() || '',
-              teamName: regularSeasonChamp.name || regularSeasonChamp.location + ' ' + regularSeasonChamp.nickname,
-              owner: regularSeasonChamp.owners?.[0]?.displayName || 
-                    (regularSeasonChamp.owners?.[0]?.firstName && regularSeasonChamp.owners?.[0]?.lastName 
-                      ? `${regularSeasonChamp.owners[0].firstName} ${regularSeasonChamp.owners[0].lastName}` 
-                      : regularSeasonChamp.owners?.[0]?.firstName || regularSeasonChamp.owners?.[0]?.lastName || 'Unknown'),
-              record: {
-                wins: regularSeasonChamp.record?.overall?.wins || 0,
-                losses: regularSeasonChamp.record?.overall?.losses || 0,
-                ties: regularSeasonChamp.record?.overall?.ties || 0,
-              },
-              pointsFor: regularSeasonChamp.record?.overall?.pointsFor,
-            } : undefined,
-            // Always provide draftInfo when draftDetail exists
-            draftInfo: draftDetail ? {
-              draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
-              draftType: draftDetail.type,
-              timePerPick: draftDetail.timePerPick,
-              drafted: draftDetail.drafted,
-              inProgress: draftDetail.inProgress,
-            } : undefined,
-          }
-        });
-
-        // Sync teams for this historical season
-        await ctx.runMutation(internal.espnSync.updateTeams, {
-          leagueId: args.leagueId,
-          seasonId: year,
-          teamsData: teams.map((team: any) => {
-            const { ownerName, ownerInfo } = getOwnerInfo(team);
-            return {
-              externalId: team.id.toString(),
-              name: team.name || 
-                    (team.location && team.nickname ? `${team.location} ${team.nickname}` : 
-                     team.location || team.nickname || `Team ${team.id}` || 'Unknown Team'),
-              abbreviation: team.abbrev,
-              location: team.location,
-              nickname: team.nickname,
-              logo: team.logo || team.logoURL || team.logoUrl || undefined,
-              owner: ownerName,
-              ownerInfo: ownerInfo,
-            record: {
-              wins: team.record?.overall?.wins || 0,
-              losses: team.record?.overall?.losses || 0,
-              ties: team.record?.overall?.ties || 0,
-              pointsFor: team.record?.overall?.pointsFor || 0,
-              pointsAgainst: team.record?.overall?.pointsAgainst || 0,
-              playoffSeed: team.playoffSeed,
-              divisionRecord: team.record?.division ? {
-                wins: team.record.division.wins || 0,
-                losses: team.record.division.losses || 0,
-                ties: team.record.division.ties || 0,
-              } : undefined,
-            },
-            roster: getRosterData(team),
-            divisionId: team.divisionId,
-            transactionCounter: team.transactionCounter,
-            waiverRank: team.waiverRank,
-            };
-          })
-        });
-
-        // Sync matchups for historical season if available
-        if (schedule.length > 0) {
-          await ctx.runMutation(internal.espnSync.updateMatchups, {
-            leagueId: args.leagueId,
-            seasonId: year,
-            matchupsData: schedule.map((matchup: any) => ({
-              matchupPeriod: matchup.matchupPeriodId,
-              scoringPeriod: matchup.id,
-              homeTeamId: matchup.home?.teamId?.toString() || '',
-              awayTeamId: matchup.away?.teamId?.toString() || '',
-              homeScore: matchup.home?.totalPoints || 0,
-              awayScore: matchup.away?.totalPoints || 0,
-              homeProjectedScore: matchup.home?.totalProjectedPoints,
-              awayProjectedScore: matchup.away?.totalProjectedPoints,
-              homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
-              awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
-              winner: matchup.winner === 'HOME' ? 'home' as const : 
-                     matchup.winner === 'AWAY' ? 'away' as const : 
-                     matchup.winner === 'TIE' ? 'tie' as const : undefined,
-              playoffTier: matchup.playoffTierType,
-              // Transform and clean roster data from current scoring period
-              homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
-              awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
-            }))
-          });
-        }
-
-        results.push({ year, success: true });
-      } catch (error) {
-        console.error(`Failed to sync historical data for year ${year}:`, error);
-        results.push({ year, success: false, error: error instanceof Error ? error.message : 'Unknown error' });
-      }
-    }
-
-    return {
-      success: true,
-      results,
-      message: `Historical data sync completed for years: ${yearsToSync.join(', ')}`,
-    };
   },
 });
 
@@ -1706,7 +842,12 @@ export const updateSeasonDraftData = internalMutation({
 // credentials" (401/403) apart from "ESPN is having a bad day" (429/5xx) -
 // only the former should flip a league's stored credentialStatus to
 // "invalid" and page an operator.
-const validateEspnCredentials = async (leagueId: string, espnS2?: string, swid?: string): Promise<{
+const validateEspnCredentials = async (
+  leagueId: string,
+  espnS2?: string,
+  swid?: string,
+  currentSeasonId?: number
+): Promise<{
   isValid: boolean;
   classification: EspnStatusClassification;
   error?: string;
@@ -1717,8 +858,11 @@ const validateEspnCredentials = async (leagueId: string, espnS2?: string, swid?:
   }
 
   try {
-    const currentYear = new Date().getFullYear();
-    const testUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${leagueId}?view=mSettings`;
+    // Probe the same season every other sync path treats as "current"
+    // (`currentSeasonForLeague`) - a caller with no league doc handy (none
+    // today) falls back to the raw wall-clock NFL season year.
+    const seasonId = currentSeasonId ?? currentSeasonForLeague(null);
+    const testUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${seasonId}/segments/0/leagues/${leagueId}?view=mSettings`;
 
     const { response, classification } = await fetchEspn(testUrl, { creds });
 
@@ -1758,7 +902,8 @@ export const validateStoredCredentials = internalAction({
     const credentialsCheck = await validateEspnCredentials(
       league.externalId,
       league.espnData.espnS2,
-      league.espnData.swid
+      league.espnData.swid,
+      currentSeasonForLeague(league)
     );
 
     if (credentialsCheck.isValid) {
@@ -1841,7 +986,8 @@ export const syncAllLeagueData = action({
       const credentialsCheck = await validateEspnCredentials(
         league.externalId,
         league.espnData.espnS2,
-        league.espnData.swid
+        league.espnData.swid,
+        currentSeasonForLeague(league)
       );
 
       await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
@@ -1855,7 +1001,12 @@ export const syncAllLeagueData = action({
       }
     }
 
-    const currentYear = new Date().getFullYear();
+    // Aug->Jul, not the raw calendar year (ESPN refresh audit, section 2 -
+    // rollover): fixes both "Sync now" starting to request the WRONG season
+    // the moment the calendar rolls over on Jan 1 (weeks before the NFL
+    // season, and this app's own convention, treat it as over), and
+    // dashboard-refresh callers that pass no `historicalYears` at all.
+    const currentYear = currentSeasonForLeague(league);
     const includeCurrentSeason = args.includeCurrentSeason ?? true;
     const yearsBack = args.historicalYears ?? 10;
     
@@ -2149,7 +1300,7 @@ export const syncAllLeagueData = action({
           }
 
           // Only include draft picks if draft has actually occurred
-          if (draftDetail?.drafted === 1 && draftDetail.picks) {
+          if (isDrafted(draftDetail) && draftDetail.picks) {
             seasonData.draft = draftDetail.picks;
           }
 
@@ -2282,6 +1433,15 @@ export const syncAllLeagueData = action({
               pointsFor: team.record?.overall?.pointsFor || 0,
               pointsAgainst: team.record?.overall?.pointsAgainst || 0,
               playoffSeed: team.playoffSeed,
+              // ESPN final-rank and form fields (refresh audit, Sept 2026).
+              rankCalculatedFinal: team.rankCalculatedFinal,
+              rankFinal: team.rankFinal,
+              currentProjectedRank: team.currentProjectedRank,
+              draftDayProjectedRank: team.draftDayProjectedRank,
+              streakLength: team.record?.overall?.streakLength,
+              streakType: team.record?.overall?.streakType,
+              gamesBack: team.record?.overall?.gamesBack,
+              percentage: team.record?.overall?.percentage,
               divisionRecord: team.record?.division ? {
                 wins: team.record.division.wins || 0,
                 losses: team.record.division.losses || 0,
@@ -2307,10 +1467,10 @@ export const syncAllLeagueData = action({
           })
         });
 
-        // Carry manager <-> team claims forward from the prior season, same as
-        // `syncLeagueData` does - but only for the current season, since a
-        // rollover only ever makes sense against "this season's teams now
-        // exist". Never let a rollover problem fail the sync itself.
+        // Carry manager <-> team claims forward from the prior season - only
+        // for the current season, since a rollover only ever makes sense
+        // against "this season's teams now exist". Never let a rollover
+        // problem fail the sync itself.
         if (year === currentYear) {
           try {
             await ctx.runMutation(internal.claimRollover.rollForwardClaims, {
@@ -2435,6 +1595,32 @@ export const syncAllLeagueData = action({
             currentScoringPeriod: currentScoringPeriod,
             seasonId: currentYear,
           });
+
+          // FAAB waiver-wire report data (audit gap 4.5): "Sync now" used to
+          // never call this, so the button's own copy ("happens
+          // automatically... before every story") was false for the
+          // transaction log specifically. Same [cur, cur-1] / full-season-
+          // backfill choice the 4-hourly cron makes. Never fatal.
+          if (typeof currentScoringPeriod === "number" && currentScoringPeriod > 0) {
+            try {
+              const hasLog: boolean = await ctx.runQuery(internal.espnSync.hasTransactionLogForSeason, {
+                leagueId: args.leagueId,
+                seasonId: currentYear,
+              });
+
+              const periodsToSync: number[] = hasLog
+                ? [currentScoringPeriod, ...(currentScoringPeriod > 1 ? [currentScoringPeriod - 1] : [])]
+                : Array.from({ length: currentScoringPeriod }, (_, i) => i + 1);
+
+              await ctx.runAction(internal.espnSync.syncTransactionLog, {
+                leagueId: args.leagueId,
+                seasonId: currentYear,
+                scoringPeriods: periodsToSync,
+              });
+            } catch (transactionLogError) {
+              console.error(`Error syncing transaction log for league ${league.name}:`, transactionLogError);
+            }
+          }
         }
 
         // Fetch rosters for each year after teams are synced
@@ -2625,11 +1811,12 @@ async function fetchHistoricalRostersImpl(
     // Validate ESPN credentials if league is private
     if (league.espnData.isPrivate) {
       const credentialsCheck = await validateEspnCredentials(
-        league.externalId, 
-        league.espnData.espnS2, 
-        league.espnData.swid
+        league.externalId,
+        league.espnData.espnS2,
+        league.espnData.swid,
+        currentSeasonForLeague(league)
       );
-      
+
       if (!credentialsCheck.isValid) {
         throw new Error(`ESPN credentials invalid: ${credentialsCheck.error}. Please re-authenticate with ESPN.`);
       }
@@ -2646,12 +1833,12 @@ async function fetchHistoricalRostersImpl(
     }
 
     // Filter teams if specific teamIds provided
-    const teamsToFetch = args.teamIds 
+    const teamsToFetch = args.teamIds
       ? teams.filter((team: any) => args.teamIds!.includes(team.externalId))
       : teams;
 
     // Check if draft has occurred for current season - skip roster fetching if not
-    const currentYear = new Date().getFullYear();
+    const currentYear = currentSeasonForLeague(league);
     if (args.seasonId === currentYear) {
       // For current season, check draft status before fetching rosters
       try {
@@ -2662,8 +1849,11 @@ async function fetchHistoricalRostersImpl(
 
         if (leagueResponse.ok) {
           const leagueData = await leagueResponse.json();
-          // Check if draft has occurred (draftDate should be 1 when drafted)
-          if (leagueData.draftDetail?.drafted !== 1) {
+          // Check if the draft has actually occurred - ESPN sends a BOOLEAN
+          // on `drafted` (see `isDrafted`'s doc comment); this used to
+          // compare `!== 1`, which is always true, so the current season's
+          // roster fetch always bailed here even after the draft.
+          if (!isDrafted(leagueData.draftDetail)) {
             return {
               success: false,
               totalTeams: teamsToFetch.length,
@@ -2808,20 +1998,27 @@ export const fetchHistoricalRostersInternal = internalAction({
   args: fetchHistoricalRostersArgs,
   handler: async (ctx, args): Promise<FetchHistoricalRostersResult> => fetchHistoricalRostersImpl(ctx, args),
 });
-// Action to fetch draft data for a specific season
-export const fetchDraftDataForSeason = action({
-  args: {
-    leagueId: v.id("leagues"),
-    seasonId: v.number(),
-  },
-  handler: async (ctx, args): Promise<{
-    success: boolean;
-    message: string;
-    error?: string;
-    picksCount?: number;
-  }> => {
-    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
-
+/**
+ * Shared implementation for `fetchDraftDataForSeason` (below, commissioner-
+ * gated) and `fetchDraftDataForSeasonInternal` (the season-closed pull's
+ * internal twin - see `convex/seasonSync.ts`). `internal.playerSync.syncAllPlayers`
+ * is skipped rather than called: it requires a user identity
+ * (`requireLeagueMemberFromAction`/`requireIdentity`), which the internal
+ * path (a cron/scheduled job, no caller) doesn't have; the season-closed job
+ * already refreshes the player pool separately
+ * (`playerSync.syncAllLeaguePlayerStats`), so this is a genuine skip, not a
+ * silent failure.
+ */
+async function fetchDraftDataForSeasonImpl(
+  ctx: ActionCtx,
+  args: { leagueId: Id<"leagues">; seasonId: number },
+  opts: { syncPlayerPool: boolean }
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+  picksCount?: number;
+}> {
     const league: any = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
 
     if (!league) {
@@ -2835,11 +2032,12 @@ export const fetchDraftDataForSeason = action({
     // Validate ESPN credentials if league is private
     if (league.espnData.isPrivate) {
       const credentialsCheck = await validateEspnCredentials(
-        league.externalId, 
-        league.espnData.espnS2, 
-        league.espnData.swid
+        league.externalId,
+        league.espnData.espnS2,
+        league.espnData.swid,
+        currentSeasonForLeague(league)
       );
-      
+
       if (!credentialsCheck.isValid) {
         throw new Error(`ESPN credentials invalid: ${credentialsCheck.error}. Please re-authenticate with ESPN.`);
       }
@@ -2847,7 +2045,7 @@ export const fetchDraftDataForSeason = action({
 
     try {
       console.log(`Fetching draft data for season ${args.seasonId}...`);
-      
+
       const baseUrl = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${args.seasonId}/segments/0/leagues/${league.externalId}`;
 
       // Add fantasy filter for all matchup periods to get comprehensive data
@@ -2886,18 +2084,23 @@ export const fetchDraftDataForSeason = action({
       }
 
       // Sync all player data for this season to ensure comprehensive playersEnhanced table
-      try {
-        await ctx.runAction(api.playerSync.syncAllPlayers, {
-          season: args.seasonId,
-          forceUpdate: false,
-          leagueId: args.leagueId,
-        });
-      } catch (playerSyncError) {
-        console.warn("Failed to sync all players data for season, continuing with draft data sync:", playerSyncError);
+      if (opts.syncPlayerPool) {
+        try {
+          await ctx.runAction(api.playerSync.syncAllPlayers, {
+            season: args.seasonId,
+            forceUpdate: false,
+            leagueId: args.leagueId,
+          });
+        } catch (playerSyncError) {
+          console.warn("Failed to sync all players data for season, continuing with draft data sync:", playerSyncError);
+        }
       }
 
-      // Get existing season record
-      const existingSeason = await ctx.runQuery(api.leagues.getLeagueSeasonByYear, {
+      // Get existing season record (internal-only lookup: the public
+      // `leagues.getLeagueSeasonByYear` requires an authenticated member and
+      // returns null otherwise, which is exactly what a cron/internal caller
+      // has - it would silently look like "no season exists yet" every time).
+      const existingSeason = await ctx.runQuery(internal.espnSync.getLeagueSeasonInternal, {
         leagueId: args.leagueId,
         seasonId: args.seasonId,
       });
@@ -2973,8 +2176,51 @@ export const fetchDraftDataForSeason = action({
         error: error instanceof Error ? error.message : "Unknown error",
       };
     }
+}
+
+// Action to fetch draft data for a specific season
+export const fetchDraftDataForSeason = action({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireLeagueMemberFromAction(ctx, args.leagueId, { commissioner: true });
+    return fetchDraftDataForSeasonImpl(ctx, args, { syncPlayerPool: true });
   },
 });
+
+/**
+ * Internal twin of `fetchDraftDataForSeason` - no commissioner gate (a
+ * cron/scheduled caller has no identity to check), same body. Used by the
+ * season-closed pull (`convex/seasonSync.ts`) to fix the automatic sync's
+ * long-standing bug where `leagueSeasons.draft` was only ever written by the
+ * manual "Draft data" button (audit gap 4.6).
+ */
+export const fetchDraftDataForSeasonInternal = internalAction({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args) => fetchDraftDataForSeasonImpl(ctx, args, { syncPlayerPool: false }),
+});
+
+/** Internal-only lookup of a `leagueSeasons` row by (leagueId, seasonId) -
+ * see `fetchDraftDataForSeasonImpl`'s doc comment for why this exists
+ * alongside the public, identity-gated `leagues.getLeagueSeasonByYear`. */
+export const getLeagueSeasonInternal = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+      .first();
+  },
+});
+
 // Enhanced sync function that includes historical roster fetching
 export const syncAllDataWithRosters = action({
   args: {
@@ -3088,345 +2334,6 @@ export const updateLeagueSync = internalMutation({
   },
 });
 
-// DEPRECATED: Old transaction processing from communication messages
-// Now using player transactions directly
-// export const processTransactionData = action({
-//   args: {
-//     leagueId: v.id("leagues"),
-//     seasonId: v.number(),
-//     messages: v.array(v.any()),
-//     teams: v.array(v.object({
-//       id: v.string(),
-//       name: v.string(),
-//       owner: v.string(),
-//     })),
-//   },
-//   handler: async (ctx, args) => {
-//     const processedTransactions = [];
-//     const processedTrades = [];
-//     
-//     // Create team lookup map
-//     const teamMap = new Map(args.teams.map(t => [t.id, t]));
-//     
-//     for (const message of args.messages) {
-//       const messageType = message.messageTypeId;
-//       const date = message.date || Date.now();
-//       
-//       // Process different transaction types
-//       if (messageType === 244 || messageType === 188) { // Trade messages
-//         const tradeData = await processTradeMessage(message, teamMap);
-//         if (tradeData) {
-//           processedTrades.push({
-//             ...tradeData,
-//             leagueId: args.leagueId,
-//             seasonId: args.seasonId,
-//             tradeDate: date,
-//           });
-//         }
-//       } else if (messageType === 178 || messageType === 180 || messageType === 179) { 
-//         // Waiver claim (178), Free agent add (180), Drop (179)
-//         const transactionData = await processTransactionMessage(message, teamMap);
-//         if (transactionData) {
-//           processedTransactions.push({
-//             ...transactionData,
-//             leagueId: args.leagueId,
-//             seasonId: args.seasonId,
-//             transactionDate: date,
-//           });
-//         }
-//       }
-//     }
-//     
-//     // Store trades
-//     if (processedTrades.length > 0) {
-//       await ctx.runMutation(api.espnSync.storeTrades, {
-//         trades: processedTrades,
-//       });
-//     }
-//     
-//     // Store transactions
-//     if (processedTransactions.length > 0) {
-//       await ctx.runMutation(api.espnSync.storeTransactions, {
-//         transactions: processedTransactions,
-//       });
-//     }
-//     
-//     console.log(`Processed ${processedTrades.length} trades and ${processedTransactions.length} transactions`);
-//     
-//     return {
-//       tradesProcessed: processedTrades.length,
-//       transactionsProcessed: processedTransactions.length,
-//     };
-//   },
-// });
-
-// Helper function to process trade messages
-async function processTradeMessage(message: any, teamMap: Map<string, any>) {
-  try {
-    // ESPN trade messages contain targetId (receiving team) and messages array with player details
-    const teamAId = message.author?.toString();
-    const teamBId = message.targetId?.toString();
-    
-    if (!teamAId || !teamBId || !teamMap.has(teamAId) || !teamMap.has(teamBId)) {
-      return null;
-    }
-    
-    const teamA = teamMap.get(teamAId)!;
-    const teamB = teamMap.get(teamBId)!;
-    
-    // Parse players from message - this structure varies by ESPN version
-    const playersFromA: any[] = [];
-    const playersFromB: any[] = [];
-    
-    // ESPN often embeds player info in the messages array
-    if (message.messages && Array.isArray(message.messages)) {
-      message.messages.forEach((msg: any) => {
-        if (msg.playerId && msg.fromTeamId && msg.toTeamId) {
-          const player = {
-            playerId: msg.playerId.toString(),
-            playerName: msg.playerName || 'Unknown Player',
-            position: msg.playerPosition || 'Unknown',
-            team: msg.playerProTeam || 'FA',
-          };
-          
-          if (msg.fromTeamId.toString() === teamAId) {
-            playersFromA.push(player);
-          } else if (msg.fromTeamId.toString() === teamBId) {
-            playersFromB.push(player);
-          }
-        }
-      });
-    }
-    
-    // Only create trade if we found players
-    if (playersFromA.length === 0 && playersFromB.length === 0) {
-      return null;
-    }
-    
-    return {
-      teamA: {
-        teamId: teamAId,
-        teamName: teamA.name,
-        manager: teamA.owner,
-      },
-      teamB: {
-        teamId: teamBId,
-        teamName: teamB.name,
-        manager: teamB.owner,
-      },
-      playersFromTeamA: playersFromA,
-      playersFromTeamB: playersFromB,
-      status: 'completed' as const,
-    };
-  } catch (error) {
-    console.error('Error processing trade message:', error);
-    return null;
-  }
-}
-
-// Helper function to process waiver/FA transactions
-async function processTransactionMessage(message: any, teamMap: Map<string, any>) {
-  try {
-    const teamId = message.author?.toString();
-    if (!teamId || !teamMap.has(teamId)) {
-      return null;
-    }
-    
-    const team = teamMap.get(teamId)!;
-    const messageType = message.messageTypeId;
-    
-    // Parse transaction details from message
-    let transactionType: 'add' | 'drop' | 'add_drop' | 'waiver_claim';
-    let playerAdded = undefined;
-    let playerDropped = undefined;
-    
-    // Extract player info from messages array
-    if (message.messages && Array.isArray(message.messages)) {
-      message.messages.forEach((msg: any) => {
-        if (msg.playerId) {
-          const player = {
-            playerId: msg.playerId.toString(),
-            playerName: msg.playerName || 'Unknown Player',
-            position: msg.playerPosition || 'Unknown',
-            team: msg.playerProTeam || 'FA',
-          };
-          
-          if (messageType === 180 || messageType === 178) { // Add or Waiver
-            playerAdded = player;
-            transactionType = messageType === 178 ? 'waiver_claim' : 'add';
-          } else if (messageType === 179) { // Drop
-            playerDropped = player;
-            transactionType = 'drop';
-          }
-        }
-      });
-    }
-    
-    // Handle add/drop combo
-    if (playerAdded && playerDropped) {
-      transactionType = 'add_drop';
-    }
-    
-    if (!playerAdded && !playerDropped) {
-      return null;
-    }
-    
-    return {
-      teamId,
-      teamName: team.name,
-      manager: team.owner,
-      transactionType: transactionType!,
-      playerAdded,
-      playerDropped,
-      waiverPriority: message.waiverOrder,
-      isSuccessful: true,
-    };
-  } catch (error) {
-    console.error('Error processing transaction message:', error);
-    return null;
-  }
-}
-
-// Store trades in database
-export const storeTrades = internalMutation({
-  args: {
-    trades: v.array(v.object({
-      leagueId: v.id("leagues"),
-      seasonId: v.number(),
-      tradeDate: v.number(),
-      teamA: v.object({
-        teamId: v.string(),
-        teamName: v.string(),
-        manager: v.string(),
-      }),
-      teamB: v.object({
-        teamId: v.string(),
-        teamName: v.string(),
-        manager: v.string(),
-      }),
-      playersFromTeamA: v.array(v.object({
-        playerId: v.string(),
-        playerName: v.string(),
-        position: v.string(),
-        team: v.string(),
-      })),
-      playersFromTeamB: v.array(v.object({
-        playerId: v.string(),
-        playerName: v.string(),
-        position: v.string(),
-        team: v.string(),
-      })),
-      status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("rejected"), v.literal("completed")),
-    })),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    
-    for (const trade of args.trades) {
-      // Check if trade already exists (by date and teams)
-      const existingTrade = await ctx.db
-        .query("trades")
-        .withIndex("by_date", q => 
-          q.eq("leagueId", trade.leagueId)
-           .eq("tradeDate", trade.tradeDate)
-        )
-        .filter(q => 
-          q.and(
-            q.eq(q.field("teamA.teamId"), trade.teamA.teamId),
-            q.eq(q.field("teamB.teamId"), trade.teamB.teamId)
-          )
-        )
-        .first();
-      
-      if (!existingTrade) {
-        const tradeId = await ctx.db.insert("trades", {
-          ...trade,
-          createdAt: now,
-          updatedAt: now,
-        });
-        
-        // Trigger trade analysis content generation
-        try {
-          await ctx.scheduler.runAfter(0, internal.contentScheduling.triggerEventBasedContent, {
-            leagueId: trade.leagueId,
-            eventType: "trade_occurred",
-            eventData: {
-              tradeId,
-              tradeDate: trade.tradeDate,
-              teamA: trade.teamA,
-              teamB: trade.teamB,
-            },
-          });
-        } catch (error) {
-          console.error("Failed to trigger trade analysis content:", error);
-        }
-      }
-    }
-  },
-});
-
-// DEPRECATED: Old transaction storage using simplified format
-// This mutation is no longer used - transactions are now stored via storePlayerTransactions
-// which uses the ESPN transaction format matching the schema
-// export const storeTransactions = mutation({
-//   args: {
-//     transactions: v.array(v.object({
-//       leagueId: v.id("leagues"),
-//       seasonId: v.number(),
-//       transactionDate: v.number(),
-//       transactionType: v.union(
-//         v.literal("add"),
-//         v.literal("drop"),
-//         v.literal("add_drop"),
-//         v.literal("waiver_claim"),
-//         v.literal("trade")
-//       ),
-//       teamId: v.string(),
-//       teamName: v.string(),
-//       manager: v.string(),
-//       playerAdded: v.optional(v.object({
-//         playerId: v.string(),
-//         playerName: v.string(),
-//         position: v.string(),
-//         team: v.string(),
-//       })),
-//       playerDropped: v.optional(v.object({
-//         playerId: v.string(),
-//         playerName: v.string(),
-//         position: v.string(),
-//         team: v.string(),
-//       })),
-//       waiverPriority: v.optional(v.number()),
-//       isSuccessful: v.optional(v.boolean()),
-//     })),
-//   },
-//   handler: async (ctx, args) => {
-//     const now = Date.now();
-//     
-//     for (const transaction of args.transactions) {
-//       // Check if transaction already exists
-//       const existingTransaction = await ctx.db
-//         .query("transactions")
-//         .withIndex("by_date", q => 
-//           q.eq("leagueId", transaction.leagueId)
-//            .eq("transactionDate", transaction.transactionDate)
-//         )
-//         .filter(q => 
-//           q.eq(q.field("teamId"), transaction.teamId)
-//         )
-//         .first();
-//       
-//       if (!existingTransaction) {
-//         await ctx.db.insert("transactions", {
-//           ...transaction,
-//           createdAt: now,
-//         });
-//       }
-//     }
-//   },
-// });
-
-// Sync player transactions from ESPN data
 export const syncPlayerTransactions = internalAction({
   args: {
     leagueId: v.id("leagues"),
@@ -3681,6 +2588,11 @@ export const upsertTransactions = internalMutation({
     const now = Date.now();
     let inserted = 0;
     let updated = 0;
+    // TRADE_ACCEPT rows this call actually wrote (inserted or updated) - fed
+    // to `tradesSync.deriveTradesForTransactionIds` below so the `trades`
+    // table (and `trade_occurred` content event) stay derived from the same
+    // transaction log this mutation is the one writer of (audit gap 4.10).
+    const tradeAcceptIds: string[] = [];
 
     for (const transaction of args.transactions) {
       const existing = await ctx.db
@@ -3695,6 +2607,16 @@ export const upsertTransactions = internalMutation({
         await ctx.db.patch(existing._id, { ...transaction, createdAt: existing.createdAt });
         updated++;
       }
+
+      if (transaction.type === "TRADE_ACCEPT") {
+        tradeAcceptIds.push(transaction.espnTransactionId);
+      }
+    }
+
+    if (tradeAcceptIds.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.tradesSync.deriveTradesForTransactionIds, {
+        espnTransactionIds: tradeAcceptIds,
+      });
     }
 
     return { inserted, updated };
@@ -3703,9 +2625,9 @@ export const upsertTransactions = internalMutation({
 
 /**
  * Whether any transaction_log-sourced row exists for this league/season -
- * the "first sync of a season" signal `syncOneLeagueCurrentSeasonBody` and
- * `syncLeagueData` use to decide between a full 1..current backfill and the
- * normal current+previous-period fetch.
+ * the "first sync of a season" signal `syncOneLeagueCurrentSeasonBody` (this
+ * file) uses to decide between a full 1..current backfill and the normal
+ * current+previous-period fetch.
  */
 export const hasTransactionLogForSeason = internalQuery({
   args: {
@@ -3821,20 +2743,552 @@ async function alertInvalidEspnCredentials(
   });
 }
 
-// Sync current season data for all leagues - optimized for frequent updates HELLO WORLD
+/** Only the fields `syncSeasonCore` needs to know about an unfinalized
+ * previous season - fed to `seasonsToSync` (`convex/lib/seasonToSync.ts`). */
+export const getLeagueSeasonsForSyncInternal = internalQuery({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args): Promise<Array<{ seasonId: number; finalizedAt?: number }>> => {
+    const seasons = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .collect();
+    return seasons.map((s) => ({ seasonId: s.seasonId, finalizedAt: s.finalizedAt }));
+  },
+});
+
+/** Stamps `leagueSeasons.lastFullSyncAt` - "this season was pulled in full
+ * (settings, teams, matchups, draft, player-feed transactions) just now".
+ * Called by `syncSeasonCore` on every successful pull, current season or not. */
+export const stampLeagueSeasonFullSync = internalMutation({
+  args: { leagueId: v.id("leagues"), seasonId: v.number() },
+  handler: async (ctx, args) => {
+    const season = await ctx.db
+      .query("leagueSeasons")
+      .withIndex("by_league_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", args.seasonId))
+      .first();
+    if (season) {
+      await ctx.db.patch(season._id, { lastFullSyncAt: Date.now() });
+    }
+  },
+});
+
 /**
- * The per-league sync body used by both the 4-hourly `syncAllLeaguesCurrentSeason`
- * cron (looping over every league) and `syncOneLeagueCurrentSeason` (a single
- * targeted re-sync, e.g. the post-draft follow-up jobs scheduled from
- * `updateLeagueSeason`). Extracted so both paths run the exact same rollover,
- * data-processing, and credential-alert hooks - no behaviour change for the
- * cron; `syncAllLeaguesCurrentSeason`'s loop just calls this once per league
- * and tallies the result instead of pushing/incrementing inline.
+ * Stamps only `espnData.lastSyncedAt`/`lastSync` - for a successful
+ * `alsoSync` (previous-season) pull, which must NOT touch
+ * `espnData.seasonId`/`currentScoringPeriod` (those describe the season the
+ * league is actually ON; `updateLeagueSync` is the one that sets them, and
+ * only ever runs for the current season). Without this, a previous season
+ * refreshing successfully while `current` 404s (ESPN hasn't opened it yet)
+ * would leave `lastSyncedAt` looking frozen even though the league WAS just
+ * synced (seasonToSync.ts's rollover contract).
+ */
+export const touchLeagueLastSynced = internalMutation({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league?.espnData) return;
+    await ctx.db.patch(args.leagueId, {
+      espnData: { ...league.espnData, lastSyncedAt: Date.now() },
+      lastSync: Date.now(),
+    });
+  },
+});
+
+/**
+ * One MAIN17 pull for `seasonId` plus the upsert chain every full-season
+ * sync shares: `updateLeagueSeason` (settings/draftInfo/draftSettings/draft
+ * picks - NEVER champion/runnerUp/regularSeasonChampion; the bracket-derived
+ * season-closed job in `convex/seasonSync.ts` owns those and would have its
+ * write clobbered on the very next liveness-cron tick otherwise),
+ * `updateTeams` (record incl. ESPN's final-rank/streak fields, owners,
+ * roster straight from the payload, transactionCounter), `updateMatchups`
+ * (guarded against a partial payload / already-finalized periods - see that
+ * mutation), and player-feed transactions (`updatePlayers` +
+ * `syncPlayerTransactions`). `opts.isCurrentSeason` gates the two writes that
+ * must never apply to a stale `alsoSync` season: `mirrorSeasonSettings`
+ * (`leagues.settings` is a CURRENT-season mirror) and `updateLeagueSync`
+ * (which stamps `leagues.espnData.seasonId` - doing that for last season
+ * would silently undo rollover on every run).
+ *
+ * Shared by `syncOneLeagueCurrentSeasonBody` (below - the liveness/cron path,
+ * which layers on its own extras: claim rollover, derived-metrics
+ * scheduling, the transaction log, and roster/matchup-roster refresh) and
+ * the internal `syncSeasonSnapshot` (a single targeted pull for one season,
+ * with none of those extras - used by the season-closed job).
+ */
+async function syncSeasonCore(
+  ctx: ActionCtx,
+  league: Doc<"leagues">,
+  seasonId: number,
+  opts: { isCurrentSeason: boolean }
+): Promise<{
+  success: boolean;
+  error?: string;
+  classification?: EspnStatusClassification;
+  teamsCount: number;
+  matchupsCount: number;
+  playersCount: number;
+  transactionsCount: number;
+  periodsInPayload: number[];
+  draftPicks: number;
+  currentScoringPeriod?: number;
+  teamsWithRosterInPayload: number;
+}> {
+  const empty = {
+    teamsCount: 0,
+    matchupsCount: 0,
+    playersCount: 0,
+    transactionsCount: 0,
+    periodsInPayload: [] as number[],
+    draftPicks: 0,
+    teamsWithRosterInPayload: 0,
+  };
+
+  if (!league.espnData) {
+    return { success: false, error: "No ESPN data configured for this league", ...empty };
+  }
+
+  // Validate ESPN credentials if league is private
+  if (league.espnData.isPrivate) {
+    const credentialsCheck = await validateEspnCredentials(
+      league.externalId,
+      league.espnData.espnS2,
+      league.espnData.swid,
+      seasonId
+    );
+
+    if (!credentialsCheck.isValid) {
+      console.error(`ESPN credentials invalid for league ${league.name}:`, credentialsCheck.error);
+
+      // Only a genuine auth rejection (401/403) means the cookies
+      // themselves are bad - a rate limit or ESPN outage isn't a
+      // credentials problem and shouldn't page anyone or flip the
+      // league's stored status.
+      if (credentialsCheck.classification === "auth") {
+        await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+          leagueId: league._id,
+          status: "invalid",
+          error: credentialsCheck.error,
+        });
+        await alertInvalidEspnCredentials(ctx, league);
+      }
+
+      return {
+        success: false,
+        error: `ESPN credentials invalid: ${credentialsCheck.error}`,
+        classification: credentialsCheck.classification,
+        ...empty,
+      };
+    }
+
+    // Credentials still good - keep the stored status fresh so a
+    // league that recovers stops showing as "invalid" in the UI.
+    await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+      leagueId: league._id,
+      status: "valid",
+    });
+  }
+
+  const baseUrl: string = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${seasonId}/segments/0/leagues/${league.externalId}`;
+  const creds = normalizeEspnCredentials(league.espnData);
+  const viewParams = '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard';
+
+  const { response: leagueResponse, classification: leagueClassification } = await fetchEspn(
+    `${baseUrl}${viewParams}`,
+    { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(league.settings) } }
+  );
+
+  if (!leagueResponse.ok) {
+    // ESPN hasn't opened this season yet (typically `current` right after
+    // the calendar rolls over on Jan 1, weeks before this app's own
+    // Aug->Jul season boundary agrees a new season has even started) - not
+    // a failure worth logging loudly or alerting anyone over
+    // (seasonToSync.ts's rollover contract).
+    if (leagueClassification === "not_found") {
+      console.log(`ESPN has not opened season ${seasonId} yet for league ${league.name} (404) - not an error.`);
+      return { success: false, error: `Season ${seasonId} not yet available on ESPN`, classification: leagueClassification, ...empty };
+    }
+
+    const responseText = await leagueResponse.text();
+    console.error(`ESPN API Error for league ${league.name}:`, {
+      status: leagueResponse.status,
+      statusText: leagueResponse.statusText,
+      classification: leagueClassification,
+      url: baseUrl + viewParams,
+      hasAuth: !!(league.espnData.espnS2 && league.espnData.swid),
+      isPrivate: league.espnData.isPrivate,
+      responseText: responseText.slice(0, 200)
+    });
+
+    // The pre-fetch credential probe above already covers the private
+    // case; this also catches a public league whose cookies (if any)
+    // ESPN rejects mid-request, or one that quietly became private.
+    if (leagueClassification === "auth" && league.espnData.isPrivate) {
+      await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
+        leagueId: league._id,
+        status: "invalid",
+        error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}`,
+      });
+      await alertInvalidEspnCredentials(ctx, league);
+    }
+
+    return {
+      success: false,
+      error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueClassification === 'auth' ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}`,
+      classification: leagueClassification,
+      ...empty,
+    };
+  }
+
+  const leagueData = await leagueResponse.json();
+
+  // Check if we got valid data
+  if (!leagueData.settings && !leagueData.draftDetail) {
+    console.warn(`Invalid data structure for league ${league.name} season ${seasonId}`);
+    return { success: false, error: 'Invalid data structure returned from ESPN', ...empty };
+  }
+
+  const teams = leagueData.teams || [];
+  const members = leagueData.members || [];
+  const settings = leagueData.settings;
+  const schedule = leagueData.schedule || [];
+  const players = leagueData.players || [];
+  const draftDetail = leagueData.draftDetail;
+
+  // Create a map of member IDs to member data for easy lookup
+  const memberMap = new Map();
+  members.forEach((member: any) => {
+    memberMap.set(member.id, member);
+  });
+
+  // Helper function to get owner info with fallback logic
+  const getOwnerInfo = (team: any) => {
+    // First try to get owner from team.owners array
+    if (team.owners?.[0]) {
+      const owner = team.owners[0];
+
+      // Check if owner is just a string ID (historical data) or an object (current data)
+      if (typeof owner === 'string') {
+        // Owner is just an ID, need to look up in members
+        const member = memberMap.get(owner);
+        if (member) {
+          return {
+            ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
+            ownerInfo: {
+              displayName: member.displayName,
+              firstName: member.firstName,
+              lastName: member.lastName,
+              id: member.id?.toString() || owner,
+            }
+          };
+        }
+      } else if (owner.displayName || owner.firstName || owner.lastName) {
+        // Owner is an object with properties
+        return {
+          ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
+          ownerInfo: {
+            displayName: owner.displayName,
+            firstName: owner.firstName,
+            lastName: owner.lastName,
+            id: owner.id?.toString(),
+          }
+        };
+      }
+    }
+
+    // Fallback to member data using primaryOwner
+    if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
+      const member = memberMap.get(team.primaryOwner);
+      return {
+        ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
+        ownerInfo: {
+          displayName: member.displayName,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          id: member.id?.toString(),
+        }
+      };
+    }
+
+    // Last resort - try to find member by matching team name
+    const matchingMember = members.find((m: any) =>
+      team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
+    );
+    if (matchingMember) {
+      return {
+        ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
+        ownerInfo: {
+          displayName: matchingMember.displayName,
+          firstName: matchingMember.firstName,
+          lastName: matchingMember.lastName,
+          id: matchingMember.id?.toString(),
+        }
+      };
+    }
+
+    return {
+      ownerName: 'Unknown',
+      ownerInfo: undefined
+    };
+  };
+
+  // Store/update this season's data
+  let draftPicks = 0;
+  if (settings || draftDetail) {
+    const { seasonSettings, parsed: parsedSettings } = buildSeasonSettings(
+      settings,
+      league.name,
+      league.espnData?.size || teams.length || 10
+    );
+    const seasonData: any = {
+      settings: seasonSettings,
+    };
+
+    // Always include draftInfo to prevent it from becoming empty
+    // Set it to undefined if no draftDetail exists (will preserve existing value)
+    seasonData.draftInfo = draftDetail ? {
+      draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
+      draftType: draftDetail.type,
+      timePerPick: draftDetail.timePerPick,
+      drafted: draftDetail.drafted,
+      inProgress: draftDetail.inProgress,
+    } : undefined;
+
+    // Only include draftSettings if it exists
+    if (settings?.draftSettings) {
+      seasonData.draftSettings = settings.draftSettings;
+    }
+
+    // Only include draft picks if draft has actually occurred
+    if (isDrafted(draftDetail) && draftDetail.picks) {
+      seasonData.draft = draftDetail.picks;
+      draftPicks = draftDetail.picks.length;
+    }
+
+    // seasonData deliberately never sets champion/runnerUp/regularSeasonChampion
+    // - `updateLeagueSeason` skips a field entirely when it's `undefined`, so
+    // this never clobbers a value the season-closed job already derived.
+
+    await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
+      leagueId: league._id,
+      seasonId,
+      seasonData,
+    });
+
+    // Only the current season - refresh leagues.settings (spec:
+    // mirrorSeasonSettings's doc comment in leagues.ts). Non-fatal.
+    if (settings && opts.isCurrentSeason) {
+      try {
+        await ctx.runMutation(internal.leagues.mirrorSeasonSettings, {
+          leagueId: league._id,
+          seasonId,
+          settings: parsedSettings,
+        });
+      } catch (error) {
+        console.error(`Failed to mirror season settings for league ${league._id}:`, error);
+      }
+    }
+  }
+
+  // First, fetch current roster data for all teams to include in the team updates
+  const teamRosters = new Map();
+
+  // Try to get roster data from the current ESPN response first
+  for (const team of teams) {
+    if (team.roster?.entries) {
+      // Process roster from current ESPN data
+      const rosterData = team.roster.entries.map((entry: any) => ({
+        playerId: entry.playerId?.toString() || '',
+        playerName: entry.playerPoolEntry?.player?.fullName || 'Unknown',
+        position: entry.playerPoolEntry?.player?.defaultPositionId ? getPositionName(entry.playerPoolEntry.player.defaultPositionId) : 'UNKNOWN',
+        team: entry.playerPoolEntry?.player?.proTeamId ? getTeamAbbreviation(entry.playerPoolEntry.player.proTeamId) : 'FA',
+        acquisitionType: entry.acquisitionType,
+        lineupSlotId: entry.lineupSlotId,
+        playerStats: entry.playerPoolEntry?.player?.stats ? {
+          appliedTotal: entry.playerPoolEntry.player.stats.appliedTotal,
+          projectedTotal: entry.playerPoolEntry.player.stats.projectedTotal,
+        } : undefined,
+      }));
+      teamRosters.set(team.id.toString(), rosterData);
+    }
+  }
+
+  console.log(`Captured roster data for ${teamRosters.size} out of ${teams.length} teams for league ${league.name}, season ${seasonId}`);
+
+  // Update teams with current data including rosters
+  await ctx.runMutation(internal.espnSync.updateTeams, {
+    leagueId: league._id,
+    seasonId,
+    teamsData: teams.map((team: any) => {
+      const { ownerName, ownerInfo } = getOwnerInfo(team);
+      return {
+        externalId: team.id.toString(),
+        name: team.name || (team.location && team.nickname ? `${team.location} ${team.nickname}` : 'Unknown Team'),
+        abbreviation: team.abbrev,
+        location: team.location,
+        nickname: team.nickname,
+        logo: team.logo || team.logoURL || team.logoUrl || undefined,
+        owner: ownerName,
+        ownerInfo: ownerInfo,
+        record: {
+          wins: team.record?.overall?.wins || 0,
+          losses: team.record?.overall?.losses || 0,
+          ties: team.record?.overall?.ties || 0,
+          pointsFor: team.record?.overall?.pointsFor || 0,
+          pointsAgainst: team.record?.overall?.pointsAgainst || 0,
+          playoffSeed: team.playoffSeed,
+          // ESPN final-rank and form fields (refresh audit, Sept 2026).
+          rankCalculatedFinal: team.rankCalculatedFinal,
+          rankFinal: team.rankFinal,
+          currentProjectedRank: team.currentProjectedRank,
+          draftDayProjectedRank: team.draftDayProjectedRank,
+          streakLength: team.record?.overall?.streakLength,
+          streakType: team.record?.overall?.streakType,
+          gamesBack: team.record?.overall?.gamesBack,
+          percentage: team.record?.overall?.percentage,
+          divisionRecord: team.record?.division ? {
+            wins: team.record.division.wins || 0,
+            losses: team.record.division.losses || 0,
+            ties: team.record.division.ties || 0,
+          } : undefined,
+        },
+        roster: teamRosters.get(team.id.toString()) || [], // Use fetched roster data or empty array
+        divisionId: team.divisionId,
+        transactionCounter: team.transactionCounter,
+        waiverRank: team.waiverRank,
+      };
+    })
+  });
+
+  // Sync players data if available
+  let transactionsSynced = 0;
+  if (players.length > 0) {
+    await ctx.runMutation(internal.espnSync.updatePlayers, {
+      playersData: players.map((player: any) => ({
+        externalId: player.id?.toString() || '',
+        fullName: player.fullName || 'Unknown Player',
+        firstName: player.firstName,
+        lastName: player.lastName,
+        defaultPosition: getPositionName(player.defaultPositionId),
+        eligiblePositions: player.eligibleSlots?.map((slot: number) => getPositionName(slot)) || [],
+        proTeamId: player.proTeamId,
+        proTeamAbbrev: getTeamAbbreviation(player.proTeamId),
+        injuryStatus: player.injuryStatus,
+        stats: player.stats ? {
+          seasonStats: {
+            appliedTotal: player.stats.appliedTotal,
+            projectedTotal: player.stats.projectedTotal,
+            averagePoints: player.stats.averagePoints,
+          }
+        } : undefined,
+        ownership: player.ownership ? {
+          percentOwned: player.ownership.percentOwned,
+          percentChange: player.ownership.percentChange,
+          percentStarted: player.ownership.percentStarted,
+        } : undefined,
+      }))
+    });
+
+    // Sync player transactions (player_feed source)
+    try {
+      const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
+        leagueId: league._id,
+        seasonId,
+        players: players,
+        currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
+      });
+
+      if (transactionResult.success) {
+        transactionsSynced = transactionResult.transactionsProcessed;
+      }
+    } catch (transactionError) {
+      console.error(`Error syncing player transactions for league ${league.name}:`, transactionError);
+    }
+  }
+
+  // Sync matchups data
+  const periodsInPayload: number[] = Array.from(
+    new Set<number>(schedule.map((matchup: any) => matchup.matchupPeriodId as number))
+  ).sort((a, b) => a - b);
+  if (schedule.length > 0) {
+    await ctx.runMutation(internal.espnSync.updateMatchups, {
+      leagueId: league._id,
+      seasonId,
+      matchupsData: schedule.map((matchup: any) => ({
+        matchupPeriod: matchup.matchupPeriodId,
+        scoringPeriod: matchup.id,
+        homeTeamId: matchup.home?.teamId?.toString() || '',
+        awayTeamId: matchup.away?.teamId?.toString() || '',
+        homeScore: matchup.home?.totalPoints || 0,
+        awayScore: matchup.away?.totalPoints || 0,
+        homeProjectedScore: matchup.home?.totalProjectedPoints,
+        awayProjectedScore: matchup.away?.totalProjectedPoints,
+        homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
+        awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
+        winner: matchup.winner === 'HOME' ? 'home' as const :
+               matchup.winner === 'AWAY' ? 'away' as const :
+               matchup.winner === 'TIE' ? 'tie' as const : undefined,
+        playoffTier: matchup.playoffTierType,
+        // Transform and clean roster data from current scoring period
+        homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
+        awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
+      }))
+    });
+  }
+
+  // Determine current scoring period from multiple possible sources
+  const currentScoringPeriod = leagueData.scoringPeriodId ||
+                              leagueData.status?.currentMatchupPeriod ||
+                              leagueData.status?.latestScoringPeriod ||
+                              settings?.scoringSettings?.currentScoringPeriod ||
+                              league.espnData.currentScoringPeriod;
+
+  // Only the current season stamps `espnData.seasonId`/`currentScoringPeriod`
+  // - see this function's doc comment.
+  if (opts.isCurrentSeason) {
+    await ctx.runMutation(internal.espnSync.updateLeagueSync, {
+      leagueId: league._id,
+      currentScoringPeriod: currentScoringPeriod,
+      seasonId,
+    });
+  }
+
+  // This IS a full pull for `seasonId` (settings, teams, matchups, draft,
+  // player-feed transactions) regardless of whether it's the current season.
+  await ctx.runMutation(internal.espnSync.stampLeagueSeasonFullSync, {
+    leagueId: league._id,
+    seasonId,
+  });
+
+  return {
+    success: true,
+    teamsCount: teams.length,
+    matchupsCount: schedule.length,
+    playersCount: players.length,
+    transactionsCount: transactionsSynced,
+    periodsInPayload,
+    draftPicks,
+    currentScoringPeriod: typeof currentScoringPeriod === "number" ? currentScoringPeriod : undefined,
+    teamsWithRosterInPayload: teamRosters.size,
+  };
+}
+
+/**
+ * The per-league, per-season sync body used by both the 4-hourly
+ * `syncAllLeaguesCurrentSeason` cron (looping over every league, and every
+ * season `seasonsToSync` says still needs refreshing) and
+ * `syncOneLeagueCurrentSeason` (a single targeted re-sync of the current
+ * season, e.g. the post-draft follow-up jobs scheduled from
+ * `updateLeagueSeason`). Runs `syncSeasonCore` then layers on the
+ * cron-only extras: claim rollover, derived-metrics scheduling, the
+ * transaction log, and roster/matchup-roster refresh - none of which
+ * `syncSeasonSnapshot` (the season-closed job's single targeted pull) does.
  */
 async function syncOneLeagueCurrentSeasonBody(
   ctx: ActionCtx,
   league: Doc<"leagues">,
-  currentYear: number,
+  seasonId: number,
+  isCurrentSeason: boolean,
 ): Promise<{
   leagueId: string;
   leagueName: string;
@@ -3848,323 +3302,22 @@ async function syncOneLeagueCurrentSeasonBody(
   transactionsCount?: number;
 }> {
   try {
-    console.log(`Syncing current season for league: ${league.name} (${league._id})`);
-    
-    // Skip leagues without ESPN data
-    if (!league.espnData) {
-      console.warn(`Skipping league ${league.name} - no ESPN data`);
-      return {
-        leagueId: league._id,
-        leagueName: league.name,
-        success: false,
-        error: "No ESPN data configured for this league"
-      };
-    }
-    
-    // Validate ESPN credentials if league is private
-    if (league.espnData.isPrivate) {
-      const credentialsCheck = await validateEspnCredentials(
-        league.externalId,
-        league.espnData.espnS2,
-        league.espnData.swid
-      );
-
-      if (!credentialsCheck.isValid) {
-        console.error(`ESPN credentials invalid for league ${league.name}:`, credentialsCheck.error);
-
-        // Only a genuine auth rejection (401/403) means the cookies
-        // themselves are bad - a rate limit or ESPN outage isn't a
-        // credentials problem and shouldn't page anyone or flip the
-        // league's stored status.
-        if (credentialsCheck.classification === "auth") {
-          await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
-            leagueId: league._id,
-            status: "invalid",
-            error: credentialsCheck.error,
-          });
-          await alertInvalidEspnCredentials(ctx, league);
-        }
-
-        return {
-          leagueId: league._id,
-          leagueName: league.name,
-          success: false,
-          error: `ESPN credentials invalid: ${credentialsCheck.error}`
-        };
-      }
-
-      // Credentials still good - keep the stored status fresh so a
-      // league that recovers stops showing as "invalid" in the UI.
-      await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
-        leagueId: league._id,
-        status: "valid",
-      });
-    }
-
-    const baseUrl: string = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${currentYear}/segments/0/leagues/${league.externalId}`;
-
-    // Add fantasy filter for all matchup periods to get roster data
-    const creds = normalizeEspnCredentials(league.espnData);
-
-    // Get comprehensive current season data
-    const viewParams = '?view=mSettings&view=mTeams&view=mRoster&view=mMatchup&view=mMatchupScore&view=mStandings&view=mDraftDetail&view=mNav&view=modular&view=players_wl&view=kona_player_info&view=mLogo&view=mTeam&view=mStatus&view=mBoxscore&view=mPositionalRatings&view=kona_league_communication&view=kona_playercard';
-
-    const { response: leagueResponse, classification: leagueClassification } = await fetchEspn(
-      `${baseUrl}${viewParams}`,
-      { creds, headers: { 'X-Fantasy-Filter': generateFantasyFilterHeader(league.settings) } }
+    console.log(
+      `Syncing season ${seasonId} for league: ${league.name} (${league._id})${isCurrentSeason ? "" : " (previous season, not yet finalized)"}`
     );
 
-    if (!leagueResponse.ok) {
-      const responseText = await leagueResponse.text();
-      console.error(`ESPN API Error for league ${league.name}:`, {
-        status: leagueResponse.status,
-        statusText: leagueResponse.statusText,
-        classification: leagueClassification,
-        url: baseUrl + viewParams,
-        hasAuth: !!(league.espnData.espnS2 && league.espnData.swid),
-        isPrivate: league.espnData.isPrivate,
-        responseText: responseText.slice(0, 200)
-      });
-
-      // The pre-fetch credential probe above already covers the private
-      // case; this also catches a public league whose cookies (if any)
-      // ESPN rejects mid-request, or one that quietly became private.
-      if (leagueClassification === "auth" && league.espnData.isPrivate) {
-        await ctx.runMutation(internal.leagues.setEspnCredentialStatus, {
-          leagueId: league._id,
-          status: "invalid",
-          error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}`,
-        });
-        await alertInvalidEspnCredentials(ctx, league);
-      }
-
-      return {
-        leagueId: league._id,
-        leagueName: league.name,
-        success: false,
-        error: `HTTP ${leagueResponse.status}: ${leagueResponse.statusText}${leagueClassification === 'auth' ? ' (Authentication required - check ESPN S2/SWID cookies)' : ''}`
-      };
+    const core = await syncSeasonCore(ctx, league, seasonId, { isCurrentSeason });
+    if (!core.success) {
+      return { leagueId: league._id, leagueName: league.name, success: false, error: core.error };
     }
 
-    const leagueData = await leagueResponse.json();
-    
-    // Check if we got valid data
-    if (!leagueData.settings && !leagueData.draftDetail) {
-      console.warn(`Invalid data structure for league ${league.name} current season`);
-      return {
-        leagueId: league._id,
-        leagueName: league.name,
-        success: false,
-        error: 'Invalid data structure returned from ESPN'
-      };
-    }
-
-    const teams = leagueData.teams || [];
-    const members = leagueData.members || [];
-    const settings = leagueData.settings;
-    const schedule = leagueData.schedule || [];
-    const players = leagueData.players || [];
-    const draftDetail = leagueData.draftDetail;
-
-    // Create a map of member IDs to member data for easy lookup
-    const memberMap = new Map();
-    members.forEach((member: any) => {
-      memberMap.set(member.id, member);
-    });
-
-    // Helper function to get owner info with fallback logic
-    const getOwnerInfo = (team: any) => {
-      // First try to get owner from team.owners array
-      if (team.owners?.[0]) {
-        const owner = team.owners[0];
-        
-        // Check if owner is just a string ID (historical data) or an object (current data)
-        if (typeof owner === 'string') {
-          // Owner is just an ID, need to look up in members
-          const member = memberMap.get(owner);
-          if (member) {
-            return {
-              ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
-              ownerInfo: {
-                displayName: member.displayName,
-                firstName: member.firstName,
-                lastName: member.lastName,
-                id: member.id?.toString() || owner,
-              }
-            };
-          }
-        } else if (owner.displayName || owner.firstName || owner.lastName) {
-          // Owner is an object with properties
-          return {
-            ownerName: (owner.firstName && owner.lastName ? `${owner.firstName} ${owner.lastName}` : owner.displayName || owner.firstName || owner.lastName || 'Unknown'),
-            ownerInfo: {
-              displayName: owner.displayName,
-              firstName: owner.firstName,
-              lastName: owner.lastName,
-              id: owner.id?.toString(),
-            }
-          };
-        }
-      }
-      
-      // Fallback to member data using primaryOwner
-      if (team.primaryOwner && memberMap.has(team.primaryOwner)) {
-        const member = memberMap.get(team.primaryOwner);
-        return {
-          ownerName: (member.firstName && member.lastName ? `${member.firstName} ${member.lastName}` : member.displayName) || 'Unknown',
-          ownerInfo: {
-            displayName: member.displayName,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            id: member.id?.toString(),
-          }
-        };
-      }
-      
-      // Last resort - try to find member by matching team name
-      const matchingMember = members.find((m: any) => 
-        team.name && (team.name.includes(m.displayName) || team.name.includes(m.firstName) || team.name.includes(m.lastName))
-      );
-      if (matchingMember) {
-        return {
-          ownerName: (matchingMember.firstName && matchingMember.lastName ? `${matchingMember.firstName} ${matchingMember.lastName}` : matchingMember.displayName) || 'Unknown',
-          ownerInfo: {
-            displayName: matchingMember.displayName,
-            firstName: matchingMember.firstName,
-            lastName: matchingMember.lastName,
-            id: matchingMember.id?.toString(),
-          }
-        };
-      }
-      
-      return {
-        ownerName: 'Unknown',
-        ownerInfo: undefined
-      };
-    };
-
-    // Store/update current season data
-    if (settings || draftDetail) {
-      const { seasonSettings: currentSeasonSettings, parsed: parsedCurrentSettings } = buildSeasonSettings(
-        settings,
-        league.name,
-        league.espnData?.size || teams.length || 10
-      );
-      const seasonData: any = {
-        settings: currentSeasonSettings,
-      };
-
-      // Always include draftInfo to prevent it from becoming empty
-      // Set it to undefined if no draftDetail exists (will preserve existing value)
-      seasonData.draftInfo = draftDetail ? {
-        draftDate: draftDetail.completeDate || (draftDetail.drafted ? 1 : undefined),
-        draftType: draftDetail.type,
-        timePerPick: draftDetail.timePerPick,
-        drafted: draftDetail.drafted,
-        inProgress: draftDetail.inProgress,
-      } : undefined;
-
-      // Only include draftSettings if it exists
-      if (settings?.draftSettings) {
-        seasonData.draftSettings = settings.draftSettings;
-      }
-
-      // Only include draft picks if draft has actually occurred
-      if (draftDetail?.drafted === 1 && draftDetail.picks) {
-        seasonData.draft = draftDetail.picks;
-      }
-
-      await ctx.runMutation(internal.espnSync.updateLeagueSeason, {
-        leagueId: league._id,
-        seasonId: currentYear,
-        seasonData,
-      });
-
-      // Always the current season here - refresh leagues.settings (spec:
-      // mirrorSeasonSettings's doc comment in leagues.ts). Non-fatal.
-      if (settings) {
-        try {
-          await ctx.runMutation(internal.leagues.mirrorSeasonSettings, {
-            leagueId: league._id,
-            seasonId: currentYear,
-            settings: parsedCurrentSettings,
-          });
-        } catch (error) {
-          console.error(`Failed to mirror season settings for league ${league._id}:`, error);
-        }
-      }
-    }
-
-    // First, fetch current roster data for all teams to include in the team updates
-    const teamRosters = new Map();
-    
-    // Try to get roster data from the current ESPN response first
-    for (const team of teams) {
-      if (team.roster?.entries) {
-        // Process roster from current ESPN data
-        const rosterData = team.roster.entries.map((entry: any) => ({
-          playerId: entry.playerId?.toString() || '',
-          playerName: entry.playerPoolEntry?.player?.fullName || 'Unknown',
-          position: entry.playerPoolEntry?.player?.defaultPositionId ? getPositionName(entry.playerPoolEntry.player.defaultPositionId) : 'UNKNOWN',
-          team: entry.playerPoolEntry?.player?.proTeamId ? getTeamAbbreviation(entry.playerPoolEntry.player.proTeamId) : 'FA',
-          acquisitionType: entry.acquisitionType,
-          lineupSlotId: entry.lineupSlotId,
-          playerStats: entry.playerPoolEntry?.player?.stats ? {
-            appliedTotal: entry.playerPoolEntry.player.stats.appliedTotal,
-            projectedTotal: entry.playerPoolEntry.player.stats.projectedTotal,
-          } : undefined,
-        }));
-        teamRosters.set(team.id.toString(), rosterData);
-        console.log(`Found roster data for team ${team.name || team.id}: ${rosterData.length} players`);
-      }
-    }
-    
-    console.log(`Captured roster data for ${teamRosters.size} out of ${teams.length} teams for league ${league.name}`);
-
-    // Update teams with current data including rosters
-    await ctx.runMutation(internal.espnSync.updateTeams, {
-      leagueId: league._id,
-      seasonId: currentYear,
-      teamsData: teams.map((team: any) => {
-        const { ownerName, ownerInfo } = getOwnerInfo(team);
-        return {
-          externalId: team.id.toString(),
-          name: team.name || (team.location && team.nickname ? `${team.location} ${team.nickname}` : 'Unknown Team'),
-          abbreviation: team.abbrev,
-          location: team.location,
-          nickname: team.nickname,
-          logo: team.logo || team.logoURL || team.logoUrl || undefined,
-          owner: ownerName,
-          ownerInfo: ownerInfo,
-          record: {
-            wins: team.record?.overall?.wins || 0,
-            losses: team.record?.overall?.losses || 0,
-            ties: team.record?.overall?.ties || 0,
-            pointsFor: team.record?.overall?.pointsFor || 0,
-            pointsAgainst: team.record?.overall?.pointsAgainst || 0,
-            playoffSeed: team.playoffSeed,
-            divisionRecord: team.record?.division ? {
-              wins: team.record.division.wins || 0,
-              losses: team.record.division.losses || 0,
-              ties: team.record.division.ties || 0,
-            } : undefined,
-          },
-          roster: teamRosters.get(team.id.toString()) || [], // Use fetched roster data or empty array
-          divisionId: team.divisionId,
-          transactionCounter: team.transactionCounter,
-          waiverRank: team.waiverRank,
-        };
-      })
-    });
-
-    // Carry manager <-> team claims forward from the prior season, same
-    // hook `syncLeagueData` and `syncAllLeagueData` run after their own
-    // current-season `updateTeams` call. Never let a rollover problem
-    // fail the sync itself.
+    // Carry manager <-> team claims forward from the prior season now that
+    // this season's teams exist. Never let a rollover problem fail the sync
+    // itself.
     try {
       await ctx.runMutation(internal.claimRollover.rollForwardClaims, {
         leagueId: league._id,
-        seasonId: currentYear,
+        seasonId,
       });
     } catch (rolloverError) {
       console.error(`Error rolling forward team claims for league ${league._id}:`, rolloverError);
@@ -4177,108 +3330,11 @@ async function syncOneLeagueCurrentSeasonBody(
     try {
       await ctx.scheduler.runAfter(0, internal.dataProcessing.processLeagueDataAfterSync, {
         leagueId: league._id,
-        seasonId: currentYear,
+        seasonId,
       });
     } catch (dataProcessingError) {
       console.error(`Error scheduling post-sync data processing for league ${league._id}:`, dataProcessingError);
     }
-
-    // Sync players data if available
-    let transactionsSynced = 0;
-    if (players.length > 0) {
-      await ctx.runMutation(internal.espnSync.updatePlayers, {
-        playersData: players.map((player: any) => ({
-          externalId: player.id?.toString() || '',
-          fullName: player.fullName || 'Unknown Player',
-          firstName: player.firstName,
-          lastName: player.lastName,
-          defaultPosition: getPositionName(player.defaultPositionId),
-          eligiblePositions: player.eligibleSlots?.map((slot: number) => getPositionName(slot)) || [],
-          proTeamId: player.proTeamId,
-          proTeamAbbrev: getTeamAbbreviation(player.proTeamId),
-          injuryStatus: player.injuryStatus,
-          stats: player.stats ? {
-            seasonStats: {
-              appliedTotal: player.stats.appliedTotal,
-              projectedTotal: player.stats.projectedTotal,
-              averagePoints: player.stats.averagePoints,
-            }
-          } : undefined,
-          ownership: player.ownership ? {
-            percentOwned: player.ownership.percentOwned,
-            percentChange: player.ownership.percentChange,
-            percentStarted: player.ownership.percentStarted,
-          } : undefined,
-        }))
-      });
-
-      // Sync player transactions for current season
-      try {
-        const transactionResult = await ctx.runAction(internal.espnSync.syncPlayerTransactions, {
-          leagueId: league._id,
-          seasonId: currentYear,
-          players: players,
-          currentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod || 1,
-        });
-        
-        if (transactionResult.success) {
-          transactionsSynced = transactionResult.transactionsProcessed;
-        }
-      } catch (transactionError) {
-        console.error(`Error syncing player transactions for league ${league.name}:`, transactionError);
-      }
-    }
-
-    // Sync matchups data
-    if (schedule.length > 0) {
-      await ctx.runMutation(internal.espnSync.updateMatchups, {
-        leagueId: league._id,
-        seasonId: currentYear,
-        matchupsData: schedule.map((matchup: any) => ({
-          matchupPeriod: matchup.matchupPeriodId,
-          scoringPeriod: matchup.id,
-          homeTeamId: matchup.home?.teamId?.toString() || '',
-          awayTeamId: matchup.away?.teamId?.toString() || '',
-          homeScore: matchup.home?.totalPoints || 0,
-          awayScore: matchup.away?.totalPoints || 0,
-          homeProjectedScore: matchup.home?.totalProjectedPoints,
-          awayProjectedScore: matchup.away?.totalProjectedPoints,
-          homePointsByScoringPeriod: matchup.home?.pointsByScoringPeriod,
-          awayPointsByScoringPeriod: matchup.away?.pointsByScoringPeriod,
-          winner: matchup.winner === 'HOME' ? 'home' as const : 
-                 matchup.winner === 'AWAY' ? 'away' as const : 
-                 matchup.winner === 'TIE' ? 'tie' as const : undefined,
-          playoffTier: matchup.playoffTierType,
-          // Transform and clean roster data from current scoring period
-          homeRoster: transformRosterData(matchup.home?.rosterForCurrentScoringPeriod),
-          awayRoster: transformRosterData(matchup.away?.rosterForCurrentScoringPeriod),
-        }))
-      });
-    }
-
-    // Determine current scoring period from multiple possible sources
-    const currentScoringPeriod = leagueData.scoringPeriodId || 
-                                leagueData.status?.currentMatchupPeriod || 
-                                leagueData.status?.latestScoringPeriod || 
-                                settings?.scoringSettings?.currentScoringPeriod || 
-                                league.espnData.currentScoringPeriod;
-
-    // Debug logging for currentScoringPeriod
-    console.log(`League ${league.name} (syncAllLeaguesCurrentSeason) - ESPN API currentScoringPeriod:`, {
-      rootScoringPeriodId: leagueData.scoringPeriodId,
-      statusCurrentMatchupPeriod: leagueData.status?.currentMatchupPeriod,
-      statusLatestScoringPeriod: leagueData.status?.latestScoringPeriod,
-      settingsCurrentScoringPeriod: settings?.scoringSettings?.currentScoringPeriod,
-      fallback: league.espnData.currentScoringPeriod,
-      final: currentScoringPeriod
-    });
-
-    // Update league sync timestamp
-    await ctx.runMutation(internal.espnSync.updateLeagueSync, {
-      leagueId: league._id,
-      currentScoringPeriod: currentScoringPeriod,
-      seasonId: currentYear,
-    });
 
     // FAAB waiver-wire report data: fetch ESPN's transaction log
     // (view=mTransactions2) for the current and previous scoring period -
@@ -4286,20 +3342,20 @@ async function syncOneLeagueCurrentSeasonBody(
     // settle after the period rolls over. On the first sync of a season (no
     // transaction_log rows stored for it yet), backfill every period from
     // 1..current instead. Never fatal - this is report data, not core sync.
-    if (typeof currentScoringPeriod === "number" && currentScoringPeriod > 0) {
+    if (typeof core.currentScoringPeriod === "number" && core.currentScoringPeriod > 0) {
       try {
         const hasLog: boolean = await ctx.runQuery(internal.espnSync.hasTransactionLogForSeason, {
           leagueId: league._id,
-          seasonId: currentYear,
+          seasonId,
         });
 
         const periodsToSync: number[] = hasLog
-          ? [currentScoringPeriod, ...(currentScoringPeriod > 1 ? [currentScoringPeriod - 1] : [])]
-          : Array.from({ length: currentScoringPeriod }, (_, i) => i + 1);
+          ? [core.currentScoringPeriod, ...(core.currentScoringPeriod > 1 ? [core.currentScoringPeriod - 1] : [])]
+          : Array.from({ length: core.currentScoringPeriod }, (_, i) => i + 1);
 
         const transactionLogResult = await ctx.runAction(internal.espnSync.syncTransactionLog, {
           leagueId: league._id,
-          seasonId: currentYear,
+          seasonId,
           scoringPeriods: periodsToSync,
         });
         console.log(`Transaction log sync for league ${league.name}:`, transactionLogResult.message);
@@ -4308,17 +3364,17 @@ async function syncOneLeagueCurrentSeasonBody(
       }
     }
 
-    // Fetch rosters for current season as fallback if not already captured
-    let rostersFetched = teamRosters.size;
-    
+    // Fetch rosters for this season as fallback if not already captured
+    let rostersFetched = core.teamsWithRosterInPayload;
+
     // If we didn't get roster data from the main API call, fetch it separately
-    if (teamRosters.size === 0) {
+    if (core.teamsWithRosterInPayload === 0) {
       try {
         const rosterResult = await ctx.runAction(internal.espnSync.fetchHistoricalRostersInternal, {
           leagueId: league._id,
-          seasonId: currentYear,
+          seasonId,
         });
-        
+
         if (rosterResult.success) {
           rostersFetched = rosterResult.totalRostersFetched;
         }
@@ -4327,39 +3383,53 @@ async function syncOneLeagueCurrentSeasonBody(
       }
     }
 
-    // Fetch matchup rosters for current season
+    // Matchup rosters: only the most recent period (plus the one before it,
+    // for stat corrections) needs its lineup re-pulled on this 4-hourly
+    // liveness run - the week-closed job re-pulls a just-finished period
+    // once, properly, and the season-closed job passes every period
+    // explicitly (audit recommendation (i): ~2 roster requests/run instead
+    // of ~12-17).
     let matchupRostersFetched = 0;
-    try {
-      const matchupRosterResult = await ctx.runAction(internal.matchupRosters.fetchMatchupRosters, {
-        leagueId: league._id,
-        seasonId: currentYear,
-      });
-      
-      if (matchupRosterResult.success) {
-        matchupRostersFetched = matchupRosterResult.successfulPeriods;
+    if (typeof core.currentScoringPeriod === "number" && core.currentScoringPeriod > 0) {
+      try {
+        const matchupPeriods = [
+          core.currentScoringPeriod,
+          ...(core.currentScoringPeriod > 1 ? [core.currentScoringPeriod - 1] : []),
+        ];
+        const matchupRosterResult = await ctx.runAction(internal.matchupRosters.fetchMatchupRosters, {
+          leagueId: league._id,
+          seasonId,
+          matchupPeriods,
+        });
+
+        if (matchupRosterResult.success) {
+          matchupRostersFetched = matchupRosterResult.successfulPeriods;
+        }
+      } catch (matchupRosterError) {
+        console.error(`Error fetching matchup rosters for league ${league.name}:`, matchupRosterError);
       }
-    } catch (matchupRosterError) {
-      console.error(`Error fetching matchup rosters for league ${league.name}:`, matchupRosterError);
     }
 
-    console.log(`Successfully synced current season for league ${league.name}: ${teams.length} teams, ${schedule.length} matchups, ${rostersFetched} rosters, ${matchupRostersFetched} matchup periods, ${transactionsSynced} transactions`);
-    
+    console.log(
+      `Successfully synced season ${seasonId} for league ${league.name}: ${core.teamsCount} teams, ${core.matchupsCount} matchups, ${rostersFetched} rosters, ${matchupRostersFetched} matchup periods, ${core.transactionsCount} transactions`
+    );
+
     // Add small delay to prevent rate limiting
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
     return {
       leagueId: league._id,
       leagueName: league.name,
       success: true,
-      teamsCount: teams.length,
-      matchupsCount: schedule.length,
-      playersCount: players.length,
+      teamsCount: core.teamsCount,
+      matchupsCount: core.matchupsCount,
+      playersCount: core.playersCount,
       rostersCount: rostersFetched,
       matchupRostersCount: matchupRostersFetched,
-      transactionsCount: transactionsSynced
+      transactionsCount: core.transactionsCount,
     };
   } catch (error) {
-    console.error(`Failed to sync current season for league ${league.name}:`, error);
+    console.error(`Failed to sync season ${seasonId} for league ${league.name}:`, error);
     return {
       leagueId: league._id,
       leagueName: league.name,
@@ -4392,10 +3462,10 @@ export const syncAllLeaguesCurrentSeason = internalAction({
     syncedAt: number;
   }> => {
     console.log("Starting current season sync for all leagues");
-    
+
     // Get all leagues
     const allLeagues = await ctx.runQuery(internal.leagues.listLeagues, {});
-    
+
     if (allLeagues.length === 0) {
       return {
         success: true,
@@ -4407,18 +3477,44 @@ export const syncAllLeaguesCurrentSeason = internalAction({
         syncedAt: Date.now(),
       };
     }
-    
+
     console.log(`Found ${allLeagues.length} leagues to sync current season data`);
-    
+
     const results = [];
     let totalSynced = 0;
     let totalErrors = 0;
-    const currentYear = new Date().getFullYear();
-    
+    const now = Date.now();
+
     for (const league of allLeagues) {
-      const result = await syncOneLeagueCurrentSeasonBody(ctx, league, currentYear);
-      results.push(result);
-      if (result.success) {
+      // One notion of "current season" (seasonToSync.ts) - Aug->Jul, unless
+      // this league's own last-synced season is already ahead of that.
+      // `alsoSync` keeps refreshing last season while it's synced-but-not-
+      // yet-finalized (agent I's season-closed job hasn't stamped
+      // `finalizedAt` yet), so a season doesn't go stale just because the
+      // calendar rolled over.
+      const seasons = await ctx.runQuery(internal.espnSync.getLeagueSeasonsForSyncInternal, {
+        leagueId: league._id,
+      });
+      const { current, alsoSync } = seasonsToSync({ league, seasons, now });
+
+      const currentResult = await syncOneLeagueCurrentSeasonBody(ctx, league, current, true);
+      let leagueResult = currentResult;
+
+      for (const seasonId of alsoSync) {
+        const alsoResult = await syncOneLeagueCurrentSeasonBody(ctx, league, seasonId, false);
+        // A successful previous-season pull must not leave `lastSyncedAt`
+        // looking frozen just because `current` 404'd (ESPN hasn't opened
+        // it yet) - seasonToSync.ts's rollover contract.
+        if (alsoResult.success && !currentResult.success) {
+          await ctx.runMutation(internal.espnSync.touchLeagueLastSynced, { leagueId: league._id });
+        }
+        if (!leagueResult.success && alsoResult.success) {
+          leagueResult = alsoResult;
+        }
+      }
+
+      results.push(leagueResult);
+      if (leagueResult.success) {
         totalSynced++;
       } else {
         totalErrors++;
@@ -4472,8 +3568,49 @@ export const syncOneLeagueCurrentSeason = internalAction({
       };
     }
 
-    const currentYear = new Date().getFullYear();
-    return await syncOneLeagueCurrentSeasonBody(ctx, league, currentYear);
+    const current = currentSeasonForLeague(league);
+    return await syncOneLeagueCurrentSeasonBody(ctx, league, current, true);
+  },
+});
+
+/**
+ * One targeted MAIN17 pull for a single named season - the contract used by
+ * the season-closed job (`convex/seasonSync.ts`) once
+ * `deriveSeasonResults` (`convex/lib/playoffs.ts`) says the bracket is
+ * decided. Runs `syncSeasonCore` only - none of the liveness cron's extras
+ * (claim rollover, transaction log, roster/matchup-roster refresh); the
+ * season-closed job runs those itself where it needs "every period", not
+ * just the last two.
+ */
+export const syncSeasonSnapshot = internalAction({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+  },
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    message: string;
+    periodsInPayload: number[];
+    draftPicks: number;
+  }> => {
+    const league = await ctx.runQuery(internal.leagues.getByIdInternal, { id: args.leagueId });
+    if (!league) {
+      return { success: false, message: "League not found", periodsInPayload: [], draftPicks: 0 };
+    }
+
+    const current = currentSeasonForLeague(league);
+    const core = await syncSeasonCore(ctx, league, args.seasonId, {
+      isCurrentSeason: args.seasonId === current,
+    });
+
+    return {
+      success: core.success,
+      message: core.success
+        ? `Synced season ${args.seasonId}: ${core.teamsCount} teams, ${core.matchupsCount} matchups, ${core.draftPicks} draft picks`
+        : (core.error ?? "Sync failed"),
+      periodsInPayload: core.periodsInPayload,
+      draftPicks: core.draftPicks,
+    };
   },
 });
 
@@ -4550,7 +3687,12 @@ export const testEspnConnection = action({
         : { espnS2: league.espnData?.espnS2, swid: league.espnData?.swid }
     );
 
-    const seasonId = league.espnData?.seasonId ?? new Date().getFullYear();
+    // Probe the same season every other sync path treats as "current"
+    // (`currentSeasonForLeague`/`seasonsToSync`) - previously fell back to
+    // the raw calendar year and, worse, ALWAYS preferred a stored
+    // `espnData.seasonId` even when stuck behind (a sync failure streak
+    // could leave this probing a season ESPN itself moved past forever).
+    const seasonId = currentSeasonForLeague(league);
     const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${seasonId}/segments/0/leagues/${league.externalId}?view=mSettings`;
 
     const { response, classification } = await fetchEspn(url, { creds });
