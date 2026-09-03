@@ -183,7 +183,7 @@ export function WeeklyContentCard({ leagueId, canManage, className }: WeeklyCont
             {zoneAbbreviation ? ` (${zoneAbbreviation})` : ""}.
           </p>
           <p className="text-[13px] text-bc-text-3">
-            Runs from the league's first week through its championship. Nothing prints in the offseason.
+            Runs from the league&apos;s first week through its championship. Nothing prints in the offseason.
           </p>
           {otherEnabled.length > 0 && (
             <p className="text-[13px] text-bc-text-3">
