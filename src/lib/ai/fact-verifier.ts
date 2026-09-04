@@ -9,6 +9,8 @@ import type { ContentTemplate } from "./content-templates";
 import type { GeneratedArticleT } from "./content-generation-service";
 
 export type ViolationKind =
+  /** A sentence that names a team whose manager opted down to clean coverage and carries profanity (owner ask, 2026-09-03). Produced by the generation service, never by the verifier itself. */
+  | "clean_team_language"
   | "unknown_player"
   | "unknown_team"
   | "unverified_number"

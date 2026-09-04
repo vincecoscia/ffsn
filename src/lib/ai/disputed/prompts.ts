@@ -4,7 +4,15 @@
 import type { FactsBlock } from "../facts";
 import { getPersona, getPersonaDisplay } from "../persona-prompts";
 import type { PersonaPrompt } from "../persona-prompts";
-import { buildHouseStyleBlock, buildRelationshipsBlock, buildWhoYouAreBlock, GROUNDING_CONTRACT } from "../prompt-builder";
+import { MILD_PROFANITY, STRONG_PROFANITY } from "../language";
+import {
+  buildHouseStyleBlock,
+  buildRelationshipsBlock,
+  buildWhoYouAreBlock,
+  GROUNDING_CONTRACT,
+  languageSamplesFor,
+  languageTraitFor,
+} from "../prompt-builder";
 import {
   DEBATER_SLUGS,
   HOST_SLUG,
@@ -174,7 +182,7 @@ export function buildTurnSystemPrompt(
       cleanTeamNames: brief.cleanTeamNames,
       surface: "show",
     }),
-    buildWhoYouAreBlock(persona),
+    buildWhoYouAreBlock(persona, brief.languageRating),
   ];
 
   const relationshipsBlock = buildRelationshipsBlock(facts, persona);
@@ -182,6 +190,19 @@ export function buildTurnSystemPrompt(
 
   parts.push(SHOW_RULES);
   parts.push(`YOUR ROLE ON THIS SHOW\n${roleRules}`);
+
+  // The show carries no article voice samples (a turn is too short to need them), but above clean
+  // the language samples ARE the register — the model mirrors a sample far more reliably than it
+  // follows a rule (owner ask, 2026-09-03), so they ride along with the trait.
+  const rating = brief.languageRating ?? "clean";
+  if (rating !== "clean" && languageTraitFor(persona, rating)) {
+    const samples = languageSamplesFor(persona, rating, `w${brief.week}`);
+    if (samples.length > 0) {
+      parts.push(
+        `LANGUAGE SAMPLES — style only. The braces are placeholders, not content. Never copy a placeholder, a number, or a name out of these lines into a turn.\n${samples.map((sample) => `- ${sample}`).join("\n")}`
+      );
+    }
+  }
 
   return parts.join("\n\n");
 }
@@ -238,19 +259,36 @@ ${turnOutputContract(kind)}`;
 }
 
 /**
- * The per-turn language directive for a debater's opening and last jab. Three live runs
- * (2026-09-03) at salty and unfiltered with the register described only in the system prompt
- * produced zero profanity: the model reads a tier as permission it may decline. Naming the turn
- * where the register shows is what makes the league's setting real. Empty at clean.
+ * The per-turn language line for a debater's turn (opening, argument, jab). The register itself
+ * lives in the speaker's LANGUAGE trait in the system prompt; this only names the moment. Three
+ * live runs (2026-09-03) at salty and unfiltered with the register described only in the house-style
+ * block produced zero profanity, and a fixed "use one word this turn" quota produced four "damn"s at
+ * fixed slots — so the quota now exists only as a FALLBACK: on the last jab, when a debater who
+ * carries the rating has not sworn once all episode (`ctx.languageUsed === 0`), the jab is told
+ * outright to carry it. Every other turn is a trigger reminder, not a count. Empty at clean, and
+ * empty for a speaker with no allowance.
  */
-function languageNoteFor(ctx: DirectorContext): string {
+function languageNoteFor(kind: "opening" | "argument" | "jab", ctx: DirectorContext): string {
   const rating = ctx.brief.languageRating ?? "clean";
   if (rating === "clean") return "";
-  const tier =
-    rating === "salty"
-      ? "one mild word — damn, hell, ass, crap, pissed, screwed or sucks"
-      : "one strong word from the strong tier";
-  return `LANGUAGE: this league runs ${rating}. This is a turn where that register shows: use ${tier}, aimed at the decision or the result, never at the person.\n\n`;
+  const allowance = ctx.languageAllowance ?? 0;
+  if (allowance <= 0) return "";
+  const used = ctx.languageUsed ?? 0;
+  const floor = ctx.languageFloor ?? 0;
+  const tierWords = rating === "salty" ? MILD_PROFANITY : STRONG_PROFANITY;
+  const rangeText = floor > 0 ? `your range tonight is ${floor} to ${allowance}` : `your allowance tonight is ${allowance}`;
+
+  if (kind === "jab" && used < Math.max(floor, 1)) {
+    const shortfall = Math.max(floor, 1) - used;
+    return `LANGUAGE: this league runs ${rating}, and you are at ${used} for the night against a floor of ${Math.max(floor, 1)} — that is out of character for you. This jab carries it: at least ${shortfall === 1 ? "one word" : `${shortfall} words`} from your tier (${tierWords.join(", ")}), in your own register, aimed at the pick or the result, never against the person.\n\n`;
+  }
+  if (kind === "opening") {
+    return `LANGUAGE: this league runs ${rating} and ${rangeText}. Your language trait applies, and an opening statement is exactly the moment it describes — the receipt or the scoreboard earns the word. Aim it at the decision or the result, never against the person.\n\n`;
+  }
+  if (kind === "jab") {
+    return `LANGUAGE: this league runs ${rating}. Your language trait applies here as much as anywhere; a last shot is allowed to be filthy about the pick or the result, never about the person.\n\n`;
+  }
+  return `LANGUAGE: this league runs ${rating}; your language trait applies whenever the moment earns it. You are at ${used} for the night and ${rangeText}${floor > 0 && used < floor ? " — you are under it" : ""}.\n\n`;
 }
 
 /** Everything `directorInstructionFor` might need for one turn. Every field is optional — only the fields the given `kind` actually uses are read. */
@@ -281,6 +319,12 @@ export interface DirectorContext {
    * pilot had both debaters make the identical prediction, so the ledger couldn't score a winner).
    */
   melsOpening?: { text: string; claim?: ArticleClaim };
+  /** Tracked profanity words this speaker has already used this episode (debater turns only). */
+  languageUsed?: number;
+  /** This speaker's per-episode allowance at the brief's rating (debater turns only); 0 or absent means no language note. */
+  languageAllowance?: number;
+  /** This speaker's per-episode floor at the brief's rating (debater turns only); the jab fallback fires while `languageUsed` is under it. */
+  languageFloor?: number;
 }
 
 /** Mel's claim rendered plainly, so Reggie's instruction can name exactly what he must contradict. */
@@ -319,7 +363,7 @@ ${ctx.melsOpening.claim ? `Mel's claim: ${describeClaim(ctx.melsOpening.claim)}`
 Your claim must contradict his — the same subject and week with the opposite outcome, or a different resolvable claim that would prove YOUR side. Never restate his.`
         : "";
       return `${marker}
-${sideLine}${languageNoteFor(ctx)}Give your opening statement on: "${question}". Take a side and attach a number to it. State your position in the "claim" field as a resolvable prediction with FACTS team ids. Agreement is forbidden this turn — you are staking out ground, not finding consensus. Never put your own words in quotation marks — a quotation mark means a manager's verbatim words from FACTS.quotes; when you want emphasis, use capitals instead.${melsOpeningBlock}`;
+${sideLine}${languageNoteFor("opening", ctx)}Give your opening statement on: "${question}". Take a side and attach a number to it. State your position in the "claim" field as a resolvable prediction with FACTS team ids. Agreement is forbidden this turn — you are staking out ground, not finding consensus. Never put your own words in quotation marks — a quotation mark means a manager's verbatim words from FACTS.quotes; when you want emphasis, use capitals instead.${melsOpeningBlock}`;
     }
 
     case "argument": {
@@ -338,7 +382,7 @@ ${ctx.previousTurnText}`
           ? `YOUR SIDE: ${ctx.mySide ?? "(not set)"}\nOPPONENT'S SIDE: ${ctx.opponentSide ?? "(not set)"}\n\n`
           : "";
       return `${marker}
-${sidesBlock}Answer the last turn directly. Attack the pick or the lineup, never the person. You may call one witness to the stand by slug in "witnessRequested" if a fact from them would settle this faster than another round of assertion. Never put your own words in quotation marks — a quotation mark means a manager's verbatim words from FACTS.quotes; when you want emphasis, use capitals instead.${agreementNote}${lastTurnBlock}`;
+${sidesBlock}${languageNoteFor("argument", ctx)}Answer the last turn directly. Attack the pick or the lineup, never the person. You may call one witness to the stand by slug in "witnessRequested" if a fact from them would settle this faster than another round of assertion. Never put your own words in quotation marks — a quotation mark means a manager's verbatim words from FACTS.quotes; when you want emphasis, use capitals instead.${agreementNote}${lastTurnBlock}`;
     }
 
     case "witness": {
@@ -369,7 +413,7 @@ Read the season ledger from the brief in one line: Mel is ${ledger["mel-diaper"]
           : "";
       const sideLine = ctx.mySide ? `YOUR SIDE: ${ctx.mySide}\n\n` : "";
       return `${marker}
-${sideLine}${languageNoteFor(ctx)}One last shot at the other debater, backed by a fact.${catchphrase}`;
+${sideLine}${languageNoteFor("jab", ctx)}One last shot at the other debater, backed by a fact.${catchphrase}`;
     }
 
     case "close": {

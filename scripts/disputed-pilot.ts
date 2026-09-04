@@ -18,7 +18,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fixturesByName, factsRequestFor } from "../src/lib/ai/__fixtures__";
 import { buildFactsBlock, serializeFacts, type FactsBlock } from "../src/lib/ai/facts";
-import { personaPrompts } from "../src/lib/ai/persona-prompts";
+import { languageRangeFor, personaPrompts } from "../src/lib/ai/persona-prompts";
 import { countProfanity, mentionRatio, type LanguageRating } from "../src/lib/ai/language";
 import type {
   CommentResponseData,
@@ -102,6 +102,24 @@ function parseArgs(argv: string[]): Options {
     }
   }
   return options;
+}
+
+/** "mel-diaper 5/4-12, reggie-banks 2/3-10 UNDER, curtis-vaughn 1/0-1" — used/floor-ceiling for every speaker who swore, plus every carrier (FLAT when none). */
+function profanityBySpeakerLine(bySpeaker: Record<string, number>, rating: LanguageRating): string {
+  if (rating === "clean") return Object.keys(bySpeaker).length === 0 ? "none (clean)" : Object.entries(bySpeaker).map(([slug, n]) => `${slug} ${n} (must be clean)`).join(", ");
+  const slugs = new Set<string>(Object.keys(bySpeaker));
+  for (const slug of Object.keys(personaPrompts)) {
+    if (personaPrompts[slug].language.allowance[rating] >= 4) slugs.add(slug);
+  }
+  const parts = [...slugs].sort().map((slug) => {
+    const persona = personaPrompts[slug];
+    const range = persona ? languageRangeFor(persona, rating) : { floor: 0, ceiling: 0 };
+    const used = bySpeaker[slug] ?? 0;
+    const flag =
+      range.ceiling >= 4 && used === 0 ? " FLAT" : used > range.ceiling ? " OVER" : used < range.floor ? " UNDER" : "";
+    return `${slug} ${used}/${range.floor}-${range.ceiling}${flag}`;
+  });
+  return parts.length === 0 ? "none" : parts.join(", ");
 }
 
 function printUsage(): void {
@@ -201,7 +219,9 @@ function loadFactsAndRelationships(options: Options): {
 function timestamp(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  // Seconds included: two pilots launched side by side (salty + unfiltered, 2026-09-03) landed in the
+  // same minute and the second overwrote the first.
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
 /** Every turn's spoken text, in order, joined into one string — what a listener actually hears. */
@@ -299,6 +319,7 @@ async function main(): Promise<void> {
   const houseStyleLines = [
     `- Team/manager mentions: ${mentions.teamMentions}/${mentions.managerMentions} (ratio ${mentions.ratio === null ? "n/a" : mentions.ratio.toFixed(2)})`,
     `- Profanity: ${profanity.mild} mild / ${profanity.strong} strong`,
+    `- Profanity by speaker (in tier, vs allowance at ${brief.languageRating ?? "clean"}): ${profanityBySpeakerLine(stats.profanityBySpeaker, brief.languageRating ?? "clean")}`,
   ];
 
   const statsFooter = [

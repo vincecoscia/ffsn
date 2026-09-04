@@ -1,0 +1,467 @@
+{
+  "transcript": {
+    "schema": "ffsn.transcript.v1",
+    "show": "disputed",
+    "week": 8,
+    "question": "Is Cameron Coscia's aggressive, nine-move waiver approach with The Stinky Faggots smart roster-building or just churn masking a team that's actually thin?",
+    "hotSeat": {
+      "teamId": "T8",
+      "teamName": "The Stinky Faggots",
+      "managerName": "Cameron Coscia",
+      "why": "Nina Sharpe is favorite on them (+72), Curtis Vaughn is neutral on them (+9)"
+    },
+    "sides": {
+      "mel-diaper": "The process is scattershot — nine waiver moves this week for guys like Will Reichard for zero dollars and a 49ers D/ST for zero dollars is not a plan, it's panic depth.",
+      "reggie-banks": "The scoreboard says 5-3, fourth in the standings, and Bijan Robinson has already dropped 35.8 in a single week for this roster, so whatever Cameron's doing is working."
+    },
+    "language": "salty",
+    "segments": [
+      {
+        "id": "cold_open",
+        "title": "Cold Open",
+        "turns": [
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "cold_open",
+            "text": "Good evening. The Stinky Faggots dropped a nine-acquisition waiver binge on the league this week and still needed a last-gasp Chase Brown afternoon just to beat GLORY ASSHOLE by 6.1. So: is Cameron Coscia building a roster or just burning FAAB? Mel, you've got the board. Take it away.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "opening_statements",
+        "title": "Opening Statements",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "NINE PICKUPS. NINE! And what did The Stinky Faggots buy this week? A kicker for ZERO DOLLARS and the 49ers D/ST for ZERO DOLLARS, with $76 of $100 still sitting in the damn drawer. That's not roster-building, that's a guy grabbing lottery scratchers at the gas station. They won by 6.1 with 105.4 the week before. I say The Stinky Faggots finish outside the top three. Book it.",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots finish outside the top three — no better than fourth — at the end of the regular season",
+              "kind": "team_finish",
+              "subjectTeamId": "T8",
+              "minRank": 4,
+              "maxRank": 10
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "Mel, $76 in the drawer is not a crime, it's CHANGE. The Stinky Faggots are 5-3 and fourth with 1,094.2 points. Bijan Robinson went 35.8 in a week, Rico Dowdle 33.9, Cam Skattebo 31 — 185.4 that afternoon. Cute draft board. I say they finish top three, and Josh Allen's 24.2 last Sunday is why. Damn right.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots finish top three in the regular season standings",
+              "kind": "team_finish",
+              "subjectTeamId": "T8",
+              "minRank": 1,
+              "maxRank": 3,
+              "minPoints": 0
+            },
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "main_event",
+        "title": "Main Event",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "CHANGE?! Reggie, you just quoted a 185.4 from Week 6 — go look at Week 7. ONE HUNDRED FIVE POINT FOUR. Bijan 21.2, Skattebo 18.4, and they LOST to IR Squad by 11.3. Then 116.9 last Sunday. That's a half-assed two weeks in a row, and the fix was a free kicker. A FREE KICKER! Nina, grade it.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "agreesWithOpponent": false,
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "That's a half-assed two weeks in a row, and the fix was a free kicker."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, let's grade \"top three\" against the standing rows. The Stinky Faggots sit fourth at 5-3, 1094.2 points — one row below top three, on eight games. Partly supported: the record holds it up, the seed doesn't. Eight games, hold it loosely.",
+            "jab": false,
+            "factsCited": [
+              "standings: T8 rank 4, record 5-3, pointsFor 1094.2"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Nina says the record holds it up — I'll take that. Mel, you want the free kicker? Cam Skattebo was pick 146 and he's RB10 with 113.8 points. Rico Dowdle went 32.4 and 33.9 in back-to-back weeks. Khalil Shakir put up 20.8 last Sunday in a six-point win. That's not panic depth, that's a hell of a bench turning into starters. Scoreboard.",
+            "jab": true,
+            "factsCited": [
+              "standings T8 5-3 rank 4",
+              "board RB Cam Skattebo rank 10, 113.8, draftPick 146",
+              "M2 Rico Dowdle 32.4",
+              "M8 Rico Dowdle 33.9",
+              "M20 Khalil Shakir 20.8",
+              "M20 margin 6.1"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "That's not panic depth, that's a hell of a bench turning into starters."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "A BENCH TURNING INTO STARTERS?! Reggie, the bench was SEVENTEEN POINT EIGHT in Week 7 and NINETEEN POINT SEVEN last Sunday. There's nothing back there! And they had Kyle Monangai at ZERO DOLLARS and got outbid — OUTBID BY TWO BUCKS by a 2-6 Prolapsed Peehole. NINE pickups, $76 in the drawer, and you lose a running back over two damn dollars. That's not depth, that's a hell of a shopping list with no wallet. Dex, is that reported or am I making it up?",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "NINE pickups, $76 in the drawer, and you lose a running back over two damn dollars."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED. Vincent Coscia won Kyle Monangai for two dollars, outbidding The Stinky Faggots' zero-dollar bid. It's in the waiver log for the week, clean and confirmed. That's the wire on that one.",
+            "jab": false,
+            "factsCited": [
+              "W9 waiver claim: Vincent Coscia won Kyle Monangai for $2, outbid The Stinky Faggots $0"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Reported! Great. Now report the record. Two dollars for Kyle Monangai — a man with 2.4 points on the season, and Prolapsed Peehole is 2-6 with 907.1 points, last in the league. Mel, you're mad they didn't outbid the worst team in the building for a guy who's scored 2.4. Meanwhile A.J. Brown went 28.1 in Week 7 and Josh Allen 24.2 last Sunday. 5-3. I'll wait.",
+            "jab": true,
+            "factsCited": [
+              "W9",
+              "T5 record 2-6 907.1",
+              "U1 Kyle Monangai seasonPoints 2.4",
+              "M14 A.J. Brown 28.1",
+              "M20 Josh Allen 24.2",
+              "T8 record 5-3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "5-3. I'll wait."
+              },
+              {
+                "teamId": "T5",
+                "managerName": "Vincent Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Prolapsed Peehole is 2-6 with 907.1 points, last in the league."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Let's settle the seeding question with history behind it. Walt, you're up — swing vote, historical parallel, first-person verdict. Go.",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "walt-brennan",
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "walt-brennan",
+            "kind": "witness",
+            "text": "This league's record only goes back to this season, so I won't pretend to have seen this movie before. What I've got is fourth place, 1,094.2 points, and a bench that hasn't scored in two weeks. That's not a burn, that's a team living paycheck to paycheck. I'd call the seeding fragile, not fake. Reggie's got the better of it, but Mel's right that the wallet's for show.",
+            "jab": false,
+            "factsCited": [
+              "The Stinky Faggots rank 4, 5-3, 1094.2 points",
+              "Week 7 bench 17.8",
+              "Week 8 bench 19.7"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "Walt says the wallet's for show — THAT'S MY POINT. Reggie, look at Week 9. The Stinky Faggots are projected 129.7, the LOWEST projection on the whole slate, and they're at GLORY ASSHOLE at 140. Two kickers and two defenses rostered right now. TWO OF EACH! That's not depth, that's a garage full of spare tires and no engine. NINE pickups bought a 129.7.",
+            "jab": true,
+            "factsCited": [
+              "U5 Week 9 T11 vs T8 projections 140 vs 129.7",
+              "T8 roster: Jason Myers, Will Reichard, Broncos D/ST, 49ers D/ST",
+              "W12, W13 zero-dollar claims"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Two kickers and two defenses rostered right now. TWO OF EACH! That's not depth, that's a garage full of spare tires and no engine."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Projections! Mel's reading bedtime stories again. 129.7 is paper, and paper doesn't score. GLORY ASSHOLE was projected to beat nobody last Sunday and got hung 182.3 by IM NOT GAY — lost by 39.1. Same GLORY ASSHOLE, 5-3, tied with The Stinky Faggots. Kenneth Walker, Chuba Hubbard, Jerry Jeudy on that bench. Damn right that's an engine.",
+            "jab": true,
+            "factsCited": [
+              "U5 Week 9 projections T8 129.7 at T11 140",
+              "M19 T12 182.3 def T11 143.2 margin 39.1",
+              "standings T8 5-3 1094.2, T11 5-3 1107",
+              "T8 roster: Kenneth Walker III, Chuba Hubbard, Jerry Jeudy"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Kenneth Walker, Chuba Hubbard, Jerry Jeudy on that bench. Damn right that's an engine."
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "Same GLORY ASSHOLE, 5-3, tied with The Stinky Faggots."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "AN ENGINE?! Reggie, that engine spent $24 of $100 across NINE pickups and the top price was a free kicker. Meanwhile GLORY ASSHOLE — the team you just praised — paid SEVENTEEN DOLLARS for Oronde Gadsden and got 18.7 out of him last Sunday. SEVENTEEN. That's a plan. Zero, zero, zero is a damn scavenger hunt.",
+            "jab": true,
+            "factsCited": [
+              "B6 · The Stinky Faggots: $76 of $100 left, 9 pickups",
+              "W12 Will Reichard $0",
+              "W13 49ers D/ST $0",
+              "W6 · Gabe Coscia won Oronde Gadsden for $17",
+              "M19 Oronde Gadsden 18.7 points"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "that engine spent $24 of $100 across NINE pickups and the top price was a free kicker"
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "GLORY ASSHOLE paid SEVENTEEN DOLLARS for Oronde Gadsden and got 18.7 out of him last Sunday"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Seventeen dollars for a tight end who scored 18.7 — and GLORY ASSHOLE still lost by 39.1! That's your plan? Mel, The Stinky Faggots spent $24 total and are 5-3 with 1,094.2 points, same record as your seventeen-dollar masterpiece. And Rico Dowdle came off that wire for nothing and hung 32.4 and 33.9. GIVE THAT MAN'S GM HIS FLOWERS. Price tags don't score. Scoreboard.",
+            "jab": true,
+            "factsCited": [
+              "W6 · Gabe Coscia won Oronde Gadsden for $17",
+              "M19 · T12 182.3 vs T11 143.2, margin 39.1",
+              "M19 Oronde Gadsden 18.7",
+              "B6 · The Stinky Faggots: $76 of $100 left, 9 pickups",
+              "T8 record 5-3, 1094.2 points",
+              "M2 Rico Dowdle 32.4",
+              "M8 Rico Dowdle 33.9",
+              "T11 record 5-3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "The Stinky Faggots spent $24 total and are 5-3 with 1,094.2 points, same record as your seventeen-dollar masterpiece."
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "Seventeen dollars for a tight end who scored 18.7 — and GLORY ASSHOLE still lost by 39.1!"
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Flowers, price tags, engines — new ground, please. Sam, is there anything on record from Cameron Coscia about this waiver approach, or are we debating a silent GM?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "sam-ortega",
+            "model": "claude-sonnet-5",
+            "retried": true
+          },
+          {
+            "speaker": "sam-ortega",
+            "kind": "witness",
+            "text": "I asked. Nothing on record from Cameron Coscia this week — no quote in the file about the waiver approach. I don't get to fill that in for him. Nine pickups, $24 spent, and a silent GM. That's the notebook.",
+            "jab": false,
+            "factsCited": [
+              "facts.quotes is empty",
+              "B6 - Cameron Coscia $24 spent, 9 pickups"
+            ],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "verdict",
+        "title": "Verdict",
+        "turns": [
+          {
+            "speaker": "nina-sharpe",
+            "kind": "grade",
+            "text": "Class, two claims on the board. Mel says The Stinky Faggots finish outside the top three — they sit fourth at 5-3, 1094.2 points, one spot below top three. Not supported, that's a top-four team by the standings. Reggie says top three — also not supported, same row. Fourth is fourth. Eight games, hold it loosely.",
+            "jab": false,
+            "factsCited": [
+              "standings row for T8: rank 4, 5-3-0, 1094.2 points"
+            ],
+            "verdict": {
+              "winner": "reggie-banks",
+              "reason": "The Stinky Faggots are fourth at 1094.2 points, closer to Reggie's top-three call than Mel's outside-top-three call, but neither is fully supported."
+            },
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "ledger",
+            "text": "Neither debater has a decision on the books yet this season, so we start clean tonight. Nina just called both claims unsupported — fourth is fourth. Mel, Reggie, last jabs, then I want a verdict.",
+            "jab": false,
+            "factsCited": [
+              "standings T8 rank 4, 5-3-0, 1094.2 points"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      },
+      {
+        "id": "last_jabs",
+        "title": "Last Jabs",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "jab",
+            "text": "FOURTH. FOURTH, Reggie! Nina just read it and you're still selling me flowers. NINE pickups, TWENTY-FOUR DOLLARS, and $76 rotting in the drawer — a free kicker and a free 49ers D/ST. That's panic depth, not a plan. Nineteen point seven on the bench last Sunday. NINETEEN POINT SEVEN. The Stinky Faggots finish outside the top three, and I want that damn scavenger hunt entered into evidence.",
+            "jab": true,
+            "factsCited": [
+              "W12",
+              "W13",
+              "B6",
+              "standings T8 4th 5-3 1094.2",
+              "M20 bench 19.7",
+              "waivers.season.mostActive T8 9 acquisitions"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "roast",
+                "intensity": 2,
+                "evidence": "NINE pickups, TWENTY-FOUR DOLLARS, and $76 rotting in the drawer — a free kicker and a free 49ers D/ST."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "jab",
+            "text": "Fourth! Mel, fourth is a PLAYOFF SEED. Six teams get in, and The Stinky Faggots are in it at 5-3 with 1,094.2 points. Bijan Robinson hung 35.8 in a week for this roster. Twenty-four damn dollars bought that. I said top three and I'll say it once more — and if they miss the six, you win. Scoreboard. You can take that to the bank.",
+            "jab": true,
+            "factsCited": [
+              "T8 record 5-3, rank 4, 1094.2 PF",
+              "playoffs fieldSize 6, T8 seed 4",
+              "M8 Bijan Robinson 35.8",
+              "B6 The Stinky Faggots $24 spent, 9 acquisitions"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "Twenty-four damn dollars bought that."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "close",
+            "text": "Fourth place, 1,094.2 points, neither prediction supported by Nina's own math. That's the show. This is FFSN.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "turns": 22,
+    "witnessCalls": 4,
+    "redirects": 2,
+    "retries": 3,
+    "dropped": 0,
+    "agreements": 0,
+    "promptTokens": 55667,
+    "completionTokens": 9001,
+    "costUsd": 1.2843548500000002,
+    "modelsUsed": [
+      "claude-sonnet-5",
+      "claude-opus-5"
+    ],
+    "catchphraseStripped": 0,
+    "languageStripped": 0,
+    "profanityBySpeaker": {
+      "mel-diaper": 6,
+      "reggie-banks": 4
+    },
+    "duplicateClaimsDropped": 0,
+    "violations": [
+      {
+        "speaker": "walt-brennan",
+        "kind": "unknown_player",
+        "detail": "What I've",
+        "severity": "warn"
+      }
+    ]
+  }
+}

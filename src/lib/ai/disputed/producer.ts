@@ -8,7 +8,8 @@ import type { RouteEffort, RouteModel, WriterRelationshipContext } from "../cont
 import type { FactsBlock } from "../facts";
 import { verifyArticle } from "../fact-verifier";
 import type { Violation } from "../fact-verifier";
-import { PROFANITY_WORDS, STRONG_PROFANITY, stripExemptPhrases } from "../language";
+import { cleanTeamViolations, countProfanity, MILD_PROFANITY, PROFANITY_WORDS, removeSentences, STRONG_PROFANITY, stripExemptPhrases } from "../language";
+import type { CleanTeam } from "../language";
 import type { LanguageRating } from "../language";
 import { getPersona, getPersonaDisplay, personaPrompts } from "../persona-prompts";
 import type { PersonaPrompt } from "../persona-prompts";
@@ -233,32 +234,62 @@ function splitSentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+/);
 }
 
-const ALWAYS_CLEAN_SPEAKERS = new Set(["curtis-vaughn", "dex-alvarez", "sam-ortega"]);
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
- * The profanity a turn may not carry: every listed word for an always-clean speaker or at "clean",
- * the strong tier at "salty", nothing at "unfiltered". Words inside a team name are facts and never
- * count (the first Salty pilot, 2026-09-03, counted a team name as two strong hits).
+ * Tracked profanity words per EPISODE a speaker may carry at `rating`: the persona's own language
+ * allowance (persona-prompts.ts), 0 at clean. Replaces the old hard-coded always-clean set (owner
+ * ask, 2026-09-03: the reserved desk breaking character once is the joke, and a hard lock stripped
+ * it before it could land).
+ */
+export function languageAllowanceFor(speaker: string, rating: LanguageRating): number {
+  if (rating === "clean") return 0;
+  return getPersona(speaker).language.allowance[rating];
+}
+
+/** The persona's per-episode floor at `rating` (0 at clean, and for the reserved desk). */
+export function languageFloorFor(speaker: string, rating: LanguageRating): number {
+  if (rating === "clean") return 0;
+  return getPersona(speaker).language.floor?.[rating] ?? 0;
+}
+
+/** How many tracked words in `text` fall inside the tier `rating` allows (team names exempt). */
+function inTierProfanityCount(text: string, rating: LanguageRating, teamNames: ReadonlyArray<string>): number {
+  if (rating === "clean") return 0;
+  const counts = countProfanity(text, teamNames);
+  return rating === "salty" ? counts.mild : counts.mild + counts.strong;
+}
+
+/**
+ * The profanity a turn may not carry, with the reason. `tier`: a word outside what the rating
+ * allows at all (anything at "clean", the strong tier at "salty"). `allowance`: words inside the
+ * tier, but this speaker has already used their per-episode allowance (`usedSoFar`) and this turn
+ * would push past it — every in-tier word in the turn is listed, and the retry asks for the same
+ * point without them. Words inside a team name are facts and never count (the first Salty pilot,
+ * 2026-09-03, counted a team name as two strong hits).
  */
 function languageViolations(
   speaker: string,
   text: string,
   rating: LanguageRating,
-  teamNames: ReadonlyArray<string>
-): string[] {
-  const forbidden =
-    ALWAYS_CLEAN_SPEAKERS.has(speaker) || rating === "clean"
-      ? PROFANITY_WORDS
-      : rating === "salty"
-        ? STRONG_PROFANITY
-        : [];
-  if (forbidden.length === 0) return [];
+  teamNames: ReadonlyArray<string>,
+  usedSoFar: number
+): { words: string[]; reason: "tier" | "allowance" } | null {
   const scrubbed = stripExemptPhrases(text, teamNames);
-  return forbidden.filter((word) => new RegExp(`\\b${escapeRegExp(word)}\\b`, "i").test(scrubbed));
+  const present = (words: ReadonlyArray<string>): string[] =>
+    words.filter((word) => new RegExp(`\\b${escapeRegExp(word)}\\b`, "i").test(scrubbed));
+
+  const outOfTier = rating === "clean" ? present(PROFANITY_WORDS) : rating === "salty" ? present(STRONG_PROFANITY) : [];
+  if (outOfTier.length > 0) return { words: outOfTier, reason: "tier" };
+
+  const inTier = inTierProfanityCount(text, rating, teamNames);
+  if (inTier === 0) return null;
+  const allowance = languageAllowanceFor(speaker, rating);
+  if (usedSoFar + inTier <= allowance) return null;
+  const inTierWords = present(rating === "salty" ? MILD_PROFANITY : PROFANITY_WORDS);
+  return { words: inTierWords, reason: "allowance" };
 }
 
 /** Drops the sentence(s) matching `pattern`, leaving the rest of the text as-is. */
@@ -430,10 +461,25 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     modelsUsed: [],
     catchphraseStripped: 0,
     languageStripped: 0,
+    cleanTeamStripped: 0,
+    profanityBySpeaker: {},
     duplicateClaimsDropped: 0,
     violations: [],
   };
   const modelsUsed = new Set<string>();
+  const rating: LanguageRating = brief.languageRating ?? "clean";
+  const teamNames = facts.teams.map((team) => team.name);
+  // Teams whose managers opted down to clean coverage, with the manager's name so a sentence that
+  // swears at the GM by name is caught too. Only meaningful above clean (at clean nothing swears).
+  const cleanTeams: CleanTeam[] =
+    rating === "clean"
+      ? []
+      : facts.teams
+          .filter((team) => (brief.cleanTeamNames ?? []).includes(team.name))
+          .map((team) => ({ name: team.name, manager: team.manager }));
+  /** Tracked in-tier profanity each speaker has carried into accepted turns so far this episode. */
+  const profanityUsed = new Map<string, number>();
+  const languageUsedBy = (speaker: string): number => profanityUsed.get(speaker) ?? 0;
 
   function renderSoFar(): string {
     return allTurns.map((turn) => `${getPersonaDisplay(turn.speaker).name}: ${turn.text}`).join("\n");
@@ -588,25 +634,55 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     }
 
     // The league's language rating is enforced the way the catchphrase is: one retry that names
-    // the words, then the sentence carrying them comes out. The prompt states the rating; this is
-    // what makes it true.
-    const rating: LanguageRating = brief.languageRating ?? "clean";
-    const teamNames = facts.teams.map((team) => team.name);
-    let offending = languageViolations(speaker, sanitized.text, rating, teamNames);
-    if (offending.length > 0) {
+    // the words, then the sentence carrying them comes out. The prompt states the rating and the
+    // persona's trait; this is what makes the ceiling true. The ceiling is the persona's own
+    // per-episode allowance, so the reserved desk gets its one and Mel gets his dozen.
+    let offending = languageViolations(speaker, sanitized.text, rating, teamNames, languageUsedBy(speaker));
+    if (offending) {
       retried = true;
-      const languageInstruction = `${directorInstruction}\n\nThat turn breaks the league's language rating (${rating}) for you: ${offending.join(", ")}. Say the same thing without those words.`;
+      const allowance = languageAllowanceFor(speaker, rating);
+      const why =
+        offending.reason === "tier"
+          ? `That turn breaks the league's language rating (${rating}) for you: ${offending.words.join(", ")}.`
+          : `You have already used your language allowance for tonight (${allowance} at ${rating}); that turn adds ${offending.words.join(", ")}.`;
+      const languageInstruction = `${directorInstruction}\n\n${why} Say the same thing without those words.`;
       result = await callTurn(speaker, system, languageInstruction, kind);
       sanitized = sanitizeTurnOutput(kind, result.output);
-      offending = languageViolations(speaker, sanitized.text, rating, teamNames);
-      if (offending.length > 0) {
-        const pattern = new RegExp(`\\b(?:${offending.map(escapeRegExp).join("|")})\\b`, "i");
+      offending = languageViolations(speaker, sanitized.text, rating, teamNames, languageUsedBy(speaker));
+      if (offending) {
+        const pattern = new RegExp(`\\b(?:${offending.words.map(escapeRegExp).join("|")})\\b`, "i");
         sanitized = { ...sanitized, text: stripSentenceMatchingExempt(sanitized.text, pattern, teamNames) };
         stats.languageStripped++;
         stats.violations.push({
           speaker,
           kind: "language_stripped",
-          detail: `${offending.join(", ")} is outside the ${rating} rating for ${speaker}; the sentence carrying it was removed`,
+          detail:
+            offending.reason === "tier"
+              ? `${offending.words.join(", ")} is outside the ${rating} rating for ${speaker}; the sentence carrying it was removed`
+              : `${offending.words.join(", ")} would take ${speaker} past a language allowance of ${allowance} at ${rating}; the sentence carrying it was removed`,
+          severity: "warn",
+        });
+      }
+    }
+
+    // The manager opt-down ("keep it clean about my team") is enforced the same way: one retry that
+    // names the sentence, then the sentence comes out. Prompt-only until 2026-09-03, which the rest
+    // of that night's evidence says is no enforcement at all.
+    let optDown = cleanTeamViolations(sanitized.text, cleanTeams, teamNames);
+    if (optDown.length > 0) {
+      retried = true;
+      const named = [...new Set(optDown.map((entry) => entry.team))].join(", ");
+      const optDownInstruction = `${directorInstruction}\n\nThe manager of ${named} asked for clean coverage of their team. Say the same thing about them without any profanity: ${optDown.map((entry) => `"${entry.sentence}"`).join(" ")}`;
+      result = await callTurn(speaker, system, optDownInstruction, kind);
+      sanitized = sanitizeTurnOutput(kind, result.output);
+      optDown = cleanTeamViolations(sanitized.text, cleanTeams, teamNames);
+      if (optDown.length > 0) {
+        sanitized = { ...sanitized, text: removeSentences(sanitized.text, optDown.map((entry) => entry.sentence)) };
+        stats.cleanTeamStripped++;
+        stats.violations.push({
+          speaker,
+          kind: "clean_team_language",
+          detail: `${optDown.length} sentence(s) swearing about ${named}, whose manager opted down to clean coverage, were removed`,
           severity: "warn",
         });
       }
@@ -635,6 +711,11 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     allTurns.push(turn);
     stats.turns++;
     lastTurnTextBySpeaker.set(turn.speaker, turn.text);
+    const carried = inTierProfanityCount(turn.text, rating, teamNames);
+    if (carried > 0) {
+      profanityUsed.set(turn.speaker, languageUsedBy(turn.speaker) + carried);
+      stats.profanityBySpeaker[turn.speaker] = languageUsedBy(turn.speaker);
+    }
   }
 
   const segments: ShowSegment[] = [];
@@ -675,6 +756,9 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
         brief,
         question,
         mySide: resolvedSides[speaker],
+        languageUsed: languageUsedBy(speaker),
+        languageAllowance: languageAllowanceFor(speaker, rating),
+        languageFloor: languageFloorFor(speaker, rating),
         melsOpening:
           speaker === "reggie-banks" && melOpeningTurn
             ? { text: melOpeningTurn.text, claim: melOpeningTurn.claim }
@@ -777,6 +861,9 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
         previousTurnText: lastTurnTextBySpeaker.get(speaker),
         mySide: resolvedSides[speaker],
         opponentSide: resolvedSides[opponent],
+        languageUsed: languageUsedBy(speaker),
+        languageAllowance: languageAllowanceFor(speaker, rating),
+        languageFloor: languageFloorFor(speaker, rating),
       });
       const attempt = await produceTurn("argument", speaker, "main_event", instruction);
 
@@ -849,7 +936,14 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
   {
     const turns: ShowTurn[] = [];
     for (const speaker of DEBATER_SLUGS) {
-      const instruction = directorInstructionFor("jab", { brief, jabSpeaker: speaker, mySide: resolvedSides[speaker] });
+      const instruction = directorInstructionFor("jab", {
+        brief,
+        jabSpeaker: speaker,
+        mySide: resolvedSides[speaker],
+        languageUsed: languageUsedBy(speaker),
+        languageAllowance: languageAllowanceFor(speaker, rating),
+        languageFloor: languageFloorFor(speaker, rating),
+      });
       const attempt = await produceTurn("jab", speaker, "last_jabs", instruction);
       if (!("dropped" in attempt)) {
         pushTurn(attempt.turn);

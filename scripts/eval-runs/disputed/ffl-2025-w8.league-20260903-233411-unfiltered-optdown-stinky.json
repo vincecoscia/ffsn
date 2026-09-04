@@ -1,0 +1,491 @@
+{
+  "transcript": {
+    "schema": "ffsn.transcript.v1",
+    "show": "disputed",
+    "week": 8,
+    "question": "Is Cameron Coscia's aggressive, high-volume roster management actually setting The Stinky Faggots up for a title, or is it papering over a team that just lost to a 6-2 opponent by six points and can't be trusted come playoff time?",
+    "hotSeat": {
+      "teamId": "T8",
+      "teamName": "The Stinky Faggots",
+      "managerName": "Cameron Coscia",
+      "why": "Nina Sharpe is favorite on them (+72), Curtis Vaughn is neutral on them (+9)"
+    },
+    "sides": {
+      "mel-diaper": "Nine waiver pickups and a churning bench prove Cameron Coscia is stocking the depth and draft capital this roster will need in January.",
+      "reggie-banks": "The Stinky Faggots are 5-3 and just dropped six points to a first-place team — the scoreboard says the churn hasn't fixed anything yet."
+    },
+    "language": "unfiltered",
+    "segments": [
+      {
+        "id": "cold_open",
+        "title": "Cold Open",
+        "turns": [
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "cold_open",
+            "text": "Good evening. The Stinky Faggots sit 5 and 3, dropped a six-point decision to Chodie mcgruber in week eight, and remain the most active team on waivers with nine pickups this season. So: is Cameron Coscia building this roster right? Mel, take it away.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "opening_statements",
+        "title": "Opening Statements",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "opening",
+            "text": "NINE PICKUPS. NINE! And this week Cameron Coscia added Will Reichard and the 49ers D/ST for ZERO DOLLARS with $76 of $100 still in the bank. Rico Dowdle at pick 176 — I'll say it plain, I had him wrong, and it hurts like hell. Bijan Robinson second overall, Cam Skattebo at 146. That's a title core. THE STINKY FAGGOTS BEAT GLORY ASSHOLE IN WEEK NINE. Six-point losses are not a goddamn diagnosis.",
+            "jab": false,
+            "factsCited": [],
+            "claim": {
+              "text": "The Stinky Faggots beat GLORY ASSHOLE in Week 9.",
+              "kind": "team_win",
+              "subjectTeamId": "T8",
+              "opponentTeamId": "T11",
+              "week": 9
+            },
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "opening",
+            "text": "Cute draft, Mel. Now the scoreboard: 105.4 in week seven, 116.9 in week eight. Two straight weeks under 120 and two straight losses. Nine pickups and the last one that mattered was a free kicker. GLORY ASSHOLE takes week nine at home — projected 140 to 129.7 — and I don't care where you took Bijan. GLORY ASSHOLE wins. That's my flag.",
+            "jab": true,
+            "factsCited": [],
+            "claim": {
+              "text": "GLORY ASSHOLE beats The Stinky Faggots in Week 9.",
+              "kind": "team_win",
+              "subjectTeamId": "T11",
+              "opponentTeamId": "T8",
+              "week": 9
+            },
+            "model": "claude-opus-5"
+          }
+        ]
+      },
+      {
+        "id": "main_event",
+        "title": "Main Event",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "TWO WEEKS UNDER 120?! Reggie, week six that lineup put up 185.4 — Bijan Robinson 35.8, Rico Dowdle 33.9, Cam Skattebo 31.0. That's SEVENTY-SIX POINTS of draft capital in one afternoon. And week eight the bench was 19.7. NINETEEN POINT SEVEN. That's a finished lineup, not a shitshow. Josh Allen 24.2, Jaylen Waddle 20.9, Khalil Shakir 20.8 and they still lost by six — that's a schedule, not a build.",
+            "jab": true,
+            "factsCited": [
+              "M8 - Week 6 The Stinky Faggots 185.4 vs Moisty Loins",
+              "M8 Bijan Robinson 35.8, Rico Dowdle 33.9, Cam Skattebo 31.0",
+              "M20 - Week 8 bench points 19.7, Josh Allen 24.2, Jaylen Waddle 20.9, Khalil Shakir 20.8, margin 6.1"
+            ],
+            "witnessRequested": "nina-sharpe",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "And week eight the bench was 19.7. NINETEEN POINT SEVEN. That's a finished lineup, not a shitshow."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class, the claim: week eight was schedule, not shitshow. Grade: partly supported. The Stinky Faggots scored 116.9 against Chodie mcgruber's 123, a six-point margin, with 19.7 bench points — that is a tight, well-managed lineup. But week seven, 105.4, is the number Mel skipped. One clean week doesn't erase the other. Two-game sample, hold it loosely.",
+            "jab": false,
+            "factsCited": [
+              "M20: T8 116.9 vs T2 123, benchPoints 19.7",
+              "M14: T8 105.4 loss to T3"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Thank you, Nina — 105.4 is the number, and I'll take that grade with a grin. Mel, here's the one you skipped: week eight, Cameron Coscia spent ZERO on Will Reichard and ZERO on the 49ers D/ST while sitting on $76. Meanwhile GLORY ASSHOLE dropped $17 on Oronde Gadsden and he went out and put up 18.7 that same week. That's a fucking swing. Free bodies don't score.",
+            "jab": true,
+            "factsCited": [
+              "W12",
+              "W13",
+              "B6",
+              "W6",
+              "M19 Oronde Gadsden 18.7",
+              "M14 105.4"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "week eight, Cameron Coscia spent ZERO on Will Reichard and ZERO on the 49ers D/ST while sitting on $76"
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "GLORY ASSHOLE dropped $17 on Oronde Gadsden and he went out and put up 18.7 that same week."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "FREE BODIES DON'T SCORE?! GLORY ASSHOLE spent $17 on Gadsden and still lost by 39.1 to IM NOT GAY — 182.3 to 143.2. SEVENTEEN DOLLARS OF NOTHING. And the $0 bodies you're mocking? Cameron Coscia is at $76 of $100 with NINE pickups. That's the whole goddamn point: depth for free, capital in the bank, and Gabe Coscia paying retail for a bullshit loss.",
+            "jab": true,
+            "factsCited": [
+              "M19",
+              "W6",
+              "B6",
+              "B9",
+              "W12",
+              "W13"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Cameron Coscia is at $76 of $100 with NINE pickups."
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "Gabe Coscia paying retail for a bullshit loss."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Mel, you brought me a loss to argue about? Fine. GLORY ASSHOLE is 5-3 with 1107 points. The Stinky Faggots are 5-3 with 1094.2. Same record, less scoring, and 105.4 last time out. And week nine that lineup is projected at 129.7 — the low number on the whole slate. Capital in the bank is horseshit if it never gets spent. Walt, settle it.",
+            "jab": true,
+            "factsCited": [],
+            "witnessRequested": "walt-brennan",
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "Same record, less scoring, and 105.4 last time out."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "walt-brennan",
+            "kind": "witness",
+            "text": "The record on this doesn't go back further than this season, so I'll stay inside it. Cameron Coscia has spent 24 of 100 dollars and won five games; Gabe Coscia spent 17 on one tight end and lost by 39.1 anyway. Money spent isn't a plan, it's just money spent. My verdict: Mel's right about the build, Reggie's right that 105.4 is a real number and not an excuse. But you don't bench a nine-pickup, five-and-three roster off two rough scoreboards. I'll take the process here.",
+            "jab": false,
+            "factsCited": [
+              "B6 - Stinky Faggots budget",
+              "W6 - Oronde Gadsden bid",
+              "M19 - GLORY ASSHOLE loses by 39.1"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Walt's called it inside the season. Let's project forward — Dex, is week nine's Gadsden money REPORTED or just Reggie's OPINION on value?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "dex-alvarez",
+            "managerMentions": [],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "dex-alvarez",
+            "kind": "witness",
+            "text": "REPORTED: Gadsden, $17, week eight, outbid IR Squad's $8. That's the log. His 18.7 that week is also REPORTED. Whether $17 was worth it — that's Reggie's OPINION, flagged as such. I don't grade value. I file the bid.",
+            "jab": false,
+            "factsCited": [
+              "W6"
+            ],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "DEX SAID IT — $17, OUTBID EIGHT, AND STILL A 39.1-POINT LOSS. Now the receipt Reggie won't read: GLORY ASSHOLE's bench in week eight was 11.8. ELEVEN POINT EIGHT. That roster is EMPTY behind the starters. The Stinky Faggots put THREE running backs over 31 in one week — Bijan 35.8, Dowdle 33.9, Skattebo 31.0 — and Skattebo cost pick 146. DEPTH IS THE PLAN, and 129.7 is a projection, not a goddamn scoreboard.",
+            "jab": true,
+            "factsCited": [
+              "M19 GLORY ASSHOLE bench 11.8, lost 143.2-182.3",
+              "M8 Bijan 35.8, Dowdle 33.9, Skattebo 31.0",
+              "Skattebo draftPick 146",
+              "W6 Gadsden $17 outbid IR Squad $8",
+              "U5 T8 projected 129.7"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "The Stinky Faggots put THREE running backs over 31 in one week — Bijan 35.8, Dowdle 33.9, Skattebo 31.0 — and Skattebo cost pick 146."
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "Now the receipt Reggie won't read: GLORY ASSHOLE's bench in week eight was 11.8."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "Depth is the plan? Then read week five, Mel. That same depth put up 146 and week eight it put up 116.9 — twenty-nine points colder. And the week-eight loss came with a $0 kicker and a $0 defense on a $76 bank. Bijan and Dowdle carried week six, sure. Then week seven, 105.4 and a loss to IR Squad by 11.3. Cute-ass draft. Scoreboard.",
+            "jab": true,
+            "factsCited": [
+              "M2 (week 5: T8 146)",
+              "M20 (week 8: T8 116.9)",
+              "M14 (week 7: T8 105.4, lost by 11.3 to T3)",
+              "W12 Will Reichard $0",
+              "W13 49ers D/ST $0",
+              "B6 The Stinky Faggots $76 remaining"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "And the week-eight loss came with a $0 kicker and a $0 defense on a $76 bank."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "mel-diaper",
+            "kind": "argument",
+            "text": "CUTE-ASS DRAFT?! Week five that roster hung 146 on Prolapsed Peehole — Dowdle 32.4, Waddle 23.0, Josh Allen 21.4. You read me the same two scoreboards all night. Here's a new one: A.J. Brown 28.1 in week seven, and they STILL lost by 11.3. That's variance, not a broken build. And $76 in the bank in WEEK EIGHT is a loaded fucking gun for December.",
+            "jab": true,
+            "factsCited": [
+              "M2",
+              "M14",
+              "B6",
+              "week 5 score 146",
+              "A.J. Brown 28.1 week 7"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 2,
+                "evidence": "And $76 in the bank in WEEK EIGHT is a loaded fucking gun for December."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "argument",
+            "text": "A loaded gun for December? Week eight the bench was 19.7 — nothing left to fire. And here's a new one: Chodie mcgruber's Kareem Hunt sat on the bench for 17.2 while a six-point loss happened. That's the margin. Meanwhile the standings: 1094.2 points, fourth seed, lowest scoring of the five-and-threes. Depth that thin doesn't win January.",
+            "jab": true,
+            "factsCited": [
+              "M20 bench points 19.7",
+              "M20 Kareem Hunt 17.2 bench",
+              "T8 pointsFor 1094.2, 5-3, seed 4",
+              "standings T2/T11/T9/T8/T3"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "Week eight the bench was 19.7 — nothing left to fire."
+              },
+              {
+                "teamId": "T2",
+                "managerName": "Matthew  Colominas",
+                "stance": "praise",
+                "intensity": 1,
+                "evidence": "Chodie mcgruber's Kareem Hunt sat on the bench for 17.2 while a six-point loss happened."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "redirect",
+            "text": "Enough gun metaphors. Nina, grade it plainly: is a five-and-three record with the lowest points-for among the five-and-threes a sign of a build that's working or one due for correction?",
+            "jab": false,
+            "factsCited": [],
+            "witnessRequested": "nina-sharpe",
+            "managerMentions": [],
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "nina-sharpe",
+            "kind": "witness",
+            "text": "Class. The claim: lowest points-for among the five-and-threes means correction due. Partly supported. The Stinky Faggots sit at 1094.2, fourth seed, below GLORY ASSHOLE's 1107 and SAGGY NUTS' 1096.4 — that part's real. But record is 5-3, same as both. Three games. Hold it loosely.",
+            "jab": false,
+            "factsCited": [
+              "The Stinky Faggots pointsFor 1094.2 seed 4",
+              "GLORY ASSHOLE pointsFor 1107 seed 2",
+              "SAGGY NUTS pointsFor 1096.4 seed 3",
+              "records all 5-3"
+            ],
+            "model": "claude-sonnet-5"
+          }
+        ]
+      },
+      {
+        "id": "verdict",
+        "title": "Verdict",
+        "turns": [
+          {
+            "speaker": "nina-sharpe",
+            "kind": "grade",
+            "text": "Class, two opening claims. Mel's: nine free-agent pickups and cheap depth make this a title core. Partly supported — Bijan, Dowdle and Skattebo cleared 31 apiece in week six, but that's one column. Reggie's: the scoreboard says GLORY ASSHOLE wins week nine outright. Not supported — that's a projection, 140 to 129.7, not a result yet. The number that actually decides tonight: 1094.2 points for, lowest of the five-and-threes. Verdict goes to whoever built the record, not the forecast.",
+            "jab": false,
+            "factsCited": [
+              "Stinky Faggots 5-3, 1094.2 points, week six 185.4 with Bijan 35.8/Dowdle 33.9/Skattebo 31.0",
+              "week nine projection GLORY ASSHOLE 140 vs Stinky Faggots 129.7 (upcoming, not a result)"
+            ],
+            "verdict": {
+              "winner": "mel-diaper",
+              "reason": "The record is 5-3 real games played, not a 129.7 projection Reggie is treating as settled."
+            },
+            "model": "claude-sonnet-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "ledger",
+            "text": "Neither one of you has a track record on this desk yet — Mel's 0-0, Reggie's 0-0 tonight. Clean slate. Let's hear the last jabs. Mel, you first.",
+            "jab": false,
+            "factsCited": [],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      },
+      {
+        "id": "last_jabs",
+        "title": "Last Jabs",
+        "turns": [
+          {
+            "speaker": "mel-diaper",
+            "kind": "jab",
+            "text": "You read me 105.4 nine times, Reggie. Here's the one you never read: ELEVEN POINT EIGHT. That's GLORY ASSHOLE's week-eight bench — $17 spent and NOTHING behind it. Nine pickups, $76 in the bank, three backs over 31 in one afternoon. THE STINKY FAGGOTS BEAT GLORY ASSHOLE IN WEEK NINE, and I want that 129.7 projection burned in the parking lot.",
+            "jab": true,
+            "factsCited": [
+              "M19 GLORY ASSHOLE bench 11.8 week 8",
+              "W6 Gadsden $17 outbid IR Squad $8",
+              "B6 The Stinky Faggots $76 of $100 left, 9 pickups",
+              "M8 Bijan 35.8 / Dowdle 33.9 / Skattebo 31.0",
+              "U5 week 9 projections 140 to 129.7"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "praise",
+                "intensity": 3,
+                "evidence": "Nine pickups, $76 in the bank, three backs over 31 in one afternoon."
+              },
+              {
+                "teamId": "T11",
+                "managerName": "Gabe Coscia",
+                "stance": "roast",
+                "intensity": 3,
+                "evidence": "That's GLORY ASSHOLE's week-eight bench — $17 spent and NOTHING behind it."
+              }
+            ],
+            "model": "claude-opus-5",
+            "retried": true
+          },
+          {
+            "speaker": "reggie-banks",
+            "kind": "jab",
+            "text": "Burn the projection, Mel — burn the standings too while you're at it. 1094.2 points. Lowest of every five-and-three team in this league. 105.4, then 116.9, then a six-point loss to the one-seed. Nine pickups and $76 in the bank hasn't moved a single one of those numbers. GLORY ASSHOLE wins week nine at home. You can take that to the bank.",
+            "jab": true,
+            "factsCited": [
+              "T8 record 5-3, pointsFor 1094.2",
+              "T11 pointsFor 1107",
+              "M14 T8 105.4",
+              "M20 T8 116.9 loss to T2 by 6.1",
+              "B6 The Stinky Faggots $76 of $100 left, 9 pickups",
+              "U5 week 9 T11 projected 140 vs T8 129.7"
+            ],
+            "managerMentions": [
+              {
+                "teamId": "T8",
+                "managerName": "Cameron Coscia",
+                "stance": "neutral",
+                "intensity": 1,
+                "evidence": "Nine pickups and $76 in the bank hasn't moved a single one of those numbers."
+              }
+            ],
+            "model": "claude-opus-5"
+          },
+          {
+            "speaker": "curtis-vaughn",
+            "kind": "close",
+            "text": "Mel says depth, Reggie says 1094.2. Both numbers are real. That's the show. This is FFSN.",
+            "jab": false,
+            "factsCited": [
+              "pointsFor 1094.2, T8"
+            ],
+            "model": "claude-sonnet-5",
+            "retried": true
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "turns": 22,
+    "witnessCalls": 4,
+    "redirects": 2,
+    "retries": 2,
+    "dropped": 0,
+    "agreements": 0,
+    "promptTokens": 61734,
+    "completionTokens": 9634,
+    "costUsd": 1.3466003999999998,
+    "modelsUsed": [
+      "claude-sonnet-5",
+      "claude-opus-5"
+    ],
+    "catchphraseStripped": 0,
+    "languageStripped": 0,
+    "cleanTeamStripped": 0,
+    "profanityBySpeaker": {
+      "mel-diaper": 8,
+      "nina-sharpe": 1,
+      "reggie-banks": 3
+    },
+    "duplicateClaimsDropped": 0,
+    "violations": [
+      {
+        "speaker": "walt-brennan",
+        "kind": "witness",
+        "detail": "86 words, over 1.5x the 50-word ceiling for a witness turn",
+        "severity": "warn"
+      },
+      {
+        "speaker": "nina-sharpe",
+        "kind": "grade",
+        "detail": "79 words, over 1.5x the 50-word ceiling for a witness turn",
+        "severity": "warn"
+      }
+    ]
+  }
+}

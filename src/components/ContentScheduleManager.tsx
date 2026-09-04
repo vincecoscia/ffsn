@@ -153,10 +153,19 @@ function personaOptions(contentType: string) {
  * pick, in escalating order. Default is "clean" - see `DEFAULT_LANGUAGE_RATING` in
  * `src/lib/ai/language.ts`.
  */
-const LANGUAGE_OPTIONS: Array<{ value: "clean" | "salty" | "unfiltered"; label: string }> = [
-  { value: "clean", label: "Clean" },
-  { value: "salty", label: "Salty" },
-  { value: "unfiltered", label: "Unfiltered" },
+const LANGUAGE_OPTIONS: Array<{ value: "clean" | "salty" | "unfiltered"; label: string; description: string }> = [
+  { value: "clean", label: "Clean", description: "No profanity from anyone on the desk." },
+  {
+    value: "salty",
+    label: "Salty",
+    description: "Mild only — damn, hell, ass, crap — aimed at a pick or a result, never a person.",
+  },
+  {
+    value: "unfiltered",
+    label: "Unfiltered",
+    description:
+      "Everything short of a slur. Mel and Reggie carry it; the rest of the desk gets one a piece at most. Always at the decision, never the person.",
+  },
 ];
 
 const DAYS_OF_WEEK = [
@@ -421,6 +430,13 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
                 );
               })}
             </RadioGroup>
+            <p className="text-sm text-bc-text-2">
+              {LANGUAGE_OPTIONS.find((option) => option.value === (preferences?.languageRating ?? "clean"))?.description}
+            </p>
+            <p className="text-xs text-bc-text-3">
+              Slurs are off the table at every setting, and titles stay clean. Any manager can keep coverage of
+              their own team clean from Settings, whatever the league picks.
+            </p>
             <p className="text-sm text-bc-text-2">
               Sets how far the desk&apos;s writers can go. Titles and summaries stay clean at
               every level. Team names always print exactly as spelled. Any manager can keep

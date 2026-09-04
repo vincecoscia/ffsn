@@ -1,0 +1,1782 @@
+{
+  "generatedAt": "2026-09-04T03:48:59.057Z",
+  "routes": {
+    "weekly_recap": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "weekly_preview": {
+      "model": "claude-sonnet-5",
+      "effort": "medium"
+    },
+    "trade_analysis": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "power_rankings": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "waiver_wire_report": {
+      "model": "claude-sonnet-5",
+      "effort": "medium"
+    },
+    "bank_statement": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "mock_draft": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "rivalry_week_special": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "emergency_hot_takes": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "trade_rumor_mill": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "mid_season_awards": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "championship_manifesto": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "season_recap": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "custom_roast": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "season_welcome": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "draft_rankings": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "draft_strategy_guide": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "team_name_power_rankings": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "trade_block_tuesday": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "commissioner_corner": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "playoff_picture": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "hall_of_shame": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "player_glazing": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    },
+    "desk_show": {
+      "model": "claude-opus-5",
+      "effort": "medium"
+    }
+  },
+  "rows": [
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Gravel Pit Grinders Survive at Seven-and-Oh",
+      "words": 1056,
+      "promptTokens": 18465,
+      "completionTokens": 5559,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.353129,
+      "durationMs": 79919,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 7,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 0,
+      "dataSpeak": 1,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Around the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Around the Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Around the Board"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"We reached out to the Ashgrove Anvils and Bea Coleridge declined to comment.\" (nonRespondents)",
+          "section": "Around the Board"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"We reached out to the Milltown Mudlarks and did not hear back.\" (nonRespondents)",
+          "section": "Around the Board"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"Sable Ridge Sentinels bench production: 78.6. Gravel Pit Grinders bench production: 41.3.\" is pipeline language, not something a broadcaster says. Remove it an",
+          "section": "Game of the Week: Five Points at the Top and the Bottom"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "trade_analysis",
+      "status": "ok",
+      "title": "One Trade On The Books: Quarry Road Buys Bodies, Foundry District Buys A Back",
+      "words": 451,
+      "promptTokens": 17284,
+      "completionTokens": 4606,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.226544,
+      "durationMs": 51381,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 4,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 1,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Filed Thursday",
+          "section": "Here's what I've got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Here's what I've got"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Grade on file: B-plus. I did not set it. I do not hate it.\" (trades.TR1)",
+          "section": "Quarry Road's side of the paper"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Grade on file: B-minus.\" (trades.TR1)",
+          "section": "Foundry District's side of the paper"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "weekly_preview",
+      "status": "ok",
+      "title": "Week 8 Preview: Unbeaten Gravel Pit Grinders Draw Cedar Falls at the Top of the Board",
+      "words": 943,
+      "promptTokens": 19009,
+      "completionTokens": 9004,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.459811,
+      "durationMs": 131682,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 6,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 1,
+      "dataSpeak": 3,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Marquee: Grinders vs. Cormorants"
+        },
+        {
+          "kind": "llm_contradicted",
+          "severity": "warn",
+          "detail": "\"which the Gravel Pit Grinders won 1-0 in the series\" (upcoming.U1.headToHead)",
+          "section": "The Marquee: Grinders vs. Cormorants"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Both teams are chasing the sixth seed, which the Foxes currently hold.\" (standings)",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"41.3 points sitting on their own bench\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "The Marquee: Grinders vs. Cormorants"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"52.7 on the bench behind it\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "The Marquee: Grinders vs. Cormorants"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"61.5 points on their bench, the second-largest bench figure on the board\" is pipeline language, not something a broadcaster says. Remove it and write the same ",
+          "section": "The Rest of the Board"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "waiver_wire_report",
+      "status": "insufficient_data",
+      "message": "Not enough data to write a waiver_wire_report. Missing: available_players (ESPN free-agent pool). Sync the league and try again."
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "power_rankings",
+      "status": "ok",
+      "title": "Week 7 Power Rankings: The Grinders Are 7-0 and the Sentinels Are 0-7 by Five Points",
+      "words": 845,
+      "promptTokens": 17399,
+      "completionTokens": 5008,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.238875,
+      "durationMs": 60333,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 6,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 1,
+      "sectionsMissing": 0,
+      "factsScore": 2,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unverified_number",
+          "severity": "warn",
+          "detail": "677.2",
+          "section": "The Board, Top to Bottom"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Board, Top to Bottom"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Beat Pike County",
+          "section": "The Board, Top to Bottom"
+        },
+        {
+          "kind": "unverified_number",
+          "severity": "warn",
+          "detail": "771.4",
+          "section": "Who Moved, and Why the Column Says So"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "Who Moved, and Why the Column Says So"
+        },
+        {
+          "kind": "editor_hold",
+          "severity": "warn",
+          "detail": "the editor scored the facts 2/5 but cited nothing; not holding on an unexplained score"
+        }
+      ]
+    },
+    {
+      "fixture": "draft-day",
+      "persona": "mel-diaper",
+      "contentType": "mock_draft",
+      "status": "insufficient_data",
+      "message": "Not enough data to write a mock_draft. Missing: available_players (ESPN free-agent pool). Sync the league and try again."
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "reggie-banks",
+      "contentType": "bank_statement",
+      "status": "ok",
+      "title": "Gravel Pit Grinders Bank Week 7 By Five Points And Stay Perfect",
+      "words": 668,
+      "promptTokens": 17899,
+      "completionTokens": 4920,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.5886979999999999,
+      "durationMs": 136599,
+      "blocks": 0,
+      "strips": 2,
+      "warns": 4,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 1,
+      "dataSpeak": 1,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": false,
+      "holdReasons": [
+        "2 finding(s) removed text: unverified_number"
+      ],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unverified_number",
+          "severity": "strip",
+          "detail": "Final score=134.2-128.9 but matchups.M1.margin=5.3"
+        },
+        {
+          "kind": "unverified_number",
+          "severity": "strip",
+          "detail": "Upset=127.5-103.8 but matchups.M4.margin=23.7"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "DEPOSITS: WHO CASHED THE CHECK"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "4 of 5 template sections; every required section is present"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"And that Wednesday morning claim for Rudy Halvorsen? The box score doesn't show me a single point out of him.\" (transactions.X1)",
+          "section": "OVERDRAWN: THE RECEIPTS NOBODY WANTS"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"78.6 points sat on that bench, more than any bench in the league this week\" is pipeline language, not something a broadcaster says. Remove it and write the sam",
+          "section": "OVERDRAWN: THE RECEIPTS NOBODY WANTS"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "rivalry_week_special",
+      "status": "ok",
+      "title": "Gravel Pit Grinders and Cedar Falls Cormorants Meet With No History At All",
+      "words": 640,
+      "promptTokens": 17162,
+      "completionTokens": 10894,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.473996,
+      "durationMs": 113433,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 1,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 3,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"nobody on the Sentinels side had an answer for it.\"",
+          "section": "Two Guys I'd Point A Camera At"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "emergency_hot_takes",
+      "status": "ok",
+      "title": "Five Points, One Bench, And A Trade Market That Never Showed Up",
+      "words": 532,
+      "promptTokens": 16978,
+      "completionTokens": 3586,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.471788,
+      "durationMs": 111061,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 11,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 1,
+      "dataSpeak": 3,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega Friday",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Filed Thursday",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Follow-up asked: the log shows Cole Vandermeer started and scored 6.2 against a 15.8 projection.\" (matchups.M1.players)",
+          "section": "The Hot Read Off The Notepad"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"The request was one sentence.\"",
+          "section": "The Hot Read Off The Notepad"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"Point gain, 17.9\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"Logged as an upset\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"the log shows Cole Vandermeer started\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "The Hot Read Off The Notepad"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "trade_rumor_mill",
+      "status": "ok",
+      "title": "One Trade On The Books, Four Adds, And A Bench That Cost Five Points",
+      "words": 596,
+      "promptTokens": 17938,
+      "completionTokens": 6879,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.37773,
+      "durationMs": 79385,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 11,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Only Deal In The Log"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Received Osterberg",
+          "section": "The Only Deal In The Log"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "No Harriers",
+          "section": "What It Moves"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"No trade block listings came through this desk.\"",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Follow-up asked: does a team at seven and oh still shop? No answer on the record.\"",
+          "section": "The Market, Read Flat"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"The request was one sentence.\"",
+          "section": "The Only Deal In The Log"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "championship_manifesto",
+      "status": "ok",
+      "title": "Undefeated Is Not a Trophy: The Gravel Pit Grinders and the Five Points That Almost Weren't",
+      "words": 979,
+      "promptTokens": 17138,
+      "completionTokens": 7439,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.298831,
+      "durationMs": 85980,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 2,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 3,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In November",
+          "section": "The Grinders Have Paid Every Bill On Time"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Cedar Falls'",
+          "section": "The Grinders Have Paid Every Bill On Time"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "mid_season_awards",
+      "status": "ok",
+      "title": "Mid-Season Awards: The Grinders Take the Podium, the Sentinels Take the Microphone",
+      "words": 857,
+      "promptTokens": 17097,
+      "completionTokens": 8543,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.325166,
+      "durationMs": 91442,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 3,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Manager Awards: One Bench, One Shrug, One Sentence I Liked"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "Manager Awards: One Bench, One Shrug, One Sentence I Liked"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 6 template sections; every required section is present"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "season_recap",
+      "status": "ok",
+      "title": "Gravel Pit Grinders Take Week 7 Unbeaten, By Five Points",
+      "words": 1057,
+      "promptTokens": 17165,
+      "completionTokens": 4660,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.23142100000000002,
+      "durationMs": 64074,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 6,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "Good Evening. Here's Where We Stand."
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "On Thursday",
+          "section": "The Trade, The Bench, and One Nail-Biter"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Trade, The Bench, and One Nail-Biter"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "For Those Keeping Score At Home"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "Coming Up: Seven More Weeks"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "Coming Up: Seven More Weeks"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "custom_roast",
+      "status": "ok",
+      "title": "The Sentinels Left Their Season On The Bench",
+      "words": 819,
+      "promptTokens": 17138,
+      "completionTokens": 7559,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.300145,
+      "durationMs": 84394,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 1,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "One trade on the books, and it is not a tragedy"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "season_welcome",
+      "status": "ok",
+      "title": "Seven And Oh At The Top, Oh And Seven At The Bottom",
+      "words": 1146,
+      "promptTokens": 17514,
+      "completionTokens": 5126,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.250434,
+      "durationMs": 133499,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 3,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Only Dynasty We Can Prove"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Best Things On The Board"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ninth Street's",
+          "section": "The Week In Things That Weren't Supposed To Happen"
+        }
+      ]
+    },
+    {
+      "fixture": "draft-day",
+      "persona": "mel-diaper",
+      "contentType": "draft_strategy_guide",
+      "status": "ok",
+      "title": "The Ironclad Draft Board Is A Reach Factory Waiting To Happen",
+      "words": 1090,
+      "promptTokens": 15401,
+      "completionTokens": 4265,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.20479,
+      "durationMs": 59931,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 1,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 1,
+      "sectionsMissing": 0,
+      "factsScore": 2,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 2,
+      "flags": [
+        {
+          "kind": "editor_hold",
+          "severity": "warn",
+          "detail": "the editor scored the facts 2/5 but cited nothing; not holding on an unexplained score"
+        }
+      ]
+    },
+    {
+      "fixture": "draft-day",
+      "persona": "mel-diaper",
+      "contentType": "draft_rankings",
+      "status": "ok",
+      "title": "Three Rounds In The Books And The Ironclad Board Is On Fire",
+      "words": 1551,
+      "promptTokens": 18870,
+      "completionTokens": 14415,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.786927,
+      "durationMs": 249326,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 5,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 1,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 2,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "THIRTY PICKS. THIRTY RECEIPTS. LET'S GO."
+        },
+        {
+          "kind": "llm_contradicted",
+          "severity": "warn",
+          "detail": "\"Percival Nakagawa at THIRTY, ADP 33.5, minus 3.5, 178.9.\" (draftPicks.D30)",
+          "section": "TEAM BY TEAM, AND I AM NOT LOWERING MY VOICE FOR ANY OF THEM"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"And write this in ink: the Cedar Falls Cormorants finish LAST.\"",
+          "section": "WRITE THESE DOWN AND STAPLE THEM TO THE WALL"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Top three, and I'm being polite.\"",
+          "section": "WRITE THESE DOWN AND STAPLE THEM TO THE WALL"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Foundry District Foxes. Bianchi 328.6, Vasquez 254.3. Top three.\"",
+          "section": "WRITE THESE DOWN AND STAPLE THEM TO THE WALL"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "team_name_power_rankings",
+      "status": "ok",
+      "title": "The Name Rankings: Ten Signs on Ten Doors",
+      "words": 708,
+      "promptTokens": 17461,
+      "completionTokens": 10053,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.362906,
+      "durationMs": 97462,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 0,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 4,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": []
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "commissioner_corner",
+      "status": "ok",
+      "title": "Six Playoff Spots For Ten Teams, And The Bill Comes Due In November",
+      "words": 779,
+      "promptTokens": 17223,
+      "completionTokens": 3853,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.208266,
+      "durationMs": 54832,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 1,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Ruth Tanaka of Sable Ridge Sentinels answered the bench question at length, and it's the last time I'll write her name this season.\" (relationships)",
+          "section": "On the record, and off it"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "trade_block_tuesday",
+      "status": "ok",
+      "title": "Trade Block Tuesday: One Trade On The Books, And It's Two Weeks Old",
+      "words": 734,
+      "promptTokens": 18138,
+      "completionTokens": 4219,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.518264,
+      "durationMs": 109852,
+      "blocks": 0,
+      "strips": 1,
+      "warns": 13,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 1,
+      "dataSpeak": 2,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": false,
+      "holdReasons": [
+        "1 finding(s) removed text: unverified_number"
+      ],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unverified_number",
+          "severity": "strip",
+          "detail": "Trades completed all season=1 but trades.TR1=[object Object]"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Filed Thursday",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Here's What I've Got"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Team By Team, Such As It Is"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Team By Team, Such As It Is"
+        },
+        {
+          "kind": "llm_contradicted",
+          "severity": "warn",
+          "detail": "\"The Halyard Bay Harriers upset win over the Ninth Street Nightjars, 127.5 to 103.8\" (matchups.M4)",
+          "section": "On The Record"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"The request was one sentence.\" (nonRespondents)",
+          "section": "On The Record"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"the log puts the gain at 17.9\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "On The Record"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"No moves in the log this week\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "Team By Team, Such As It Is"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "playoff_picture",
+      "status": "ok",
+      "title": "Seven Games In, The Ironclad Playoff Board Has Two Real Gaps",
+      "words": 964,
+      "promptTokens": 17768,
+      "completionTokens": 8229,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.422323,
+      "durationMs": 109398,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 0,
+      "sectionsRegenerated": 2,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": []
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "hall_of_shame",
+      "status": "ok",
+      "title": "Hall of Shame, Week 7: The Bench That Cost Five Points",
+      "words": 938,
+      "promptTokens": 17242,
+      "completionTokens": 7370,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.38304499999999997,
+      "durationMs": 88563,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 6,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 3,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "The standard for induction, such as it is"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "Thirty-four dollars for a name I can't find"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "On Wednesday",
+          "section": "Thirty-four dollars for a name I can't find"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "Thirty-four dollars for a name I can't find"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Thirty-four dollars for a name I can't find"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"One of those teams then scored 141.6 and won by 45.2. The other lost 112.3 to 118.7, by 6.4, and I could not find Rudy Halvorsen anywhere in the part of the bo",
+          "section": "Thirty-four dollars for a name I can't find"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "player_glazing",
+      "status": "ok",
+      "title": "The Case For Duke Ellery, Who Scored 24.1 From A Chair",
+      "words": 866,
+      "promptTokens": 17074,
+      "completionTokens": 6452,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.272212,
+      "durationMs": 74029,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 0,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 5,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 3,
+      "flags": []
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "curtis-vaughn",
+      "contentType": "desk_show",
+      "status": "ok",
+      "title": "The Five-Point Bench: Sable Ridge Falls Again",
+      "words": 1022,
+      "promptTokens": 17157,
+      "completionTokens": 9814,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.447178,
+      "durationMs": 112876,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 6,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 0,
+      "dataSpeak": 1,
+      "editorHold": 0,
+      "sectionsMissing": 0,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sable Ridge's",
+          "section": "The Main Event"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Main Event"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Main Event"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "In Week",
+          "section": "The Verdict"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Ashgrove Anvils have now lost three straight.\" (teams.T8.record)",
+          "section": "The Main Event"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"Ninth Street left 61.5 on the bench, the largest bench total among the winners and losers alike this week outside Sable Ridge's 78.6.\" is pipeline language, no",
+          "section": "The Main Event"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "sam-ortega",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Five Points and a Bench: Gravel Pit Grinders Stay Perfect",
+      "words": 808,
+      "promptTokens": 18481,
+      "completionTokens": 4841,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.527224,
+      "durationMs": 137338,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 7,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 1,
+      "dataSpeak": 1,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Walking the rest of the line"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "Walking the rest of the line"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Bea Coleridge of the Ashgrove Anvils declined a request sent Monday.\" (nonRespondents)",
+          "section": "What they told me"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Owen Radcliffe of the Milltown Mudlarks did not respond to a request for comment sent Monday.\" (nonRespondents)",
+          "section": "Walking the rest of the line"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"The Mudlarks claimed Rudy Halvorsen off waivers Wednesday morning for 34.\" (transactions.X1.timestamp)",
+          "section": "Walking the rest of the line"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"faab\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "Walking the rest of the line"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "nina-sharpe",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Seven Columns, One Bench: Gravel Pit Grinders Survive by 5.3",
+      "words": 1043,
+      "promptTokens": 18396,
+      "completionTokens": 5332,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.638404,
+      "durationMs": 163119,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 3,
+      "sectionsRegenerated": 1,
+      "fullRegenerations": 1,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sable Ridge's",
+          "section": "Game of the Week: 5.3 Points and a Bench"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Milltown also spent 34 on Rudy Halvorsen at the Wednesday waiver run\" (transactions.X1.teamId)",
+          "section": "The Other Four Rows"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "dex-alvarez",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Gravel Pit Grinders Go 7-0 By Five Points",
+      "words": 1001,
+      "promptTokens": 18457,
+      "completionTokens": 11231,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.403424,
+      "durationMs": 110482,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 15,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 2,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Sonny Vega",
+          "section": "Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "faab_amount_unverified",
+          "severity": "warn",
+          "detail": "$12",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "faab_amount_unverified",
+          "severity": "warn",
+          "detail": "$34",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "faab_amount_unverified",
+          "severity": "warn",
+          "detail": "$34",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Vic Trawick",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Kip Whorley",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        },
+        {
+          "kind": "llm_contradicted",
+          "severity": "warn",
+          "detail": "\"Cedar Falls claimed Trey Ballinger on waivers, Wednesday morning at 9:04, thirty-four dollars less than the week's top bid — $12 against $34.\" (transactions.X3",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Follow-up asked: did the noon report change before kickoff? No answer on the record beyond this.\"",
+          "section": "Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"The request was one sentence.\"",
+          "section": "The Other Four, In Order"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"REPORTED, log check:\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "Grinders 134.2, Sentinels 128.9"
+        },
+        {
+          "kind": "data_speak",
+          "severity": "warn",
+          "detail": "\"Transaction log: four moves filed this week.\" is pipeline language, not something a broadcaster says. Remove it and write the same point in plain English.",
+          "section": "Here's What I've Got"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "mel-diaper",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Seven And Oh, And A Bench That Cost Sable Ridge The Game",
+      "words": 1156,
+      "promptTokens": 19443,
+      "completionTokens": 6605,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.419473,
+      "durationMs": 108614,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 2,
+      "sectionsRegenerated": 2,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pike County's",
+          "section": "THEY TALKED. I ANSWERED."
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "walt-brennan",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "The Bench That Cost Sable Ridge Its First Win",
+      "words": 1155,
+      "promptTokens": 18571,
+      "completionTokens": 5577,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.259806,
+      "durationMs": 70704,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 5,
+      "sectionsRegenerated": 0,
+      "fullRegenerations": 0,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Trey Ballinger",
+          "section": "Everything else, as far as it goes"
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Nate Brill",
+          "section": "Everything else, as far as it goes"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"the game they finally deserved to win arrived on schedule and got declined at the door\"",
+          "section": "The argument, stated up front"
+        },
+        {
+          "kind": "llm_unsupported",
+          "severity": "warn",
+          "detail": "\"Zero and seven going on eight\"",
+          "section": "The argument, stated up front"
+        }
+      ]
+    },
+    {
+      "fixture": "rich-week",
+      "persona": "reggie-banks",
+      "contentType": "weekly_recap",
+      "status": "ok",
+      "title": "Gravel Pit Grinders Survive by Five, Stay Perfect at 7-0",
+      "words": 919,
+      "promptTokens": 19139,
+      "completionTokens": 5949,
+      "cacheReadTokens": 0,
+      "modelUsed": "claude-opus-5",
+      "model": "claude-opus-5",
+      "effort": "medium",
+      "costUsd": 0.6676789999999999,
+      "durationMs": 169758,
+      "blocks": 0,
+      "strips": 0,
+      "warns": 3,
+      "sectionsRegenerated": 2,
+      "fullRegenerations": 1,
+      "dataSpeak": 0,
+      "editorHold": 0,
+      "sectionsMissing": 1,
+      "factsScore": 4,
+      "voiceScore": 5,
+      "publishes": true,
+      "holdReasons": [],
+      "quotesUsed": 4,
+      "flags": [
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Ironclad Fantasy Conference",
+          "section": "Seven and Oh. Say It Louder."
+        },
+        {
+          "kind": "unknown_player",
+          "severity": "warn",
+          "detail": "Pete Sandoval",
+          "section": "The Rest of the Board"
+        },
+        {
+          "kind": "sections_missing",
+          "severity": "warn",
+          "detail": "5 of 9 template sections; every required section is present"
+        }
+      ]
+    }
+  ]
+}
