@@ -32,6 +32,10 @@ export { StatBlock, type StatBlockProps } from "./StatBlock";
 export {
   writerRoster,
   personasForContentType,
+  deskPicksFor,
+  isDeskPick,
+  isSignatureColumn,
+  SIGNATURE_COLUMNS,
   defaultPersonaFor,
   isSelectableContentType,
   contentTypeLabel,

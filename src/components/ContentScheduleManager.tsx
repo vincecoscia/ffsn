@@ -17,7 +17,6 @@ import {
   Chip,
   PersonaAvatar,
   LoadingScreen,
-  writerRoster,
   defaultPersonaFor,
   personasForContentType,
   personaName,
@@ -134,15 +133,12 @@ const CONTENT_TYPE_CONFIG = {
 };
 
 /**
- * Writers offered for a content type: the roster this type is mapped to first (default
- * first, spec §3), then everyone else still on air. Retired personas never appear.
+ * Writers offered for a content type: the desk's picks first, then everyone else still on air.
+ * The roster decides the order and keeps a signature column (The Bank Statement, The Asking
+ * Price) with its owner, so this list matches the on-demand picker. Retired personas never appear.
  */
 function personaOptions(contentType: string) {
-  const preferred = personasForContentType(contentType);
-  const rest = writerRoster.filter(
-    (writer) => !preferred.some((candidate) => candidate.slug === writer.slug),
-  );
-  return [...preferred, ...rest].map((writer) => ({
+  return personasForContentType(contentType).map((writer) => ({
     value: writer.slug,
     name: writer.name,
     label: `${writer.name} — ${writer.role}`,

@@ -47,7 +47,8 @@ import { resolveRoute } from "../src/lib/ai/content-generation-service";
 import type { GeneratedArticleT, GenerationRoute } from "../src/lib/ai/content-generation-service";
 import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
 import { countProfanity, mentionRatio, type LanguageRating } from "../src/lib/ai/language";
-import { languageRangeFor } from "../src/lib/ai/persona-prompts";
+import { effectiveLanguageRange } from "../src/lib/ai/persona-prompts";
+import { languageSeedFor } from "../src/lib/ai/prompt-builder";
 
 /* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
@@ -549,9 +550,9 @@ function countKinds(result: LiveResult, kinds: string[]): number {
 }
 
 /** "3/5-12 ok", "0/3-10 FLAT", "2/3-10 UNDER", "4/0-1 OVER" — one matrix cell; blank at clean. */
-function languageCell(result: LiveResult, rating: LanguageRating): string {
+function languageCell(result: LiveResult, rating: LanguageRating, seed?: string): string {
   if (rating === "clean") return "";
-  const range = languageRangeFor(getPersona(result.persona), rating);
+  const range = effectiveLanguageRange(getPersona(result.persona), rating, seed);
   const profanity = countProfanity(result.body, result.facts.teams.map(team => team.name));
   const inTier = rating === "salty" ? profanity.mild : profanity.mild + profanity.strong;
   const flag =
@@ -578,14 +579,14 @@ function houseStyleLines(
   label: string,
   text: string,
   teams: FactsBlock["teams"],
-  language?: { rating: LanguageRating; persona: string }
+  language?: { rating: LanguageRating; persona: string; seed?: string }
 ): string[] {
   const mentions = mentionRatio(text, teams);
   const profanity = countProfanity(text, teams.map(team => team.name));
   const ratio = mentions.ratio === null ? "n/a" : mentions.ratio.toFixed(2);
   let verdict = "";
   if (language && language.rating !== "clean" && label === "body") {
-    const range = languageRangeFor(getPersona(language.persona), language.rating);
+    const range = effectiveLanguageRange(getPersona(language.persona), language.rating, language.seed);
     const inTier = language.rating === "salty" ? profanity.mild : profanity.mild + profanity.strong;
     const flags: string[] = [];
     if (language.rating === "salty" && profanity.strong > 0) flags.push("OUT OF TIER");
@@ -779,7 +780,7 @@ async function runMatrix(options: Options): Promise<void> {
           factsScore: result.editor?.factsScore,
           voiceScore: result.editor?.voiceScore,
           publishes: result.gate.ok,
-          language: languageCell(result, options.language),
+          language: languageCell(result, options.language, languageSeedFor(fixture.leagueData, job.contentType)),
           holdReasons: result.gate.reasons,
           quotesUsed: result.quotes.length,
           flags: result.violations.map(v => ({
@@ -1066,7 +1067,7 @@ async function runLive(options: Options): Promise<void> {
 
   for (const result of results) {
     console.log(`\nHouse style on ${result.fixture}/${result.contentType}/${result.persona}:`);
-    const language = { rating: options.language, persona: result.persona };
+    const language = { rating: options.language, persona: result.persona, seed: languageSeedFor(fixtureMap[result.fixture].leagueData, result.contentType) };
     for (const line of houseStyleLines("body", result.body, result.facts.teams, language)) console.log(line);
     for (const line of houseStyleLines("title", result.title, result.facts.teams, language)) console.log(line);
 

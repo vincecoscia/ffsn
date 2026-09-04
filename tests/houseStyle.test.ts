@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildHouseStyleBlock, GROUNDING_CONTRACT, LANGUAGE_SAMPLES_PER_PIECE, languageSamplesFor, PromptBuilder } from "../src/lib/ai/prompt-builder";
+import { buildHouseStyleBlock, GROUNDING_CONTRACT, LANGUAGE_SAMPLES_PER_PIECE, languageSamplesFor, languageSeedFor, PromptBuilder } from "../src/lib/ai/prompt-builder";
 import { MILD_PROFANITY, STRONG_PROFANITY } from "../src/lib/ai/language";
-import { personaPrompts } from "../src/lib/ai/persona-prompts";
+import { effectiveLanguageRange, isReservedDesk, personaPrompts, reservedDeskHasTheirOne } from "../src/lib/ai/persona-prompts";
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
 import type { FactsRequest } from "../src/lib/ai/facts";
 
@@ -52,7 +52,7 @@ describe("buildHouseStyleBlock — LANGUAGE tier text", () => {
       expect(block).toContain(`Reggie Banks (${personaPrompts["reggie-banks"].language.floor![rating]} to ${personaPrompts["reggie-banks"].language.allowance[rating]} per piece)`);
       expect(block).toContain("a piece under the bottom of that range is out of character");
       expect(block).toContain("Curtis Vaughn (at most 1)");
-      expect(block).toContain("most pieces none");
+      expect(block).toContain("roughly one piece in 3 carries their one, the rest carry none");
       // The old hard lock is gone: nobody is named as never swearing above clean.
       expect(block).not.toContain("Dex Alvarez and Sam Ortega stay clean");
       expect(block).not.toContain("never swear at");
@@ -243,10 +243,12 @@ describe("buildSystemPrompt — language as a persona trait (owner ask, 2026-09-
       seen.add(first.join("|"));
     }
     expect(seen.size).toBeGreaterThan(1);
-    // A small pool is shown whole; clean shows nothing.
-    expect(languageSamplesFor(personaPrompts["nina-sharpe"], "unfiltered", "2026-w3-weekly_recap")).toEqual(
-      personaPrompts["nina-sharpe"].language.samples!.unfiltered
-    );
+    // A small pool is shown whole on a piece where the reserved writer's one is available, and not at all otherwise; clean shows nothing.
+    const nina = personaPrompts["nina-sharpe"];
+    const ninaOn = [...Array(50).keys()].map((i) => `2026-w${i}-weekly_recap`).find((seed) => reservedDeskHasTheirOne(nina, "unfiltered", seed))!;
+    const ninaOff = [...Array(50).keys()].map((i) => `2026-w${i}-weekly_recap`).find((seed) => !reservedDeskHasTheirOne(nina, "unfiltered", seed))!;
+    expect(languageSamplesFor(nina, "unfiltered", ninaOn)).toEqual(nina.language.samples!.unfiltered);
+    expect(languageSamplesFor(nina, "unfiltered", ninaOff)).toEqual([]);
     expect(languageSamplesFor(mel, "clean", "2026-w3-weekly_recap")).toEqual([]);
     // Without a seed the whole pool comes back (offline callers, tests).
     expect(languageSamplesFor(mel, "unfiltered")).toEqual(pool);
@@ -280,7 +282,11 @@ describe("buildSystemPrompt — language as a persona trait (owner ask, 2026-09-
   });
 
   it("gives the reserved desk a once-a-piece trait rather than a hard lock", () => {
-    const curtis = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "unfiltered" }).build().systemPrompt;
+    const curtisPersona = personaPrompts["curtis-vaughn"];
+    const onWeek = [...Array(30).keys()].map((w) => w + 1).find((w) =>
+      reservedDeskHasTheirOne(curtisPersona, "unfiltered", languageSeedFor({ ...leagueData, currentWeek: w }, "weekly_recap"))
+    )!;
+    const curtis = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "unfiltered", leagueData: { ...leagueData, currentWeek: onWeek } }).build().systemPrompt;
     expect(curtis).toContain("your allowance is 1 per piece");
     expect(curtis).toContain("That's bullshit. We'll");
   });
@@ -338,12 +344,68 @@ describe("buildUserPrompt — per-piece LANGUAGE line (the trigger that made the
     expect(melSalty).toContain("your range for this piece is 3 to 6");
     expect(melSalty).not.toContain('"fuck"');
 
-    const curtis = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "salty" }).build().userPrompt;
+    const curtisPersona = personaPrompts["curtis-vaughn"];
+    const weeks = [...Array(30).keys()].map((w) => w + 1);
+    const saltyOn = weeks.find((w) => reservedDeskHasTheirOne(curtisPersona, "salty", languageSeedFor({ ...leagueData, currentWeek: w }, "weekly_recap")))!;
+    const saltyOff = weeks.find((w) => !reservedDeskHasTheirOne(curtisPersona, "salty", languageSeedFor({ ...leagueData, currentWeek: w }, "weekly_recap")))!;
+    const curtis = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "salty", leagueData: { ...leagueData, currentWeek: saltyOn } }).build().userPrompt;
     expect(curtis).toContain("LANGUAGE: this league runs salty. Your allowance for this piece is 1, and most of your pieces use none");
+    const curtisOff = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "salty", leagueData: { ...leagueData, currentWeek: saltyOff } }).build().userPrompt;
+    expect(curtisOff).toContain("LANGUAGE: this league runs salty, but this piece carries none from you.");
   });
 
   it("says nothing about language at clean", () => {
     const clean = new PromptBuilder({ ...baseRequest, persona: "mel-diaper" }).build().userPrompt;
     expect(clean).not.toContain("LANGUAGE:");
+  });
+});
+
+describe("the reserved desk's one is rare (owner ask, 2026-09-04): a week-seeded gate", () => {
+  const nina = personaPrompts["nina-sharpe"];
+  const mel = personaPrompts["mel-diaper"];
+
+  it("is deterministic, lands on roughly one piece in three, and never applies to a carrier", () => {
+    let on = 0;
+    const seeds = 300;
+    for (let i = 0; i < seeds; i++) {
+      const seed = `2026-w${(i % 17) + 1}-type${i}`;
+      const first = reservedDeskHasTheirOne(nina, "unfiltered", seed);
+      expect(reservedDeskHasTheirOne(nina, "unfiltered", seed)).toBe(first);
+      if (first) on++;
+      expect(reservedDeskHasTheirOne(mel, "unfiltered", seed)).toBe(true);
+    }
+    expect(on / seeds).toBeGreaterThan(0.2);
+    expect(on / seeds).toBeLessThan(0.47);
+    expect(isReservedDesk(nina, "unfiltered")).toBe(true);
+    expect(isReservedDesk(mel, "unfiltered")).toBe(false);
+    expect(isReservedDesk(personaPrompts["walt-brennan"], "unfiltered")).toBe(false);
+  });
+
+  it("zeroes the effective ceiling on a gated-off piece and leaves it alone otherwise", () => {
+    const onSeed = [...Array(50).keys()].map((i) => `s${i}`).find((seed) => reservedDeskHasTheirOne(nina, "unfiltered", seed))!;
+    const offSeed = [...Array(50).keys()].map((i) => `s${i}`).find((seed) => !reservedDeskHasTheirOne(nina, "unfiltered", seed))!;
+    expect(effectiveLanguageRange(nina, "unfiltered", onSeed)).toEqual({ floor: 0, ceiling: 1 });
+    expect(effectiveLanguageRange(nina, "unfiltered", offSeed)).toEqual({ floor: 0, ceiling: 0 });
+    expect(effectiveLanguageRange(nina, "unfiltered")).toEqual({ floor: 0, ceiling: 1 });
+    expect(effectiveLanguageRange(mel, "unfiltered", offSeed)).toEqual({ floor: 5, ceiling: 12 });
+  });
+
+  it("renders 'none this piece' (no samples, a cut warning) on a gated-off piece, and the availability on a gated-on one", () => {
+    const weeks = [...Array(30).keys()].map((w) => w + 1);
+    const seedFor = (week: number) => languageSeedFor({ ...leagueData, currentWeek: week }, "weekly_recap");
+    const offWeek = weeks.find((w) => !reservedDeskHasTheirOne(nina, "unfiltered", seedFor(w)))!;
+    const onWeek = weeks.find((w) => reservedDeskHasTheirOne(nina, "unfiltered", seedFor(w)))!;
+
+    const off = new PromptBuilder({ ...baseRequest, persona: "nina-sharpe", languageRating: "unfiltered", leagueData: { ...leagueData, currentWeek: offWeek } }).build();
+    expect(off.systemPrompt).toContain("THIS IS NOT ONE OF THEM. None this piece");
+    // The trait itself still renders (it is who she is); the SAMPLES do not.
+    expect(off.systemPrompt).not.toContain("full of shit about why");
+    expect(off.userPrompt).toContain("but this piece carries none from you");
+    expect(off.userPrompt).toContain("A sentence of yours with a swear in it will be cut.");
+
+    const on = new PromptBuilder({ ...baseRequest, persona: "nina-sharpe", languageRating: "unfiltered", leagueData: { ...leagueData, currentWeek: onWeek } }).build();
+    expect(on.systemPrompt).toContain("this is one of the roughly one-in-3 pieces where it is available");
+    expect(on.systemPrompt).toContain("full of shit about why");
+    expect(on.userPrompt).toContain("Your allowance for this piece is 1");
   });
 });

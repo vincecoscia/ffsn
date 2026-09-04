@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildFactsBlock, serializeFacts } from "../src/lib/ai/facts";
 import { fixturesByName, factsRequestFor } from "../src/lib/ai/__fixtures__/index";
 import { computeCostUsd } from "../src/lib/ai/content-generation-service";
-import { getPersona, getPersonaDisplay } from "../src/lib/ai/persona-prompts";
+import { getPersona, getPersonaDisplay, reservedDeskHasTheirOne } from "../src/lib/ai/persona-prompts";
 import { chooseHotSeat, fallbackQuestionFor } from "../src/lib/ai/disputed/question";
 import { produceEpisode, renderTranscriptMarkdown } from "../src/lib/ai/disputed/producer";
 import type { TurnCallRequest, TurnCallResult, TurnCaller } from "../src/lib/ai/disputed/producer";
@@ -1180,7 +1180,7 @@ describe("produceEpisode — language rating enforcement", () => {
     const { transcript, stats } = await produceEpisode({
       facts,
       factsText,
-      brief: { ...brief, languageRating: "unfiltered" },
+      brief: { ...brief, languageRating: "unfiltered", week: weekWhere("curtis-vaughn", true) },
       relationshipsByWriter: {},
       call,
       options: { budgets: { mainEvent: 2 } },
@@ -1273,6 +1273,13 @@ describe("produceEpisode — language rating enforcement", () => {
   });
 });
 
+/** The first week (1-30) where `slug`'s one is available (or not) on an unfiltered episode — the reserved desk's gate is week-seeded. */
+function weekWhere(slug: string, hasTheirOne: boolean): number {
+  const week = [...Array(30).keys()].map((w) => w + 1).find((w) => reservedDeskHasTheirOne(getPersona(slug), "unfiltered", `w${w}`) === hasTheirOne);
+  if (week === undefined) throw new Error(`no week found for ${slug} hasTheirOne=${hasTheirOne}`);
+  return week;
+}
+
 describe("produceEpisode — language allowances (owner ask, 2026-09-03: profanity as a persona trait)", () => {
   const unfilteredBrief: ShowBrief = { ...brief, languageRating: "unfiltered" };
 
@@ -1294,7 +1301,7 @@ describe("produceEpisode — language allowances (owner ask, 2026-09-03: profani
     const { transcript, stats } = await produceEpisode({
       facts,
       factsText,
-      brief: unfilteredBrief,
+      brief: { ...unfilteredBrief, week: weekWhere("dex-alvarez", true) },
       relationshipsByWriter: {},
       call,
       options: { budgets: { mainEvent: 4 } },
@@ -1455,12 +1462,13 @@ describe("directorInstructionFor — language notes are triggers, with a jab fal
 
   it("puts the persona's language trait and samples in the show system prompt above clean only", () => {
     const persona = getPersona("nina-sharpe");
-    const unfiltered = buildTurnSystemPrompt(persona, facts, "role", unfilteredBrief);
+    const unfiltered = buildTurnSystemPrompt(persona, facts, "role", { ...unfilteredBrief, week: weekWhere("nina-sharpe", true) });
     expect(unfiltered).toContain("Your language (this league runs unfiltered; your allowance is 1 per piece");
-    const reggie = buildTurnSystemPrompt(getPersona("reggie-banks"), facts, "role", unfilteredBrief);
-    expect(reggie).toContain("your range for a piece is 3 to 10");
     expect(unfiltered).toContain("LANGUAGE SAMPLES");
     expect(unfiltered).toContain("a fucking problem. Moving on.");
+    const gatedOff = buildTurnSystemPrompt(persona, facts, "role", { ...unfilteredBrief, week: weekWhere("nina-sharpe", false) });
+    expect(gatedOff).toContain("THIS IS NOT ONE OF THEM. None this piece");
+    expect(gatedOff).not.toContain("LANGUAGE SAMPLES");
     const clean = buildTurnSystemPrompt(persona, facts, "role", brief);
     expect(clean).not.toContain("Your language (this league runs");
     expect(clean).not.toContain("LANGUAGE SAMPLES");
@@ -1542,5 +1550,53 @@ describe("produceEpisode — the manager opt-down, enforced (cleanTeamNames)", (
     });
     expect(noOptDown.stats.cleanTeamStripped).toBe(0);
     expect(noOptDown.transcript.segments.find((s) => s.id === "main_event")!.turns.find((t) => t.speaker === "mel-diaper")!.text).toContain("bullshit");
+  });
+});
+
+describe("produceEpisode — the reserved desk's one is rare (owner ask, 2026-09-04)", () => {
+  it("on a gated-off episode, a reserved speaker's swear is retried as 'not one of your episodes' and then stripped", async () => {
+    const seen: TurnCallRequest[] = [];
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "grade") {
+        return baseOutput({ text: "Class. The claim is horseshit. Not supported. Reggie wins.", verdict: { winner: "reggie-banks", reason: "the record" } });
+      }
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "unfiltered", week: weekWhere("nina-sharpe", false) },
+      relationshipsByWriter: {},
+      call: makeCapturingCaller(script, seen),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const grade = transcript.segments.find((segment) => segment.id === "verdict")!.turns.find((turn) => turn.kind === "grade")!;
+    expect(grade.text).toBe("Class. Not supported. Reggie wins.");
+    const retry = seen.filter((req) => req.speaker === "nina-sharpe" && extractKind(req) === "grade")[1];
+    expect(retry.user).toContain("Tonight is not one of your episodes for it — none from you at unfiltered");
+    expect(stats.languageStripped).toBe(1);
+  });
+
+  it("on a gated-on episode, the same turn is kept", async () => {
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "grade") {
+        return baseOutput({ text: "Class. The claim is horseshit. Not supported. Reggie wins.", verdict: { winner: "reggie-banks", reason: "the record" } });
+      }
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "unfiltered", week: weekWhere("nina-sharpe", true) },
+      relationshipsByWriter: {},
+      call: makeFakeCaller(script),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const grade = transcript.segments.find((segment) => segment.id === "verdict")!.turns.find((turn) => turn.kind === "grade")!;
+    expect(grade.text).toContain("horseshit");
+    expect(stats.languageStripped).toBe(0);
+    expect(stats.profanityBySpeaker["nina-sharpe"]).toBe(1);
   });
 });

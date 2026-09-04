@@ -83,14 +83,46 @@ export function defaultPersonaFor(contentType: string): string {
   return preferred ?? DEFAULT_PERSONA;
 }
 
-/** The writers a content type should offer, in preference order (default first). */
-export function personasForContentType(contentType: string): RosterWriter[] {
-  const preferred = contentTypePersonaMap[contentType];
-  if (!preferred || preferred.length === 0) return writerRoster;
-  const ordered = preferred
+/**
+ * Content types that are one writer's named column rather than a format anyone on the desk can
+ * file: "The Bank Statement" is Reggie's results ledger and "The Asking Price" is Dex's
+ * transactions report. Their templates and prompt rules are written around that desk's worldview
+ * and sourcing standards, so a picker keeps them with their owner. Every other type is open to
+ * the whole roster (owner directive, 2026-09-04), with the desk's mapped writers offered first.
+ */
+export const SIGNATURE_COLUMNS: ReadonlySet<string> = new Set(["bank_statement", "trade_rumor_mill"]);
+
+/** True when a content type is one writer's named column (see `SIGNATURE_COLUMNS`). */
+export function isSignatureColumn(contentType: string): boolean {
+  return SIGNATURE_COLUMNS.has(contentType);
+}
+
+/**
+ * The writers the desk maps to a content type, in preference order (default first). These are
+ * the "desk picks" a picker marks; an unmapped type has none.
+ */
+export function deskPicksFor(contentType: string): RosterWriter[] {
+  const preferred = contentTypePersonaMap[contentType] ?? [];
+  return preferred
     .map((slug) => writerRoster.find((w) => w.slug === slug))
     .filter((w): w is RosterWriter => Boolean(w));
-  return ordered.length > 0 ? ordered : writerRoster;
+}
+
+/** True when the desk maps this writer to the content type. */
+export function isDeskPick(contentType: string, slug: string): boolean {
+  return deskPicksFor(contentType).some((w) => w.slug === slug);
+}
+
+/**
+ * The writers a content type offers: the desk picks first, then everyone else still on air in
+ * roster order. A signature column offers its owner only. A type nobody is mapped to offers the
+ * whole roster.
+ */
+export function personasForContentType(contentType: string): RosterWriter[] {
+  const picks = deskPicksFor(contentType);
+  if (isSignatureColumn(contentType) && picks.length > 0) return picks;
+  const rest = writerRoster.filter((w) => !picks.some((pick) => pick.slug === w.slug));
+  return [...picks, ...rest];
 }
 
 export interface RosterWriter {

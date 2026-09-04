@@ -1,10 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDataError } from './prompt-builder';
-import type { LanguageRating } from './language';
-import { cleanTeamViolations } from './language';
-import type { CleanTeam } from './language';
+import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDataError, languageSeedFor } from './prompt-builder';
+import type { CleanTeam, LanguageRating } from './language';
+import { cleanTeamViolations, countProfanity, MILD_PROFANITY, PROFANITY_WORDS, STRONG_PROFANITY, stripExemptPhrases } from './language';
 import { enhancePromptWithComments } from './comment-integration';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
@@ -24,7 +23,7 @@ import type {
   PublishGateFlag,
   PublishGateMetadata,
 } from './publish-gate';
-import { getPersona } from './persona-prompts';
+import { effectiveLanguageRange, getPersona } from './persona-prompts';
 import type { RelationshipTier } from './persona-prompts';
 import type { Id } from '../../../convex/_generated/dataModel';
 
@@ -540,6 +539,61 @@ export function cleanTeamArticleViolations(
   return out;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * One `language_over_rating` strip per sentence the rating does not allow, section by section, in
+ * reading order: at clean any tracked word; at salty any strong word, plus mild words once the
+ * writer's allowance for the piece is spent; at unfiltered any tracked word once it is spent. Team
+ * names never count. Mirrors the producer's per-turn enforcement for the show. Pure and exported for
+ * tests.
+ */
+export function languageArticleViolations(
+  article: Pick<GeneratedArticleT, 'sections'>,
+  opts: { rating: LanguageRating; allowance: number; teamNames: ReadonlyArray<string> }
+): Violation[] {
+  const out: Violation[] = [];
+  const outOfTier: ReadonlyArray<string> =
+    opts.rating === 'clean' ? PROFANITY_WORDS : opts.rating === 'salty' ? STRONG_PROFANITY : [];
+  const inTier: ReadonlyArray<string> = opts.rating === 'salty' ? MILD_PROFANITY : opts.rating === 'unfiltered' ? PROFANITY_WORDS : [];
+  const has = (sentence: string, words: ReadonlyArray<string>): string[] => {
+    const scrubbed = stripExemptPhrases(sentence, opts.teamNames);
+    return words.filter(word => new RegExp(`\\b${escapeRegExp(word)}\\b`, 'i').test(scrubbed));
+  };
+  let used = 0;
+  for (const section of article.sections) {
+    for (const sentence of section.content.split(/(?<=[.!?])\s+/)) {
+      const bad = has(sentence, outOfTier);
+      if (bad.length > 0) {
+        out.push({
+          kind: 'language_over_rating',
+          detail: `"${sentence.trim().replace(/"/g, '')}" carries ${bad.join(', ')}, outside the league's ${opts.rating} rating; the sentence was removed`,
+          section: section.name,
+          severity: 'strip',
+        });
+        continue;
+      }
+      if (inTier.length === 0) continue;
+      const counts = countProfanity(sentence, opts.teamNames);
+      const carried = opts.rating === 'salty' ? counts.mild : counts.mild + counts.strong;
+      if (carried === 0) continue;
+      if (used + carried > opts.allowance) {
+        out.push({
+          kind: 'language_over_rating',
+          detail: `"${sentence.trim().replace(/"/g, '')}" carries ${has(sentence, inTier).join(', ')}, past this writer's allowance of ${opts.allowance} for this piece; the sentence was removed`,
+          section: section.name,
+          severity: 'strip',
+        });
+        continue;
+      }
+      used += carried;
+    }
+  }
+  return out;
+}
+
 /** Applies every `strip` (and every unfixable `block`) to a copy of the article. */
 function applyStrips(article: GeneratedArticleT, violations: Violation[]): GeneratedArticleT {
   const next: GeneratedArticleT = JSON.parse(JSON.stringify(article));
@@ -607,7 +661,8 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
         break;
       }
       case 'llm_contradicted':
-      case 'clean_team_language': {
+      case 'clean_team_language':
+      case 'language_over_rating': {
         const sentence = violation.detail.match(/"([^"]+)"/)?.[1];
         if (sentence) {
           for (const section of next.sections) {
@@ -1474,7 +1529,19 @@ export async function completeArticleFromMessage(
     facts.teams.map(team => team.name)
   );
 
-  const violations = [...deterministic, ...editorViolations, ...optDownViolations];
+  // The league's rating and the writer's effective allowance for THIS piece, enforced (owner ask,
+  // 2026-09-04): the same seed the prompt used decides whether a reserved-desk writer had their one.
+  const rating: LanguageRating = request.languageRating ?? 'clean';
+  const ratingViolations = languageArticleViolations(article, {
+    rating,
+    allowance:
+      rating === 'clean'
+        ? 0
+        : effectiveLanguageRange(getPersona(request.persona), rating, languageSeedFor(request.leagueData, request.contentType)).ceiling,
+    teamNames: facts.teams.map(team => team.name),
+  });
+
+  const violations = [...deterministic, ...editorViolations, ...optDownViolations, ...ratingViolations];
 
   // Thin-article guard. Missing *required sections* are reported by the verifier (spec §11.2.5);
   // what is left here is the word floor: under 30% of the template's ceiling is what a writer

@@ -11,6 +11,8 @@ import type { GeneratedArticleT } from "./content-generation-service";
 export type ViolationKind =
   /** A sentence that names a team whose manager opted down to clean coverage and carries profanity (owner ask, 2026-09-03). Produced by the generation service, never by the verifier itself. */
   | "clean_team_language"
+  /** A sentence carrying profanity the league's rating, or the writer's effective allowance for this piece, does not allow (owner ask, 2026-09-04). Produced by the generation service, never by the verifier itself. */
+  | "language_over_rating"
   | "unknown_player"
   | "unknown_team"
   | "unverified_number"
