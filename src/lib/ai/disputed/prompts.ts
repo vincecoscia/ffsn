@@ -10,6 +10,7 @@ import {
   buildRelationshipsBlock,
   buildWhoYouAreBlock,
   GROUNDING_CONTRACT,
+  languageSamplesFor,
   languageTraitFor,
 } from "../prompt-builder";
 import {
@@ -195,7 +196,7 @@ export function buildTurnSystemPrompt(
   // follows a rule (owner ask, 2026-09-03), so they ride along with the trait.
   const rating = brief.languageRating ?? "clean";
   if (rating !== "clean" && languageTraitFor(persona, rating)) {
-    const samples = persona.language.samples?.[rating] ?? [];
+    const samples = languageSamplesFor(persona, rating, `w${brief.week}`);
     if (samples.length > 0) {
       parts.push(
         `LANGUAGE SAMPLES — style only. The braces are placeholders, not content. Never copy a placeholder, a number, or a name out of these lines into a turn.\n${samples.map((sample) => `- ${sample}`).join("\n")}`

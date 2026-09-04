@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHouseStyleBlock, GROUNDING_CONTRACT, PromptBuilder } from "../src/lib/ai/prompt-builder";
+import { buildHouseStyleBlock, GROUNDING_CONTRACT, LANGUAGE_SAMPLES_PER_PIECE, languageSamplesFor, PromptBuilder } from "../src/lib/ai/prompt-builder";
 import { MILD_PROFANITY, STRONG_PROFANITY } from "../src/lib/ai/language";
 import { personaPrompts } from "../src/lib/ai/persona-prompts";
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
@@ -218,14 +218,53 @@ describe("buildSystemPrompt — language as a persona trait (owner ask, 2026-09-
     const built = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "unfiltered" }).build();
     const prompt = built.systemPrompt;
     const whoYouAre = prompt.indexOf("WHO YOU ARE");
-    const trait = prompt.indexOf("Your language (this league runs unfiltered; your range for a piece is 4 to 12 — fewer than 4 is out of character");
+    const trait = prompt.indexOf("Your language (this league runs unfiltered; your range for a piece is 5 to 12 — fewer than 5 is out of character");
     const quotes = prompt.indexOf("QUOTES");
     expect(trait).toBeGreaterThan(whoYouAre);
     expect(trait).toBeLessThan(quotes);
     expect(prompt).toContain("The uncut Mel.");
-    for (const sample of personaPrompts["mel-diaper"].language.samples!.unfiltered!) {
-      expect(prompt.indexOf(sample)).toBeGreaterThan(prompt.indexOf("VOICE SAMPLES"));
+    const pool = personaPrompts["mel-diaper"].language.samples!.unfiltered!;
+    const rendered = pool.filter((sample) => prompt.includes(sample));
+    expect(rendered).toHaveLength(LANGUAGE_SAMPLES_PER_PIECE);
+    for (const sample of rendered) expect(prompt.indexOf(sample)).toBeGreaterThan(prompt.indexOf("VOICE SAMPLES"));
+  });
+
+  it("rotates the language samples by week, deterministically, from a pool it never shows whole", () => {
+    const mel = personaPrompts["mel-diaper"];
+    const pool = mel.language.samples!.unfiltered!;
+    expect(pool.length).toBeGreaterThan(LANGUAGE_SAMPLES_PER_PIECE);
+    const seen = new Set<string>();
+    for (let week = 1; week <= 8; week++) {
+      const first = languageSamplesFor(mel, "unfiltered", `2026-w${week}-weekly_recap`);
+      const again = languageSamplesFor(mel, "unfiltered", `2026-w${week}-weekly_recap`);
+      expect(again).toEqual(first);
+      expect(first).toHaveLength(LANGUAGE_SAMPLES_PER_PIECE);
+      for (const sample of first) expect(pool).toContain(sample);
+      seen.add(first.join("|"));
     }
+    expect(seen.size).toBeGreaterThan(1);
+    // A small pool is shown whole; clean shows nothing.
+    expect(languageSamplesFor(personaPrompts["nina-sharpe"], "unfiltered", "2026-w3-weekly_recap")).toEqual(
+      personaPrompts["nina-sharpe"].language.samples!.unfiltered
+    );
+    expect(languageSamplesFor(mel, "clean", "2026-w3-weekly_recap")).toEqual([]);
+    // Without a seed the whole pool comes back (offline callers, tests).
+    expect(languageSamplesFor(mel, "unfiltered")).toEqual(pool);
+  });
+
+  it("two different weeks of the same article type see different Mel samples", () => {
+    const prompts = [4, 5, 6, 7].map(
+      (week) =>
+        new PromptBuilder({
+          ...baseRequest,
+          persona: "mel-diaper",
+          languageRating: "unfiltered",
+          leagueData: { ...leagueData, currentWeek: week },
+        }).build().systemPrompt
+    );
+    const pool = personaPrompts["mel-diaper"].language.samples!.unfiltered!;
+    const subsets = new Set(prompts.map((prompt) => pool.filter((sample) => prompt.includes(sample)).join("|")));
+    expect(subsets.size).toBeGreaterThan(1);
   });
 
   it("renders nothing about the trait at clean, and only the salty trait at salty", () => {
@@ -292,7 +331,7 @@ describe("persona language profiles", () => {
 describe("buildUserPrompt — per-piece LANGUAGE line (the trigger that made the setting real on the show)", () => {
   it("tells a carrier the piece contains their moments, and the reserved desk that most pieces use none", () => {
     const mel = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "unfiltered" }).build().userPrompt;
-    expect(mel).toContain("LANGUAGE: this league runs unfiltered and you carry it — your range for this piece is 4 to 12. Fewer than 4 is out of character");
+    expect(mel).toContain("LANGUAGE: this league runs unfiltered and you carry it — your range for this piece is 5 to 12. Fewer than 5 is out of character");
     expect(mel).toContain('at least one of them is a "fuck"');
     expect(mel).toContain("Never in the title, headline, summary or first sentence; never against a person.");
     const melSalty = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "salty" }).build().userPrompt;

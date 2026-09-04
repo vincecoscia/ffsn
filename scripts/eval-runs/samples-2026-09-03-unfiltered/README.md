@@ -23,6 +23,18 @@ Counts are tracked words in the body (team names exempt), against the writer's r
 Every Reggie run landed exactly on his floor: the floor behaves as a target. Two of Mel's lines are
 his language samples echoed word for word — the samples are treated as templates.
 
+**Round 3 — sample rotation (a week-seeded window of 3 from pools of 5-8), variety lines ("goddamn is
+one word in the tier"), Mel's floor raised to 5, and a per-section nudge for carriers ("every section
+after the first sentence carries at least one").**
+- `weekly_recap--mel-diaper--rich-week--salty-rotation` — 6 mild of a 3-6 range at salty: damn ×2, hell ×2, half-assed, sucks. The mild tier finally reads with some range.
+- `weekly_recap--mel-diaper--rich-week--floor5-rotation` — 3 (UNDER his new floor of 5): the floor alone did not move Mel the way it moved Reggie.
+- `weekly_recap--mel-diaper--rich-week--per-section` — 5, exactly one per section: "a fucking receipt", "horseshit with a bow on it", "did not save a damn thing", "a shitshow", "AND I MEAN FUCKING TONIGHT". Structure moved him where the count did not.
+
+Companion episodes for round 3: `../disputed/...-230937-salty-variety.*` (10 mild: damn ×7, hell ×2,
+half-assed — up from 4) and `...-231011-unfiltered-variety.*` (2 mild / 8 strong, "goddamn" down to
+1 of 10: "$76 and a fucking shrug", "a fucking junk drawer with $76 taped to it", "I'll wear your
+cute-ass grade card").
+
 Companion Disputed episodes: `../disputed/ffl-2025-w8.league-20260903-2011-salty.*` (4 mild),
 `...-201537-unfiltered.*` (round 1: 2 mild / 3 strong) and `...-203346-unfiltered-floors.*`
 (round 2: 2 mild / 10 strong, Mel 7, Reggie 5). Those use the real league file, not a fixture.

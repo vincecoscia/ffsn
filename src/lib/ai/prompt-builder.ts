@@ -739,7 +739,7 @@ export function buildHouseStyleBlock(args: HouseStyleArgs = {}): string {
     salty:
       `- salty: Mild profanity is allowed — ${MILD_PROFANITY.join(', ')} — and "damn" is one word in that tier, not the whole tier: use the word the sentence wants. No strong profanity, nothing sexual. Titles, headlines, summaries and the first sentence stay clean. How much and how each writer swears is that writer's own LANGUAGE trait (under WHO YOU ARE): the trait is the register, not a permission slip. When the moment the trait describes arrives, the word arrives with it; a writer who carries the rating and files a piece with no profanity in it has broken character.`,
     unfiltered:
-      `- unfiltered: Strong profanity is allowed — ${STRONG_PROFANITY.join(', ')} — on top of the mild tier (${MILD_PROFANITY.join(', ')}). "Fuck" is in that tier for a reason: goddamn and horseshit are not the whole tier, and a writer who carries the rating and never reaches for it is holding back. Nothing sexual, and never a word AGAINST a person — their character, looks, family or life. Swear at the pick, the lineup, the trade, the bid, the paper, the board, the result; a swear that is praise ("a fucking DAWG") is fine, a swear that is contempt for the human is not. Titles, headlines, summaries and the first sentence stay clean. How much and how each writer swears is that writer's own LANGUAGE trait (under WHO YOU ARE): the trait is the register, not a permission slip, and the league asked for the uncut desk. A writer who carries the rating and files a piece with no profanity in it has broken character.`,
+      `- unfiltered: Strong profanity is allowed — ${STRONG_PROFANITY.join(', ')} — on top of the mild tier (${MILD_PROFANITY.join(', ')}). "Fuck" is in that tier for a reason: goddamn and horseshit are not the whole tier, and a writer who carries the rating and never reaches for it is holding back. Nothing sexual, and never a word AGAINST a person — their character, looks, family or life. Swear at the pick, the lineup, the trade, the bid, the paper, the board, the result; a swear that is praise (a lineup that was a fucking masterpiece) is fine, a swear that is contempt for the human is not. Titles, headlines, summaries and the first sentence stay clean. How much and how each writer swears is that writer's own LANGUAGE trait (under WHO YOU ARE): the trait is the register, not a permission slip, and the league asked for the uncut desk. A writer who carries the rating and files a piece with no profanity in it has broken character.`,
   };
 
   const languageLines = [
@@ -836,13 +836,39 @@ export function languageTraitFor(persona: PersonaPrompt, languageRating: Languag
 ${trait}`;
 }
 
-/** The persona's style few-shots at this rating: `exampleOutputs`, plus the language samples above clean. */
-export function voiceSamplesFor(persona: PersonaPrompt, languageRating: LanguageRating = DEFAULT_LANGUAGE_RATING): string[] {
-  const samples = [...persona.exampleOutputs];
-  if (languageRating !== 'clean' && persona.language.allowance[languageRating] > 0) {
-    samples.push(...(persona.language.samples?.[languageRating] ?? []));
+/** How many language samples one piece sees when a writer's pool is bigger than this. */
+export const LANGUAGE_SAMPLES_PER_PIECE = 3;
+
+/** FNV-1a over `seed`, reduced to an index into a pool of `length`. Deterministic, dependency-free. */
+function rotationIndex(seed: string, length: number): number {
+  if (length === 0) return 0;
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
   }
-  return samples;
+  return hash % length;
+}
+
+/**
+ * The language samples one piece sees at this rating: the whole pool when it is small, otherwise a
+ * window of {@link LANGUAGE_SAMPLES_PER_PIECE} consecutive samples starting at a position derived
+ * from `seed` (the article's season/week/type, the show's week). The model treats a sample as a
+ * template — two of Mel's came back word for word on 2026-09-03 — so a pool it only ever sees part
+ * of, rotated by week, is what keeps a season from repeating itself. Empty at clean, and for a
+ * writer with no allowance at the rating. Without a seed the whole pool is returned.
+ */
+export function languageSamplesFor(persona: PersonaPrompt, languageRating: LanguageRating, seed?: string): string[] {
+  if (languageRating === 'clean' || persona.language.allowance[languageRating] <= 0) return [];
+  const pool = persona.language.samples?.[languageRating] ?? [];
+  if (seed === undefined || pool.length <= LANGUAGE_SAMPLES_PER_PIECE) return [...pool];
+  const start = rotationIndex(`${persona.slug}:${languageRating}:${seed}`, pool.length);
+  return Array.from({ length: LANGUAGE_SAMPLES_PER_PIECE }, (_, offset) => pool[(start + offset) % pool.length]);
+}
+
+/** The persona's style few-shots at this rating: `exampleOutputs`, plus this piece's language samples above clean. */
+export function voiceSamplesFor(persona: PersonaPrompt, languageRating: LanguageRating = DEFAULT_LANGUAGE_RATING, seed?: string): string[] {
+  return [...persona.exampleOutputs, ...languageSamplesFor(persona, languageRating, seed)];
 }
 
 /**
@@ -1008,7 +1034,9 @@ The following is unavailable for this article. Name the gap in character if it m
 ${this.facts.missing.map(entry => `- ${entry}`).join('\n')}`);
     }
 
-    const voiceSamples = voiceSamplesFor(persona, this.options.languageRating);
+    const { leagueData, contentType } = this.options;
+    const sampleSeed = `${leagueData.currentSeason ?? 'season'}-w${leagueData.currentWeek}-${contentType}`;
+    const voiceSamples = voiceSamplesFor(persona, this.options.languageRating, sampleSeed);
     if (this.options.includeExamples !== false && voiceSamples.length > 0) {
       parts.push(`VOICE SAMPLES — style only. The braces are placeholders, not content. Never copy a
 placeholder, a number, or a name out of these lines into your article.
@@ -1162,7 +1190,7 @@ past coverage is available to you.`];
     if (allowance <= 0) return null;
     const range = languageRangeFor(this.persona, rating);
     if (allowance >= 4) {
-      return `LANGUAGE: this league runs ${rating} and you carry it — your range for this piece is ${range.floor} to ${range.ceiling}. Fewer than ${range.floor} is out of character; ${range.ceiling} is a ceiling on the count and never on the word. Your language trait applies: the moments it describes are in this piece (the worst receipt on the board, the result that deserves the flowers, the paper that deserves the scorn), and the word arrives with them, in your own register${rating === 'unfiltered' ? ', and at least one of them is a "fuck"' : ''}. Never in the title, headline, summary or first sentence; never against a person.`;
+      return `LANGUAGE: this league runs ${rating} and you carry it — your range for this piece is ${range.floor} to ${range.ceiling}. Fewer than ${range.floor} is out of character; ${range.ceiling} is a ceiling on the count and never on the word. Your language trait applies: the moments it describes are in this piece (the worst receipt on the board, the result that deserves the flowers, the paper that deserves the scorn), and the word arrives with them, in your own register${rating === 'unfiltered' ? ', and at least one of them is a "fuck"' : ''}. Every section after the first sentence carries at least one — the worst receipt or the best result in that section is where it goes — which is how a piece reaches the bottom of your range. Never in the title, headline, summary or first sentence; never against a person.`;
     }
     if (range.floor > 0) {
       return `LANGUAGE: this league runs ${rating}. Your range for this piece is ${range.floor} to ${range.ceiling}, in your own register, exactly the way your language trait says it lands. Never in the title, headline, summary or first sentence; never against a person.`;

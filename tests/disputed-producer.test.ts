@@ -1442,15 +1442,15 @@ describe("directorInstructionFor — language notes are triggers, with a jab fal
       options: { budgets: { mainEvent: 2 } },
     });
     const melArgument = seen.find((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument")!;
-    expect(melArgument.user).toContain("You are at 2 for the night and your range tonight is 4 to 12 — you are under it.");
+    expect(melArgument.user).toContain("You are at 2 for the night and your range tonight is 5 to 12 — you are under it.");
     const reggieArgument = seen.find((req) => req.speaker === "reggie-banks" && extractKind(req) === "argument")!;
     expect(reggieArgument.user).toContain("You are at 0 for the night and your range tonight is 3 to 10 — you are under it.");
     const reggieJab = seen.find((req) => req.speaker === "reggie-banks" && extractKind(req) === "jab")!;
     expect(reggieJab.user).toContain("you are at 0 for the night against a floor of 3");
     // Mel is at 2 against a floor of 4, so his jab fallback fires too, sized to the shortfall.
     const melJab = seen.find((req) => req.speaker === "mel-diaper" && extractKind(req) === "jab")!;
-    expect(melJab.user).toContain("you are at 2 for the night against a floor of 4");
-    expect(melJab.user).toContain("at least 2 words");
+    expect(melJab.user).toContain("you are at 2 for the night against a floor of 5");
+    expect(melJab.user).toContain("at least 3 words");
   });
 
   it("puts the persona's language trait and samples in the show system prompt above clean only", () => {
