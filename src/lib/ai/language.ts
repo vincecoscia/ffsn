@@ -207,3 +207,50 @@ export function mentionRatio(
 
   return { teamMentions, managerMentions, ratio: managerMentions === 0 ? null : teamMentions / managerMentions };
 }
+
+/** A team whose manager opted down to clean coverage, with the names a sentence might use for it. */
+export interface CleanTeam {
+  name: string;
+  manager?: string;
+}
+
+/**
+ * Sentences that break a manager's opt-down (owner ask, 2026-09-03): the sentence names an
+ * opted-down team — its full name, its 3+-word short form (last two words), or its manager's full
+ * name — AND carries a tracked profanity word outside any team name. The prompt asks the writer to
+ * treat those teams as clean; this is what makes that promise true. Returns each offending sentence
+ * once, in order, with the team it names, so a caller can retry once and then strip exactly those
+ * sentences. Team names themselves are never the profanity (they are stripped before counting).
+ */
+export function cleanTeamViolations(
+  text: string,
+  cleanTeams: ReadonlyArray<CleanTeam>,
+  allTeamNames: ReadonlyArray<string> = cleanTeams.map((team) => team.name)
+): Array<{ sentence: string; team: string }> {
+  if (cleanTeams.length === 0) return [];
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const out: Array<{ sentence: string; team: string }> = [];
+  for (const sentence of sentences) {
+    const { mild, strong } = countProfanity(sentence, allTeamNames);
+    if (mild + strong === 0) continue;
+    for (const team of cleanTeams) {
+      const words = nameWords(team.name);
+      const patterns = [team.name];
+      if (words.length >= 3) patterns.push(words.slice(-2).join(" "));
+      if (team.manager && nameWords(team.manager).length > 0) patterns.push(team.manager);
+      if (countAlternatives(sentence, patterns) > 0) {
+        out.push({ sentence: sentence.trim(), team: team.name });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** `text` with every sentence in `sentences` removed, whitespace re-joined. */
+export function removeSentences(text: string, sentences: ReadonlyArray<string>): string {
+  if (sentences.length === 0) return text;
+  const drop = new Set(sentences.map((sentence) => sentence.trim()));
+  const kept = text.split(/(?<=[.!?])\s+/).filter((sentence) => !drop.has(sentence.trim()));
+  return kept.join(" ").trim();
+}

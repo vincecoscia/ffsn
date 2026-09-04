@@ -7,6 +7,8 @@ import {
   PROFANITY_WORDS,
   stripExemptPhrases,
   STRONG_PROFANITY,
+  cleanTeamViolations,
+  removeSentences,
 } from "../src/lib/ai/language";
 
 describe("DEFAULT_LANGUAGE_RATING", () => {
@@ -192,5 +194,43 @@ describe("mentionRatio — no-double-count / ambiguous-name rule", () => {
     const result = mentionRatio(text, teams);
 
     expect(result.managerMentions).toBe(2);
+  });
+});
+
+describe("cleanTeamViolations — the manager opt-down, enforced", () => {
+  const cleanTeams = [{ name: "Sable Ridge Sentinels", manager: "Ruth Tanaka" }];
+  const allTeams = ["Sable Ridge Sentinels", "Gravel Pit Grinders", "Damn Good Dynasty"];
+
+  it("flags a sentence that names the opted-down team and carries profanity, and nothing else", () => {
+    const text =
+      "The Gravel Pit Grinders are 7-0, which is a damn fine record. The Sable Ridge Sentinels' lineup card is horseshit. Ruth Tanaka benched a 24-point receiver, and that is bullshit. The Ridge Sentinels are 0-7.";
+    const found = cleanTeamViolations(text, cleanTeams, allTeams);
+    expect(found.map((v) => v.sentence)).toEqual([
+      "The Sable Ridge Sentinels' lineup card is horseshit.",
+      "Ruth Tanaka benched a 24-point receiver, and that is bullshit.",
+    ]);
+    expect(found.every((v) => v.team === "Sable Ridge Sentinels")).toBe(true);
+  });
+
+  it("matches the short form of a 3+ word team name", () => {
+    expect(cleanTeamViolations("The Ridge Sentinels' bench is a shitshow.", cleanTeams, allTeams)).toHaveLength(1);
+  });
+
+  it("ignores a clean sentence about the team, profanity about another team, and profanity inside a team name", () => {
+    expect(cleanTeamViolations("The Sable Ridge Sentinels are 0-7 and that is a record.", cleanTeams, allTeams)).toEqual([]);
+    expect(cleanTeamViolations("The Gravel Pit Grinders' draft was horseshit.", cleanTeams, allTeams)).toEqual([]);
+    expect(cleanTeamViolations("The Sable Ridge Sentinels lost to the Damn Good Dynasty.", cleanTeams, allTeams)).toEqual([]);
+  });
+
+  it("returns nothing with no opted-down teams", () => {
+    expect(cleanTeamViolations("Ruth Tanaka's card is horseshit.", [], allTeams)).toEqual([]);
+  });
+});
+
+describe("removeSentences", () => {
+  it("drops exactly the named sentences and re-joins the rest", () => {
+    const text = "One stays. Two goes away! Three stays.";
+    expect(removeSentences(text, ["Two goes away!"])).toBe("One stays. Three stays.");
+    expect(removeSentences(text, [])).toBe(text);
   });
 });

@@ -1466,3 +1466,81 @@ describe("directorInstructionFor — language notes are triggers, with a jab fal
     expect(clean).not.toContain("LANGUAGE SAMPLES");
   });
 });
+
+describe("produceEpisode — the manager opt-down, enforced (cleanTeamNames)", () => {
+  // Sable Ridge Sentinels (T10, Ruth Tanaka) is the hot seat in `brief`; opt them down.
+  const optDownBrief: ShowBrief = { ...brief, languageRating: "unfiltered", cleanTeamNames: ["Sable Ridge Sentinels"] };
+
+  it("retries a turn that swears about the opted-down team, keeps the clean retry, and never touches profanity about other teams", async () => {
+    let melArguments = 0;
+    const seen: TurnCallRequest[] = [];
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        melArguments++;
+        if (melArguments === 1) {
+          return baseOutput({ text: "The Gravel Pit Grinders' draft was horseshit. Ruth Tanaka's lineup card is bullshit too." });
+        }
+        return baseOutput({ text: "The Gravel Pit Grinders' draft was horseshit. Ruth Tanaka's lineup card was the difference." });
+      }
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: optDownBrief,
+      relationshipsByWriter: {},
+      call: makeCapturingCaller(script, seen),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const mel = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(mel.text).toBe("The Gravel Pit Grinders' draft was horseshit. Ruth Tanaka's lineup card was the difference.");
+    expect(mel.retried).toBe(true);
+    const retry = seen.filter((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument")[1];
+    expect(retry.user).toContain("The manager of Sable Ridge Sentinels asked for clean coverage of their team.");
+    expect(retry.user).toContain('"Ruth Tanaka\'s lineup card is bullshit too."');
+    expect(stats.cleanTeamStripped).toBe(0);
+  });
+
+  it("strips exactly the offending sentences when the retry still swears about the opted-down team", async () => {
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "reggie-banks") {
+        return baseOutput({ text: "Cute-ass draft, Mel. The Ridge Sentinels' bench is a shitshow. Scoreboard." });
+      }
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: optDownBrief,
+      relationshipsByWriter: {},
+      call: makeFakeCaller(script),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const reggie = mainEvent.turns.find((turn) => turn.speaker === "reggie-banks")!;
+    expect(reggie.text).toBe("Cute-ass draft, Mel. Scoreboard.");
+    expect(stats.cleanTeamStripped).toBe(1);
+    expect(stats.violations.some((v) => v.kind === "clean_team_language" && v.speaker === "reggie-banks")).toBe(true);
+  });
+
+  it("does nothing at clean (nothing swears) or when no team opted down", async () => {
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") return baseOutput({ text: "Ruth Tanaka's lineup card is bullshit." });
+      return defaultScript(req);
+    };
+    const noOptDown = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "unfiltered" },
+      relationshipsByWriter: {},
+      call: makeFakeCaller(script),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    expect(noOptDown.stats.cleanTeamStripped).toBe(0);
+    expect(noOptDown.transcript.segments.find((s) => s.id === "main_event")!.turns.find((t) => t.speaker === "mel-diaper")!.text).toContain("bullshit");
+  });
+});

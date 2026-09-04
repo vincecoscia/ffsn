@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDataError } from './prompt-builder';
 import type { LanguageRating } from './language';
+import { cleanTeamViolations } from './language';
+import type { CleanTeam } from './language';
 import { enhancePromptWithComments } from './comment-integration';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
@@ -513,6 +515,31 @@ function removeSentencesContaining(content: string, needle: string): string {
   return kept.length === sentences.length ? content : kept.join(' ').trim();
 }
 
+/**
+ * One `clean_team_language` strip per sentence that names an opted-down team (or its GM) and carries
+ * profanity, section by section. `applyStrips` removes the quoted sentence from the named section.
+ * Pure and exported for tests; `cleanTeams` empty (every league at clean) short-circuits to nothing.
+ */
+export function cleanTeamArticleViolations(
+  article: Pick<GeneratedArticleT, 'sections'>,
+  cleanTeams: ReadonlyArray<CleanTeam>,
+  allTeamNames: ReadonlyArray<string>
+): Violation[] {
+  if (cleanTeams.length === 0) return [];
+  const out: Violation[] = [];
+  for (const section of article.sections) {
+    for (const hit of cleanTeamViolations(section.content, cleanTeams, allTeamNames)) {
+      out.push({
+        kind: 'clean_team_language',
+        detail: `"${hit.sentence.replace(/"/g, '')}" swears about ${hit.team}, whose manager asked for clean coverage; the sentence was removed`,
+        section: section.name,
+        severity: 'strip',
+      });
+    }
+  }
+  return out;
+}
+
 /** Applies every `strip` (and every unfixable `block`) to a copy of the article. */
 function applyStrips(article: GeneratedArticleT, violations: Violation[]): GeneratedArticleT {
   const next: GeneratedArticleT = JSON.parse(JSON.stringify(article));
@@ -579,7 +606,8 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
         if (text) next.claims = (next.claims ?? []).filter(claim => claim.text !== text);
         break;
       }
-      case 'llm_contradicted': {
+      case 'llm_contradicted':
+      case 'clean_team_language': {
         const sentence = violation.detail.match(/"([^"]+)"/)?.[1];
         if (sentence) {
           for (const section of next.sections) {
@@ -1433,7 +1461,20 @@ export async function completeArticleFromMessage(
     }
   }
 
-  const violations = [...deterministic, ...editorViolations];
+  // The manager opt-down ("keep it clean about my team"), enforced (owner ask, 2026-09-03): a
+  // sentence that names an opted-down team, or its GM, and swears is stripped. Prompt-only until
+  // then, which that night's evidence says is no enforcement at all. Nothing to do at clean.
+  const optDownViolations = cleanTeamArticleViolations(
+    article,
+    (request.languageRating ?? 'clean') === 'clean'
+      ? []
+      : facts.teams
+          .filter(team => (request.cleanTeamNames ?? []).includes(team.name))
+          .map(team => ({ name: team.name, manager: team.manager })),
+    facts.teams.map(team => team.name)
+  );
+
+  const violations = [...deterministic, ...editorViolations, ...optDownViolations];
 
   // Thin-article guard. Missing *required sections* are reported by the verifier (spec §11.2.5);
   // what is left here is the word floor: under 30% of the template's ceiling is what a writer

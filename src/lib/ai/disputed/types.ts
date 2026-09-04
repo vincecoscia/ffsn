@@ -242,6 +242,8 @@ export interface ShowStats {
   catchphraseStripped: number;
   /** Turns whose text broke the league's language rating twice and had the offending sentence removed. */
   languageStripped: number;
+  /** Turns that swore about an opted-down team twice and had those sentences removed (the manager opt-down, enforced). */
+  cleanTeamStripped: number;
   /**
    * Tracked profanity words each speaker actually carried into the finished transcript (team names
    * exempt), keyed by slug — the per-episode number the persona's language allowance is measured

@@ -41,3 +41,17 @@ Companion Disputed episodes: `../disputed/ffl-2025-w8.league-20260903-2011-salty
 
 Regenerate with `npm run eval:articles -- --live --type weekly_recap --persona <slug> --fixture rich-week --language unfiltered --dump <dir>`;
 the summary prints each body's profanity against the writer's range (FLAT / UNDER / OVER / OUT OF TIER).
+
+**Round 4 — the manager opt-down enforced, and the full matrix.**
+- Opt-down: `cleanTeamViolations` (language.ts) flags a sentence that names an opted-down team (full
+  name, short form, or its GM) and carries profanity; the producer retries once then strips
+  (`stats.cleanTeamStripped`), the article path emits a `clean_team_language` strip. Episode with the
+  hot-seat team opted down: `../disputed/...-233411-unfiltered-optdown-stinky.*` — zero sentences
+  swearing about that team or its GM, and the episode still carried 12 hits (Mel 8, Reggie 3, Nina
+  her one: "week eight was schedule, not shitshow").
+- Matrix at unfiltered (`../samples-2026-09-03-unfiltered-matrix/`, every type with its preferred
+  writer plus every writer on weekly_recap, about nine dollars): Reggie 3/3-10 on both his pieces;
+  Mel 6 on draft_rankings, 4 and 3 (UNDER) on draft_strategy_guide and weekly_recap; Walt 1-2 on
+  four of five, 0 (UNDER) on hall_of_shame; Curtis and Sam 0 everywhere; Dex 1 of 1 on two of six;
+  Nina 1 of 1 on ALL FOUR of hers. The reserved desk's allowance of one behaves like a target for
+  Nina — "most pieces none" is not what she does — the same floor-as-target effect seen with Reggie.

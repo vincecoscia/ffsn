@@ -8,7 +8,8 @@ import type { RouteEffort, RouteModel, WriterRelationshipContext } from "../cont
 import type { FactsBlock } from "../facts";
 import { verifyArticle } from "../fact-verifier";
 import type { Violation } from "../fact-verifier";
-import { countProfanity, MILD_PROFANITY, PROFANITY_WORDS, STRONG_PROFANITY, stripExemptPhrases } from "../language";
+import { cleanTeamViolations, countProfanity, MILD_PROFANITY, PROFANITY_WORDS, removeSentences, STRONG_PROFANITY, stripExemptPhrases } from "../language";
+import type { CleanTeam } from "../language";
 import type { LanguageRating } from "../language";
 import { getPersona, getPersonaDisplay, personaPrompts } from "../persona-prompts";
 import type { PersonaPrompt } from "../persona-prompts";
@@ -460,6 +461,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     modelsUsed: [],
     catchphraseStripped: 0,
     languageStripped: 0,
+    cleanTeamStripped: 0,
     profanityBySpeaker: {},
     duplicateClaimsDropped: 0,
     violations: [],
@@ -467,6 +469,14 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
   const modelsUsed = new Set<string>();
   const rating: LanguageRating = brief.languageRating ?? "clean";
   const teamNames = facts.teams.map((team) => team.name);
+  // Teams whose managers opted down to clean coverage, with the manager's name so a sentence that
+  // swears at the GM by name is caught too. Only meaningful above clean (at clean nothing swears).
+  const cleanTeams: CleanTeam[] =
+    rating === "clean"
+      ? []
+      : facts.teams
+          .filter((team) => (brief.cleanTeamNames ?? []).includes(team.name))
+          .map((team) => ({ name: team.name, manager: team.manager }));
   /** Tracked in-tier profanity each speaker has carried into accepted turns so far this episode. */
   const profanityUsed = new Map<string, number>();
   const languageUsedBy = (speaker: string): number => profanityUsed.get(speaker) ?? 0;
@@ -650,6 +660,29 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
             offending.reason === "tier"
               ? `${offending.words.join(", ")} is outside the ${rating} rating for ${speaker}; the sentence carrying it was removed`
               : `${offending.words.join(", ")} would take ${speaker} past a language allowance of ${allowance} at ${rating}; the sentence carrying it was removed`,
+          severity: "warn",
+        });
+      }
+    }
+
+    // The manager opt-down ("keep it clean about my team") is enforced the same way: one retry that
+    // names the sentence, then the sentence comes out. Prompt-only until 2026-09-03, which the rest
+    // of that night's evidence says is no enforcement at all.
+    let optDown = cleanTeamViolations(sanitized.text, cleanTeams, teamNames);
+    if (optDown.length > 0) {
+      retried = true;
+      const named = [...new Set(optDown.map((entry) => entry.team))].join(", ");
+      const optDownInstruction = `${directorInstruction}\n\nThe manager of ${named} asked for clean coverage of their team. Say the same thing about them without any profanity: ${optDown.map((entry) => `"${entry.sentence}"`).join(" ")}`;
+      result = await callTurn(speaker, system, optDownInstruction, kind);
+      sanitized = sanitizeTurnOutput(kind, result.output);
+      optDown = cleanTeamViolations(sanitized.text, cleanTeams, teamNames);
+      if (optDown.length > 0) {
+        sanitized = { ...sanitized, text: removeSentences(sanitized.text, optDown.map((entry) => entry.sentence)) };
+        stats.cleanTeamStripped++;
+        stats.violations.push({
+          speaker,
+          kind: "clean_team_language",
+          detail: `${optDown.length} sentence(s) swearing about ${named}, whose manager opted down to clean coverage, were removed`,
           severity: "warn",
         });
       }

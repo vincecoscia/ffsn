@@ -548,6 +548,25 @@ function countKinds(result: LiveResult, kinds: string[]): number {
   return result.violations.filter(violation => kinds.includes(violation.kind)).length;
 }
 
+/** "3/5-12 ok", "0/3-10 FLAT", "2/3-10 UNDER", "4/0-1 OVER" — one matrix cell; blank at clean. */
+function languageCell(result: LiveResult, rating: LanguageRating): string {
+  if (rating === "clean") return "";
+  const range = languageRangeFor(getPersona(result.persona), rating);
+  const profanity = countProfanity(result.body, result.facts.teams.map(team => team.name));
+  const inTier = rating === "salty" ? profanity.mild : profanity.mild + profanity.strong;
+  const flag =
+    rating === "salty" && profanity.strong > 0
+      ? " TIER"
+      : inTier > range.ceiling
+        ? " OVER"
+        : range.ceiling >= 4 && inTier === 0
+          ? " FLAT"
+          : inTier < range.floor
+            ? " UNDER"
+            : " ok";
+  return `${inTier}/${range.floor}-${range.ceiling}${flag}`;
+}
+
 /**
  * The house-style eval number (owner ask, Sept 2026): team-vs-manager mentions and profanity, for one
  * piece of text. With a `language` above clean the profanity line is measured against the writer's
@@ -667,6 +686,8 @@ interface MatrixRow {
   sectionsRegenerated?: number;
   /** §11.2.8 whole-article regenerations. */
   fullRegenerations?: number;
+  /** Body profanity vs the writer's range at the run's language rating: "used/floor-ceiling flag" (blank at clean). */
+  language?: string;
   /** §11.2.4 register leaks, §11.2.7 editor holds, §11.2.5 optional sections missing. */
   dataSpeak?: number;
   editorHold?: number;
@@ -758,6 +779,7 @@ async function runMatrix(options: Options): Promise<void> {
           factsScore: result.editor?.factsScore,
           voiceScore: result.editor?.voiceScore,
           publishes: result.gate.ok,
+          language: languageCell(result, options.language),
           holdReasons: result.gate.reasons,
           quotesUsed: result.quotes.length,
           flags: result.violations.map(v => ({
@@ -816,6 +838,7 @@ async function runMatrix(options: Options): Promise<void> {
       "facts",
       "voice",
       "publish",
+      "lang",
     ],
     rows
       .slice()
@@ -844,6 +867,7 @@ async function runMatrix(options: Options): Promise<void> {
           row.factsScore !== undefined ? `${row.factsScore}/5` : "",
           row.voiceScore !== undefined ? `${row.voiceScore}/5` : "",
           row.status === "ok" ? (row.publishes ? "yes" : "held") : "",
+          row.language ?? "",
         ];
       })
   );
