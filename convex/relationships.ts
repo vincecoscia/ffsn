@@ -28,6 +28,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireLeagueMember } from "./lib/auth";
 import { leagueCurrentSeason } from "./lib/season";
+import { teamForUser, userByClerkId, userForTeam } from "./lib/teamClaims";
 import {
   relationshipEventTypeValidator,
   relationshipTierValidator,
@@ -282,61 +283,8 @@ async function applyEvent(
   return { recorded: true, score, tier };
 }
 
-/** Resolve a Clerk subject to the `users` row it belongs to. */
-async function userByClerkId(
-  ctx: QueryCtx | MutationCtx,
-  clerkId: string
-): Promise<Doc<"users"> | null> {
-  return await ctx.db
-    .query("users")
-    .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
-    .unique();
-}
-
 function managerNameFor(user: Doc<"users"> | null): string {
   return user?.name ?? user?.email ?? "Unknown manager";
-}
-
-/**
- * Manager -> team for a league season, via `teamClaims` (whose `userId` is a Clerk id).
- * `teams.owner` is an ESPN owner string and is never compared to a Convex user id.
- */
-async function teamForUser(
-  ctx: QueryCtx | MutationCtx,
-  leagueId: Id<"leagues">,
-  user: Doc<"users"> | null,
-  seasonId: number
-): Promise<Doc<"teams"> | null> {
-  if (!user) return null;
-  const claims = await ctx.db
-    .query("teamClaims")
-    .withIndex("by_user", (q) => q.eq("userId", user.clerkId))
-    .take(50);
-  const inLeague = claims.filter(
-    (c) => c.leagueId === leagueId && c.status === "active"
-  );
-  if (inLeague.length === 0) return null;
-  const claim =
-    inLeague.find((c) => c.seasonId === seasonId) ??
-    inLeague.sort((a, b) => b.seasonId - a.seasonId)[0];
-  return await ctx.db.get(claim.teamId);
-}
-
-/** Team -> the manager who claimed it for a season. */
-async function userForTeam(
-  ctx: QueryCtx | MutationCtx,
-  teamId: Id<"teams">,
-  seasonId: number
-): Promise<Doc<"users"> | null> {
-  const claim = await ctx.db
-    .query("teamClaims")
-    .withIndex("by_team_season", (q) =>
-      q.eq("teamId", teamId).eq("seasonId", seasonId)
-    )
-    .filter((q) => q.eq(q.field("status"), "active"))
-    .first();
-  if (!claim) return null;
-  return await userByClerkId(ctx, claim.userId);
 }
 
 async function recentEventsFor(

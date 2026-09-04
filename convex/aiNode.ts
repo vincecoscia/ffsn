@@ -33,21 +33,9 @@ import {
   type ConversationContext,
 } from "../src/lib/ai/conversation-service";
 import { generateArticleImage, shouldGenerateImage } from "../src/lib/ai/image-generator";
+import { requireEnv, toConvexValue } from "./lib/nodeHelpers";
 
 type ResponseAnalysis = Awaited<ReturnType<typeof conversationService.analyzeUserResponse>>;
-
-function requireEnv(name: "ANTHROPIC_API_KEY" | "OPENAI_API_KEY"): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} not configured. Set it with: npx convex env set ${name} "..."`);
-  }
-  return value;
-}
-
-/** Strip `undefined` (not a Convex value) before a result crosses the runtime boundary. */
-function toConvexValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
 
 /**
  * Generate a full article with the persona-driven content service.

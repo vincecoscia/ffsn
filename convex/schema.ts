@@ -1353,8 +1353,7 @@ export default defineSchema({
     
     // Content quality settings
     preferredPersonas: v.optional(v.array(v.string())), // Preferred personas in order
-    // Deprecated (owner ask, Sept 2026): superseded by languageRating below and no longer
-    // shown in the UI. Kept so rows written before today still validate.
+    // Deprecated (owner ask, Sept 2026): no longer written; kept so old rows still validate.
     contentStyle: v.optional(v.union(
       v.literal("professional"),
       v.literal("casual"),

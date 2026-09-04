@@ -13,35 +13,12 @@ import { commentResponseDataValidator, nonRespondentValidator } from "./validato
 import { leagueCurrentSeason } from "./lib/season";
 import { requireCommissioner, requireLeagueMember } from "./lib/auth";
 import { espnConnectionBlocked } from "./lib/espnConnection";
+import { teamForUser, userByClerkId } from "./lib/teamClaims";
 import { INTERVIEWER_PERSONA, DEFAULT_WRITER_PERSONA } from "./commentRequests";
 
 /* -------------------------------------------------------------------------- */
 /* Quote ledger helpers (spec §5)                                              */
 /* -------------------------------------------------------------------------- */
-
-/**
- * A manager's team for a league season, via `teamClaims` (whose `userId` is a Clerk id).
- * `teams.owner` is an ESPN owner string and must never be compared to a Convex user id
- * (spec §2) - the old owner-match lookup here silently produced unattributed quotes.
- */
-async function resolveTeamForUser(
-  ctx: QueryCtx,
-  leagueId: Id<"leagues">,
-  user: Doc<"users"> | null,
-  seasonId: number
-): Promise<Doc<"teams"> | null> {
-  if (!user?.clerkId) return null;
-  const claims = await ctx.db
-    .query("teamClaims")
-    .withIndex("by_user", q => q.eq("userId", user.clerkId))
-    .take(50);
-  const inLeague = claims.filter(c => c.leagueId === leagueId && c.status === "active");
-  if (inLeague.length === 0) return null;
-  const claim =
-    inLeague.find(c => c.seasonId === seasonId) ??
-    [...inLeague].sort((a, b) => b.seasonId - a.seasonId)[0];
-  return await ctx.db.get(claim.teamId);
-}
 
 /**
  * What Sam actually asked about, taken from her opening question rather than invented.
@@ -748,7 +725,7 @@ export const getStructuredCommentResponses = internalQuery({
       const seasonId = request.articleContext.seasonId ?? leagueCurrentSeason(league);
 
       const user = await ctx.db.get(request.targetUserId);
-      const team = await resolveTeamForUser(ctx, request.leagueId, user, seasonId);
+      const team = await teamForUser(ctx, request.leagueId, user, seasonId);
 
       // What Sam opened with, so the writer can print the question when the answer
       // is surprising rather than guessing at the premise.
@@ -814,7 +791,7 @@ export const getNonRespondents = internalQuery({
       const league = await ctx.db.get(request.leagueId);
       const seasonId = request.articleContext.seasonId ?? leagueCurrentSeason(league);
       const user = await ctx.db.get(request.targetUserId);
-      const team = await resolveTeamForUser(ctx, request.leagueId, user, seasonId);
+      const team = await teamForUser(ctx, request.leagueId, user, seasonId);
 
       results.push({
         userId: request.targetUserId as string,
@@ -1013,17 +990,6 @@ async function requestsForArticle(
     .collect();
 }
 
-/** Resolve a Clerk subject to its `users` row. Never compare raw subjects. */
-async function userByClerkId(
-  ctx: QueryCtx,
-  clerkId: string
-): Promise<Doc<"users"> | null> {
-  return await ctx.db
-    .query("users")
-    .withIndex("by_clerk_id", q => q.eq("clerkId", clerkId))
-    .unique();
-}
-
 /**
  * "3 of 6 responded": who was asked, who answered, and when we go to print.
  * Any member of the league may watch the board; only the commissioner or the
@@ -1063,7 +1029,7 @@ export const getCommentRequestBoard = query({
         .first();
 
       const user = await ctx.db.get(request.targetUserId);
-      const team = await resolveTeamForUser(ctx, article.leagueId, user, seasonId);
+      const team = await teamForUser(ctx, article.leagueId, user, seasonId);
 
       // A response row is the only proof they spoke, whatever the request status
       // ended up as - expiry can land after a manager has already answered.

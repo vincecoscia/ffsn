@@ -31,6 +31,7 @@ import {
   weeklyUtcClock,
 } from "./content-schedule/scheduleTime";
 import { cn } from "@/lib/utils";
+import { DEFAULT_LANGUAGE_RATING, type LanguageRating } from "@/lib/ai/language";
 
 interface ContentScheduleManagerProps {
   leagueId: Id<"leagues">;
@@ -153,7 +154,7 @@ function personaOptions(contentType: string) {
  * pick, in escalating order. Default is "clean" - see `DEFAULT_LANGUAGE_RATING` in
  * `src/lib/ai/language.ts`.
  */
-const LANGUAGE_OPTIONS: Array<{ value: "clean" | "salty" | "unfiltered"; label: string; description: string }> = [
+const LANGUAGE_OPTIONS: Array<{ value: LanguageRating; label: string; description: string }> = [
   { value: "clean", label: "Clean", description: "No profanity from anyone on the desk." },
   {
     value: "salty",
@@ -186,6 +187,9 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     api.contentScheduling.getContentSchedules,
     { leagueId },
   );
+  // Who on the roster has opted their own team down to clean, so the commissioner can see the
+  // other side of this dial without leaving this screen.
+  const leagueLanguage = useQuery(api.languageSettings.getLeagueLanguageForMember, { leagueId });
 
   // Mutations
   const updateSchedule = useMutation(api.contentScheduling.updateContentSchedule);
@@ -241,7 +245,7 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
     preferredPersonas?: string[];
     // contentStyle is deprecated (owner ask, Sept 2026) and no longer surfaced here -
     // languageRating replaces it.
-    languageRating?: "clean" | "salty" | "unfiltered";
+    languageRating?: LanguageRating;
     autoPublish?: boolean;
     requireApproval?: boolean;
   }) => {
@@ -398,16 +402,16 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
           <div className="flex flex-col gap-3 border border-bc-hairline bg-bc-panel-2 p-4">
             <Label className="text-[15px] text-bc-ink">Language</Label>
             <RadioGroup
-              value={preferences?.languageRating ?? "clean"}
+              value={preferences?.languageRating ?? DEFAULT_LANGUAGE_RATING}
               onValueChange={(value) =>
                 handleUpdateGlobalSettings({
-                  languageRating: value as "clean" | "salty" | "unfiltered",
+                  languageRating: value as LanguageRating,
                 })
               }
               className="grid grid-cols-3 gap-2"
             >
               {LANGUAGE_OPTIONS.map((option) => {
-                const selected = (preferences?.languageRating ?? "clean") === option.value;
+                const selected = (preferences?.languageRating ?? DEFAULT_LANGUAGE_RATING) === option.value;
                 return (
                   <div key={option.value} className="flex items-center">
                     <RadioGroupItem
@@ -431,17 +435,24 @@ export default function ContentScheduleManager({ leagueId }: ContentScheduleMana
               })}
             </RadioGroup>
             <p className="text-sm text-bc-text-2">
-              {LANGUAGE_OPTIONS.find((option) => option.value === (preferences?.languageRating ?? "clean"))?.description}
+              {
+                LANGUAGE_OPTIONS.find(
+                  (option) => option.value === (preferences?.languageRating ?? DEFAULT_LANGUAGE_RATING),
+                )?.description
+              }
             </p>
             <p className="text-xs text-bc-text-3">
-              Slurs are off the table at every setting, and titles stay clean. Any manager can keep coverage of
-              their own team clean from Settings, whatever the league picks.
+              Slurs are off the table at every setting. Titles and summaries stay clean. Team names
+              print exactly as spelled. Any manager can keep coverage of their own team clean from
+              their own Settings.
             </p>
-            <p className="text-sm text-bc-text-2">
-              Sets how far the desk&apos;s writers can go. Titles and summaries stay clean at
-              every level. Team names always print exactly as spelled. Any manager can keep
-              coverage of their own team clean from their settings.
-            </p>
+            {leagueLanguage && (
+              <p className="text-xs text-bc-text-3">
+                {leagueLanguage.cleanTeamNames.length === 0
+                  ? "No manager has asked for clean coverage of their team."
+                  : `Clean coverage requested by: ${leagueLanguage.cleanTeamNames.join(", ")}.`}
+              </p>
+            )}
           </div>
         </div>
       </Panel>

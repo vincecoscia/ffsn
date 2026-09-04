@@ -22,49 +22,7 @@ import {
   handleGenerationFailure,
   MAX_GENERATION_RETRIES,
 } from "./lib/generationFailure";
-
-/* -------------------------------------------------------------------------- *
- * Manager -> team, via teamClaims (spec section 2)
- *
- * `teamClaims.userId` is a Clerk id, so the join runs users -> clerkId ->
- * teamClaims -> teams. `teams.owner` is an ESPN owner string and is never
- * compared to a Convex user id.
- * -------------------------------------------------------------------------- */
-async function teamForUser(
-  ctx: QueryCtx | MutationCtx,
-  leagueId: Id<"leagues">,
-  user: Doc<"users"> | null
-): Promise<Doc<"teams"> | null> {
-  if (!user?.clerkId) return null;
-  const claims = await ctx.db
-    .query("teamClaims")
-    .withIndex("by_user", (q) => q.eq("userId", user.clerkId))
-    .take(50);
-  const inLeague = claims.filter(
-    (c) => c.leagueId === leagueId && c.status === "active"
-  );
-  if (inLeague.length === 0) return null;
-  const claim = inLeague.sort((a, b) => b.seasonId - a.seasonId)[0];
-  return await ctx.db.get(claim.teamId);
-}
-
-/**
- * What the interviewer asked this manager about, in the order the spec gives:
- * the request's article topic, its first focus area, then the live conversation
- * focus. Falls back to the content type so the field is never empty.
- */
-function questionTopicFor(
-  request: Doc<"commentRequests"> | null,
-  contentType: string
-): string {
-  const topic = request?.articleContext?.topic?.trim();
-  if (topic) return topic;
-  const focus = request?.articleContext?.focusAreas?.find((f) => f && f.trim());
-  if (focus) return focus.trim();
-  const current = request?.aiContext?.currentFocus?.trim();
-  if (current) return current;
-  return contentType.replace(/_/g, " ");
-}
+import { questionTopicFor, teamForUser } from "./lib/teamClaims";
 
 /** Build the spec section 4.2 `CommentResponseData` for one stored response. */
 async function toCommentResponseData(
@@ -92,7 +50,7 @@ async function toCommentResponseData(
     userName: user?.name?.trim() || "A league manager",
     teamId: (team?._id ?? "") as string,
     teamName: team?.name || contextTeamName || "Unclaimed team",
-    questionTopic: questionTopicFor(request, contentType),
+    questionTopic: questionTopicFor(request, contentType.replace(/_/g, " ")),
     quotes,
     rawResponse: response.rawResponse,
   };
