@@ -1,6 +1,6 @@
-import { getPersona, type PersonaPrompt } from './persona-prompts';
+import { getPersona, languageRangeFor, personaPrompts, type PersonaPrompt } from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
-import { DEFAULT_LANGUAGE_RATING, type LanguageRating } from './language';
+import { DEFAULT_LANGUAGE_RATING, type LanguageRating, MILD_PROFANITY, STRONG_PROFANITY } from './language';
 import {
   adpLooksLikePlaceholder,
   buildFactsBlock,
@@ -737,14 +737,15 @@ export function buildHouseStyleBlock(args: HouseStyleArgs = {}): string {
     clean:
       '- clean: No profanity of any kind. Team names print exactly as the league spelled them, whatever they contain — they are facts, not your words.',
     salty:
-      '- salty: Mild profanity is allowed (the mild tier: damn, hell, ass, crap, pissed, screwed, sucks) — at most two per article, aimed at a decision or a result, never at a person. No strong profanity, no slurs, nothing sexual. Titles, headlines and summaries stay clean. This is a register, not a permission slip: when a receipt deserves it, Mel, Reggie and Walt say so in those words.',
+      `- salty: Mild profanity is allowed — ${MILD_PROFANITY.join(', ')} — and "damn" is one word in that tier, not the whole tier: use the word the sentence wants. No strong profanity, nothing sexual. Titles, headlines, summaries and the first sentence stay clean. How much and how each writer swears is that writer's own LANGUAGE trait (under WHO YOU ARE): the trait is the register, not a permission slip. When the moment the trait describes arrives, the word arrives with it; a writer who carries the rating and files a piece with no profanity in it has broken character.`,
     unfiltered:
-      '- unfiltered: Strong profanity is allowed (the strong tier), at most one per paragraph and never in a title, headline, summary or first sentence; still never slurs, never sexual, never at a person\'s character. Swear at the pick, the lineup, the trade — never the human. This is a register, not a permission slip: the league asked for the uncut desk, so when the moment earns it, Mel, Reggie and Walt talk the way people actually talk about a blown lineup.',
+      `- unfiltered: Strong profanity is allowed — ${STRONG_PROFANITY.join(', ')} — on top of the mild tier (${MILD_PROFANITY.join(', ')}). "Fuck" is in that tier for a reason: goddamn and horseshit are not the whole tier, and a writer who carries the rating and never reaches for it is holding back. Nothing sexual, and never a word AGAINST a person — their character, looks, family or life. Swear at the pick, the lineup, the trade, the bid, the paper, the board, the result; a swear that is praise ("a fucking DAWG") is fine, a swear that is contempt for the human is not. Titles, headlines, summaries and the first sentence stay clean. How much and how each writer swears is that writer's own LANGUAGE trait (under WHO YOU ARE): the trait is the register, not a permission slip, and the league asked for the uncut desk. A writer who carries the rating and files a piece with no profanity in it has broken character.`,
   };
 
   const languageLines = [
     tierLine[rating],
-    '- At every rating: some desk members never swear regardless — Curtis Vaughn, Dex Alvarez and Sam Ortega stay clean; Nina Sharpe allows herself one dry one at unfiltered; Mel Diaper, Reggie Banks and Walt Brennan carry the rating.',
+    '- At every rating: no slurs of any kind — racial, ethnic, religious, sexual-orientation, gender, disability — not from a writer, not composed into a quote, not as a joke. Team names remain facts and print as spelled.',
+    deskLanguageLine(rating),
   ];
 
   if (cleanTeamNames.length > 0) {
@@ -754,10 +755,45 @@ export function buildHouseStyleBlock(args: HouseStyleArgs = {}): string {
   }
 
   if (args.surface === 'show') {
-    languageLines.push('- In the show, cut-ins and reactions follow the same rating.');
+    languageLines.push('- In the show, cut-ins and reactions follow the same rating. Each speaker\'s allowance is per episode, not per turn.');
   }
 
   return `${houseStyle}\n\nLANGUAGE\n${languageLines.join('\n')}`;
+}
+
+/**
+ * Who on the desk carries the rating and who breaks character once, derived from each writer's
+ * {@link PersonaLanguage} allowance so the house-style block, the persona traits and the producer's
+ * enforcement can never disagree about a writer. Writers with an allowance of 4 or more "carry" the
+ * rating; 1-3 get the once-a-piece treatment; 0 never swear at that rating.
+ */
+function deskLanguageLine(rating: LanguageRating): string {
+  if (rating === 'clean') return '- At clean nobody on the desk swears, whatever their trait says.';
+  const writers = Object.values(personaPrompts).filter(persona => persona.isWriter);
+  const carriers = writers.filter(persona => persona.language.allowance[rating] >= 4);
+  const rare = writers.filter(persona => {
+    const allowance = persona.language.allowance[rating];
+    return allowance >= 1 && allowance < 4;
+  });
+  const never = writers.filter(persona => persona.language.allowance[rating] === 0);
+  const parts: string[] = [];
+  if (carriers.length > 0) {
+    parts.push(
+      `${carriers
+        .map(persona => {
+          const range = languageRangeFor(persona, rating);
+          return `${persona.name} (${range.floor} to ${range.ceiling} per piece)`;
+        })
+        .join(', ')} carry the rating — for them profanity is part of the voice, not an exception to it, and a piece under the bottom of that range is out of character.`
+    );
+  }
+  if (rare.length > 0) {
+    parts.push(
+      `${rare.map(persona => `${persona.name} (at most ${persona.language.allowance[rating]})`).join(', ')}: most pieces none; when one of them swears it is the only one in the piece and the line everyone remembers.`
+    );
+  }
+  if (never.length > 0) parts.push(`${never.map(persona => persona.name).join(', ')} never swear at ${rating}.`);
+  return `- Who carries it at ${rating}: ${parts.join(' ')}`;
 }
 
 /**
@@ -765,7 +801,8 @@ export function buildHouseStyleBlock(args: HouseStyleArgs = {}): string {
  * posture. Factored out of `PromptBuilder.buildSystemPrompt` so `disputed/prompts.ts` can build a
  * turn's system prompt out of the same identity block without duplicating it (spec BUILD 1 §0).
  */
-export function buildWhoYouAreBlock(persona: PersonaPrompt): string {
+export function buildWhoYouAreBlock(persona: PersonaPrompt, languageRating: LanguageRating = DEFAULT_LANGUAGE_RATING): string {
+  const languageTrait = languageTraitFor(persona, languageRating);
   return `WHO YOU ARE
 ${persona.voice}
 
@@ -778,7 +815,34 @@ ${persona.neverDo.map(rule => `- ${rule}`).join('\n')}
 How you handle certainty:
 - When the facts are strong: ${persona.truthPosture.whenCertain}
 - When the data is thin: ${persona.truthPosture.whenUnsure}
-- When something is listed in facts.missing: ${persona.truthPosture.whenDataMissing}`;
+- When something is listed in facts.missing: ${persona.truthPosture.whenDataMissing}${languageTrait ? `\n\n${languageTrait}` : ''}`;
+}
+
+/**
+ * The persona's LANGUAGE trait at this rating, or `null` at clean / for a writer with no allowance
+ * there. Rendered inside WHO YOU ARE so it reads as character, not as a house rule.
+ */
+export function languageTraitFor(persona: PersonaPrompt, languageRating: LanguageRating): string | null {
+  if (languageRating === 'clean') return null;
+  const allowance = persona.language.allowance[languageRating];
+  const trait = persona.language[languageRating];
+  if (allowance <= 0 || !trait) return null;
+  const range = languageRangeFor(persona, languageRating);
+  const header =
+    range.floor > 0
+      ? `Your language (this league runs ${languageRating}; your range for a piece is ${range.floor} to ${range.ceiling} — fewer than ${range.floor} is out of character, and ${range.ceiling} is a ceiling on the count, never on the word):`
+      : `Your language (this league runs ${languageRating}; your allowance is ${allowance} per piece, and it is a ceiling on the count, never on the word):`;
+  return `${header}
+${trait}`;
+}
+
+/** The persona's style few-shots at this rating: `exampleOutputs`, plus the language samples above clean. */
+export function voiceSamplesFor(persona: PersonaPrompt, languageRating: LanguageRating = DEFAULT_LANGUAGE_RATING): string[] {
+  const samples = [...persona.exampleOutputs];
+  if (languageRating !== 'clean' && persona.language.allowance[languageRating] > 0) {
+    samples.push(...(persona.language.samples?.[languageRating] ?? []));
+  }
+  return samples;
 }
 
 /**
@@ -871,7 +935,7 @@ export class PromptBuilder {
       })
     );
 
-    parts.push(buildWhoYouAreBlock(persona));
+    parts.push(buildWhoYouAreBlock(persona, this.options.languageRating));
 
     parts.push(`QUOTES
 - Attribution pattern: ${persona.quoteStyle.attributionPattern}
@@ -944,10 +1008,11 @@ The following is unavailable for this article. Name the gap in character if it m
 ${this.facts.missing.map(entry => `- ${entry}`).join('\n')}`);
     }
 
-    if (this.options.includeExamples !== false && persona.exampleOutputs.length > 0) {
+    const voiceSamples = voiceSamplesFor(persona, this.options.languageRating);
+    if (this.options.includeExamples !== false && voiceSamples.length > 0) {
       parts.push(`VOICE SAMPLES — style only. The braces are placeholders, not content. Never copy a
 placeholder, a number, or a name out of these lines into your article.
-${persona.exampleOutputs.map(sample => `- ${sample}`).join('\n')}`);
+${voiceSamples.map(sample => `- ${sample}`).join('\n')}`);
     }
 
     return parts.join('\n\n');
@@ -1082,6 +1147,29 @@ past coverage is available to you.`];
     };
   }
 
+  /**
+   * The per-piece LANGUAGE line of the user prompt, above clean, for a writer with an allowance:
+   * names the moment rather than a count (the show's evidence, 2026-09-03: the register described
+   * only in the system prompt produced nothing; naming the piece as one where it shows is what made
+   * the setting real, and the unfiltered Reggie eval the same day was still FLAT with the trait
+   * alone). Carriers are told the piece contains their moments; the reserved desk is told most
+   * pieces use none. `null` at clean.
+   */
+  private languageLineForPiece(): string | null {
+    const rating = this.options.languageRating ?? DEFAULT_LANGUAGE_RATING;
+    if (rating === 'clean') return null;
+    const allowance = this.persona.language.allowance[rating];
+    if (allowance <= 0) return null;
+    const range = languageRangeFor(this.persona, rating);
+    if (allowance >= 4) {
+      return `LANGUAGE: this league runs ${rating} and you carry it — your range for this piece is ${range.floor} to ${range.ceiling}. Fewer than ${range.floor} is out of character; ${range.ceiling} is a ceiling on the count and never on the word. Your language trait applies: the moments it describes are in this piece (the worst receipt on the board, the result that deserves the flowers, the paper that deserves the scorn), and the word arrives with them, in your own register${rating === 'unfiltered' ? ', and at least one of them is a "fuck"' : ''}. Never in the title, headline, summary or first sentence; never against a person.`;
+    }
+    if (range.floor > 0) {
+      return `LANGUAGE: this league runs ${rating}. Your range for this piece is ${range.floor} to ${range.ceiling}, in your own register, exactly the way your language trait says it lands. Never in the title, headline, summary or first sentence; never against a person.`;
+    }
+    return `LANGUAGE: this league runs ${rating}. Your allowance for this piece is ${allowance}, and most of your pieces use none; if one moment in this piece earns it, that is the only one, and it lands exactly the way your language trait says it does. Never in the title, headline, summary or first sentence; never against a person.`;
+  }
+
   private buildUserPrompt(): string {
     const { leagueData, customContext } = this.options;
 
@@ -1106,6 +1194,9 @@ where the two ever disagree, <FACTS> wins.
     if (customContext) {
       prompt += `\nADDITIONAL CONTEXT FROM THE COMMISSIONER:\n${customContext}\n`;
     }
+
+    const languageLine = this.languageLineForPiece();
+    if (languageLine) prompt += `\n${languageLine}\n`;
 
     prompt += `\nFORMATTING AND ACCURACY
 - Markdown prose. Clear section headings written in your voice.

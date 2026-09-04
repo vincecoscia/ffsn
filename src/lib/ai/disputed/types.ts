@@ -242,6 +242,12 @@ export interface ShowStats {
   catchphraseStripped: number;
   /** Turns whose text broke the league's language rating twice and had the offending sentence removed. */
   languageStripped: number;
+  /**
+   * Tracked profanity words each speaker actually carried into the finished transcript (team names
+   * exempt), keyed by slug — the per-episode number the persona's language allowance is measured
+   * against, and the pilot's read on whether a rating produced character or nothing.
+   */
+  profanityBySpeaker: Record<string, number>;
   /** Times Reggie's opening claim duplicated Mel's and was dropped after surviving a retry (spec follow-up). */
   duplicateClaimsDropped: number;
   /**

@@ -46,7 +46,8 @@ import {
 import { resolveRoute } from "../src/lib/ai/content-generation-service";
 import type { GeneratedArticleT, GenerationRoute } from "../src/lib/ai/content-generation-service";
 import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
-import { countProfanity, mentionRatio } from "../src/lib/ai/language";
+import { countProfanity, mentionRatio, type LanguageRating } from "../src/lib/ai/language";
+import { languageRangeFor } from "../src/lib/ai/persona-prompts";
 
 /* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
@@ -71,10 +72,12 @@ interface Options {
   rubric: boolean;
   /** Print the model/effort/credit table and exit. No API key, no network. */
   route: boolean;
+  /** League-level language rating for live generation (default clean). */
+  language: LanguageRating;
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { live: false, quiet: false, matrix: false, concurrency: 3, rubric: false, route: false };
+  const options: Options = { live: false, quiet: false, matrix: false, concurrency: 3, rubric: false, route: false, language: "clean" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -121,6 +124,14 @@ function parseArgs(argv: string[]): Options {
       case "--route":
         options.route = true;
         break;
+      case "--language": {
+        const rating = value();
+        if (rating !== "clean" && rating !== "salty" && rating !== "unfiltered") {
+          throw new Error(`--language must be clean, salty or unfiltered (got ${rating})`);
+        }
+        options.language = rating;
+        break;
+      }
       case "--help":
       case "-h":
         printUsage();
@@ -149,6 +160,8 @@ function printUsage(): void {
   --concurrency <n>    Parallel generations in matrix mode (default 3).
   --rubric             Matrix: grade each article with the Sonnet 5 persona rubric (adds ~2¢ each).
   --route              Print the model/effort/credit table (spec §10.2-§10.3) and exit.
+  --language <rating>  Live: league language rating — clean, salty or unfiltered (default clean).
+                       The summary reports each article's profanity against the writer's allowance.
   -h, --help           This message.`);
 }
 
@@ -535,14 +548,38 @@ function countKinds(result: LiveResult, kinds: string[]): number {
   return result.violations.filter(violation => kinds.includes(violation.kind)).length;
 }
 
-/** The house-style eval number (owner ask, Sept 2026): team-vs-manager mentions and profanity, for one piece of text. */
-function houseStyleLines(label: string, text: string, teams: FactsBlock["teams"]): string[] {
+/**
+ * The house-style eval number (owner ask, Sept 2026): team-vs-manager mentions and profanity, for one
+ * piece of text. With a `language` above clean the profanity line is measured against the writer's
+ * own range: OVER past the ceiling, FLAT when a writer who carries the rating (ceiling >= 4) filed
+ * nothing at all, UNDER when the piece is below the writer's floor (the floor problem — the model
+ * reading a tier as optional), and OUT OF TIER when a strong word shows up at salty.
+ */
+function houseStyleLines(
+  label: string,
+  text: string,
+  teams: FactsBlock["teams"],
+  language?: { rating: LanguageRating; persona: string }
+): string[] {
   const mentions = mentionRatio(text, teams);
   const profanity = countProfanity(text, teams.map(team => team.name));
   const ratio = mentions.ratio === null ? "n/a" : mentions.ratio.toFixed(2);
+  let verdict = "";
+  if (language && language.rating !== "clean" && label === "body") {
+    const range = languageRangeFor(getPersona(language.persona), language.rating);
+    const inTier = language.rating === "salty" ? profanity.mild : profanity.mild + profanity.strong;
+    const flags: string[] = [];
+    if (language.rating === "salty" && profanity.strong > 0) flags.push("OUT OF TIER");
+    if (inTier > range.ceiling) flags.push("OVER");
+    if (range.ceiling >= 4 && inTier === 0) flags.push("FLAT");
+    else if (inTier < range.floor) flags.push(`UNDER (${inTier} < floor ${range.floor})`);
+    verdict = ` (range ${range.floor}-${range.ceiling} at ${language.rating}${flags.length > 0 ? `; ${flags.join(", ")}` : "; ok"})`;
+  } else if (language && language.rating !== "clean" && profanity.mild + profanity.strong > 0) {
+    verdict = " (must be clean)";
+  }
   return [
     `  ${label}: team/manager mentions: ${mentions.teamMentions}/${mentions.managerMentions} (ratio ${ratio})`,
-    `  ${label}: profanity: ${profanity.mild} mild / ${profanity.strong} strong`,
+    `  ${label}: profanity: ${profanity.mild} mild / ${profanity.strong} strong${verdict}`,
   ];
 }
 
@@ -550,7 +587,8 @@ async function generateOne(
   fixture: EvalFixture,
   persona: string,
   contentType: string,
-  apiKey: string
+  apiKey: string,
+  languageRating: LanguageRating = "clean"
 ): Promise<LiveResult> {
   const { contentGenerationService } = await import("../src/lib/ai/content-generation-service");
   const request = factsRequestFor(fixture, contentType);
@@ -568,6 +606,7 @@ async function generateOne(
       nonRespondents: fixture.nonRespondents,
       relationships: fixture.relationships,
       priorClaims: fixture.priorClaims,
+      languageRating,
     },
     apiKey
   );
@@ -690,7 +729,7 @@ async function runMatrix(options: Options): Promise<void> {
         continue;
       }
       try {
-        const result = await generateOne(fixture, job.persona, job.contentType, apiKey);
+        const result = await generateOne(fixture, job.persona, job.contentType, apiKey, options.language);
         if (options.dump) await dumpBody(options.dump, result);
         const rubric = options.rubric ? await runRubric(result, apiKey) : undefined;
         rows.push({
@@ -946,7 +985,7 @@ async function runLive(options: Options): Promise<void> {
     }
     console.log(`Generating ${contentType} as ${persona} on ${name}…`);
     try {
-      const liveResult = await generateOne(fixture, persona, contentType, apiKey);
+      const liveResult = await generateOne(fixture, persona, contentType, apiKey, options.language);
       results.push(liveResult);
       if (options.dump) await dumpBody(options.dump, liveResult);
     } catch (error) {
@@ -1003,8 +1042,9 @@ async function runLive(options: Options): Promise<void> {
 
   for (const result of results) {
     console.log(`\nHouse style on ${result.fixture}/${result.contentType}/${result.persona}:`);
-    for (const line of houseStyleLines("body", result.body, result.facts.teams)) console.log(line);
-    for (const line of houseStyleLines("title", result.title, result.facts.teams)) console.log(line);
+    const language = { rating: options.language, persona: result.persona };
+    for (const line of houseStyleLines("body", result.body, result.facts.teams, language)) console.log(line);
+    for (const line of houseStyleLines("title", result.title, result.facts.teams, language)) console.log(line);
 
     const flagged = result.violations.filter(v => v.severity !== "warn");
     if (flagged.length === 0 && options.quiet) continue;

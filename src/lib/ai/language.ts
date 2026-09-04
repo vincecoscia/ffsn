@@ -12,16 +12,26 @@ export type LanguageRating = "clean" | "salty" | "unfiltered";
 
 export const DEFAULT_LANGUAGE_RATING: LanguageRating = "clean";
 
-/** The mild tier: allowed at `salty` and above. */
+/**
+ * The mild tier: allowed at `salty` and above. Owner ask (2026-09-03): nothing short of a slur is
+ * off the table, so both tiers are wide — the persona's own LANGUAGE trait (persona-prompts.ts)
+ * decides how much of this any one writer actually uses, and the house-style block renders these
+ * exact lists so the prompt and the counter always agree on what is in a tier.
+ */
 export const MILD_PROFANITY: ReadonlyArray<string> = [
   "damn",
   "hell",
   "ass",
   "crap",
+  "piss",
   "pissed",
   "bastard",
   "screwed",
   "sucks",
+  "jackass",
+  "dumbass",
+  "badass",
+  "half-assed",
 ];
 
 /** The strong tier: allowed only at `unfiltered`. */
@@ -29,14 +39,44 @@ export const STRONG_PROFANITY: ReadonlyArray<string> = [
   "fuck",
   "fucking",
   "fucked",
+  "fucker",
+  "motherfucker",
+  "motherfucking",
   "shit",
   "shitty",
+  "shits",
+  "shitshow",
+  "shithead",
+  "dipshit",
   "bullshit",
+  "horseshit",
   "asshole",
+  "assholes",
   "goddamn",
   "dick",
+  "dickhead",
   "prick",
+  "pussy",
+  "bitch",
+  "bitches",
 ];
+
+/**
+ * The profanity allowance a persona carries at each rating above clean: the most tracked words one
+ * piece (an article, or a whole episode of the show) may contain from that writer. The producer
+ * enforces it per episode; the article eval reports against it. `0` means the writer never swears
+ * at that rating.
+ */
+export interface LanguageAllowance {
+  salty: number;
+  unfiltered: number;
+}
+
+/** A writer's range at one rating: `floor` is character (fewer is out of it), `ceiling` is a count. */
+export interface LanguageRange {
+  floor: number;
+  ceiling: number;
+}
 
 /** Every tracked profanity word, lower-case, mild tier first. */
 export const PROFANITY_WORDS: ReadonlyArray<string> = [...MILD_PROFANITY, ...STRONG_PROFANITY];

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildHouseStyleBlock, GROUNDING_CONTRACT, PromptBuilder } from "../src/lib/ai/prompt-builder";
+import { MILD_PROFANITY, STRONG_PROFANITY } from "../src/lib/ai/language";
+import { personaPrompts } from "../src/lib/ai/persona-prompts";
 import type { LeagueDataContext } from "../src/lib/ai/prompt-builder";
 import type { FactsRequest } from "../src/lib/ai/facts";
 
@@ -29,9 +31,7 @@ describe("buildHouseStyleBlock — LANGUAGE tier text", () => {
 
   it("emits only the salty tier text for languageRating: salty", () => {
     const block = buildHouseStyleBlock({ languageRating: "salty" });
-    expect(block).toContain(
-      "salty: Mild profanity is allowed (the mild tier: damn, hell, ass, crap, pissed, screwed, sucks)"
-    );
+    expect(block).toContain("salty: Mild profanity is allowed — damn, hell, ass, crap");
     expect(block).not.toContain("clean: No profanity of any kind.");
     expect(block).not.toContain("unfiltered: Strong profanity is allowed");
   });
@@ -43,11 +43,33 @@ describe("buildHouseStyleBlock — LANGUAGE tier text", () => {
     expect(block).not.toContain("salty: Mild profanity is allowed");
   });
 
-  it("always names the desk members who never swear, regardless of rating", () => {
-    for (const rating of ["clean", "salty", "unfiltered"] as const) {
+  it("derives who carries the rating from the persona allowances, and says nobody swears at clean", () => {
+    expect(buildHouseStyleBlock({ languageRating: "clean" })).toContain("At clean nobody on the desk swears");
+    for (const rating of ["salty", "unfiltered"] as const) {
       const block = buildHouseStyleBlock({ languageRating: rating });
-      expect(block).toContain("Curtis Vaughn, Dex Alvarez and Sam Ortega stay clean");
-      expect(block).toContain("Nina Sharpe allows herself one dry one at unfiltered");
+      expect(block).toContain(`Who carries it at ${rating}:`);
+      expect(block).toContain(`Mel Diaper (${personaPrompts["mel-diaper"].language.floor![rating]} to ${personaPrompts["mel-diaper"].language.allowance[rating]} per piece)`);
+      expect(block).toContain(`Reggie Banks (${personaPrompts["reggie-banks"].language.floor![rating]} to ${personaPrompts["reggie-banks"].language.allowance[rating]} per piece)`);
+      expect(block).toContain("a piece under the bottom of that range is out of character");
+      expect(block).toContain("Curtis Vaughn (at most 1)");
+      expect(block).toContain("most pieces none");
+      // The old hard lock is gone: nobody is named as never swearing above clean.
+      expect(block).not.toContain("Dex Alvarez and Sam Ortega stay clean");
+      expect(block).not.toContain("never swear at");
+    }
+  });
+
+  it("lists the exact tier words so the prompt and the counter agree", () => {
+    const salty = buildHouseStyleBlock({ languageRating: "salty" });
+    for (const word of MILD_PROFANITY) expect(salty).toContain(word);
+    expect(salty).not.toContain("fuck");
+    const unfiltered = buildHouseStyleBlock({ languageRating: "unfiltered" });
+    for (const word of [...MILD_PROFANITY, ...STRONG_PROFANITY]) expect(unfiltered).toContain(word);
+  });
+
+  it("bans slurs at every rating", () => {
+    for (const rating of ["clean", "salty", "unfiltered"] as const) {
+      expect(buildHouseStyleBlock({ languageRating: rating })).toContain("no slurs of any kind");
     }
   });
 });
@@ -188,5 +210,101 @@ describe("buildSystemPrompt — house style placement", () => {
 
     expect(built.systemPrompt).toContain("unfiltered: Strong profanity is allowed");
     expect(built.systemPrompt).toContain("write as if the rating were clean: Alpha.");
+  });
+});
+
+describe("buildSystemPrompt — language as a persona trait (owner ask, 2026-09-03)", () => {
+  it("renders the writer's LANGUAGE trait inside WHO YOU ARE and the rating samples under VOICE SAMPLES above clean", () => {
+    const built = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "unfiltered" }).build();
+    const prompt = built.systemPrompt;
+    const whoYouAre = prompt.indexOf("WHO YOU ARE");
+    const trait = prompt.indexOf("Your language (this league runs unfiltered; your range for a piece is 4 to 12 — fewer than 4 is out of character");
+    const quotes = prompt.indexOf("QUOTES");
+    expect(trait).toBeGreaterThan(whoYouAre);
+    expect(trait).toBeLessThan(quotes);
+    expect(prompt).toContain("The uncut Mel.");
+    for (const sample of personaPrompts["mel-diaper"].language.samples!.unfiltered!) {
+      expect(prompt.indexOf(sample)).toBeGreaterThan(prompt.indexOf("VOICE SAMPLES"));
+    }
+  });
+
+  it("renders nothing about the trait at clean, and only the salty trait at salty", () => {
+    const clean = new PromptBuilder({ ...baseRequest, persona: "mel-diaper" }).build().systemPrompt;
+    expect(clean).not.toContain("Your language (this league runs");
+    expect(clean).not.toContain("The uncut Mel.");
+    for (const sample of personaPrompts["mel-diaper"].language.samples!.unfiltered!) expect(clean).not.toContain(sample);
+
+    const salty = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "salty" }).build().systemPrompt;
+    expect(salty).toContain("Your language (this league runs salty; your range for a piece is 3 to 6");
+    expect(salty).not.toContain("The uncut Mel.");
+    expect(salty).not.toContain("WHAT THE FUCK WAS THE PLAN");
+  });
+
+  it("gives the reserved desk a once-a-piece trait rather than a hard lock", () => {
+    const curtis = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "unfiltered" }).build().systemPrompt;
+    expect(curtis).toContain("your allowance is 1 per piece");
+    expect(curtis).toContain("That's bullshit. We'll");
+  });
+});
+
+describe("persona language profiles", () => {
+  const writers = Object.values(personaPrompts).filter((persona) => persona.isWriter);
+
+  it("every writer has a trait and at least one sample for every rating it has an allowance at", () => {
+    for (const persona of writers) {
+      for (const rating of ["salty", "unfiltered"] as const) {
+        const allowance = persona.language.allowance[rating];
+        expect(allowance, `${persona.slug} ${rating}`).toBeGreaterThanOrEqual(0);
+        if (allowance > 0) {
+          expect(persona.language[rating], `${persona.slug} ${rating} trait`).toBeTruthy();
+          expect((persona.language.samples?.[rating] ?? []).length, `${persona.slug} ${rating} samples`).toBeGreaterThan(0);
+        }
+      }
+      expect(persona.language.allowance.unfiltered).toBeGreaterThanOrEqual(persona.language.allowance.salty);
+      for (const rating of ["salty", "unfiltered"] as const) {
+        expect(persona.language.floor?.[rating] ?? 0, `${persona.slug} ${rating} floor <= ceiling`).toBeLessThanOrEqual(persona.language.allowance[rating]);
+      }
+    }
+  });
+
+  it("keeps the reserved desk at one per piece and the debaters carrying the rating", () => {
+    for (const slug of ["curtis-vaughn", "sam-ortega", "nina-sharpe", "dex-alvarez"]) {
+      expect(personaPrompts[slug].language.allowance.unfiltered, slug).toBe(1);
+      expect(personaPrompts[slug].language.floor, `${slug} has no floor`).toBeUndefined();
+    }
+    expect(personaPrompts["mel-diaper"].language.floor?.unfiltered).toBeGreaterThanOrEqual(3);
+    expect(personaPrompts["reggie-banks"].language.floor?.unfiltered).toBeGreaterThanOrEqual(3);
+    expect(personaPrompts["mel-diaper"].language.allowance.unfiltered).toBeGreaterThanOrEqual(4);
+    expect(personaPrompts["reggie-banks"].language.allowance.unfiltered).toBeGreaterThanOrEqual(4);
+  });
+
+  it("language samples follow the placeholder rule: no digits, and salty samples use no strong word", () => {
+    for (const persona of writers) {
+      for (const sample of persona.language.samples?.salty ?? []) {
+        expect(sample, `${persona.slug} salty`).not.toMatch(/\d/);
+        for (const word of STRONG_PROFANITY) expect(sample.toLowerCase(), `${persona.slug} salty sample uses ${word}`).not.toMatch(new RegExp(`\\b${word}\\b`));
+      }
+      for (const sample of persona.language.samples?.unfiltered ?? []) expect(sample, `${persona.slug} unfiltered`).not.toMatch(/\d/);
+    }
+  });
+});
+
+describe("buildUserPrompt — per-piece LANGUAGE line (the trigger that made the setting real on the show)", () => {
+  it("tells a carrier the piece contains their moments, and the reserved desk that most pieces use none", () => {
+    const mel = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "unfiltered" }).build().userPrompt;
+    expect(mel).toContain("LANGUAGE: this league runs unfiltered and you carry it — your range for this piece is 4 to 12. Fewer than 4 is out of character");
+    expect(mel).toContain('at least one of them is a "fuck"');
+    expect(mel).toContain("Never in the title, headline, summary or first sentence; never against a person.");
+    const melSalty = new PromptBuilder({ ...baseRequest, persona: "mel-diaper", languageRating: "salty" }).build().userPrompt;
+    expect(melSalty).toContain("your range for this piece is 3 to 6");
+    expect(melSalty).not.toContain('"fuck"');
+
+    const curtis = new PromptBuilder({ ...baseRequest, persona: "curtis-vaughn", languageRating: "salty" }).build().userPrompt;
+    expect(curtis).toContain("LANGUAGE: this league runs salty. Your allowance for this piece is 1, and most of your pieces use none");
+  });
+
+  it("says nothing about language at clean", () => {
+    const clean = new PromptBuilder({ ...baseRequest, persona: "mel-diaper" }).build().userPrompt;
+    expect(clean).not.toContain("LANGUAGE:");
   });
 });

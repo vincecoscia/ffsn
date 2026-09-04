@@ -1161,11 +1161,14 @@ describe("produceEpisode — language rating enforcement", () => {
     expect(melArgumentCalls).toBe(2);
   });
 
-  it("a Curtis turn with a mild word at unfiltered rating is retried, even though unfiltered forbids nothing for the debaters", async () => {
+  it("Curtis gets his one at unfiltered — the first mild word is kept, a second Curtis turn with one is retried against his per-episode allowance", async () => {
     const requests: TurnCallRequest[] = [];
     let curtisCloseCalls = 0;
     const script = (req: TurnCallRequest): TurnOutput => {
       const kind = extractKind(req);
+      if (kind === "cold_open") {
+        return baseOutput({ question: brief.fallbackQuestion, text: "Good evening. Well, hell. Let's go to the board." });
+      }
       if (kind === "close" && req.speaker === "curtis-vaughn") {
         curtisCloseCalls++;
         if (curtisCloseCalls === 1) return baseOutput({ text: "Well, that was a damn fine debate tonight." });
@@ -1183,15 +1186,23 @@ describe("produceEpisode — language rating enforcement", () => {
       options: { budgets: { mainEvent: 2 } },
     });
 
+    // The cold open's "hell" is his one for the night: kept verbatim, one call, no retry.
+    const coldOpen = transcript.segments.find((segment) => segment.id === "cold_open")!.turns[0];
+    expect(coldOpen.text).toContain("Well, hell.");
+    expect(coldOpen.retried).toBeUndefined();
+    expect(requests.filter((req) => extractKind(req) === "cold_open")).toHaveLength(1);
+
+    // The close would be his second: retried once naming the allowance, and the clean retry kept.
     const curtisCloseRequests = requests.filter((req) => req.speaker === "curtis-vaughn" && extractKind(req) === "close");
     expect(curtisCloseRequests).toHaveLength(2);
-    expect(curtisCloseRequests[1].user).toContain("language rating");
+    expect(curtisCloseRequests[1].user).toContain("language allowance for tonight (1 at unfiltered)");
 
     const lastJabs = transcript.segments.find((segment) => segment.id === "last_jabs")!;
     const closeTurn = lastJabs.turns.find((turn) => turn.kind === "close")!;
     expect(closeTurn.text).toBe("Well, that was one heck of a debate tonight.");
     expect(closeTurn.retried).toBe(true);
     expect(stats.languageStripped).toBe(0);
+    expect(stats.profanityBySpeaker["curtis-vaughn"]).toBe(1);
     expect(curtisCloseCalls).toBe(2);
   });
 
@@ -1259,5 +1270,199 @@ describe("produceEpisode — language rating enforcement", () => {
     const melTurn = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
     expect(melTurn.text).toBe("The Damn Good Dynasty are still 2-5.");
     expect(stats.languageStripped).toBe(1);
+  });
+});
+
+describe("produceEpisode — language allowances (owner ask, 2026-09-03: profanity as a persona trait)", () => {
+  const unfilteredBrief: ShowBrief = { ...brief, languageRating: "unfiltered" };
+
+  it("lets a reserved speaker carry one strong word at unfiltered, then strips the second over the allowance", async () => {
+    let dexCalls = 0;
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        return baseOutput({ witnessRequested: "dex-alvarez" });
+      }
+      if (kind === "witness" && req.speaker === "dex-alvarez") {
+        dexCalls++;
+        // Every Dex turn (and every retry) carries one strong word.
+        return baseOutput({ text: "Phone works. Nobody gives a shit. That's the wire." });
+      }
+      return defaultScript(req);
+    };
+    const call = makeFakeCaller(script);
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: unfilteredBrief,
+      relationshipsByWriter: {},
+      call,
+      options: { budgets: { mainEvent: 4 } },
+    });
+
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const dexTurns = mainEvent.turns.filter((turn) => turn.speaker === "dex-alvarez");
+    expect(dexTurns.length).toBe(2);
+    // First witness call: within his allowance of 1, kept verbatim.
+    expect(dexTurns[0].text).toContain("Nobody gives a shit.");
+    // Second: over the allowance twice, so the offending sentence is stripped and the rest survives.
+    expect(dexTurns[1].text).not.toContain("shit");
+    expect(dexTurns[1].text).toContain("Phone works.");
+    expect(dexTurns[1].text).toContain("That's the wire.");
+    expect(stats.languageStripped).toBe(1);
+    expect(stats.profanityBySpeaker["dex-alvarez"]).toBe(1);
+    expect(dexCalls).toBe(3); // 1 kept + (1 + 1 retry) stripped
+    expect(
+      stats.violations.some((v) => v.kind === "language_stripped" && v.speaker === "dex-alvarez" && v.detail.includes("allowance"))
+    ).toBe(true);
+  });
+
+  it("never strips a debater who stays inside his allowance at unfiltered, and counts what he carried", async () => {
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") {
+        return baseOutput({ text: "THAT PICK IS BULLSHIT. Fourteen picks of air, what the fuck was the plan?" });
+      }
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: unfilteredBrief,
+      relationshipsByWriter: {},
+      call: makeFakeCaller(script),
+      options: { budgets: { mainEvent: 4 } },
+    });
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const melTurns = mainEvent.turns.filter((turn) => turn.speaker === "mel-diaper");
+    expect(melTurns.length).toBe(2);
+    for (const turn of melTurns) expect(turn.text).toContain("BULLSHIT");
+    expect(stats.languageStripped).toBe(0);
+    expect(stats.profanityBySpeaker["mel-diaper"]).toBe(4);
+  });
+
+  it("still strips a strong word at salty as out of tier, whoever says it", async () => {
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "reggie-banks") {
+        return baseOutput({ text: "Cute draft. That grade card is horseshit. Scoreboard." });
+      }
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief: { ...brief, languageRating: "salty" },
+      relationshipsByWriter: {},
+      call: makeFakeCaller(script),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const reggie = mainEvent.turns.find((turn) => turn.speaker === "reggie-banks")!;
+    expect(reggie.text).not.toContain("horseshit");
+    expect(reggie.text).toContain("Cute draft.");
+    expect(stats.violations.some((v) => v.kind === "language_stripped" && v.detail.includes("outside the salty rating"))).toBe(true);
+  });
+
+  it("at clean, strips any profanity from anyone, exactly as before", async () => {
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "argument" && req.speaker === "mel-diaper") return baseOutput({ text: "Damn. Fourteen picks of air. I want a hearing." });
+      return defaultScript(req);
+    };
+    const { transcript, stats } = await produceEpisode({
+      facts,
+      factsText,
+      brief,
+      relationshipsByWriter: {},
+      call: makeFakeCaller(script),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const mainEvent = transcript.segments.find((segment) => segment.id === "main_event")!;
+    const mel = mainEvent.turns.find((turn) => turn.speaker === "mel-diaper")!;
+    expect(mel.text).not.toContain("Damn");
+    expect(mel.text).toContain("I want a hearing.");
+    expect(stats.languageStripped).toBe(1);
+    expect(stats.profanityBySpeaker).toEqual({});
+  });
+});
+
+describe("directorInstructionFor — language notes are triggers, with a jab fallback", () => {
+  const unfilteredBrief: ShowBrief = { ...brief, languageRating: "unfiltered" };
+
+  it("says nothing about language at clean, or for a speaker with no allowance", () => {
+    expect(directorInstructionFor("opening", { brief, languageUsed: 0, languageAllowance: 12 })).not.toContain("LANGUAGE:");
+    expect(directorInstructionFor("jab", { brief: unfilteredBrief, jabSpeaker: "mel-diaper", languageUsed: 0, languageAllowance: 0 })).not.toContain("LANGUAGE:");
+  });
+
+  it("names the moment on an opening and an argument, never a word count to hit", () => {
+    const opening = directorInstructionFor("opening", { brief: unfilteredBrief, languageUsed: 0, languageAllowance: 12, languageFloor: 4 });
+    expect(opening).toContain("LANGUAGE: this league runs unfiltered and your range tonight is 4 to 12. Your language trait applies");
+    expect(opening).not.toContain("use one");
+    const argument = directorInstructionFor("argument", { brief: unfilteredBrief, languageUsed: 3, languageAllowance: 12, languageFloor: 4 });
+    expect(argument).toContain("You are at 3 for the night and your range tonight is 4 to 12 — you are under it.");
+    const onPace = directorInstructionFor("argument", { brief: unfilteredBrief, languageUsed: 5, languageAllowance: 12, languageFloor: 4 });
+    expect(onPace).toContain("You are at 5 for the night and your range tonight is 4 to 12.");
+    expect(onPace).not.toContain("under it");
+  });
+
+  it("falls back to an explicit instruction on the last jab while the debater is under his floor, sized to the shortfall", () => {
+    const silent = directorInstructionFor("jab", { brief: unfilteredBrief, jabSpeaker: "reggie-banks", languageUsed: 0, languageAllowance: 10, languageFloor: 3 });
+    expect(silent).toContain("you are at 0 for the night against a floor of 3");
+    expect(silent).toContain("at least 3 words");
+    expect(silent).toContain("fuck");
+    const under = directorInstructionFor("jab", { brief: unfilteredBrief, jabSpeaker: "reggie-banks", languageUsed: 2, languageAllowance: 10, languageFloor: 3 });
+    expect(under).toContain("you are at 2 for the night against a floor of 3");
+    expect(under).toContain("at least one word");
+    // No floor set: the fallback still fires at zero, exactly as before.
+    const noFloor = directorInstructionFor("jab", { brief: unfilteredBrief, jabSpeaker: "reggie-banks", languageUsed: 0, languageAllowance: 10 });
+    expect(noFloor).toContain("against a floor of 1");
+    const salty = directorInstructionFor("jab", { brief: { ...brief, languageRating: "salty" }, jabSpeaker: "reggie-banks", languageUsed: 0, languageAllowance: 5, languageFloor: 2 });
+    expect(salty).not.toContain("fuck");
+    const loud = directorInstructionFor("jab", { brief: unfilteredBrief, jabSpeaker: "reggie-banks", languageUsed: 4, languageAllowance: 10, languageFloor: 3 });
+    expect(loud).not.toContain("against a floor of");
+    expect(loud).toContain("LANGUAGE: this league runs unfiltered.");
+  });
+
+  it("threads each debater's own running count and allowance into the producer's instructions", async () => {
+    const seen: TurnCallRequest[] = [];
+    const script = (req: TurnCallRequest): TurnOutput => {
+      const kind = extractKind(req);
+      if (kind === "opening" && req.speaker === "mel-diaper") {
+        return baseOutput({ text: "Bullshit pick. Shit process.", claim: { text: "Mel's position.", kind: "general" } });
+      }
+      return defaultScript(req);
+    };
+    await produceEpisode({
+      facts,
+      factsText,
+      brief: unfilteredBrief,
+      relationshipsByWriter: {},
+      call: makeCapturingCaller(script, seen),
+      options: { budgets: { mainEvent: 2 } },
+    });
+    const melArgument = seen.find((req) => req.speaker === "mel-diaper" && extractKind(req) === "argument")!;
+    expect(melArgument.user).toContain("You are at 2 for the night and your range tonight is 4 to 12 — you are under it.");
+    const reggieArgument = seen.find((req) => req.speaker === "reggie-banks" && extractKind(req) === "argument")!;
+    expect(reggieArgument.user).toContain("You are at 0 for the night and your range tonight is 3 to 10 — you are under it.");
+    const reggieJab = seen.find((req) => req.speaker === "reggie-banks" && extractKind(req) === "jab")!;
+    expect(reggieJab.user).toContain("you are at 0 for the night against a floor of 3");
+    // Mel is at 2 against a floor of 4, so his jab fallback fires too, sized to the shortfall.
+    const melJab = seen.find((req) => req.speaker === "mel-diaper" && extractKind(req) === "jab")!;
+    expect(melJab.user).toContain("you are at 2 for the night against a floor of 4");
+    expect(melJab.user).toContain("at least 2 words");
+  });
+
+  it("puts the persona's language trait and samples in the show system prompt above clean only", () => {
+    const persona = getPersona("nina-sharpe");
+    const unfiltered = buildTurnSystemPrompt(persona, facts, "role", unfilteredBrief);
+    expect(unfiltered).toContain("Your language (this league runs unfiltered; your allowance is 1 per piece");
+    const reggie = buildTurnSystemPrompt(getPersona("reggie-banks"), facts, "role", unfilteredBrief);
+    expect(reggie).toContain("your range for a piece is 3 to 10");
+    expect(unfiltered).toContain("LANGUAGE SAMPLES");
+    expect(unfiltered).toContain("a fucking problem. Moving on.");
+    const clean = buildTurnSystemPrompt(persona, facts, "role", brief);
+    expect(clean).not.toContain("Your language (this league runs");
+    expect(clean).not.toContain("LANGUAGE SAMPLES");
   });
 });

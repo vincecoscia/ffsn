@@ -1580,6 +1580,9 @@ export class ContentGenerationService {
             persona: request.persona,
             model: current.route.model,
             words: generated.metadata.verifierStats?.wordCount,
+            // What the model actually wrote, so a thin attempt can be told apart from a refusal-in-
+            // prose (the unfiltered Mel eval, 2026-09-03, came back at 13 words with no record of what).
+            preview: generated.content.slice(0, 200),
           });
           discard(generated);
           fullRegenerations++;
