@@ -46,3 +46,14 @@ next-env.d.ts
 
 # Rendered email previews (npx vite-node scripts/preview-emails.ts)
 .email-preview/
+
+# Eval run output (npm run eval:articles / disputed:pilot / disputed:edit). Run artifacts stay
+# local; only the files cited by the spec, a script's usage text, or a run log stay tracked.
+scripts/eval-runs/*
+!scripts/eval-runs/2026-09-02-live-matrix.json
+!scripts/eval-runs/disputed/
+scripts/eval-runs/disputed/*
+!scripts/eval-runs/disputed/ffl-2025-w8.league-20260903-1714.json
+!scripts/eval-runs/samples-*/
+scripts/eval-runs/samples-*/*
+!scripts/eval-runs/samples-*/README.md
