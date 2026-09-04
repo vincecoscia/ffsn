@@ -55,3 +55,12 @@ the summary prints each body's profanity against the writer's range (FLAT / UNDE
   four of five, 0 (UNDER) on hall_of_shame; Curtis and Sam 0 everywhere; Dex 1 of 1 on two of six;
   Nina 1 of 1 on ALL FOUR of hers. The reserved desk's allowance of one behaves like a target for
   Nina — "most pieces none" is not what she does — the same floor-as-target effect seen with Reggie.
+
+**Round 5 (2026-09-04) — the reserved desk's one is genuinely rare.** Curtis, Sam, Nina and Dex get
+their one in roughly one piece in three, decided by a week-seeded gate (`reservedDeskHasTheirOne`);
+on the other pieces the prompt says "none this piece", no samples render, and the effective
+allowance is 0. The article path now enforces the rating and allowance (`language_over_rating`
+strips), the same way the producer does per turn. With the rich-week seed, Nina's own types
+(power_rankings, playoff_picture, player_glazing) are all gated off; trade_analysis is on.
+- Nina power_rankings (gated off): 0, no strip needed.
+- Nina trade_analysis (gated on): her one, in character: "it is, and I am using the technical term, full of shit."

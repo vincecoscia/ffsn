@@ -11,7 +11,7 @@ import type { Violation } from "../fact-verifier";
 import { cleanTeamViolations, countProfanity, MILD_PROFANITY, PROFANITY_WORDS, removeSentences, STRONG_PROFANITY, stripExemptPhrases } from "../language";
 import type { CleanTeam } from "../language";
 import type { LanguageRating } from "../language";
-import { getPersona, getPersonaDisplay, personaPrompts } from "../persona-prompts";
+import { effectiveLanguageRange, getPersona, getPersonaDisplay, personaPrompts } from "../persona-prompts";
 import type { PersonaPrompt } from "../persona-prompts";
 import { naturalizeTranscript } from "./edit-bay";
 import type { EditCaller } from "./edit-bay";
@@ -242,9 +242,11 @@ function escapeRegExp(value: string): string {
  * ask, 2026-09-03: the reserved desk breaking character once is the joke, and a hard lock stripped
  * it before it could land).
  */
-export function languageAllowanceFor(speaker: string, rating: LanguageRating): number {
+export function languageAllowanceFor(speaker: string, rating: LanguageRating, seed?: string): number {
   if (rating === "clean") return 0;
-  return getPersona(speaker).language.allowance[rating];
+  // With a seed (`w${week}` for an episode) a reserved-desk speaker's ceiling is 0 on the episodes
+  // where their one is not available — the same gate the system prompt rendered for them.
+  return effectiveLanguageRange(getPersona(speaker), rating, seed).ceiling;
 }
 
 /** The persona's per-episode floor at `rating` (0 at clean, and for the reserved desk). */
@@ -273,7 +275,8 @@ function languageViolations(
   text: string,
   rating: LanguageRating,
   teamNames: ReadonlyArray<string>,
-  usedSoFar: number
+  usedSoFar: number,
+  seed?: string
 ): { words: string[]; reason: "tier" | "allowance" } | null {
   const scrubbed = stripExemptPhrases(text, teamNames);
   const present = (words: ReadonlyArray<string>): string[] =>
@@ -284,7 +287,7 @@ function languageViolations(
 
   const inTier = inTierProfanityCount(text, rating, teamNames);
   if (inTier === 0) return null;
-  const allowance = languageAllowanceFor(speaker, rating);
+  const allowance = languageAllowanceFor(speaker, rating, seed);
   if (usedSoFar + inTier <= allowance) return null;
   const inTierWords = present(rating === "salty" ? MILD_PROFANITY : PROFANITY_WORDS);
   return { words: inTierWords, reason: "allowance" };
@@ -467,6 +470,8 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
   const modelsUsed = new Set<string>();
   const rating: LanguageRating = brief.languageRating ?? "clean";
   const teamNames = facts.teams.map((team) => team.name);
+  /** The episode's language seed — must match what `buildTurnSystemPrompt` rendered (`w${brief.week}`). */
+  const languageSeed = `w${brief.week}`;
   // Teams whose managers opted down to clean coverage, with the manager's name so a sentence that
   // swears at the GM by name is caught too. Only meaningful above clean (at clean nothing swears).
   const cleanTeams: CleanTeam[] =
@@ -635,18 +640,20 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
     // the words, then the sentence carrying them comes out. The prompt states the rating and the
     // persona's trait; this is what makes the ceiling true. The ceiling is the persona's own
     // per-episode allowance, so the reserved desk gets its one and Mel gets his dozen.
-    let offending = languageViolations(speaker, sanitized.text, rating, teamNames, languageUsedBy(speaker));
+    let offending = languageViolations(speaker, sanitized.text, rating, teamNames, languageUsedBy(speaker), languageSeed);
     if (offending) {
       retried = true;
-      const allowance = languageAllowanceFor(speaker, rating);
+      const allowance = languageAllowanceFor(speaker, rating, languageSeed);
       const why =
         offending.reason === "tier"
           ? `That turn breaks the league's language rating (${rating}) for you: ${offending.words.join(", ")}.`
-          : `You have already used your language allowance for tonight (${allowance} at ${rating}); that turn adds ${offending.words.join(", ")}.`;
+          : allowance === 0
+            ? `Tonight is not one of your episodes for it — none from you at ${rating}; that turn has ${offending.words.join(", ")}.`
+            : `You have already used your language allowance for tonight (${allowance} at ${rating}); that turn adds ${offending.words.join(", ")}.`;
       const languageInstruction = `${directorInstruction}\n\n${why} Say the same thing without those words.`;
       result = await callTurn(speaker, system, languageInstruction, kind);
       sanitized = sanitizeTurnOutput(kind, result.output);
-      offending = languageViolations(speaker, sanitized.text, rating, teamNames, languageUsedBy(speaker));
+      offending = languageViolations(speaker, sanitized.text, rating, teamNames, languageUsedBy(speaker), languageSeed);
       if (offending) {
         const pattern = new RegExp(`\\b(?:${offending.words.map(escapeRegExp).join("|")})\\b`, "i");
         sanitized = { ...sanitized, text: stripSentenceMatchingExempt(sanitized.text, pattern, teamNames) };
@@ -755,7 +762,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
         question,
         mySide: resolvedSides[speaker],
         languageUsed: languageUsedBy(speaker),
-        languageAllowance: languageAllowanceFor(speaker, rating),
+        languageAllowance: languageAllowanceFor(speaker, rating, languageSeed),
         languageFloor: languageFloorFor(speaker, rating),
         melsOpening:
           speaker === "reggie-banks" && melOpeningTurn
@@ -860,7 +867,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
         mySide: resolvedSides[speaker],
         opponentSide: resolvedSides[opponent],
         languageUsed: languageUsedBy(speaker),
-        languageAllowance: languageAllowanceFor(speaker, rating),
+        languageAllowance: languageAllowanceFor(speaker, rating, languageSeed),
         languageFloor: languageFloorFor(speaker, rating),
       });
       const attempt = await produceTurn("argument", speaker, "main_event", instruction);
@@ -939,7 +946,7 @@ export async function produceEpisode(input: ProduceEpisodeInput): Promise<Produc
         jabSpeaker: speaker,
         mySide: resolvedSides[speaker],
         languageUsed: languageUsedBy(speaker),
-        languageAllowance: languageAllowanceFor(speaker, rating),
+        languageAllowance: languageAllowanceFor(speaker, rating, languageSeed),
         languageFloor: languageFloorFor(speaker, rating),
       });
       const attempt = await produceTurn("jab", speaker, "last_jabs", instruction);

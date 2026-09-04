@@ -764,6 +764,47 @@ export function languageRangeFor(persona: PersonaPrompt, rating: Exclude<Languag
   return { floor: persona.language.floor?.[rating] ?? 0, ceiling: persona.language.allowance[rating] };
 }
 
+/** FNV-1a over `seed`, as an unsigned 32-bit integer. Deterministic and dependency-free; shared by every week-seeded choice. */
+export function fnv1a(seed: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash;
+}
+
+/**
+ * The reserved desk (owner ask, 2026-09-04): a writer with no floor and a ceiling under 4 — Curtis,
+ * Sam, Nina and Dex — whose one swear is supposed to be RARE. The matrix on 2026-09-03 showed the
+ * allowance of one behaving as a target (Nina used hers in every piece), so "rare" is now a
+ * mechanism: their one is available in roughly one piece in {@link RESERVED_ONE_IN}, chosen
+ * deterministically from the piece's seed, and on every other piece their effective ceiling is 0.
+ */
+export const RESERVED_ONE_IN = 3;
+
+export function isReservedDesk(persona: PersonaPrompt, rating: Exclude<LanguageRating, "clean">): boolean {
+  const range = languageRangeFor(persona, rating);
+  return range.floor === 0 && range.ceiling >= 1 && range.ceiling < 4;
+}
+
+/** Whether this piece (seed) is one where a reserved-desk writer's one is available. Always true for a writer who is not reserved desk. */
+export function reservedDeskHasTheirOne(persona: PersonaPrompt, rating: Exclude<LanguageRating, "clean">, seed: string): boolean {
+  if (!isReservedDesk(persona, rating)) return true;
+  return fnv1a(`${persona.slug}:${rating}:${seed}:one`) % RESERVED_ONE_IN === 0;
+}
+
+/**
+ * The range that actually applies to one piece: the persona's own range, except that a reserved-desk
+ * writer's ceiling is 0 on the pieces where their one is not available. Without a seed (offline
+ * callers, tests that don't care) the base range comes back unchanged.
+ */
+export function effectiveLanguageRange(persona: PersonaPrompt, rating: Exclude<LanguageRating, "clean">, seed?: string): LanguageRange {
+  const range = languageRangeFor(persona, rating);
+  if (seed === undefined || reservedDeskHasTheirOne(persona, rating, seed)) return range;
+  return { floor: 0, ceiling: 0 };
+}
+
 export const INTERVIEWER_PERSONA = "sam-ortega";
 
 /** Unknown persona slugs fall back here — never to Mel. */

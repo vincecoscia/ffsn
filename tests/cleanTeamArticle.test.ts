@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanTeamArticleViolations } from "../src/lib/ai/content-generation-service";
+import { cleanTeamArticleViolations, languageArticleViolations } from "../src/lib/ai/content-generation-service";
 
 const article = {
   sections: [
@@ -22,5 +22,38 @@ describe("cleanTeamArticleViolations — the manager opt-down in the article pat
   it("emits nothing with no opted-down teams, or when the profanity is about another team", () => {
     expect(cleanTeamArticleViolations(article, [], allTeams)).toEqual([]);
     expect(cleanTeamArticleViolations(article, [{ name: "Gravel Pit Grinders", manager: "Dana Whitlock" }], allTeams)).toHaveLength(1);
+  });
+});
+
+describe("languageArticleViolations — the rating and the writer's effective allowance, enforced in articles", () => {
+  const teams = ["Sable Ridge Sentinels", "Damn Good Dynasty"];
+  const body = {
+    sections: [
+      { name: "A", content: "The Sentinels lost. That lineup is horseshit. The Damn Good Dynasty won.", wordCount: 0 },
+      { name: "B", content: "Hell of a week. What a damn game. Fine.", wordCount: 0 },
+    ],
+  };
+
+  it("at clean strips every sentence with a tracked word, team names exempt", () => {
+    const found = languageArticleViolations(body, { rating: "clean", allowance: 0, teamNames: teams });
+    expect(found.map((v) => v.detail.match(/"([^"]+)"/)![1])).toEqual([
+      "That lineup is horseshit.",
+      "Hell of a week.",
+      "What a damn game.",
+    ]);
+    expect(found.every((v) => v.kind === "language_over_rating" && v.severity === "strip")).toBe(true);
+  });
+
+  it("at salty strips the strong word, then mild words past the allowance, in reading order", () => {
+    const found = languageArticleViolations(body, { rating: "salty", allowance: 1, teamNames: teams });
+    expect(found.map((v) => v.detail.match(/"([^"]+)"/)![1])).toEqual(["That lineup is horseshit.", "What a damn game."]);
+    expect(found[0].detail).toContain("outside the league's salty rating");
+    expect(found[1].detail).toContain("past this writer's allowance of 1");
+  });
+
+  it("at unfiltered strips nothing inside the allowance, and everything past it — including a gated-off reserved writer's allowance of 0", () => {
+    expect(languageArticleViolations(body, { rating: "unfiltered", allowance: 3, teamNames: teams })).toEqual([]);
+    expect(languageArticleViolations(body, { rating: "unfiltered", allowance: 2, teamNames: teams }).map((v) => v.section)).toEqual(["B"]);
+    expect(languageArticleViolations(body, { rating: "unfiltered", allowance: 0, teamNames: teams })).toHaveLength(3);
   });
 });

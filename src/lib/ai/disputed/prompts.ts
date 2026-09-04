@@ -182,7 +182,7 @@ export function buildTurnSystemPrompt(
       cleanTeamNames: brief.cleanTeamNames,
       surface: "show",
     }),
-    buildWhoYouAreBlock(persona, brief.languageRating),
+    buildWhoYouAreBlock(persona, brief.languageRating, `w${brief.week}`),
   ];
 
   const relationshipsBlock = buildRelationshipsBlock(facts, persona);
@@ -195,7 +195,7 @@ export function buildTurnSystemPrompt(
   // the language samples ARE the register — the model mirrors a sample far more reliably than it
   // follows a rule (owner ask, 2026-09-03), so they ride along with the trait.
   const rating = brief.languageRating ?? "clean";
-  if (rating !== "clean" && languageTraitFor(persona, rating)) {
+  if (rating !== "clean" && languageTraitFor(persona, rating, `w${brief.week}`)) {
     const samples = languageSamplesFor(persona, rating, `w${brief.week}`);
     if (samples.length > 0) {
       parts.push(

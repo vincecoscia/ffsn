@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { TradeRumorDialog, type TradeRumorData } from "./TradeRumorDialog";
 import { useMutation, useQuery } from "convex/react";
@@ -44,8 +44,12 @@ import {
   PersonaAvatar,
   StatBlock,
   Spinner,
+  Chip,
   writerRoster,
   personasForContentType,
+  deskPicksFor,
+  isDeskPick,
+  isSignatureColumn,
   defaultPersonaFor,
   isSelectableContentType,
   contentTypeLabel,
@@ -233,8 +237,9 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     },
   });
 
-  // The writers this content type is written by, default first (spec §3).
-  const getRecommendedPersonas = (selectedContentType: string) =>
+  // The writers offered for this content type: the desk's picks first, then the rest of the
+  // roster. A signature column (The Bank Statement, The Asking Price) offers its owner only.
+  const writersFor = (selectedContentType: string) =>
     selectedContentType ? personasForContentType(selectedContentType) : writerRoster;
 
   // Watch content type changes
@@ -269,13 +274,19 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     }
   }, [contentType, completedWeeks, form]);
 
-  // The writer follows the content type: switching type selects that type's
-  // default writer unless the current pick is already one of its writers.
+  // The writer follows the content type: switching type selects that type's default writer,
+  // unless the manager chose a writer themselves and that writer can still take the new type.
+  // (Nearly every writer can now, so without the "chose it themselves" check a default carried
+  // over from the previous type would silently stick.)
+  const writerPickedByUser = useRef(false);
   useEffect(() => {
     if (!contentType) return;
     const eligible = personasForContentType(contentType);
     const current = form.getValues("persona");
-    if (!current || !eligible.some((writer) => writer.slug === current)) {
+    const keepCurrent =
+      writerPickedByUser.current && Boolean(current) && eligible.some((writer) => writer.slug === current);
+    if (!keepCurrent) {
+      writerPickedByUser.current = false;
       form.setValue("persona", defaultPersonaFor(contentType), { shouldValidate: true });
     }
   }, [contentType, form]);
@@ -401,7 +412,16 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const selectedContentType = form.watch("contentType");
   const selectedPersona = form.watch("persona");
   const selectedTemplate = selectedContentType ? contentTemplates[selectedContentType] : null;
-  const recommendedPersonas = getRecommendedPersonas(selectedContentType);
+  const offeredWriters = writersFor(selectedContentType);
+  const signatureOwner =
+    selectedContentType && isSignatureColumn(selectedContentType)
+      ? deskPicksFor(selectedContentType)[0]
+      : undefined;
+  const writerNote = !selectedContentType
+    ? "Any writer on the desk can take an on-demand piece. Pick a content type to see who usually files it."
+    : signatureOwner
+      ? `${contentTypeLabel(selectedContentType)} belongs to ${signatureOwner.name}, so it stays on that desk.`
+      : "Every writer on the desk can take this one. The desk's usual pick is marked.";
   // What the server will actually charge: the template price plus 5 credits
   // per manager asked for comment (`creditCostFor`, spec §10.1) - so the
   // wallet strip and the disabled state agree with `createGenerationWithComments`.
@@ -612,12 +632,19 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                 <FormLabel className="text-base font-semibold">AI persona</FormLabel>
                 <FormControl>
                   <RadioGroup
-                    onValueChange={field.onChange}
+                    onValueChange={(value) => {
+                      writerPickedByUser.current = true;
+                      field.onChange(value);
+                    }}
                     value={field.value}
                     className="grid grid-cols-1 gap-3 sm:grid-cols-2"
                   >
-                    {recommendedPersonas.map((persona) => {
+                    {offeredWriters.map((persona) => {
                       const selected = field.value === persona.slug;
+                      const deskPick =
+                        Boolean(selectedContentType) &&
+                        !signatureOwner &&
+                        isDeskPick(selectedContentType, persona.slug);
                       return (
                         <div key={persona.slug} className="flex items-center">
                           <RadioGroupItem value={persona.slug} id={persona.slug} className="sr-only" />
@@ -636,8 +663,15 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                               className="border border-bc-border-strong"
                             />
                             <div className="min-w-0 flex-1 text-left">
-                              <div className="truncate font-display text-[16px] font-bold uppercase tracking-[0.01em]">
-                                {persona.name}
+                              <div className="flex items-center gap-2">
+                                <div className="truncate font-display text-[16px] font-bold uppercase tracking-[0.01em]">
+                                  {persona.name}
+                                </div>
+                                {deskPick && (
+                                  <Chip variant="signal" className="flex-none">
+                                    Desk pick
+                                  </Chip>
+                                )}
                               </div>
                               <div
                                 className={cn(
@@ -654,9 +688,7 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
                     })}
                   </RadioGroup>
                 </FormControl>
-                <FormDescription>
-                  Choose the AI persona that will write your content
-                </FormDescription>
+                <FormDescription>{writerNote}</FormDescription>
                 <FormMessage />
               </FormItem>
             )}

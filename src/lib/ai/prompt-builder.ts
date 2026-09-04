@@ -1,4 +1,14 @@
-import { getPersona, languageRangeFor, personaPrompts, type PersonaPrompt } from './persona-prompts';
+import {
+  effectiveLanguageRange,
+  fnv1a,
+  getPersona,
+  isReservedDesk,
+  languageRangeFor,
+  personaPrompts,
+  RESERVED_ONE_IN,
+  reservedDeskHasTheirOne,
+  type PersonaPrompt,
+} from './persona-prompts';
 import { contentTemplates, ContentTemplate } from './content-templates';
 import { DEFAULT_LANGUAGE_RATING, type LanguageRating, MILD_PROFANITY, STRONG_PROFANITY } from './language';
 import {
@@ -789,7 +799,7 @@ function deskLanguageLine(rating: LanguageRating): string {
   }
   if (rare.length > 0) {
     parts.push(
-      `${rare.map(persona => `${persona.name} (at most ${persona.language.allowance[rating]})`).join(', ')}: most pieces none; when one of them swears it is the only one in the piece and the line everyone remembers.`
+      `${rare.map(persona => `${persona.name} (at most ${persona.language.allowance[rating]})`).join(', ')}: roughly one piece in ${RESERVED_ONE_IN} carries their one, the rest carry none, and when one of them swears it is the only one in the piece and the line everyone remembers.`
     );
   }
   if (never.length > 0) parts.push(`${never.map(persona => persona.name).join(', ')} never swear at ${rating}.`);
@@ -801,8 +811,8 @@ function deskLanguageLine(rating: LanguageRating): string {
  * posture. Factored out of `PromptBuilder.buildSystemPrompt` so `disputed/prompts.ts` can build a
  * turn's system prompt out of the same identity block without duplicating it (spec BUILD 1 §0).
  */
-export function buildWhoYouAreBlock(persona: PersonaPrompt, languageRating: LanguageRating = DEFAULT_LANGUAGE_RATING): string {
-  const languageTrait = languageTraitFor(persona, languageRating);
+export function buildWhoYouAreBlock(persona: PersonaPrompt, languageRating: LanguageRating = DEFAULT_LANGUAGE_RATING, seed?: string): string {
+  const languageTrait = languageTraitFor(persona, languageRating, seed);
   return `WHO YOU ARE
 ${persona.voice}
 
@@ -822,16 +832,20 @@ How you handle certainty:
  * The persona's LANGUAGE trait at this rating, or `null` at clean / for a writer with no allowance
  * there. Rendered inside WHO YOU ARE so it reads as character, not as a house rule.
  */
-export function languageTraitFor(persona: PersonaPrompt, languageRating: LanguageRating): string | null {
+export function languageTraitFor(persona: PersonaPrompt, languageRating: LanguageRating, seed?: string): string | null {
   if (languageRating === 'clean') return null;
   const allowance = persona.language.allowance[languageRating];
   const trait = persona.language[languageRating];
   if (allowance <= 0 || !trait) return null;
   const range = languageRangeFor(persona, languageRating);
-  const header =
-    range.floor > 0
-      ? `Your language (this league runs ${languageRating}; your range for a piece is ${range.floor} to ${range.ceiling} — fewer than ${range.floor} is out of character, and ${range.ceiling} is a ceiling on the count, never on the word):`
-      : `Your language (this league runs ${languageRating}; your allowance is ${allowance} per piece, and it is a ceiling on the count, never on the word):`;
+  let header: string;
+  if (range.floor > 0) {
+    header = `Your language (this league runs ${languageRating}; your range for a piece is ${range.floor} to ${range.ceiling} — fewer than ${range.floor} is out of character, and ${range.ceiling} is a ceiling on the count, never on the word):`;
+  } else if (seed !== undefined && !reservedDeskHasTheirOne(persona, languageRating, seed)) {
+    header = `Your language (this league runs ${languageRating}, and your one comes around roughly one piece in ${RESERVED_ONE_IN} — THIS IS NOT ONE OF THEM. None this piece, whatever the moment. The trait below is who you are; this week it stays in the drawer):`;
+  } else {
+    header = `Your language (this league runs ${languageRating}; your allowance is ${allowance} per piece, it is a ceiling on the count, never on the word, and this is one of the roughly one-in-${RESERVED_ONE_IN} pieces where it is available — if a moment earns it):`;
+  }
   return `${header}
 ${trait}`;
 }
@@ -841,13 +855,17 @@ export const LANGUAGE_SAMPLES_PER_PIECE = 3;
 
 /** FNV-1a over `seed`, reduced to an index into a pool of `length`. Deterministic, dependency-free. */
 function rotationIndex(seed: string, length: number): number {
-  if (length === 0) return 0;
-  let hash = 2166136261;
-  for (let i = 0; i < seed.length; i++) {
-    hash ^= seed.charCodeAt(i);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  return hash % length;
+  return length === 0 ? 0 : fnv1a(seed) % length;
+}
+
+/**
+ * The seed every week-dependent language choice for an ARTICLE shares (sample rotation, the reserved
+ * desk's one): season, week and content type. The generation service computes its enforcement from
+ * the same seed, so what the prompt promised and what the strip pass allows always agree. The show
+ * uses `w${brief.week}` instead (see disputed/prompts.ts and producer.ts).
+ */
+export function languageSeedFor(leagueData: Pick<LeagueDataContext, 'currentSeason' | 'currentWeek'>, contentType: string): string {
+  return `${leagueData.currentSeason ?? 'season'}-w${leagueData.currentWeek}-${contentType}`;
 }
 
 /**
@@ -860,6 +878,9 @@ function rotationIndex(seed: string, length: number): number {
  */
 export function languageSamplesFor(persona: PersonaPrompt, languageRating: LanguageRating, seed?: string): string[] {
   if (languageRating === 'clean' || persona.language.allowance[languageRating] <= 0) return [];
+  // A reserved-desk writer whose one is not available this piece sees no samples: a sample is a
+  // template, and the piece is supposed to carry none.
+  if (seed !== undefined && !reservedDeskHasTheirOne(persona, languageRating, seed)) return [];
   const pool = persona.language.samples?.[languageRating] ?? [];
   if (seed === undefined || pool.length <= LANGUAGE_SAMPLES_PER_PIECE) return [...pool];
   const start = rotationIndex(`${persona.slug}:${languageRating}:${seed}`, pool.length);
@@ -961,7 +982,7 @@ export class PromptBuilder {
       })
     );
 
-    parts.push(buildWhoYouAreBlock(persona, this.options.languageRating));
+    parts.push(buildWhoYouAreBlock(persona, this.options.languageRating, this.languageSeed()));
 
     parts.push(`QUOTES
 - Attribution pattern: ${persona.quoteStyle.attributionPattern}
@@ -1034,9 +1055,7 @@ The following is unavailable for this article. Name the gap in character if it m
 ${this.facts.missing.map(entry => `- ${entry}`).join('\n')}`);
     }
 
-    const { leagueData, contentType } = this.options;
-    const sampleSeed = `${leagueData.currentSeason ?? 'season'}-w${leagueData.currentWeek}-${contentType}`;
-    const voiceSamples = voiceSamplesFor(persona, this.options.languageRating, sampleSeed);
+    const voiceSamples = voiceSamplesFor(persona, this.options.languageRating, this.languageSeed());
     if (this.options.includeExamples !== false && voiceSamples.length > 0) {
       parts.push(`VOICE SAMPLES — style only. The braces are placeholders, not content. Never copy a
 placeholder, a number, or a name out of these lines into your article.
@@ -1183,12 +1202,20 @@ past coverage is available to you.`];
    * alone). Carriers are told the piece contains their moments; the reserved desk is told most
    * pieces use none. `null` at clean.
    */
+  /** See {@link languageSeedFor}. */
+  private languageSeed(): string {
+    return languageSeedFor(this.options.leagueData, this.options.contentType);
+  }
+
   private languageLineForPiece(): string | null {
     const rating = this.options.languageRating ?? DEFAULT_LANGUAGE_RATING;
     if (rating === 'clean') return null;
     const allowance = this.persona.language.allowance[rating];
     if (allowance <= 0) return null;
     const range = languageRangeFor(this.persona, rating);
+    if (isReservedDesk(this.persona, rating) && effectiveLanguageRange(this.persona, rating, this.languageSeed()).ceiling === 0) {
+      return `LANGUAGE: this league runs ${rating}, but this piece carries none from you. Your one comes around roughly one piece in ${RESERVED_ONE_IN}, and this is not it — not even if the moment begs. A sentence of yours with a swear in it will be cut.`;
+    }
     if (allowance >= 4) {
       return `LANGUAGE: this league runs ${rating} and you carry it — your range for this piece is ${range.floor} to ${range.ceiling}. Fewer than ${range.floor} is out of character; ${range.ceiling} is a ceiling on the count and never on the word. Your language trait applies: the moments it describes are in this piece (the worst receipt on the board, the result that deserves the flowers, the paper that deserves the scorn), and the word arrives with them, in your own register${rating === 'unfiltered' ? ', and at least one of them is a "fuck"' : ''}. Every section after the first sentence carries at least one — the worst receipt or the best result in that section is where it goes — which is how a piece reaches the bottom of your range. Never in the title, headline, summary or first sentence; never against a person.`;
     }

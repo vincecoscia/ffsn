@@ -6,6 +6,10 @@ import {
   writerRoster,
   defaultPersonaFor,
   personasForContentType,
+  deskPicksFor,
+  isDeskPick,
+  isSignatureColumn,
+  SIGNATURE_COLUMNS,
   isSelectableContentType,
   contentTypeLabel,
 } from "@/components/broadcast/personaRoster";
@@ -94,5 +98,57 @@ describe("The Bank Statement — content type", () => {
       minute: 0,
     });
     expect(resolveTargetWeek("bank_statement", 5)).toBe(4);
+  });
+});
+
+/**
+ * Every writer is selectable for every on-demand article (owner directive, 2026-09-04), with
+ * the desk's mapped writers offered first. The two signature columns are the exception: they
+ * are one writer's named column, so the picker keeps them with their owner.
+ */
+describe("writer picker — every writer for every type", () => {
+  const rosterSlugs = writerRoster.map((w) => w.slug);
+
+  it("offers the whole roster for an ordinary type, desk picks first, nobody twice", () => {
+    for (const type of ["weekly_recap", "custom_roast", "mock_draft", "season_welcome", "waiver_wire_report"]) {
+      const offered = personasForContentType(type).map((w) => w.slug);
+      expect(new Set(offered).size).toBe(offered.length);
+      expect([...offered].sort()).toEqual([...rosterSlugs].sort());
+      const picks = deskPicksFor(type).map((w) => w.slug);
+      expect(picks.length).toBeGreaterThan(0);
+      expect(offered.slice(0, picks.length)).toEqual(picks);
+      expect(offered[0]).toBe(defaultPersonaFor(type));
+    }
+  });
+
+  it("keeps the rest of the roster in roster order after the desk picks", () => {
+    const offered = personasForContentType("rivalry_week_special").map((w) => w.slug);
+    const picks = deskPicksFor("rivalry_week_special").map((w) => w.slug);
+    const rest = offered.slice(picks.length);
+    expect(rest).toEqual(rosterSlugs.filter((slug) => !picks.includes(slug)));
+  });
+
+  it("keeps the two signature columns with their owners only", () => {
+    expect([...SIGNATURE_COLUMNS].sort()).toEqual(["bank_statement", "trade_rumor_mill"]);
+    expect(personasForContentType("bank_statement").map((w) => w.slug)).toEqual(["reggie-banks"]);
+    expect(personasForContentType("trade_rumor_mill").map((w) => w.slug)).toEqual(["dex-alvarez"]);
+    expect(isSignatureColumn("bank_statement")).toBe(true);
+    expect(isSignatureColumn("weekly_recap")).toBe(false);
+  });
+
+  it("marks only the desk's mapped writers as desk picks", () => {
+    expect(isDeskPick("power_rankings", "nina-sharpe")).toBe(true);
+    expect(isDeskPick("power_rankings", "curtis-vaughn")).toBe(true);
+    expect(isDeskPick("power_rankings", "mel-diaper")).toBe(false);
+    expect(deskPicksFor("not_a_type")).toEqual([]);
+    expect(personasForContentType("not_a_type").map((w) => w.slug)).toEqual(rosterSlugs);
+  });
+
+  it("offers a writer only if they are still on air", () => {
+    for (const type of Object.keys(contentTemplates)) {
+      for (const writer of personasForContentType(type)) {
+        expect(personaPrompts[writer.slug]?.isWriter).toBe(true);
+      }
+    }
   });
 });

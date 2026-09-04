@@ -18,7 +18,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fixturesByName, factsRequestFor } from "../src/lib/ai/__fixtures__";
 import { buildFactsBlock, serializeFacts, type FactsBlock } from "../src/lib/ai/facts";
-import { languageRangeFor, personaPrompts } from "../src/lib/ai/persona-prompts";
+import { effectiveLanguageRange, personaPrompts } from "../src/lib/ai/persona-prompts";
 import { countProfanity, mentionRatio, type LanguageRating } from "../src/lib/ai/language";
 import type {
   CommentResponseData,
@@ -105,7 +105,7 @@ function parseArgs(argv: string[]): Options {
 }
 
 /** "mel-diaper 5/4-12, reggie-banks 2/3-10 UNDER, curtis-vaughn 1/0-1" — used/floor-ceiling for every speaker who swore, plus every carrier (FLAT when none). */
-function profanityBySpeakerLine(bySpeaker: Record<string, number>, rating: LanguageRating): string {
+function profanityBySpeakerLine(bySpeaker: Record<string, number>, rating: LanguageRating, seed: string): string {
   if (rating === "clean") return Object.keys(bySpeaker).length === 0 ? "none (clean)" : Object.entries(bySpeaker).map(([slug, n]) => `${slug} ${n} (must be clean)`).join(", ");
   const slugs = new Set<string>(Object.keys(bySpeaker));
   for (const slug of Object.keys(personaPrompts)) {
@@ -113,7 +113,7 @@ function profanityBySpeakerLine(bySpeaker: Record<string, number>, rating: Langu
   }
   const parts = [...slugs].sort().map((slug) => {
     const persona = personaPrompts[slug];
-    const range = persona ? languageRangeFor(persona, rating) : { floor: 0, ceiling: 0 };
+    const range = persona ? effectiveLanguageRange(persona, rating, seed) : { floor: 0, ceiling: 0 };
     const used = bySpeaker[slug] ?? 0;
     const flag =
       range.ceiling >= 4 && used === 0 ? " FLAT" : used > range.ceiling ? " OVER" : used < range.floor ? " UNDER" : "";
@@ -319,7 +319,7 @@ async function main(): Promise<void> {
   const houseStyleLines = [
     `- Team/manager mentions: ${mentions.teamMentions}/${mentions.managerMentions} (ratio ${mentions.ratio === null ? "n/a" : mentions.ratio.toFixed(2)})`,
     `- Profanity: ${profanity.mild} mild / ${profanity.strong} strong`,
-    `- Profanity by speaker (in tier, vs allowance at ${brief.languageRating ?? "clean"}): ${profanityBySpeakerLine(stats.profanityBySpeaker, brief.languageRating ?? "clean")}`,
+    `- Profanity by speaker (in tier, vs allowance at ${brief.languageRating ?? "clean"}): ${profanityBySpeakerLine(stats.profanityBySpeaker, brief.languageRating ?? "clean", `w${brief.week}`)}`,
   ];
 
   const statsFooter = [
