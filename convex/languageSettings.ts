@@ -13,16 +13,19 @@
  */
 
 import { v } from "convex/values";
-import { internalQuery, type QueryCtx } from "./_generated/server";
+import { internalQuery, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireLeagueMember } from "./lib/auth";
 import { leagueCurrentSeason } from "./lib/season";
+import { teamForUser, userByClerkId } from "./lib/teamClaims";
 import { languageRatingValidator } from "./validators";
+import type { LanguageRating } from "../src/lib/ai/language";
 
 /** Bounded scan of a league's team claims — mirrors `relationships.getLeagueRelationshipMatrix`. */
 const MAX_CLAIMS = 200;
 
 export interface LeagueLanguageSettings {
-  languageRating: "clean" | "salty" | "unfiltered";
+  languageRating: LanguageRating;
   cleanTeamNames: string[];
 }
 
@@ -60,10 +63,7 @@ export async function resolveLeagueLanguage(
   for (const claim of activeClaims) {
     let user = userCache.get(claim.userId);
     if (user === undefined) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_clerk_id", (q) => q.eq("clerkId", claim.userId))
-        .unique();
+      user = await userByClerkId(ctx, claim.userId);
       userCache.set(claim.userId, user);
     }
     if (!user || user.preferences?.cleanLanguage !== true) continue;
@@ -92,4 +92,79 @@ export const getLeagueLanguage = internalQuery({
   }),
   handler: async (ctx, args): Promise<LeagueLanguageSettings> =>
     resolveLeagueLanguage(ctx, args.leagueId),
+});
+
+/**
+ * Public counterpart of {@link getLeagueLanguage} for a signed-in league member - the settings UI
+ * reads its own league's rating and opted-down team names through this instead of an internal
+ * query. Named `...ForMember` (rather than reusing `getLeagueLanguage`) purely to avoid a same-file
+ * export clash with the internal query above; every existing `internal.languageSettings.
+ * getLeagueLanguage` caller is unaffected.
+ */
+export const getLeagueLanguageForMember = query({
+  args: { leagueId: v.id("leagues") },
+  returns: v.object({
+    languageRating: languageRatingValidator,
+    cleanTeamNames: v.array(v.string()),
+  }),
+  handler: async (ctx, args): Promise<LeagueLanguageSettings> => {
+    await requireLeagueMember(ctx, args.leagueId);
+    return resolveLeagueLanguage(ctx, args.leagueId);
+  },
+});
+
+/**
+ * Every league the signed-in manager belongs to, with that league's language rating and - when
+ * they have claimed a team for the league's CURRENT season - their own team's name. Returns `[]`
+ * when signed out, same convention as other "my ..." queries in this codebase.
+ */
+export const getMyLeagueLanguage = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      leagueId: v.id("leagues"),
+      leagueName: v.string(),
+      languageRating: languageRatingValidator,
+      myTeamName: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (
+    ctx
+  ): Promise<
+    Array<{
+      leagueId: Id<"leagues">;
+      leagueName: string;
+      languageRating: LeagueLanguageSettings["languageRating"];
+      myTeamName: string | null;
+    }>
+  > => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const memberships = await ctx.db
+      .query("leagueMemberships")
+      .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+      .take(50);
+
+    const user = await userByClerkId(ctx, identity.subject);
+
+    const results = [];
+    for (const membership of memberships) {
+      const league = await ctx.db.get(membership.leagueId);
+      if (!league) continue;
+
+      const settings = await resolveLeagueLanguage(ctx, membership.leagueId);
+      const seasonId = leagueCurrentSeason(league);
+      const team = await teamForUser(ctx, membership.leagueId, user, seasonId);
+
+      results.push({
+        leagueId: membership.leagueId,
+        leagueName: league.name,
+        languageRating: settings.languageRating,
+        myTeamName: team?.name ?? null,
+      });
+    }
+
+    return results;
+  },
 });

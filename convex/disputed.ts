@@ -11,45 +11,10 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { commentResponseDataValidator, showTranscriptValidator } from "./validators";
 import { quotesForResponse } from "./aiContentWithComments";
-
-/* -------------------------------------------------------------------------- */
-/* Manager -> team, via teamClaims                                             */
-/*                                                                              */
-/* Mirrors `teamForUser` in convex/relationships.ts and convex/aiContentHelpers.ts */
-/* — neither is exported, and this file may not edit either module, so the      */
-/* small, self-contained lookup is repeated here rather than imported.          */
-/* -------------------------------------------------------------------------- */
-
-async function teamForUser(
-  ctx: QueryCtx,
-  leagueId: Id<"leagues">,
-  user: Doc<"users"> | null
-): Promise<Doc<"teams"> | null> {
-  if (!user?.clerkId) return null;
-  const claims = await ctx.db
-    .query("teamClaims")
-    .withIndex("by_user", (q) => q.eq("userId", user.clerkId))
-    .take(50);
-  const inLeague = claims.filter((c) => c.leagueId === leagueId && c.status === "active");
-  if (inLeague.length === 0) return null;
-  const claim = inLeague.sort((a, b) => b.seasonId - a.seasonId)[0];
-  return await ctx.db.get(claim.teamId);
-}
-
-/** Same shape as aiContentHelpers.ts's private `questionTopicFor`, reimplemented here for the same reason as `teamForUser` above. */
-function questionTopicFor(request: Doc<"commentRequests"> | null): string {
-  const topic = request?.articleContext?.topic?.trim();
-  if (topic) return topic;
-  const focus = request?.articleContext?.focusAreas?.find((f) => f && f.trim());
-  if (focus) return focus.trim();
-  const current = request?.aiContext?.currentFocus?.trim();
-  if (current) return current;
-  return "the desk's question";
-}
+import { questionTopicFor, teamForUser } from "./lib/teamClaims";
 
 /**
  * Every league quote the show can call on for the FACTS block, in the `CommentResponseData`
@@ -93,7 +58,7 @@ export const getRecentQuotesForShow = internalQuery({
           userName: user?.name?.trim() || "A league manager",
           teamId: (team?._id ?? "") as string,
           teamName: team?.name || "Unclaimed team",
-          questionTopic: questionTopicFor(request),
+          questionTopic: questionTopicFor(request, "the desk's question"),
           quotes: quotesForResponse(response),
           rawResponse: response.rawResponse,
         };
@@ -140,7 +105,7 @@ export const createShowDraft = internalMutation({
   },
 });
 
-/** One saved episode, for the pilot CLI to read a produced (non-dry-run) show back. */
+/** One saved episode, for reading it back with `npx convex run disputed:getEpisode` and for tests. */
 export const getEpisode = internalQuery({
   args: { articleId: v.id("aiContent") },
   returns: v.union(

@@ -196,6 +196,73 @@ describe("contentScheduling: updateLeagueContentPreferences (languageRating)", (
   });
 });
 
+describe("languageSettings: getLeagueLanguageForMember", () => {
+  it("a member sees the league's rating and opted-down team names", async () => {
+    const { t, leagueId, userBob } = await setup();
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("leagueContentPreferences", {
+        leagueId,
+        contentEnabled: true,
+        timezone: "America/New_York",
+        currentMonthSpent: 0,
+        budgetResetDate: now,
+        notifyCommissioner: true,
+        notifyFailures: true,
+        languageRating: "salty",
+        autoPublish: true,
+        requireApproval: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.patch(userBob, {
+        preferences: { emailNotifications: true, cleanLanguage: true },
+      });
+    });
+
+    const asAnn = t.withIdentity({ subject: CLERK_ANN });
+    const result = await asAnn.query(api.languageSettings.getLeagueLanguageForMember, {
+      leagueId,
+    });
+    expect(result).toEqual({ languageRating: "salty", cleanTeamNames: ["Beta"] });
+  });
+
+  it("refuses a caller who is not a member of the league", async () => {
+    const { t, leagueId } = await setup();
+    const asStranger = t.withIdentity({ subject: "clerk_language_carl" });
+
+    await expect(
+      asStranger.query(api.languageSettings.getLeagueLanguageForMember, { leagueId })
+    ).rejects.toThrow(/not a member of this league/);
+  });
+});
+
+describe("languageSettings: getMyLeagueLanguage", () => {
+  it("lists the caller's leagues, each with their own claimed team name", async () => {
+    const { t, leagueId } = await setup();
+
+    const asAnn = t.withIdentity({ subject: CLERK_ANN });
+    const result = await asAnn.query(api.languageSettings.getMyLeagueLanguage, {});
+
+    expect(result).toEqual([
+      {
+        leagueId,
+        leagueName: "Language Rating Test League",
+        languageRating: "clean",
+        myTeamName: "Alpha",
+      },
+    ]);
+  });
+
+  it("returns an empty list when signed out", async () => {
+    const { t } = await setup();
+
+    const result = await t.query(api.languageSettings.getMyLeagueLanguage, {});
+    expect(result).toEqual([]);
+  });
+});
+
 describe("users: updatePreferences (cleanLanguage)", () => {
   it("stores cleanLanguage on the authenticated user's preferences", async () => {
     const { t, userBob } = await setup();

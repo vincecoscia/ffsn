@@ -100,8 +100,6 @@ export interface ProduceOptions {
    * transcript` and behaviour is unchanged.
    */
   naturalize?: { call: EditCaller; targetRatio?: number };
-  /** Reserved for callers that want a deterministic clock; the producer does not read it itself. */
-  now?: () => number;
 }
 
 export interface ProduceEpisodeInput {
@@ -1012,20 +1010,4 @@ export function renderTranscriptMarkdown(transcript: ShowTranscript): string {
     }
   }
   return `${lines.join("\n").trimEnd()}\n`;
-}
-
-export function renderTranscriptPlain(transcript: ShowTranscript): string {
-  const lines: string[] = [];
-  lines.push(`Disputed - Week ${transcript.week ?? "?"}`);
-  lines.push(transcript.question);
-  for (const segment of transcript.segments) {
-    lines.push("");
-    lines.push(segment.title.toUpperCase());
-    for (const turn of segment.turns) {
-      const display = getPersonaDisplay(turn.speaker);
-      const plate = turn.interrupts ? `${display.name} (${display.role}), cutting in:` : `${display.name} (${display.role}):`;
-      lines.push(`${plate} ${turn.text}`);
-    }
-  }
-  return lines.join("\n");
 }

@@ -642,15 +642,6 @@ export const updateLeagueContentPreferences = mutation({
     notifyCommissioner: v.optional(v.boolean()),
     notifyFailures: v.optional(v.boolean()),
     preferredPersonas: v.optional(v.array(v.string())),
-    // Deprecated (owner ask, Sept 2026): superseded by `languageRating` below and no longer
-    // shown in the UI. Still accepted so an old caller doesn't break, and kept on the schema
-    // so rows written before today still validate.
-    contentStyle: v.optional(v.union(
-      v.literal("professional"),
-      v.literal("casual"),
-      v.literal("humorous"),
-      v.literal("analytical")
-    )),
     // League-level language rating (owner ask, Sept 2026): how far the desk's writers can go.
     // Absent means "clean".
     languageRating: v.optional(languageRatingValidator),

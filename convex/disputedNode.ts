@@ -30,20 +30,7 @@ import {
   type ShowTranscript,
   type ShowTurn,
 } from "../src/lib/ai/disputed";
-
-/** Same convention as convex/aiNode.ts's own private `requireEnv` (that file may not be edited here). */
-function requireEnv(name: "ANTHROPIC_API_KEY"): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} not configured. Set it with: npx convex env set ${name} "..."`);
-  }
-  return value;
-}
-
-/** Strip `undefined` (not a Convex value) before a result crosses the runtime boundary — same helper as convex/aiNode.ts. */
-function toConvexValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
+import { requireEnv, toConvexValue } from "./lib/nodeHelpers";
 
 /**
  * `showTurnValidator`'s shape (convex/validators.ts): drops `managerMentions` / `claim`, which are

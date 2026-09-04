@@ -24,6 +24,10 @@ export default function NotificationSettingsPage() {
 
   // Get user preferences (derived from the authenticated identity server-side)
   const userPreferences = useQuery(api.users.getUserPreferences, {});
+  // Every league this manager belongs to, with that league's language rating and their own team
+  // name where claimed — so the "keep it clean" switch shows its effect per league, not just in
+  // the abstract.
+  const myLeagues = useQuery(api.languageSettings.getMyLeagueLanguage, {});
 
   // Update user preferences mutation
   const updatePreferences = useMutation(api.users.updateUserPreferences);
@@ -197,6 +201,36 @@ export default function NotificationSettingsPage() {
                 disabled={isLoading}
               />
             </div>
+            {myLeagues !== undefined && (
+              <div className="flex flex-col gap-3">
+                {myLeagues.length === 0 ? (
+                  <p className="border-t border-bc-hairline pt-4 text-sm text-bc-text-3">
+                    You are not in any leagues yet.
+                  </p>
+                ) : (
+                  myLeagues.map((league) => {
+                    const ratingLabel =
+                      league.languageRating.charAt(0).toUpperCase() + league.languageRating.slice(1);
+                    const teamLabel = league.myTeamName ?? "your team";
+                    return (
+                      <div
+                        key={league.leagueId}
+                        className="flex flex-col gap-1 border-t border-bc-hairline pt-4"
+                      >
+                        <span className="font-display text-sm font-semibold text-bc-ink">
+                          {league.leagueName}
+                        </span>
+                        <p className="text-sm text-bc-text-2">
+                          {league.languageRating === "clean"
+                            ? "Runs Clean, so this switch changes nothing there."
+                            : `Runs ${ratingLabel}. With this on, coverage of ${teamLabel} reads as Clean.`}
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </Panel>
 
           <Panel padding="md" className="flex flex-col gap-5">
