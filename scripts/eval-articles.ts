@@ -519,6 +519,10 @@ function attributionAccuracy(result: LiveResult): string {
   const playerNames = new Set([
     ...result.facts.matchups.flatMap(matchup => matchup.players.map(player => player.name.toLowerCase())),
     ...(result.facts.draftPicks ?? []).map(pick => pick.player.toLowerCase()),
+    ...(result.facts.rosters ?? []).flatMap(roster => roster.players.map(player => player.name.toLowerCase())),
+    // The mock-draft pool and the intel entries are citable players too (2026-09-05).
+    ...(result.facts.draftPool ?? []).map(player => player.name.toLowerCase()),
+    ...(result.facts.intel ?? []).map(entry => entry.name.toLowerCase()),
   ]);
 
   let total = 0;

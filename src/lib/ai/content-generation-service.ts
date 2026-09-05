@@ -782,10 +782,9 @@ const EditorReport = z.object({
   // A score may arrive as 4, "4", "4/5" or "4 out of 5" (the non-strict fallback path); coercing
   // "4/5" gives NaN and the whole report was thrown away (live mock draft, 2026-09-05), so the
   // first number in the value is the score and anything unreadable becomes 3 in clampScore.
-  factsScore: z
-    .union([z.number(), z.string()])
-    .describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
-  voiceScore: z.union([z.number(), z.string()]).describe("1-5. How much this reads like the writer described above."),
+  // Whatever arrives is read by clampScore; a report is never discarded over a score's shape.
+  factsScore: z.unknown().describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
+  voiceScore: z.unknown().describe("1-5. How much this reads like the writer described above."),
   incompleteSections: z
     .array(z.string())
     .default([])
@@ -914,6 +913,9 @@ async function runEditorPass(
       return null;
     }
 
+    for (const [field, raw] of [["factsScore", parsed.data.factsScore], ["voiceScore", parsed.data.voiceScore]] as const) {
+      if (typeof raw !== 'number') console.warn(`Editor pass ${field} was not a number; read as ${clampScore(raw)}`, { raw });
+    }
     const result: EditorPassResult = {
       contradictions: parsed.data.contradictions,
       unsupported: parsed.data.unsupported,
