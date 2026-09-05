@@ -20,6 +20,11 @@ const isPublicRoute = createRouteMatcher([
   '/robots.txt',
   '/manifest.json',
   '/sitemap.xml',
+  // Link-preview cards (src/app/opengraph-image.tsx and twitter-image.tsx). iMessage,
+  // Slack and the rest fetch these without a session; behind the login wall they would
+  // get a redirect and show no picture. Article cards live under /articles, above.
+  '/opengraph-image(.*)',
+  '/twitter-image(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
