@@ -43,12 +43,40 @@ export interface PoolPlayer {
   trendingAdds?: number;
   /** A fresh feed's injury line (convex/intel.ts), when a feed carries one. */
   intelInjury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; asOf: number };
+  /** ESPN tags him, the fresh feed lists no injury: the feed and the day it was fetched. */
+  feedCleared?: { source: string; asOf: number };
 }
+
+/**
+ * Sleeper's designation codes as the tokens the pool prints (2026-09-05): "NA" is Not Active (off
+ * the active roster: exempt list, suspension, camp), not "not available" and not an injury.
+ */
+const FEED_STATUS_TOKENS: Record<string, string> = {
+  NA: "NOT_ACTIVE",
+  IR: "INJURY_RESERVE",
+  PUP: "PUP_LIST",
+  SUS: "SUSPENDED",
+  DNR: "DID_NOT_REPORT",
+  COV: "COVID_LIST",
+  OUT: "OUT",
+  DOUBTFUL: "DOUBTFUL",
+  QUESTIONABLE: "QUESTIONABLE",
+};
+
+/** A feed status as the pool's upper-case token. */
+export function normalizeFeedStatus(status: string): string {
+  const upper = status.trim().toUpperCase().replace(/\s+/g, "_");
+  return FEED_STATUS_TOKENS[upper] ?? upper;
+}
+
+/** ESPN tags a fresh feed can clear from the watch when nothing else backs them. */
+const SOFT_STATUSES = new Set(["QUESTIONABLE", "DAY_TO_DAY", "PROBABLE"]);
 
 /** The slice of a `PlayerIntelEntry` (convex/intel.ts) the pool merge reads; structural so this file stays pure. */
 export interface IntelForPool {
   espnId: string;
   injury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; fetchedAt: number };
+  cleared?: { source: string; fetchedAt: number };
   market?: { ffcAdp?: number; trendingAdds?: number };
   news?: Array<{ headline: string; publishedAt: string }>;
 }
@@ -82,7 +110,7 @@ export function mergeIntelIntoPool(
         source: entry.injury.source,
         asOf: entry.injury.fetchedAt,
       };
-      const feedStatus = entry.injury.status.toUpperCase().replace(/\s+/g, "_");
+      const feedStatus = normalizeFeedStatus(entry.injury.status);
       if (!next.injuryStatus && feedStatus !== "ACTIVE") next.injuryStatus = feedStatus;
       if (next.adp <= INJURY_WATCH_ADP && !watched.has(player.playerId) && feedStatus !== "ACTIVE") {
         watched.add(player.playerId);
@@ -98,9 +126,27 @@ export function mergeIntelIntoPool(
         });
       }
     }
+    if (!entry.injury && entry.cleared && next.injuryStatus) {
+      next.feedCleared = { source: entry.cleared.source, asOf: entry.cleared.fetchedAt };
+    }
     return next;
   });
-  return { pool: merged, injuryWatch: [...injuryWatch, ...extraWatch].sort((a, b) => a.adp - b.adp) };
+  // A soft ESPN tag (QUESTIONABLE, DAY-TO-DAY) the fresh feed does not carry, with no injury
+  // headline behind it, is not an injury story: it stays on the pool line (with the feed's
+  // note) and leaves the watch. OUT / IR / DOUBTFUL / SUSPENDED stay regardless.
+  const mergedById = new Map(merged.map(player => [player.playerId, player]));
+  const kept = [...injuryWatch, ...extraWatch]
+    .filter(entry => {
+      const player = mergedById.get(entry.playerId);
+      if (!player?.feedCleared || entry.latestHeadline) return true;
+      return !SOFT_STATUSES.has(entry.injuryStatus.toUpperCase());
+    })
+    .map(entry => {
+      const player = mergedById.get(entry.playerId);
+      return player?.feedCleared ? { ...entry, feedCleared: player.feedCleared } : entry;
+    })
+    .sort((a, b) => a.adp - b.adp);
+  return { pool: merged, injuryWatch: kept };
 }
 
 /** How many players carry ESPN's full season outlook; the rest get one line. */
@@ -318,6 +364,8 @@ export interface InjuryWatchEntry {
   adp: number;
   injuryStatus: string;
   latestHeadline?: { headline: string; published: string };
+  /** The fresh feed lists no injury behind ESPN's tag (kept in the watch only for hard statuses or with a headline). */
+  feedCleared?: { source: string; asOf: number };
 }
 
 /**

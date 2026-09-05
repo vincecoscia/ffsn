@@ -261,3 +261,61 @@ describe("mergeIntelIntoPool", () => {
     expect(merged.injuryWatch).toEqual(watch);
   });
 });
+
+describe("mergeIntelIntoPool - feed cleared", () => {
+  const pool: PoolPlayer[] = [
+    { playerId: "10", playerName: "Ja'Marr Chase", position: "WR", proTeam: "CIN", adp: 4.3, adpPositionRank: 1, adpRank: 1, injuryStatus: "QUESTIONABLE", seasonOutlook: "", projectedStats: null, ownership: { averageDraftPosition: 4.3 } },
+    { playerId: "11", playerName: "Tee Higgins", position: "WR", proTeam: "CIN", adp: 51.3, adpPositionRank: 20, adpRank: 2, injuryStatus: "QUESTIONABLE", seasonOutlook: "", projectedStats: null, ownership: { averageDraftPosition: 51.3 } },
+    { playerId: "12", playerName: "Josh Jacobs", position: "RB", proTeam: "GB", adp: 79.3, adpPositionRank: 25, adpRank: 3, injuryStatus: "DAY_TO_DAY", seasonOutlook: "", projectedStats: null, ownership: { averageDraftPosition: 79.3 } },
+    { playerId: "13", playerName: "Hard Case", position: "RB", proTeam: "NYJ", adp: 90, adpPositionRank: 30, adpRank: 4, injuryStatus: "INJURY_RESERVE", seasonOutlook: "", projectedStats: null, ownership: { averageDraftPosition: 90 } },
+  ];
+  const watch: InjuryWatchEntry[] = pool.map(p => ({ playerId: p.playerId, playerName: p.playerName, position: p.position, proTeam: p.proTeam, adp: p.adp, injuryStatus: p.injuryStatus!, latestHeadline: p.playerId === "11" ? { headline: "Higgins limited with hamstring", published: "2026-09-03" } : undefined }));
+
+  it("marks a soft ESPN tag the fresh feed does not carry, drops it from the watch unless a headline or a hard status backs it, and labels NA", () => {
+    const merged = mergeIntelIntoPool(pool, watch, [
+      { espnId: "10", cleared: { source: "sleeper", fetchedAt: NOW }, news: [] },
+      { espnId: "11", cleared: { source: "sleeper", fetchedAt: NOW }, news: [] },
+      { espnId: "12", injury: { status: "NA", bodyPart: "Groin", source: "sleeper", fetchedAt: NOW }, news: [] },
+      { espnId: "13", cleared: { source: "sleeper", fetchedAt: NOW }, news: [] },
+    ]);
+    const chase = merged.pool[0]!;
+    expect(chase.injuryStatus).toBe("QUESTIONABLE");
+    expect(chase.feedCleared).toEqual({ source: "sleeper", asOf: NOW });
+    // Jacobs keeps ESPN's tag; the feed line rides alongside with the readable token.
+    expect(merged.pool[2]?.injuryStatus).toBe("DAY_TO_DAY");
+    expect(merged.pool[2]?.intelInjury?.status).toBe("NA");
+    expect(merged.injuryWatch.map(entry => entry.playerId)).toEqual(["11", "12", "13"]);
+    expect(merged.injuryWatch.find(entry => entry.playerId === "11")?.feedCleared).toEqual({ source: "sleeper", asOf: NOW });
+  });
+
+  it("prints the feed's word next to ESPN's tag on the pool line, the watch line and in FACTS", () => {
+    const merged = mergeIntelIntoPool(pool, watch, [
+      { espnId: "10", cleared: { source: "sleeper", fetchedAt: NOW }, news: [] },
+      { espnId: "12", injury: { status: "NA", bodyPart: "Groin", source: "sleeper", fetchedAt: NOW }, news: [] },
+    ]);
+    const data = leagueData({
+      draftType: "Snake",
+      leagueType: "Redraft",
+      draftOrder: [{ position: 1, teamId: "1", teamName: "Halyard Bay", manager: "Hal" }, { position: 2, teamId: "2", teamName: "Ridge Runners", manager: "Rita" }],
+      availablePlayers: merged.pool as unknown as LeagueDataContext["availablePlayers"],
+      injuryWatch: merged.injuryWatch,
+    } as Partial<LeagueDataContext>);
+    const { userPrompt, facts } = new PromptBuilder(options(data, "mock_draft")).build();
+    expect(userPrompt).toContain("Ja'Marr Chase (CIN) · STATUS: QUESTIONABLE · sleeper as of 2026-09-04: no injury listed");
+    expect(userPrompt).toContain("Josh Jacobs (GB) · STATUS: DAY TO DAY · sleeper as of 2026-09-04: NOT ACTIVE (Groin)");
+    expect(userPrompt).toContain("no injury listed\" as of the feed's date means the tag is stale");
+    expect(facts.draftPool?.find(p => p.name === "Ja'Marr Chase")?.feed).toEqual({ status: "no injury listed", source: "sleeper", asOf: "2026-09-04" });
+    expect(facts.draftPool?.find(p => p.name === "Josh Jacobs")?.feed).toMatchObject({ status: "NA", bodyPart: "Groin", asOf: "2026-09-04" });
+  });
+});
+
+describe("INTEL facts - cleared", () => {
+  it("carries the disagreement into FACTS and PLAYER INTEL", () => {
+    const data = leagueData({
+      playerIntel: [{ espnId: "4426515", name: "Puka Nacua", cleared: { source: "sleeper", fetchedAt: NOW, espnStatus: "QUESTIONABLE" }, news: [] }],
+    });
+    const { userPrompt, facts } = new PromptBuilder(options(data)).build();
+    expect(facts.intel?.[0]?.cleared).toEqual({ source: "sleeper", asOf: "2026-09-04", espnStatus: "QUESTIONABLE" });
+    expect(userPrompt).toContain("Puka Nacua (WR, SF) on Halyard Bay: ESPN lists QUESTIONABLE; sleeper as of 2026-09-04 lists no injury");
+  });
+});

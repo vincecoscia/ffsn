@@ -116,8 +116,20 @@ export interface FreshNewsItem {
   source: "espn";
 }
 
+/**
+ * A fresh feed row that lists NO injury while ESPN still carries a designation (2026-09-05: ESPN
+ * had Chase, Nacua and Jeanty QUESTIONABLE on draft week; Sleeper, fetched that morning, had
+ * nothing). The article says both, dated, instead of selling ESPN's tag as an injury story.
+ */
+export interface FreshCleared {
+  source: "sleeper" | "nflverse";
+  fetchedAt: number;
+  espnStatus: string;
+}
+
 export interface FreshIntelOutput {
   injury?: FreshInjury;
+  cleared?: FreshCleared;
   depthChart?: FreshDepthChart;
   market?: FreshMarket;
   news: FreshNewsItem[];
@@ -213,6 +225,17 @@ export function selectFreshIntel(
 
   const hasActiveInjury = injuryRow !== undefined && injurySource !== undefined;
 
+  // ESPN flags the player, the fresh feed does not: surface the disagreement with its date.
+  let cleared: FreshCleared | undefined;
+  const espnStatus = (opts.espnInjuryStatus ?? "").trim();
+  if (!hasActiveInjury && espnStatus !== "" && espnStatus.toUpperCase() !== "ACTIVE") {
+    if (sleeperInjuryRow && withinDays(sleeperInjuryRow.fetchedAt, now, injuryFreshDays)) {
+      cleared = { source: "sleeper", fetchedAt: sleeperInjuryRow.fetchedAt, espnStatus };
+    } else if (nflverseInjuryRow && withinDays(nflverseInjuryRow.fetchedAt, now, injuryFreshDays)) {
+      cleared = { source: "nflverse", fetchedAt: nflverseInjuryRow.fetchedAt, espnStatus };
+    }
+  }
+
   let injury: FreshInjury | undefined;
   if (injuryRow && injurySource) {
     let practice: string | undefined;
@@ -307,5 +330,5 @@ export function selectFreshIntel(
       source: "espn" as const,
     }));
 
-  return { injury, depthChart, market, news };
+  return { injury, cleared, depthChart, market, news };
 }
