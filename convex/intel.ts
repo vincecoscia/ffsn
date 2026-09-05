@@ -34,6 +34,8 @@ const MAX_ESPN_IDS = 250;
 const NEWS_LOOKBACK_DAYS = 30;
 /** Bounded collection per Convex query guidelines - well above what 30 days of NFL news produces. */
 const NEWS_READ_CAP = 1500;
+/** An article tagged to more athletes than this is a listicle, not a story about a player. */
+const LISTICLE_ATHLETE_LIMIT = 6;
 
 const injuryValidator = v.object({
   status: v.string(),
@@ -119,6 +121,9 @@ export async function getIntelForPlayersImpl(
 
     const newsByEspnId = new Map<string, FreshNewsRow[]>();
     for (const article of recentNews) {
+      // A cheat sheet or a sleepers column is tagged to dozens of athletes; it is not news about
+      // any one of them (same rule as convex/lib/mockDraftIntel.ts's indexNewsByPlayer).
+      if (article.categories.athletes.length > LISTICLE_ATHLETE_LIMIT) continue;
       for (const athlete of article.categories.athletes) {
         // categories.athletes[].id is a number; playerIntel/playersEnhanced key on the string form.
         const athleteEspnId = String(athlete.id);

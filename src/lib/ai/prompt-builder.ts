@@ -1370,7 +1370,7 @@ where the two ever disagree, <FACTS> wins.
         }
         bits.push(injury);
       }
-      if (entry.depthChart) bits.push('depth chart ' + entry.depthChart.position + (entry.depthChart.order ? ordinal(entry.depthChart.order) : ''));
+      if (entry.depthChart) bits.push('depth chart: ' + entry.depthChart.position + (entry.depthChart.order ? entry.depthChart.order : ''));
       if (entry.market?.ffcAdp !== undefined) bits.push('FFC ADP ' + entry.market.ffcAdp);
       if (entry.market?.trendingAdds) bits.push('trending: ' + entry.market.trendingAdds + ' adds');
       if (entry.news.length) bits.push('news: ' + entry.news.map(n => '"' + n.headline + '" (' + n.published + ')').join('; '));
