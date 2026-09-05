@@ -223,3 +223,25 @@ describe("selectFreshIntel - news", () => {
     expect(selectFreshIntel([], NOW).news).toEqual([]);
   });
 });
+
+describe("selectFreshIntel - cleared (ESPN tags him, the fresh feed does not)", () => {
+  it("reports cleared when Sleeper is fresh and healthy while ESPN says QUESTIONABLE", () => {
+    const rows: FreshIntelRow[] = [injuryRow({ injuryStatus: undefined, fetchedAt: daysAgo(1) })];
+    const out = selectFreshIntel(rows, NOW, { espnInjuryStatus: "QUESTIONABLE" });
+    expect(out.injury).toBeUndefined();
+    expect(out.cleared).toEqual({ source: "sleeper", fetchedAt: daysAgo(1), espnStatus: "QUESTIONABLE" });
+  });
+
+  it("reports nothing when ESPN also says ACTIVE, when the Sleeper row is stale, or when the feed carries an injury", () => {
+    expect(selectFreshIntel([injuryRow({ fetchedAt: daysAgo(1) })], NOW, { espnInjuryStatus: "ACTIVE" }).cleared).toBeUndefined();
+    expect(selectFreshIntel([injuryRow({ fetchedAt: daysAgo(4) })], NOW, { espnInjuryStatus: "QUESTIONABLE" }).cleared).toBeUndefined();
+    const hurt = selectFreshIntel([injuryRow({ injuryStatus: "Out", fetchedAt: daysAgo(1) })], NOW, { espnInjuryStatus: "QUESTIONABLE" });
+    expect(hurt.injury?.status).toBe("Out");
+    expect(hurt.cleared).toBeUndefined();
+  });
+
+  it("falls back to a fresh nflverse healthy row when Sleeper has none", () => {
+    const rows: FreshIntelRow[] = [{ source: "nflverse", kind: "injury", fetchedAt: daysAgo(1), injuryStatus: "", practiceStatus: "Full Participation in Practice" }];
+    expect(selectFreshIntel(rows, NOW, { espnInjuryStatus: "DAY_TO_DAY" }).cleared?.source).toBe("nflverse");
+  });
+});

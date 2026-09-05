@@ -332,6 +332,13 @@ export function isUpcomingBye(row: UpcomingMatchup | UpcomingBye): row is Upcomi
 }
 
 /** "1st", "2nd", "3rd", "14th", "21st", "112th": a draft slot as a broadcaster says it. */
+/** A feed or ESPN status as broadcast English: "NOT ACTIVE", "INJURY RESERVE", "DAY TO DAY". */
+function feedStatusLabel(status: string): string {
+  const upper = status.trim().toUpperCase().replace(/\s+/g, '_');
+  const tokens: Record<string, string> = { NA: 'NOT_ACTIVE', IR: 'INJURY_RESERVE', PUP: 'PUP_LIST', SUS: 'SUSPENDED', DNR: 'DID_NOT_REPORT', COV: 'COVID_LIST' };
+  return (tokens[upper] ?? upper).replace(/_/g, ' ');
+}
+
 function ordinal(n: number): string {
   const mod100 = n % 100;
   if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
@@ -616,6 +623,8 @@ export interface LeagueDataContext {
     trendingAdds?: number;
     /** A fresh feed's injury line, when one carries it (status, body part, the day it was fetched). */
     intelInjury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; asOf: number };
+    /** ESPN tags him, the fresh feed lists no injury. */
+    feedCleared?: { source: string; asOf: number };
     recentStats?: { avgPoints: number; trend: string; };
     upcomingSchedule?: Array<{ week: number; opponent: string; difficulty: "easy" | "medium" | "hard"; }>;
     projectedStats?: {
@@ -666,6 +675,7 @@ export interface LeagueDataContext {
     adp: number;
     injuryStatus: string;
     latestHeadline?: { headline: string; published: string };
+    feedCleared?: { source: string; asOf: number };
   }>;
   /** The season the tendencies come from. */
   previousSeason?: number;
@@ -687,6 +697,7 @@ export interface LeagueDataContext {
       fetchedAt: number;
       espnStatus?: string;
     };
+    cleared?: { source: string; fetchedAt: number; espnStatus: string };
     depthChart?: { team?: string; position: string; order: number };
     market?: { ffcAdp?: number; ffcPositionRank?: number; bye?: number; timesDrafted?: number; market?: string; trendingAdds?: number };
     news: Array<{ headline: string; description?: string; publishedAt: string; url?: string }>;
@@ -1333,7 +1344,8 @@ where the two ever disagree, <FACTS> wins.
 - Injuries, practice reports, depth-chart moves and news: only what PLAYER INTEL (the intel entries
   in <FACTS>) or a roster's injuryStatus carries, with its date. No return timelines, no diagnosis
   beyond the printed body part, no "expected back" that is not printed. If the intel is listed as
-  missing, the roster status is the whole injury story.
+  missing, the roster status is the whole injury story. When ESPN's tag and the feed disagree
+  ("lists no injury"), say both with their dates; never sell the tag alone as an injury.
 - If a section has thin material, write less. Padding is the failure mode this desk cares about.`;
 
     return prompt;
@@ -1347,9 +1359,11 @@ where the two ever disagree, <FACTS> wins.
   private buildPlayerIntelBlock(): string | null {
     const intel = this.facts.intel;
     if (!intel || intel.length === 0) return null;
+    // The mock draft's pool lines and injury watch already carry the feed's word per player.
+    if (this.options.contentType === 'mock_draft') return null;
     const teamName = new Map(this.facts.teams.map(team => [team.id, team.name]));
     const weight = (entry: NonNullable<FactsBlock["intel"]>[number]) =>
-      (entry.injury ? 100 : 0) + (entry.depthChart ? 5 : 0) + entry.news.length * 10 + (entry.market?.trendingAdds ? 3 : 0);
+      (entry.injury ? 100 : 0) + (entry.cleared ? 40 : 0) + (entry.depthChart ? 5 : 0) + entry.news.length * 10 + (entry.market?.trendingAdds ? 3 : 0);
     const ranked = [...intel].sort((a, b) => weight(b) - weight(a));
     const CAP = 30;
     const shown = ranked.slice(0, CAP);
@@ -1359,8 +1373,11 @@ where the two ever disagree, <FACTS> wins.
       const owner = entry.fantasyTeamId ? teamName.get(entry.fantasyTeamId) : undefined;
       const line = '- ' + entry.name + (where ? ' (' + where + ')' : '') + (owner ? ' on ' + owner : '') + ':';
       const bits: string[] = [];
+      if (entry.cleared) {
+        bits.push('ESPN lists ' + feedStatusLabel(entry.cleared.espnStatus) + '; ' + entry.cleared.source + ' as of ' + entry.cleared.asOf + ' lists no injury');
+      }
       if (entry.injury) {
-        let injury = entry.injury.status.toUpperCase().replace(/_/g, ' ');
+        let injury = feedStatusLabel(entry.injury.status);
         if (entry.injury.bodyPart) injury += ' (' + entry.injury.bodyPart + ')';
         if (entry.injury.since) injury += ' since ' + entry.injury.since;
         if (entry.injury.practice) injury += ', practice: ' + entry.injury.practice;
@@ -2973,7 +2990,9 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
         if (p.projectedStats) line += ' · proj ' + p.projectedStats.projectedTotal.toFixed(0) + ' pts (' + p.projectedStats.projectedAverage.toFixed(1) + ' ppg)';
         if (p.injuryStatus && p.injuryStatus !== 'ACTIVE') line += ' · STATUS: ' + p.injuryStatus.replace(/_/g, ' ');
         if (p.intelInjury && p.intelInjury.status.toUpperCase() !== 'ACTIVE') {
-          line += ' · feed: ' + p.intelInjury.status.toUpperCase().replace(/_/g, ' ') + (p.intelInjury.bodyPart ? ' (' + p.intelInjury.bodyPart + ')' : '') + ' as of ' + new Date(p.intelInjury.asOf).toISOString().slice(0, 10);
+          line += ' · ' + p.intelInjury.source + ' as of ' + new Date(p.intelInjury.asOf).toISOString().slice(0, 10) + ': ' + feedStatusLabel(p.intelInjury.status) + (p.intelInjury.bodyPart ? ' (' + p.intelInjury.bodyPart + ')' : '');
+        } else if (p.feedCleared) {
+          line += ' · ' + p.feedCleared.source + ' as of ' + new Date(p.feedCleared.asOf).toISOString().slice(0, 10) + ': no injury listed';
         }
         if (p.ffcAdp !== undefined) line += ' · FFC ADP ' + fmt1(p.ffcAdp);
         if (p.trendingAdds) line += ' · trending +' + p.trendingAdds + ' adds';
@@ -2988,7 +3007,7 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
     if (data.injuryWatch && data.injuryWatch.length > 0) {
       out += 'INJURY WATCH (high-profile players not listed ACTIVE by ESPN today):\n';
       for (const w of data.injuryWatch) {
-        out += '- ' + w.playerName + ' (' + w.position + ', ' + w.proTeam + ') ADP ' + fmt1(w.adp) + ': ' + w.injuryStatus.replace(/_/g, ' ') + (w.latestHeadline ? ' - "' + w.latestHeadline.headline + '" (' + w.latestHeadline.published + ')' : '') + '\n';
+        out += '- ' + w.playerName + ' (' + w.position + ', ' + w.proTeam + ') ADP ' + fmt1(w.adp) + ': ' + feedStatusLabel(w.injuryStatus) + (w.latestHeadline ? ' - "' + w.latestHeadline.headline + '" (' + w.latestHeadline.published + ')' : '') + (w.feedCleared ? ' - ' + w.feedCleared.source + ' as of ' + new Date(w.feedCleared.asOf).toISOString().slice(0, 10) + ' lists no injury' : '') + '\n';
       }
       out += '\n';
     }
@@ -2998,6 +3017,7 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
     out += '- Every player you name is in the DRAFT POOL above. A player who is not in the pool does not exist for this article.\n';
     out += '- Every reach or value call quotes the ADP printed here and says how many spots early or late the pick would be. That is the receipt; a take without one is an opinion, not a take.\n';
     out += '- A player marked with a STATUS or listed under INJURY WATCH may be predicted, but say the status and what it does to his price. Never invent an injury, a return date or a depth-chart change that is not printed here.\n';
+    out += '- ESPN\'s STATUS tag and the feed line can disagree. "no injury listed" as of the feed\'s date means the tag is stale or a rest day: say both, dated, and treat it as a price argument, not an injury story. NOT ACTIVE means off the active roster (exempt list, suspension, camp), not hurt.\n';
     out += '- Use last year\'s draft lines to predict a manager\'s habits (the RB-RB opener, the early QB, the reach), and name the manager when you do.\n';
     out += '- The projections and outlooks are ESPN\'s; you may disagree, loudly, but the numbers you print are theirs.\n';
     if (data.leagueType === 'Dynasty') out += '- Dynasty: age and multi-year value change every price; say so when they do.\n';

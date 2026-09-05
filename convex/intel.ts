@@ -18,6 +18,7 @@ export interface PlayerIntelEntry {
   espnId: string;
   name?: string;
   injury?: ReturnType<typeof selectFreshIntel>["injury"];
+  cleared?: ReturnType<typeof selectFreshIntel>["cleared"];
   depthChart?: ReturnType<typeof selectFreshIntel>["depthChart"];
   market?: ReturnType<typeof selectFreshIntel>["market"];
   news: ReturnType<typeof selectFreshIntel>["news"];
@@ -25,7 +26,13 @@ export interface PlayerIntelEntry {
 
 /** True when the entry says something an article could use; the rest is noise for the prompt. */
 export function intelHasContent(entry: PlayerIntelEntry): boolean {
-  return entry.injury !== undefined || entry.depthChart !== undefined || entry.market !== undefined || entry.news.length > 0;
+  return (
+    entry.injury !== undefined ||
+    entry.cleared !== undefined ||
+    entry.depthChart !== undefined ||
+    entry.market !== undefined ||
+    entry.news.length > 0
+  );
 }
 
 /** Convex read-limit guard: this query runs inside article generation, not paginated UI. */
@@ -46,6 +53,12 @@ const injuryValidator = v.object({
   source: v.union(v.literal("sleeper"), v.literal("nflverse")),
   fetchedAt: v.number(),
   espnStatus: v.optional(v.string()),
+});
+
+const clearedValidator = v.object({
+  source: v.union(v.literal("sleeper"), v.literal("nflverse")),
+  fetchedAt: v.number(),
+  espnStatus: v.string(),
 });
 
 const depthChartValidator = v.object({
@@ -84,6 +97,7 @@ export const getIntelForPlayers = internalQuery({
       espnId: v.string(),
       name: v.optional(v.string()),
       injury: v.optional(injuryValidator),
+      cleared: v.optional(clearedValidator),
       depthChart: v.optional(depthChartValidator),
       market: v.optional(marketValidator),
       news: v.array(newsItemValidator),
@@ -185,6 +199,7 @@ export async function getIntelForPlayersImpl(
         espnId,
         name: playerDoc?.fullName,
         injury: selected.injury,
+        cleared: selected.cleared,
         depthChart: selected.depthChart,
         market: selected.market,
         news: selected.news,

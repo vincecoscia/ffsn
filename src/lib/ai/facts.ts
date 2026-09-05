@@ -185,6 +185,8 @@ export interface FactsIntel {
     asOf: string;
     espnStatus?: string;
   };
+  /** ESPN tags him, the fresh feed lists no injury as of that day. */
+  cleared?: { source: string; asOf: string; espnStatus: string };
   depthChart?: { team?: string; position: string; order: number };
   market?: { ffcAdp?: number; ffcPositionRank?: number; trendingAdds?: number };
   news: Array<{ headline: string; published: string }>;
@@ -449,6 +451,8 @@ export interface FactsBlock {
     projected?: number;
     /** ESPN's season outlook, verbatim, for the top of the pool: the only history a mock draft may quote. */
     outlook?: string;
+    /** The fresh feed's word on him, dated: a status with a body part, or "no injury listed" behind ESPN's tag. */
+    feed?: { status: string; bodyPart?: string; source: string; asOf: string };
   }>;
   /**
    * The rest of what a mock draft may state (2026-09-05): the format, the draft order and last
@@ -1476,6 +1480,11 @@ export function buildDraftPoolFacts(data: LeagueDataContext): FactsBlock["draftP
         projected: player.projectedStats ? round1(player.projectedStats.projectedTotal) : undefined,
         // Verbatim, so a stat Mel repeats from it ("fell to 3.40 yards per carry") is checkable.
         outlook: player.seasonOutlook && player.seasonOutlook.trim().length > 0 ? player.seasonOutlook.trim() : undefined,
+        feed: player.intelInjury
+          ? { status: player.intelInjury.status, bodyPart: player.intelInjury.bodyPart, source: player.intelInjury.source, asOf: isoDay(player.intelInjury.asOf) ?? "" }
+          : player.feedCleared
+            ? { status: "no injury listed", source: player.feedCleared.source, asOf: isoDay(player.feedCleared.asOf) ?? "" }
+            : undefined,
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
@@ -1601,8 +1610,15 @@ export function buildIntelFacts(
           trendingAdds: num(entry.market.trendingAdds),
         }
       : undefined;
-    const hasMarket = market && (market.ffcAdp !== undefined || market.trendingAdds !== undefined);
-    if (!injury && !entry.depthChart && !hasMarket && news.length === 0) continue;
+    // An entry that only carries a market line is not intel for an article: the mock draft prints
+    // the FFC ADP on the pool line already, and an in-season piece has no use for a draft price.
+    // Trending adds are the exception (waiver pieces). 200 market-only entries once added ~90k
+    // characters of FACTS to a mock draft (2026-09-05).
+    const hasMarket = market !== undefined && market.trendingAdds !== undefined && market.trendingAdds > 0;
+    const cleared = entry.cleared
+      ? { source: entry.cleared.source, asOf: isoDay(entry.cleared.fetchedAt) ?? "", espnStatus: entry.cleared.espnStatus }
+      : undefined;
+    if (!injury && !cleared && !entry.depthChart && !hasMarket && news.length === 0) continue;
     out.push({
       id,
       name,
@@ -1610,6 +1626,7 @@ export function buildIntelFacts(
       nflTeam: nflTeamById.get(id) ?? pooled?.nflTeam ?? str(entry.depthChart?.team),
       fantasyTeamId: rostered?.teamId,
       injury,
+      cleared,
       depthChart: entry.depthChart
         ? { team: str(entry.depthChart.team), position: entry.depthChart.position, order: entry.depthChart.order }
         : undefined,
