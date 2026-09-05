@@ -1,4 +1,4 @@
-# FFSN "The Wire" — implementation spec (owner-approved 2026-09-05; P1 built the same day, dev deployment only)
+# FFSN "The Wire" — implementation spec (owner-approved 2026-09-05; P1 and the §17 social layer built the same day and shipped to beta)
 
 The Wire is the live desk: a league-scoped timeline of short posts from the Broadcast Desk writers
 reacting to NFL injuries, news, transactions, scores and league events as they happen. It ships with
