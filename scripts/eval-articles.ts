@@ -949,6 +949,23 @@ axis and return ONLY a JSON object, with no preamble and no code fence:
 - respectsTheFacts: does it stay inside the FACTS block, name gaps rather than filling them, and
   avoid claiming numbers, quotes or history that are not there?`;
 
+/**
+ * The FACTS the judge reads. A mock draft's FACTS run to ~130k characters because the pool carries
+ * ESPN's outlooks; sliced at 20k the judge never saw the pool or the draft frame and graded every
+ * receipt as fabricated (2026-09-05). Outlooks are dropped for the judge and the cap raised.
+ */
+function rubricFacts(result: LiveResult): string {
+  const facts = result.facts as unknown as Record<string, unknown>;
+  const pool = Array.isArray(facts.draftPool)
+    ? (facts.draftPool as Array<Record<string, unknown>>).map(player => {
+        const { outlook: _outlook, ...rest } = player;
+        return rest;
+      })
+    : undefined;
+  const trimmed = pool ? { ...facts, draftPool: pool } : facts;
+  return JSON.stringify(trimmed).slice(0, 60000);
+}
+
 async function runRubric(result: LiveResult, apiKey: string): Promise<string> {
   const persona = getPersona(result.persona);
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
@@ -966,9 +983,9 @@ SIGNATURE MOVES: ${persona.signatureMoves.join(" | ")}
 NEVER: ${persona.neverDo.join(" | ")}
 
 <FACTS>
-${JSON.stringify(result.facts).slice(0, 20000)}
+${rubricFacts(result)}
 </FACTS>
-
+${result.contentType === "mock_draft" ? "\nTHIS IS A MOCK DRAFT: every predicted pick is the writer's prediction, not a claim. The facts are ADP, projections, statuses, outlooks (draftPool) and the draft order and last year's habits (mockDraft).\n" : ""}
 ARTICLE:
 ${result.body}`,
       },
