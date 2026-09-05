@@ -12,12 +12,11 @@ crons.daily(
   internal.nflSeasonSetup.ensureCurrentSeason,
 );
 
-// Sync ESPN news every hour
-crons.hourly(
+// Sync ESPN news every 5 minutes in season (The Wire, spec §5.1/§12.1: news moves from hourly to
+// every 5 min so a headline can clear the wire's interest bar within minutes, not up to an hour).
+crons.interval(
   "sync ESPN news",
-  { 
-    minuteUTC: 0, // Run at the top of every hour
-  },
+  { minutes: 5 },
   internal.espnNews.scheduledNewsSync,
 );
 
@@ -191,6 +190,26 @@ crons.cron(
   "0 12 * * *",
   internal.intelSync.runIntelSync,
   { source: "ffc_adp" },
+);
+
+// --- The Wire (ffsn-the-wire-spec.md §11) ------------------------------
+//
+// ESPN's injuries feed, polled every 5 minutes in season (the poller itself throttles to 30 min
+// off-season, §5.1) - the primary global detector for injury_status/injury_note events.
+crons.interval(
+  "poll ESPN injuries (The Wire)",
+  { minutes: 5 },
+  internal.wireSourcesNode.pollEspnInjuries,
+  {},
+);
+
+// One Sonnet call per persona covers every pending take_pending post in the window (spec §3.1) -
+// paid once per 10 minutes rather than once per event.
+crons.interval(
+  "flush Wire take batch",
+  { minutes: 10 },
+  internal.wireGenerate.flushTakeBatch,
+  {},
 );
 
 export default crons;

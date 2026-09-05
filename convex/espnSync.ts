@@ -544,6 +544,18 @@ export const updateMatchups = internalMutation({
         }
       }
     }
+
+    // The Wire (ffsn-the-wire-spec.md §5.2/§8.2): per synced period, check whether it just went
+    // final (week_final + its follow-ups). Scheduled rather than checked inline - the handler
+    // itself re-reads the period's matchups and no-ops if it isn't actually all-decided yet, so
+    // this is safe to fire on every sync, not just the one that truly finalizes a week.
+    for (const matchupPeriod of payloadPeriods) {
+      await ctx.scheduler.runAfter(0, internal.wireRoutine.onMatchupsUpdated, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+        matchupPeriod,
+      });
+    }
   },
 });
 
@@ -2593,6 +2605,11 @@ export const upsertTransactions = internalMutation({
     // table (and `trade_occurred` content event) stay derived from the same
     // transaction log this mutation is the one writer of (audit gap 4.10).
     const tradeAcceptIds: string[] = [];
+    // The Wire (ffsn-the-wire-spec.md §5.2/§8.2): every transaction id this call wrote, grouped by
+    // league+season (a batch should always be one league, but this stays correct even if it isn't),
+    // fed to wireRoutine.onTransactionsUpserted so waiver/add-drop/trade routine posts stay derived
+    // from the same transaction log this mutation is the one writer of.
+    const wireIdsByLeagueSeason = new Map<string, { leagueId: Id<"leagues">; seasonId: number; ids: string[] }>();
 
     for (const transaction of args.transactions) {
       const existing = await ctx.db
@@ -2611,11 +2628,28 @@ export const upsertTransactions = internalMutation({
       if (transaction.type === "TRADE_ACCEPT") {
         tradeAcceptIds.push(transaction.espnTransactionId);
       }
+
+      const wireKey = `${transaction.leagueId}:${transaction.seasonId}`;
+      const wireEntry = wireIdsByLeagueSeason.get(wireKey) ?? {
+        leagueId: transaction.leagueId,
+        seasonId: transaction.seasonId,
+        ids: [],
+      };
+      wireEntry.ids.push(transaction.espnTransactionId);
+      wireIdsByLeagueSeason.set(wireKey, wireEntry);
     }
 
     if (tradeAcceptIds.length > 0) {
       await ctx.scheduler.runAfter(0, internal.tradesSync.deriveTradesForTransactionIds, {
         espnTransactionIds: tradeAcceptIds,
+      });
+    }
+
+    for (const { leagueId, seasonId, ids } of wireIdsByLeagueSeason.values()) {
+      await ctx.scheduler.runAfter(0, internal.wireRoutine.onTransactionsUpserted, {
+        leagueId,
+        seasonId,
+        espnTransactionIds: ids,
       });
     }
 

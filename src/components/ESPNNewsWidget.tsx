@@ -29,8 +29,8 @@ export function ESPNNewsWidget({
     <Panel padding="none" className="flex flex-col px-5 pt-5 pb-2 sm:px-[22px]">
       <SectionHeader
         size="sm"
-        title="NFL wire"
-        actions={<span className="bc-label-sm text-bc-text-3">Around the league</span>}
+        title="Around the NFL"
+        actions={<span className="bc-label-sm text-bc-text-3">ESPN headlines</span>}
         className="pb-3"
       />
 

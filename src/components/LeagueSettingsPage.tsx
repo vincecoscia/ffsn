@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import Link from "next/link";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { Pencil, Check, X, Upload, Trash2, Copy, Inbox, Send, ArrowUpRight } from "lucide-react";
 import { api } from "../../convex/_generated/api";
@@ -17,6 +17,8 @@ import { TeamLogo } from "./TeamLogo";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { PageHeader, Panel, SectionHeader, Chip, EmptyState, Spinner } from "@/components/broadcast";
 import { WeeklyContentCard } from "./content-schedule/WeeklyContentCard";
 import { LeaguePassCard } from "./LeaguePassCard";
@@ -81,6 +83,64 @@ function FieldCard({ label, value }: { label: string; value: string }) {
       <span className="bc-label-sm text-bc-text-3">{label}</span>
       <span className="font-sans text-[16px] font-semibold capitalize text-bc-ink">{value}</span>
     </div>
+  );
+}
+
+/**
+ * The Wire's on/off control (spec deliverable #6): commissioner-only, reads `wire.getWireStatus`
+ * and flips `wire.setWireEnabled`. A member sees the same status with no control, so a non-pass
+ * league still understands what's covered.
+ */
+function WireSettingsCard({ leagueId, canManage }: { leagueId: Id<"leagues">; canManage: boolean }) {
+  const status = useQuery(api.wire.getWireStatus, { leagueId });
+  const setWireEnabled = useMutation(api.wire.setWireEnabled);
+  const [isSaving, setIsSaving] = useState(false);
+  const enabled = status?.wireEnabled ?? true;
+
+  const handleToggle = async (next: boolean) => {
+    setIsSaving(true);
+    try {
+      await setWireEnabled({ leagueId, enabled: next });
+    } catch (err) {
+      console.error("Failed to update the Wire toggle:", err);
+      toast.error("Couldn't update the Wire. Try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Panel padding="md">
+      <SectionHeader
+        kicker="Live desk"
+        title="The Wire"
+        actions={
+          !status ? (
+            <Spinner />
+          ) : (
+            <Chip variant={enabled ? "win" : "outline"}>{enabled ? "On" : "Off"}</Chip>
+          )
+        }
+      />
+      <div className="mt-6 flex items-center justify-between gap-4 border border-bc-hairline bg-bc-panel-2 p-4">
+        <div>
+          <Label htmlFor="wire-enabled" className="text-[15px] text-bc-ink">
+            Live desk posts
+          </Label>
+          <p className="mt-1 text-sm text-bc-text-2">
+            Live desk posts on injuries, transactions and finals. Included with the League Pass.
+          </p>
+        </div>
+        {canManage && (
+          <Switch
+            id="wire-enabled"
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={!status || isSaving}
+          />
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -446,6 +506,11 @@ export function LeagueSettingsPage({
               </div>
             )}
           </div>
+        </SettingsSection>
+
+        {/* The Wire's on/off control (spec deliverable #6). */}
+        <SettingsSection id="wire">
+          <WireSettingsCard leagueId={league._id} canManage={isCommissioner} />
         </SettingsSection>
 
         {/* League Pass, manager capacity and $10 seats (spec §10.1). */}

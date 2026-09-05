@@ -951,6 +951,19 @@ export const sendOperatorDigest = internalAction({
     const feedRuns: FeedRun[] = await ctx.runQuery(internal.intelSync.latestSyncRuns, {});
     const latestNews = await ctx.runQuery(internal.espnNews.latestPublishedAt, {});
     if (latestNews !== null) feedRuns.push({ source: "espn_news", ranAt: latestNews, ok: true });
+
+    // The Wire (ffsn-the-wire-spec.md §11): the injuries poller's own health row, same treatment
+    // as every other feed above.
+    const wireInjuryHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "espn_injuries" });
+    if (wireInjuryHealth) {
+      feedRuns.push({
+        source: "espn_injuries",
+        ranAt: wireInjuryHealth.lastRunAt,
+        ok: wireInjuryHealth.ok,
+        summary: wireInjuryHealth.summary,
+        error: wireInjuryHealth.error,
+      });
+    }
     const stale = staleFeeds(feedRuns, now);
 
     const lines: string[] = [];
@@ -988,12 +1001,20 @@ export const sendOperatorDigest = internalAction({
       `${totals.failed} failed, ${totals.deferred} deferred` +
       (stale.length > 0 ? ` - ${stale.length} feed(s) stale` : "");
 
+    // The Wire (ffsn-the-wire-spec.md §11): events / posts / takes / card fallbacks / global cost,
+    // same 24h window as the rest of the digest.
+    const wireStats = await ctx.runQuery(internal.wireDetect.getDigestStats, { since });
+    const wireLine =
+      `Wire: ${wireStats.events} events / ${wireStats.posts} posts / ${wireStats.takes} takes / ` +
+      `${wireStats.cardFallbacks} card fallback(s) / $${wireStats.costUsd.toFixed(2)} global cost`;
+
     const body = [
       `Window: ${window}`,
       `Leagues: ${leagues.length} (${activeLeagues} with activity)`,
       `Automated + interview spend across all leagues this season: ${totals.coveredUsd.toFixed(2)}`,
       `Season run-rate horizon: ${DIGEST_RUN_RATE_WEEKS} weeks`,
       formatFeedFreshness(feedRuns, now),
+      wireLine,
       "",
       lines.length > 0 ? lines.join("\n\n") : "Nothing to report.",
     ].join("\n");

@@ -1,0 +1,3339 @@
+{
+  "timestamp": "2026-09-05T21:29:28Z",
+  "status": "success",
+  "season": {
+    "year": 2026,
+    "type": 1,
+    "name": "Preseason",
+    "displayName": "2026"
+  },
+  "injuries": [
+    {
+      "id": "34",
+      "displayName": "Houston Texans",
+      "injuries": [
+        {
+          "id": "636274",
+          "longComment": "Boutte ended up being the odd man out last month in a New England receiving corps that added A.J. Brown and Romeo Doubs in the offseason. Prior to their respective arrivals, Boutte was a regular in the Patriots' passing game the last two seasons, combining for a 76-1,140-9 line on 114 targets in 29 regular-season contests during that span. He joined Houston in the wake of Jayden Higgins' torn ACL, so Boutte will be in the mix for looks from Stroud behind Nico Collins and alongside Xavier Hutchinson, Jaylin Noel (hamstring) and Jared Wayne to begin the campaign.",
+          "shortComment": "Boutte said Wednesday that he's been developing chemistry with QB C.J. Stroud since his trade from the Patriots to the Texans on Aug. 24, Cole Thompson of USA Today reports.",
+          "status": "Active",
+          "date": "2026-09-04T20:56Z",
+          "athlete": {
+            "firstName": "Kayshon",
+            "lastName": "Boutte",
+            "displayName": "Kayshon Boutte",
+            "shortName": "K. Boutte",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4429022/kayshon-boutte",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636260",
+          "longComment": "Entering the final year of his rookie deal, Dell was scheduled to collect $3.624 million, but he'll now make just over $1.7 million in 2026. Dell missed the entirety of the 2025 campaign after a catastrophic knee injury suffered toward the end of the previous season. He's now opening this season on injured reserve and won't be eligible to play until Week 5 at the earliest.",
+          "shortComment": "Dell (knee) agreed to take a pay cut from the Texans on Friday, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Injured Reserve",
+          "date": "2026-09-04T15:55Z",
+          "athlete": {
+            "firstName": "Tank",
+            "lastName": "Dell",
+            "displayName": "Tank Dell",
+            "shortName": "T. Dell",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4366031/tank-dell",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR-R",
+              "abbreviation": "IR-R"
+            },
+            "type": "Knee - ACL + MCL",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Left",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "636161",
+          "longComment": "\"The distribution ... might not be 50-50, but it will be close,\" Alexander wrote Aug. 23. \"The Texans have utilized both nearly evenly throughout camp.\" Alexander expects a sort-of hot-hand approach out of the Houston backfield on a weekly basis. Marks played 10 snaps in the Texans' second preseason game and rushed four times for 37 yards and one touchdown. He also added a catch for six yards, working exclusively with the first-team offense while Montgomery was rested for that exhibition. Marks is being drafted nearly five rounds after Montgomery in fantasy.",
+          "shortComment": "Marks is expected to split backfield work pretty evenly with David Montgomery this season, Jonathan Alexander of the Houston Chronicle reports.",
+          "status": "Active",
+          "date": "2026-09-03T16:54Z",
+          "athlete": {
+            "firstName": "Woody",
+            "lastName": "Marks",
+            "displayName": "Woody Marks",
+            "shortName": "W. Marks",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4429059/woody-marks",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636158",
+          "longComment": "Jayden Higgins had been set to start opposite Collins, but Higgins suffered a season-ending knee injury in practice, prompting the Texans to trade for Boutte from the Patriots. Dell has had the most success out of the options behind Collins, but the 2023 third-round pick hasn't suited up since the 2024 season and will miss at least the first four games of 2026. Collins has exceeded 1,000 regular-season receiving yards while scoring at least seven total touchdowns in each of the past three campaigns.",
+          "shortComment": "Collins is the clear No. 1 wide receiver for the Texans heading into the regular season, but the pecking order at the position behind him is uncertain, as Xavier Hutchinson, Jaylin Noel (hamstring), Kayshon Boutte and Jared Wayne are vying for roles, while Jonathan M. Alexander of the Houston Chronicle reports that Tank Dell (knee) will begin the season on IR with a designation to return.",
+          "status": "Active",
+          "date": "2026-09-03T16:35Z",
+          "athlete": {
+            "firstName": "Nico",
+            "lastName": "Collins",
+            "displayName": "Nico Collins",
+            "shortName": "N. Collins",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4258173/nico-collins",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636156",
+          "longComment": "Montgomery is ticketed for a prominent role after coming over from Detroit in an offseason trade, but it remains to be seen just how much Marks cuts into Montgomery's usage. The 230-pound Montgomery is much better-suited for running inside and short-yardage work than the 208-pound Marks, but Montgomery recorded only 76 receptions across the past three regular seasons in Detroit, so the shifty Marks could siphon away opportunities in passing situations.",
+          "shortComment": "Montgomery is one of three running backs on Houston's 53-man roster, along with Woody Marks and British Brooks, Jared Koch of SI.com reports.",
+          "status": "Active",
+          "date": "2026-09-03T16:12Z",
+          "athlete": {
+            "firstName": "David",
+            "lastName": "Montgomery",
+            "displayName": "David Montgomery",
+            "shortName": "D. Montgomery",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4035538/david-montgomery",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636155",
+          "longComment": "The Texans traded for Boutte from New England after Jayden Higgins tore his ACL, knocking the 2025 second-round pick out for the season. Boutte's 551 receiving yards for the Patriots in the 2025 regular season would have ranked second among Houston's wideouts behind Collins. Hutchinson had a career-high 428 receiving yards during the 2025 regular season, Noel has some intriguing upside as a 2025 third-round pick, and Houston is hoping to get Dell back eventually from the knee injury that sidelined him for the entire 2025 season. Stroud is looking to bounce back after a 2025 campaign in which he threw for career lows in both passing yards (3,041) and touchdown passes (19) during the regular season before coughing up seven turnovers in two playoff games.",
+          "shortComment": "Stroud heads into the regular season with Nico Collins, Xavier Hutchinson, Jaylin Noel (hamstring) and Kayshon Boutte as his top wide receivers, while Jonathan M. Alexander of the Houston Chronicle reports that Tank Dell (knee) will begin the season on IR with a designation to return.",
+          "status": "Active",
+          "date": "2026-09-03T16:01Z",
+          "athlete": {
+            "firstName": "C.J.",
+            "lastName": "Stroud",
+            "displayName": "C.J. Stroud",
+            "shortName": "C.J. Stroud",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4432577/cj-stroud",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "8",
+              "name": "Quarterback",
+              "displayName": "Quarterback",
+              "abbreviation": "QB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636064",
+          "longComment": "Schultz, wide receiver Nico Collins and running back David Montgomery were some of the offensive starters that did not participate in preseason games, with quarterback C.J. Stroud seeing minimal action against the Raiders on Aug. 20. Schultz is coming off a productive 2025 regular season, setting a career high with 82 catches, while his 777 yards were his most since the 2021 campaign with the Cowboys (808 yards). Jayden Higgins (knee) will miss the entire 2026 season, and with Tank Dell (knee) opening the season on injured reserve, Schultz and Collins figure to be the go-to targets for Stroud in the passing game.",
+          "shortComment": "Schultz did not play in any of the Texans' three preseason games.",
+          "status": "Active",
+          "date": "2026-09-03T00:09Z",
+          "athlete": {
+            "firstName": "Dalton",
+            "lastName": "Schultz",
+            "displayName": "Dalton Schultz",
+            "shortName": "D. Schultz",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3117256/dalton-schultz",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "7",
+              "name": "Tight End",
+              "displayName": "Tight End",
+              "abbreviation": "TE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635898",
+          "longComment": "Hagen is an undrafted free agent out of South Dakota State. The reserve offensive lineman is 6-foot-6 and 320 pounds. The Texans clearly valued the rookie's training camp production, as the choice to keep the young player on the active roster will give him a chance to return to the 2026 season after at least four games on IR.",
+          "shortComment": "The Texans placed Hagen (undisclosed) on injured reserve Tuesday, Greg Auman of Fox Sports reports.",
+          "status": "Injured Reserve",
+          "date": "2026-09-02T00:13Z",
+          "athlete": {
+            "firstName": "Sam",
+            "lastName": "Hagen",
+            "displayName": "Sam Hagen",
+            "shortName": "S. Hagen",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4879242/sam-hagen",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "73",
+              "name": "Guard",
+              "displayName": "Guard",
+              "abbreviation": "G",
+              "leaf": false
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Undisclosed",
+            "location": "Other",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635896",
+          "longComment": "The offensive tackle is set to miss four to six weeks with a torn plantar fascia tendon. Smith was carted off the field last Wednesday with the injury, making Trent Brown the Texans' starting right tackle for the Week 1 matchup with the Bills. Even if the 30-year-old Smith recovers quicker than his timeline predicts, the tackle will need to miss at least four regular-season games on IR before becoming eligible to return to the team's active roster.",
+          "shortComment": "The Texans placed Smith (foot) on injured reserve Tuesday, Greg Auman of Fox Sports reports.",
+          "status": "Injured Reserve",
+          "date": "2026-09-02T00:10Z",
+          "athlete": {
+            "firstName": "Braden",
+            "lastName": "Smith",
+            "displayName": "Braden Smith",
+            "shortName": "B. Smith",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3121595/braden-smith",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "46",
+              "name": "Offensive Tackle",
+              "displayName": "Offensive Tackle",
+              "abbreviation": "OT",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Foot",
+            "location": "Leg",
+            "detail": "Plantar Fasciitis",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635878",
+          "longComment": "Jordan was recently cut by the Texans, though he will be brought back and added to the 53-man roster. The 26-year-old was selected in the fifth round of the 2021 NFL Draft, appearing in 36 regular-season games and amassing 53 receptions for 532 yards and five touchdowns. Jordan has battled knee issues over the last few years, limiting his availability, though general manager Nick Caserio, as relayed by Aaron Wilson of KPRC 2 Houston, indicated he could return to practice next week.",
+          "shortComment": "Jordan (knee) agreed to a deal with the Texans on Tuesday.",
+          "status": "Questionable",
+          "date": "2026-09-01T23:36Z",
+          "athlete": {
+            "firstName": "Brevin",
+            "lastName": "Jordan",
+            "displayName": "Brevin Jordan",
+            "shortName": "B. Jordan",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4362504/brevin-jordan",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "7",
+              "name": "Tight End",
+              "displayName": "Tight End",
+              "abbreviation": "TE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "635867",
+          "longComment": "Clowney suffered a soft-tissue injury to his hip during the preseason meeting with the Raiders. He's also been battling an ankle issue. However, neither of the ailments is expected to keep him off the field for the opener against the Bills. The 33-year-old Clowney isn't as productive as he once was, though he ended the 2025 campaign with the Cowboys by totaling 41 tackles and 8.5 sacks across 13 regular-season games.",
+          "shortComment": "Clowney (hip/ankle) is expected to be good to go for Week 1 versus Buffalo, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Questionable",
+          "date": "2026-09-01T23:18Z",
+          "athlete": {
+            "firstName": "Jadeveon",
+            "lastName": "Clowney",
+            "displayName": "Jadeveon Clowney",
+            "shortName": "J. Clowney",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/16734/jadeveon-clowney",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "31",
+              "name": "Defensive End",
+              "displayName": "Defensive End",
+              "abbreviation": "DE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Ankle",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "635735",
+          "longComment": "The Texans waived Hamilton on Sunday with an injury designation. The defensive tackle cleared waivers and will now spend the entirety of the 2026 regular season on injured reserve. Hamilton will need to reach an injury settlement with the Texans in order to see the field this coming season.",
+          "shortComment": "Hamilton (undisclosed) reverted to the Texans' injured-reserve list Monday, per the NFL's transaction log.",
+          "status": "Injured Reserve",
+          "date": "2026-09-01T01:14Z",
+          "athlete": {
+            "firstName": "Kyonte",
+            "lastName": "Hamilton",
+            "displayName": "Kyonte Hamilton",
+            "shortName": "K. Hamilton",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4677281/kyonte-hamilton",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "32",
+              "name": "Defensive Tackle",
+              "displayName": "Defensive Tackle",
+              "abbreviation": "DT",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Undisclosed",
+            "location": "Other",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "635733",
+          "longComment": "Byrd suffered an ankle injury during last Friday's preseason finale against the Panthers. The defensive end had virtually no chance of making the 53-man roster, so he was waived with an injury designation. The 26-year-old went unclaimed and now will spend the entirety of the 2026 regular season on IR unless he is waived with an injury settlement.",
+          "shortComment": "Byrd (ankle) reverted to the Texans' injured-reserve list Monday, per the NFL's transaction log.",
+          "status": "Injured Reserve",
+          "date": "2026-09-01T01:08Z",
+          "athlete": {
+            "firstName": "Solomon",
+            "lastName": "Byrd",
+            "displayName": "Solomon Byrd",
+            "shortName": "S. Byrd",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4361689/solomon-byrd",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "31",
+              "name": "Defensive End",
+              "displayName": "Defensive End",
+              "abbreviation": "DE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Ankle",
+            "location": "Leg",
+            "detail": "Sprain",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "635660",
+          "longComment": "There's no designation to return attached to Gaye's placement on injured reserve, meaning the LSU product will be required to miss the entire 2026 season. He suffered a severe knee injury during the Texans' joint practice against the Panthers this past Wednesday. Gaye will shift his attention toward being fully healthy for the 2027 campaign.",
+          "shortComment": "The Texans placed Gaye (knee) on injured reserve Sunday.",
+          "status": "Injured Reserve",
+          "date": "2026-08-31T23:16Z",
+          "athlete": {
+            "firstName": "Ali",
+            "lastName": "Gaye",
+            "displayName": "Ali Gaye",
+            "shortName": "A. Gaye",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4243321/ali-gaye",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "31",
+              "name": "Defensive End",
+              "displayName": "Defensive End",
+              "abbreviation": "DE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "635619",
+          "longComment": "Robinson was released by the Texans on Sunday, per Wilson, but the 2022 fifth-rounder is back with the team on a one-year deal. Robinson appeared in 12 regular-season games for the Bears in 2025, finishing with 19 tackles (12 solo), including 1.5 sacks. His presence gives the Texans additional depth at defensive end behind Will Anderson and Danielle Hunter.",
+          "shortComment": "Robinson (calf) signed a one-year, $4 million contract with the Texans on Monday, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Questionable",
+          "date": "2026-08-31T21:31Z",
+          "athlete": {
+            "firstName": "Dominique",
+            "lastName": "Robinson",
+            "displayName": "Dominique Robinson",
+            "shortName": "D. Robinson",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4244300/dominique-robinson",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "31",
+              "name": "Defensive End",
+              "displayName": "Defensive End",
+              "abbreviation": "DE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Calf",
+            "location": "Leg",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "635572",
+          "longComment": "Stewart suffered a quadriceps injury in early November, ending the 2025 season on injured reserve after undergoing surgery. The safety remained sidelined throughout training camp and the preseason, and he will now be forced to miss at least four contests to open the regular season. In his absence, offseason addition Reed Blankenship will be the unquestioned No. 1 option at strong safety for Houston.",
+          "shortComment": "Stewart (quadriceps) was moved to the reserve/PUP list by the Texans on Sunday.",
+          "status": "Out",
+          "date": "2026-08-31T17:06Z",
+          "athlete": {
+            "firstName": "M.J.",
+            "lastName": "Stewart",
+            "displayName": "M.J. Stewart",
+            "shortName": "M.J. Stewart",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3116679/mj-stewart",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "36",
+              "name": "Safety",
+              "displayName": "Safety",
+              "abbreviation": "S",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "PUP-R",
+              "abbreviation": "PUP-R"
+            },
+            "type": "Quadriceps",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635571",
+          "longComment": "Speed suffered a torn quadriceps tendon while lifting weights in May, and he underwent surgery to repair the injury. The linebacker is expected to miss the entirety of the 2026 season, and in his absence, Jake Hansen (ankle) and Henry To'oTo'o are set to operate as the team's primary outside linebackers.",
+          "shortComment": "Speed (quadriceps) was moved to the reserve/PUP list by the Texans on Sunday.",
+          "status": "Out",
+          "date": "2026-08-31T17:01Z",
+          "athlete": {
+            "firstName": "E.J.",
+            "lastName": "Speed",
+            "displayName": "E.J. Speed",
+            "shortName": "E.J. Speed",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3071353/ej-speed",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "30",
+              "name": "Linebacker",
+              "displayName": "Linebacker",
+              "abbreviation": "LB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "PUP-R",
+              "abbreviation": "PUP-R"
+            },
+            "type": "Quadriceps",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "635466",
+          "longComment": "Ingram will be required to miss the first four weeks of the regular season at least before he is eligible to return to the Texans' active roster. The reserve defensive back suffered a shoulder injury during the team's preseason opener against the Chargers in early August. Ingram appeared in four games for the Texans last year after being claimed off waivers from the Bills.",
+          "shortComment": "The Texans placed Ingram (shoulder) on injured reserve Sunday with a designation to return, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Injured Reserve",
+          "date": "2026-08-30T23:17Z",
+          "athlete": {
+            "firstName": "Ja'Marcus",
+            "lastName": "Ingram",
+            "displayName": "Ja'Marcus Ingram",
+            "shortName": "J. Ingram",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4240059/jamarcus-ingram",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "29",
+              "name": "Cornerback",
+              "displayName": "Cornerback",
+              "abbreviation": "CB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR-R",
+              "abbreviation": "IR-R"
+            },
+            "type": "Shoulder",
+            "location": "Arm",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635441",
+          "longComment": "Thomas was a fifth-round pick in 2024 by the Cowboys. He most recently played in all 17 games for Dallas in 2025-26, starting three of them. The 25-year-old will now move to Houston to join a questionable Texans offensive line heading into the 2026-27 campaign.",
+          "shortComment": "Thomas was acquired by the Texans on Sunday, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Active",
+          "date": "2026-08-30T22:19Z",
+          "athlete": {
+            "firstName": "Nate",
+            "lastName": "Thomas",
+            "displayName": "Nate Thomas",
+            "shortName": "N. Thomas",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4428656/nate-thomas",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "46",
+              "name": "Offensive Tackle",
+              "displayName": "Offensive Tackle",
+              "abbreviation": "OT",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635147",
+          "longComment": "The 32-year-old kicker heads into the regular season having not missed a kick in either of the two preseason contests in which he saw action. Fairbairn has become one of the most reliable placekickers in the league with Houston, converting better than 90 percent of his FGs in three of the last four seasons and finishing in the top five in the NFL in points each of the last two campaigns.",
+          "shortComment": "Fairbairn converted both his field-goal attempts and his only PAT during Friday's 16-13 preseason loss to the Panthers.",
+          "status": "Active",
+          "date": "2026-08-29T06:51Z",
+          "athlete": {
+            "firstName": "Ka'imi",
+            "lastName": "Fairbairn",
+            "displayName": "Ka'imi Fairbairn",
+            "shortName": "K. Fairbairn",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/2971573/kaimi-fairbairn",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "22",
+              "name": "Place kicker",
+              "displayName": "Place Kicker",
+              "abbreviation": "PK",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "634854",
+          "longComment": "Horton's season is officially over after he tore his ACL during Monday's practice. The 25-year-old will now shift his focus to getting healthy for the 2027 campaign.",
+          "shortComment": "The Texans placed Horton (Achilles) on injured reserve Tuesday, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Injured Reserve",
+          "date": "2026-08-26T00:42Z",
+          "athlete": {
+            "firstName": "Dylan",
+            "lastName": "Horton",
+            "displayName": "Dylan Horton",
+            "shortName": "D. Horton",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4374066/dylan-horton",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "31",
+              "name": "Defensive End",
+              "displayName": "Defensive End",
+              "abbreviation": "DE",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Achilles",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "634785",
+          "longComment": "Woodaz suffered a broken thumb last Thursday against the Raiders and underwent surgery Monday. The rookie linebacker should be ready for Week 1, but it's possible he plays with the thumb heavily taped or in some sort of cast. Woodaz is expected to act as Azeez Al-Shaair's top backup but could also see snaps alongside him and Henry To'oTo'o at linebacker while contributing on special teams.",
+          "shortComment": "Woodaz (thumb) is expected to be ready for the Texans' regular-season opener Sunday, Sept. 13 against the Bills, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Questionable",
+          "date": "2026-08-25T16:28Z",
+          "athlete": {
+            "firstName": "Wade",
+            "lastName": "Woodaz",
+            "displayName": "Wade Woodaz",
+            "shortName": "W. Woodaz",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4837286/wade-woodaz",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "30",
+              "name": "Linebacker",
+              "displayName": "Linebacker",
+              "abbreviation": "LB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Thumb",
+            "location": "Arm",
+            "detail": "Surgery",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "634715",
+          "longComment": "Brooks broke his hand at practice and underwent surgery in early August, but he was able to return to the practice field after a three-week absence. The running back is competing for a spot on Houston's 53-man roster in 2026, and he'll look to be ready to go for Friday's preseason finale in Carolina.",
+          "shortComment": "Brooks (hand) was back at practice with the Texans on Monday, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Questionable",
+          "date": "2026-08-24T23:53Z",
+          "athlete": {
+            "firstName": "British",
+            "lastName": "Brooks",
+            "displayName": "British Brooks",
+            "shortName": "B. Brooks",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4373273/british-brooks",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Hand",
+            "location": "Arm",
+            "detail": "Surgery",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "634612",
+          "longComment": "Odum's last NFL role was with the Colts' practice squad in late 2025. The safety participated in three games with the team last season, logging 38 special teams snaps for four tackles (two solo). Odum will provide additional depth to the Texans' secondary as they finish the preseason against the Panthers on Friday.",
+          "shortComment": "The Texans are expected to sign Odum to a contract as of Sunday, Aaron Wilson of KPRC 2 Houston reports.",
+          "status": "Active",
+          "date": "2026-08-23T22:35Z",
+          "athlete": {
+            "firstName": "George",
+            "lastName": "Odum",
+            "displayName": "George Odum",
+            "shortName": "G. Odum",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3050199/george-odum",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "36",
+              "name": "Safety",
+              "displayName": "Safety",
+              "abbreviation": "S",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "29",
+              "name": "Practice Squad",
+              "type": "practice-squad",
+              "abbreviation": "Practice Squad"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "634417",
+          "longComment": "Ossai persisted through a separate issue to be activated off the active/PUP list for training camp in late July. The linebacker has unfortunately succumbed to yet another injury and could now miss the entirety of the 2026 regular season on the Texans' IR. Ossai will need to reach an injury settlement with the Texans if he wants to attempt a return to football with another team in 2026.",
+          "shortComment": "The Texans placed Ossai (undisclosed) on injured reserve Saturday.",
+          "status": "Injured Reserve",
+          "date": "2026-08-22T16:30Z",
+          "athlete": {
+            "firstName": "K.C.",
+            "lastName": "Ossai",
+            "displayName": "K.C. Ossai",
+            "shortName": "K.C. Ossai",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4687188/kc-ossai",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "30",
+              "name": "Linebacker",
+              "displayName": "Linebacker",
+              "abbreviation": "LB",
+              "leaf": true
+            },
+            "team": {
+              "id": "34",
+              "uid": "s:20~l:28~t:34",
+              "slug": "houston-texans",
+              "name": "Texans",
+              "abbreviation": "HOU",
+              "displayName": "Houston Texans"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Undisclosed",
+            "location": "Other",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18",
+      "displayName": "New Orleans Saints",
+      "injuries": [
+        {
+          "id": "636299",
+          "longComment": "Estime was able to beat out Zamir White and Devin Neal (hamstring) for that final backfield depth spot on the active roster for the regular season. Estime has worked in a rotational role in his first two years in the NFL, but the 2024 fifth-rounder would operate in a larger role behind Travis Etienne in Week 1 against the Lions if one or both of Alvin Kamara (knee) and Kendre Miller (undisclosed) were to be limited or ruled out.",
+          "shortComment": "Estime is listed as the fourth running back on the Saints' 53-man roster, Grant Chachere of SI.com reports.",
+          "status": "Active",
+          "date": "2026-09-05T15:04Z",
+          "athlete": {
+            "firstName": "Audric",
+            "lastName": "Estime",
+            "displayName": "Audric Estime",
+            "shortName": "A. Estime",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4569682/audric-estime",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636278",
+          "longComment": "Olave missed time at the end of the offseason program due to a blood clot, and while he opened training camp as a full participant and agreed to a four-year extension worth up to $132 million on July 30, he exited three different practices for various reasons in August. Nevertheless, he appears to be entering the season in good health and ready to build upon a career-best 2025 regular season in which he posted a 100-1,163-9 line on 155 targets in 16 games.",
+          "shortComment": "Olave didn't suit up for the Saints' three-game preseason slate.",
+          "status": "Active",
+          "date": "2026-09-04T22:21Z",
+          "athlete": {
+            "firstName": "Chris",
+            "lastName": "Olave",
+            "displayName": "Chris Olave",
+            "shortName": "C. Olave",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4361370/chris-olave",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636173",
+          "longComment": "Kamara was diagnosed with a sprained MCL a little over two weeks ago and was given a return timetable of \"at least one month,\" according to Adam Schefter of ESPN, so it's not at all surprising to see the veteran running back still sidelined. The Saints will begin official Week 1 prep next week, and it would be somewhat shocking to see Kamara practice and be available for the season opener against the Lions. With Kendre Miller (undisclosed) also missing practice time, Audric Estime could be the backup to Travis Etienne against Detroit.",
+          "shortComment": "Kamara (knee) remained sidelined at Thursday's practice, Mike Triplett of NewOrleans.Football reports.",
+          "status": "Questionable",
+          "date": "2026-09-03T18:38Z",
+          "athlete": {
+            "firstName": "Alvin",
+            "lastName": "Kamara",
+            "displayName": "Alvin Kamara",
+            "shortName": "A. Kamara",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3054850/alvin-kamara",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Knee - MCL",
+            "location": "Leg",
+            "detail": "Sprain",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "636150",
+          "longComment": "Johnson is locked in atop the depth chart at tight end for New Orleans, and with Jordyn Tyson (hamstring) set to miss at least the first four games of the season and no clear WR2 on the roster, Johnson could have a significant pass-catching role out of the gates. Tyler Shough has already predicted a big season for his former college teammate after Johnson was fantasy's overall TE5 in yards per game and TE8 in catches per game following last season's Rashid Shaheed trade ahead of Week 10. Turning 30 years old Sept. 13, Johnson is coming off a 77-889-3 campaign on 102 targets last season.",
+          "shortComment": "Johnson didn't see any action during the Saints' three-game preseason slate.",
+          "status": "Active",
+          "date": "2026-09-03T15:36Z",
+          "athlete": {
+            "firstName": "Juwan",
+            "lastName": "Johnson",
+            "displayName": "Juwan Johnson",
+            "shortName": "J. Johnson",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3929645/juwan-johnson",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "7",
+              "name": "Tight End",
+              "displayName": "Tight End",
+              "abbreviation": "TE",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636137",
+          "longComment": "Etienne was one of the few Saints running backs to avoid any sort of injury scare or setback during training camp. Ty Chandler (knee) is out for the season after landing on injured reserve, and Alvin Kamara (knee) appears to be trending toward sitting out Week 1. Additionally, Kendre Miller sustained a minor undisclosed injury during practice Tuesday and is day-to-day, while Audric Estime is healthy but missed time in camp due to an ankle issue. After signing a four-year, $52 million deal in March, Etienne had already looked poised to handle a sizable workload for New Orleans both as a lead runner and pass catcher, and the current condition of his backups following camp and the preseason adds further fuel to the notion that he'll be in line for heavy volume right of the gate.",
+          "shortComment": "Etienne was rested for all three of the Saints' preseason contests and is fully healthy heading into the team's Week 1 game in Detroit.",
+          "status": "Active",
+          "date": "2026-09-03T14:02Z",
+          "athlete": {
+            "firstName": "Travis",
+            "lastName": "Etienne Jr.",
+            "displayName": "Travis Etienne Jr.",
+            "shortName": "T. Etienne Jr.",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4239996/travis-etienne-jr",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "636136",
+          "longComment": "Though he didn't play at all in the preseason while the Saints instead opened up more reps for backups Spencer Rattler and Zach Wilson, Shough reportedly looked sharp throughout training camp while keeping the New Orleans offense productive. Shough was able to close out camp on a high note by tossing three touchdown passes during 11-on-11 sessions, and Shough would have had two more had Devaughn Vele secured a one-handed catch in the end zone and had Chris Olave not fumbled near the goal line on another play. New Orleans will be without one of its key playmakers to begin the season in rookie first-round wideout Jordyn Tyson (hamstring), but Shough appeared to build good chemistry with new starting running back Travis Etienne, who was a frequent target of the quarterback during camp practices.",
+          "shortComment": "Shough drew positive reviews for his performance during the Saints' final practice of training camp Aug. 26, Grant Chachere of SI.com reports.",
+          "status": "Active",
+          "date": "2026-09-03T13:45Z",
+          "athlete": {
+            "firstName": "Tyler",
+            "lastName": "Shough",
+            "displayName": "Tyler Shough",
+            "shortName": "T. Shough",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4360689/tyler-shough",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "8",
+              "name": "Quarterback",
+              "displayName": "Quarterback",
+              "abbreviation": "QB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635978",
+          "longComment": "It's still not clear what type of injury Miller is dealing with, but it appears he avoided any sort of serious setback. It remains to be seen exactly how the Saints backfield behind starter Travis Etienne will look in Week 1, but Miller has a chance to factor into the mix if he's healthy.",
+          "shortComment": "Miller is believed to have sustained only a minor injury at Tuesday's practice, Nick Underhill of NewOrleans.Football reports.",
+          "status": "Questionable",
+          "date": "2026-09-02T02:58Z",
+          "athlete": {
+            "firstName": "Kendre",
+            "lastName": "Miller",
+            "displayName": "Kendre Miller",
+            "shortName": "K. Miller",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4599739/kendre-miller",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Undisclosed",
+            "location": "Other",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "635887",
+          "longComment": "Styles picked up a calf injury during the Saints' preseason loss to the Rams on Aug. 22. The injury is severe enough for the rookie sixth-rounder to open the regular season on injured reserve, requiring him to miss at least four games. Styles' first opportunity to make his NFL regular-season debut is Week 5 against the Vikings on Sunday, Oct. 11.",
+          "shortComment": "The Saints placed Styles (calf) on injured reserve Tuesday, John Hendrix of AthlonSports.com reports.",
+          "status": "Injured Reserve",
+          "date": "2026-09-01T23:53Z",
+          "athlete": {
+            "firstName": "Lorenzo",
+            "lastName": "Styles Jr.",
+            "displayName": "Lorenzo Styles Jr.",
+            "shortName": "L. Styles Jr.",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4432768/lorenzo-styles-jr",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "36",
+              "name": "Safety",
+              "displayName": "Safety",
+              "abbreviation": "S",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Calf",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635678",
+          "longComment": "Ford had a strong preseason with 15 tackles and an interception over three games but appears to have picked up an injury along the way. He'll need to sit out at least the first four games of the regular season, but the designation to return means he could be activated as soon as Week 5 against Minnesota.",
+          "shortComment": "Ford (undisclosed) was placed on New Orleans' injured reserve Sunday with a designation to return.",
+          "status": "Injured Reserve",
+          "date": "2026-08-31T23:48Z",
+          "athlete": {
+            "firstName": "Jaylan",
+            "lastName": "Ford",
+            "displayName": "Jaylan Ford",
+            "shortName": "J. Ford",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4566088/jaylan-ford",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "30",
+              "name": "Linebacker",
+              "displayName": "Linebacker",
+              "abbreviation": "LB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR-R",
+              "abbreviation": "IR-R"
+            },
+            "type": "Undisclosed",
+            "location": "Other",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635675",
+          "longComment": "Long was previously on the Giants' IR but reached an injury settlement in mid-August and subsequently signed with New Orleans. He logged four tackles in his lone preseason appearance but is now sidelined with an undisclosed issue. Long will need to miss the entire campaign while on injured reserve unless he reaches an injury settlement with the Saints.",
+          "shortComment": "The Saints placed Long (undisclosed) on injured reserve Sunday.",
+          "status": "Injured Reserve",
+          "date": "2026-08-31T23:41Z",
+          "athlete": {
+            "firstName": "David",
+            "lastName": "Long Jr.",
+            "displayName": "David Long Jr.",
+            "shortName": "D. Long Jr.",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4046536/david-long-jr",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "29",
+              "name": "Cornerback",
+              "displayName": "Cornerback",
+              "abbreviation": "CB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Undisclosed",
+            "location": "Other",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "635638",
+          "longComment": "Wooden will head to New Orleans after being waived by Indianapolis. The 2023 fourth-rounder spent the first three years of his NFL career with the Packers, finishing the 2025 regular season with 50 tackles (26 solo) and one pass defense across 17 games (16 starts). Cameron Jordan's status for Week 1 against the Lions is up in the air due to a hamstring issue, and with Bryan Bresee (knee) on injured reserve, Wooden figures to see plenty of snaps in a starting role in 2026.",
+          "shortComment": "The Saints claimed Wooden off waivers from the Colts on Monday.",
+          "status": "Active",
+          "date": "2026-08-31T22:28Z",
+          "athlete": {
+            "firstName": "Colby",
+            "lastName": "Wooden",
+            "displayName": "Colby Wooden",
+            "shortName": "C. Wooden",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4567224/colby-wooden",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "32",
+              "name": "Defensive Tackle",
+              "displayName": "Defensive Tackle",
+              "abbreviation": "DT",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635591",
+          "longComment": "Tipton underwent tibia surgery in the offseason, and as a result, he opened training camp on the active/PUP list, ultimately failing to play during the preseason. The wide receiver will now be forced to miss at least four contests to open the regular season, and the earliest he'd be able to return to action is Week 5 versus the Vikings on Oct. 11.",
+          "shortComment": "Tipton (leg) was moved to the reserve/PUP list by the Saints on Sunday.",
+          "status": "Out",
+          "date": "2026-08-31T18:40Z",
+          "athlete": {
+            "firstName": "Mason",
+            "lastName": "Tipton",
+            "displayName": "Mason Tipton",
+            "shortName": "M. Tipton",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4573697/mason-tipton",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "PUP-R",
+              "abbreviation": "PUP-R"
+            },
+            "type": "Leg",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635445",
+          "longComment": "Tyson has had recurring issues with his right hamstring, and the most recent flare-up is expected to result in two months on the sideline, so Sunday's transaction comes as no surprise. He'll be required to miss at least the first four games of the season, but considering the aforementioned recovery timeline, he likely will be out beyond Week 5. During Tyson's absence, Devaughn Vele and rookies Bryce Lance and Barion Brown will have opportunities for targets behind top WR Chris Olave.",
+          "shortComment": "Tyson (hamstring) was placed on injured reserve with a designation to return by New Orleans on Sunday.",
+          "status": "Injured Reserve",
+          "date": "2026-08-30T22:30Z",
+          "athlete": {
+            "firstName": "Jordyn",
+            "lastName": "Tyson",
+            "displayName": "Jordyn Tyson",
+            "shortName": "J. Tyson",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4880281/jordyn-tyson",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR-R",
+              "abbreviation": "IR-R"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Right",
+            "returnDate": "2026-10-11"
+          }
+        },
+        {
+          "id": "635348",
+          "longComment": "Carlson was the last one to enter New Orleans' three-man competition but also is the last man standing. After signing with the Saints on Monday, Carlson has made the 53-man roster, while Tanner Brown and Charlie Smyth have both been cut. Carlson converted only 22 of 27 field-goal attempts (81.5 percent) for the Raiders in the 2025 regular season, but he has a career conversion rate of 86.9 percent.",
+          "shortComment": "Carlson has won the Saints' kicker competition, Nick Underhill of NewOrleans.Football reports.",
+          "status": "Active",
+          "date": "2026-08-30T18:35Z",
+          "athlete": {
+            "firstName": "Daniel",
+            "lastName": "Carlson",
+            "displayName": "Daniel Carlson",
+            "shortName": "D. Carlson",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/3051909/daniel-carlson",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "22",
+              "name": "Place kicker",
+              "displayName": "Place Kicker",
+              "abbreviation": "PK",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635242",
+          "longComment": "Rattler had an uneven first two NFL campaigns, making 14 starts in 16 regular-season contests and completing 62.7 percent of his pass attempts for 2,903 yards with a 12:10 TD:INT. He began last year as New Orleans' No. 1 QB but gave way to Tyler Shough after the team compiled a 1-7 record across its first eight games. Shough ran away with the job and is entering the upcoming campaign with a strong hold on top signal-caller role, which theoretically could make Rattler expendable. However, it appears the Saints want to keep Rattler as an insurance policy behind Shough, as Rattler would be in a good position to take over at QB if needed given his extensive opportunities over the past two years. Rattler's fantasy value in redraft leagues is almost non-existent given his backup role, and even if Shough were to go down with an injury, Rattler likely wouldn't be a hot pickup in most formats given his inconsistent play in the NFL so far.",
+          "shortComment": "The Saints have received interest in Rattler but aren't planning to trade him, Jeremy Fowler of ESPN.com reports.",
+          "status": "Active",
+          "date": "2026-08-30T00:37Z",
+          "athlete": {
+            "firstName": "Spencer",
+            "lastName": "Rattler",
+            "displayName": "Spencer Rattler",
+            "shortName": "S. Rattler",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4426339/spencer-rattler",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "8",
+              "name": "Quarterback",
+              "displayName": "Quarterback",
+              "abbreviation": "QB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635130",
+          "longComment": "Brown wasn't targeted in the preseason finale but still left his mark on the game with a seven-yard rushing touchdown in the first quarter. The rookie sixth-round pick out of LSU reportedly stood out in training camp, and he has built on that success with a strong preseason. Rookie first-round pick Jordyn Tyson (hamstring) is expected to miss about two months, so the door is open for Brown to take on a sizable role out of the gate behind Chris Olave in a Saints WR room that also includes Devaughn Vele and Bryce Lance.",
+          "shortComment": "Brown rushed twice for 19 yards and a touchdown while adding a four-yard punt return in Friday's 27-24 preseason win over the Cowboys.",
+          "status": "Active",
+          "date": "2026-08-29T04:51Z",
+          "athlete": {
+            "firstName": "Barion",
+            "lastName": "Brown",
+            "displayName": "Barion Brown",
+            "shortName": "B. Brown",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4698597/barion-brown",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635128",
+          "longComment": "Lance was drafted in the fourth round out of North Dakota State, but he has been outperformed by sixth-round pick Barion Brown throughout training camp and the preseason. Brown upstaged Lance again Friday by scoring a seven-yard rushing touchdown in the first quarter. Both rookie Day 3 picks have a chance to contribute out of the gate, as rookie first-round pick Jordyn Tyson (hamstring) is expected to miss about two months, leaving Lance, Brown and Devaughn Vele as the top options behind Chris Olave.",
+          "shortComment": "Lance caught two of four targets for 28 yards in Friday's 27-24 preseason win over the Cowboys.",
+          "status": "Active",
+          "date": "2026-08-29T04:47Z",
+          "athlete": {
+            "firstName": "Bryce",
+            "lastName": "Lance",
+            "displayName": "Bryce Lance",
+            "shortName": "B. Lance",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4879276/bryce-lance",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "1",
+              "name": "Wide Receiver",
+              "displayName": "Wide Receiver",
+              "abbreviation": "WR",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "635117",
+          "longComment": "Wilson played the second half of Friday's preseason finale after Spencer Rattler played the first half. Rattler started two of the Saints' three preseason games and looks like the favorite to win the backup job behind Tyler Shough. Wilson had 14 more passing yards than Rattler on Friday and neither one threw a touchdown pass, but Rattler scored an eight-yard rushing TD.",
+          "shortComment": "Wilson completed nine of 12 passes for 93 yards while rushing once for minus-1 yard in Friday's 27-24 preseason win over the Cowboys.",
+          "status": "Active",
+          "date": "2026-08-29T04:11Z",
+          "athlete": {
+            "firstName": "Zach",
+            "lastName": "Wilson",
+            "displayName": "Zach Wilson",
+            "shortName": "Z. Wilson",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4361259/zach-wilson",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "8",
+              "name": "Quarterback",
+              "displayName": "Quarterback",
+              "abbreviation": "QB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "634836",
+          "longComment": "Miller exited Saturday's preseason loss to the Jaguars early due to a shoulder injury. The nose tackle has since recovered from the issue and is back in action. Miller will likely play in Friday's preseason finale against the Cowboys to put together one last gameday performance before the regular season commences. The second-round rookie will likely be utilized as a depth option and special teams player throughout the 2026 season.",
+          "shortComment": "Miller (shoulder) was a full participant in Tuesday's practice, Mike Triplett of NewOrleans.Football reports.",
+          "status": "Active",
+          "date": "2026-08-26T00:00Z",
+          "athlete": {
+            "firstName": "Christen",
+            "lastName": "Miller",
+            "displayName": "Christen Miller",
+            "shortName": "C. Miller",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4685479/christen-miller",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "32",
+              "name": "Defensive Tackle",
+              "displayName": "Defensive Tackle",
+              "abbreviation": "DT",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "0",
+            "name": "INJURY_STATUS_ACTIVE",
+            "description": "active",
+            "abbreviation": "A"
+          }
+        },
+        {
+          "id": "634814",
+          "longComment": "Matavao sustained a knee injury during Saturday's 34-0 preseason loss to the Rams. The tight end's placement on IR means he will miss the entirety of the 2026 regular season unless he is waived with an injury settlement. Matavao logged three catches for 34 yards in Saturday's game and seemed to have a good chance to make the 53-man roster.",
+          "shortComment": "The Saints placed Matavao (knee) on injured reserve Tuesday, Mike Triplett of NewOrleans.Football reports.",
+          "status": "Injured Reserve",
+          "date": "2026-08-25T22:41Z",
+          "athlete": {
+            "firstName": "Moliki",
+            "lastName": "Matavao",
+            "displayName": "Moliki Matavao",
+            "shortName": "M. Matavao",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4432731/moliki-matavao",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "7",
+              "name": "Tight End",
+              "displayName": "Tight End",
+              "abbreviation": "TE",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "634813",
+          "longComment": "Chandler suffered a season-ending knee injury during Saturday's preseason game against the Rams. The running back has been placed on injured reserve and will miss the entirety of the 2026 season. The Saints added Zamir White in a trade with the 49ers to make up for the loss of Chandler.",
+          "shortComment": "The Saints placed Chandler (knee) on injured reserve Tuesday, Mike Triplett of NewOrleans.Football reports.",
+          "status": "Injured Reserve",
+          "date": "2026-08-25T22:39Z",
+          "athlete": {
+            "firstName": "Ty",
+            "lastName": "Chandler",
+            "displayName": "Ty Chandler",
+            "shortName": "T. Chandler",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4242431/ty-chandler",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "9",
+              "name": "Running Back",
+              "displayName": "Running Back",
+              "abbreviation": "RB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "634703",
+          "longComment": "The cornerback suffered a hip injury earlier in training camp that will now require season-ending surgery. White logged 35 special-teams snaps for New Orleans in 2025, but he did not record a tackle.",
+          "shortComment": "Wright (hip) was put on injured reserve by the Saints on Monday.",
+          "status": "Injured Reserve",
+          "date": "2026-08-24T23:26Z",
+          "athlete": {
+            "firstName": "Rejzohn",
+            "lastName": "Wright",
+            "displayName": "Rejzohn Wright",
+            "shortName": "R. Wright",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4696043/rejzohn-wright",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "29",
+              "name": "Cornerback",
+              "displayName": "Cornerback",
+              "abbreviation": "CB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "13",
+              "name": "Day-To-Day",
+              "type": "day-to-day",
+              "abbreviation": "Day-To-Day"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "5",
+            "name": "INJURY_STATUS_IR",
+            "description": "Injured Reserve",
+            "abbreviation": "IR"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "IR",
+              "abbreviation": "IR"
+            },
+            "type": "Hip",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2027-02-15"
+          }
+        },
+        {
+          "id": "634702",
+          "longComment": "Delp has caught three of six targets for 10 yards and a touchdown over the Saints' two preseason games this year, though all of that production came in the team's preseason opener. The 23-year-old was selected in the third round of this year's draft, and he's competing with veteran Noah Fant for the top reserve role at tight end behind Juwan Johnson this year. It's unclear what the severity of his injury is, but Delp will have a couple of chances to shake off the injury at practice before Friday's preseason finale versus Dallas.",
+          "shortComment": "Delp is nursing a hamstring injury at training camp with the Saints, Katherine Terrell of ESPN.com reports.",
+          "status": "Questionable",
+          "date": "2026-08-24T23:26Z",
+          "athlete": {
+            "firstName": "Oscar",
+            "lastName": "Delp",
+            "displayName": "Oscar Delp",
+            "shortName": "O. Delp",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4702559/oscar-delp",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "7",
+              "name": "Tight End",
+              "displayName": "Tight End",
+              "abbreviation": "TE",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "634261",
+          "longComment": "Ridgeway was dealing with a back issue earlier in camp and missed most of last season with a shoulder injury. The 27-year-old defensive lineman inked a new two-year pact with New Orleans during the offseason and is expected to be a key member of the Saints' rotation up front this season.",
+          "shortComment": "Ridgeway exited Thursday's practice with a foot injury, Nick Underhill of NewOrleans.Football reports.",
+          "status": "Questionable",
+          "date": "2026-08-21T00:30Z",
+          "athlete": {
+            "firstName": "John",
+            "lastName": "Ridgeway III",
+            "displayName": "John Ridgeway III",
+            "shortName": "J. Ridgeway III",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4248047/john-ridgeway-iii",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "32",
+              "name": "Defensive Tackle",
+              "displayName": "Defensive Tackle",
+              "abbreviation": "DT",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Foot",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        },
+        {
+          "id": "-1987396",
+          "longComment": "questionable",
+          "shortComment": "questionable",
+          "status": "Questionable",
+          "date": "2026-08-19T12:07Z",
+          "athlete": {
+            "firstName": "Pete",
+            "lastName": "Werner",
+            "displayName": "Pete Werner",
+            "shortName": "P. Werner",
+            "links": [
+              {
+                "language": "en-US",
+                "rel": [
+                  "playercard",
+                  "desktop",
+                  "athlete"
+                ],
+                "href": "https://www.espn.com/nfl/player/_/id/4241993/pete-werner",
+                "text": "Player Card",
+                "shortText": "Player Card",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "position": {
+              "id": "30",
+              "name": "Linebacker",
+              "displayName": "Linebacker",
+              "abbreviation": "LB",
+              "leaf": true
+            },
+            "team": {
+              "id": "18",
+              "uid": "s:20~l:28~t:18",
+              "slug": "new-orleans-saints",
+              "name": "Saints",
+              "abbreviation": "NO",
+              "displayName": "New Orleans Saints"
+            },
+            "status": {
+              "id": "1",
+              "name": "Active",
+              "type": "active",
+              "abbreviation": "Active"
+            }
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "2",
+            "name": "INJURY_STATUS_QUESTIONABLE",
+            "description": "questionable",
+            "abbreviation": "Q"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "QUESTIONABLE",
+              "abbreviation": "QUESTIONABLE"
+            },
+            "type": "Groin",
+            "location": "Groin",
+            "detail": "Not Specified",
+            "side": "Not Specified",
+            "returnDate": "2026-09-13"
+          }
+        }
+      ]
+    }
+  ]
+}

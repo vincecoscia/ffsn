@@ -66,6 +66,7 @@ export default function LeagueLayout({ children, params }: LeagueLayoutProps) {
 
   const nav: AppHeaderNavItem[] = [
     { label: "Home", href: `/leagues/${league._id}`, exact: true },
+    { label: "The Wire", href: `/leagues/${league._id}/wire` },
     { label: "Scores", href: `/leagues/${league._id}/scores` },
     { label: "Schedule", href: `/leagues/${league._id}/schedule` },
     { label: "Standings", href: `/leagues/${league._id}/standings` },

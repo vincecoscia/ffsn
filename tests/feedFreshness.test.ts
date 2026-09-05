@@ -10,6 +10,7 @@ const runs: FeedRun[] = [
   { source: "nflverse_injuries", ranAt: NOW - 2 * H, ok: false, error: "nflverse injuries_2026.csv HTTP 404" },
   { source: "ffc_adp", ranAt: NOW - 60 * H, ok: true, summary: "6 boards (2026), 0 changed" },
   { source: "espn_news", ranAt: NOW - 20 * 60 * 1000, ok: true },
+  { source: "espn_injuries", ranAt: NOW - 10 * 60 * 1000, ok: true, summary: "3 changed" },
 ];
 
 describe("feed freshness", () => {
@@ -24,6 +25,7 @@ describe("feed freshness", () => {
     expect(line).toContain("nflverse injuries: FAILED 2h ago (nflverse injuries_2026.csv HTTP 404)");
     expect(line).toContain("FFC ADP: 3d ago STALE");
     expect(line).toContain("ESPN news: 20m ago");
+    expect(line).toContain("ESPN injuries: 10m ago, 3 changed");
     expect(formatFeedFreshness([], NOW)).toContain("Sleeper injuries/depth: never");
   });
 });

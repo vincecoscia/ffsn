@@ -408,3 +408,176 @@ export const runScheduledPipelineNow = internalAction({
     };
   },
 });
+
+/* ============================================================================ *
+ * The Wire (ffsn-the-wire-spec.md §11 "Dev tool") - synthesize an event and run
+ * detect -> take -> overlay on the dev deployment only, same guard as above.
+ * ============================================================================ */
+
+/**
+ * Wipe every Wire table on the dev deployment (same guard as everything here). Exists because the
+ * first dev poll (2026-09-05) ingested ~100 August notes before the cold-start rule shipped; run it
+ * once, then `wireSourcesNode.pollEspnInjuries` re-seeds its cursor cleanly. Bounded: 500 rows per
+ * table per call, rescheduling itself while anything is left.
+ */
+export const resetWire = internalMutation({
+  args: {},
+  returns: v.object({ deleted: v.number(), more: v.boolean(), reason: v.string() }),
+  handler: async (ctx) => {
+    const guard = devToolsGuard();
+    if (!guard.allowed) return { deleted: 0, more: false, reason: guard.reason };
+    let deleted = 0;
+    let more = false;
+    for (const table of ["wireLeaguePosts", "wirePosts", "wireEvents", "wireSourceState"] as const) {
+      const rows = await ctx.db.query(table).take(500);
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+        deleted++;
+      }
+      if (rows.length === 500) more = true;
+    }
+    if (more) await ctx.scheduler.runAfter(0, internal.devTools.resetWire, {});
+    return { deleted, more, reason: guard.reason };
+  },
+});
+
+export const latestWireEventForPlayer = internalQuery({
+  args: { espnId: v.string() },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, { espnId }) => {
+    const events = await ctx.db.query("wireEvents").withIndex("by_detected").order("desc").take(50);
+    return events.find((event) => event.players.some((p) => p.espnId === espnId)) ?? null;
+  },
+});
+
+export const wirePostForEvent = internalQuery({
+  args: { eventId: v.id("wireEvents") },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, { eventId }) => {
+    return await ctx.db
+      .query("wirePosts")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .first();
+  },
+});
+
+export const leaguePostsForGlobalPost = internalQuery({
+  args: { postId: v.id("wirePosts"), leagueId: v.id("leagues") },
+  returns: v.array(v.any()),
+  handler: async (ctx, { postId, leagueId }) => {
+    return await ctx.db
+      .query("wireLeaguePosts")
+      .withIndex("by_global_post_league", (q) => q.eq("globalPostId", postId).eq("leagueId", leagueId))
+      .take(10);
+  },
+});
+
+export const runWireEventNow = internalAction({
+  args: {
+    kind: v.union(v.literal("injury_status"), v.literal("injury_note"), v.literal("news")),
+    espnId: v.string(),
+    statusTo: v.optional(v.string()),
+    statusFrom: v.optional(v.string()),
+    note: v.optional(v.string()),
+    leagueId: v.optional(v.id("leagues")),
+  },
+  returns: v.object({
+    event: v.union(v.any(), v.null()),
+    globalPost: v.union(v.any(), v.null()),
+    leaguePosts: v.array(v.any()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    event: { _id: Id<"wireEvents"> } | null;
+    globalPost: { _id: Id<"wirePosts">; status: string } | null;
+    leaguePosts: unknown[];
+  }> => {
+    const guard = devToolsGuard();
+    if (!guard.allowed) {
+      throw new Error(`devTools.runWireEventNow ${guard.reason}`);
+    }
+
+    const now = Date.now();
+
+    if (args.kind === "news") {
+      // A synthetic espnNews row, upserted through the real writer (news.ts), then ingested
+      // directly (rather than waiting on that mutation's own auto-scheduled hook) so this action
+      // can hand back the result inline.
+      const articleEspnId = `dev-${now}`;
+      await ctx.runMutation(internal.news.storeNewsArticles, {
+        articles: [
+          {
+            espnId: articleEspnId,
+            type: "Story",
+            headline: args.note ?? `Dev synthetic news for ${args.espnId}`,
+            description: args.note,
+            lastModified: new Date(now).toISOString(),
+            published: new Date(now).toISOString(),
+            premium: false,
+            links: {},
+            images: [],
+            categories: {
+              teams: [],
+              athletes: [{ id: Number(args.espnId), name: args.espnId, position: undefined }],
+              leagues: [],
+            },
+          },
+        ],
+      });
+      await ctx.runMutation(internal.wireDetect.ingestNews, { espnIds: [articleEspnId] });
+    } else {
+      const status = args.statusTo ?? "Questionable";
+      // injuryEntryToCard treats `previousStatus === status` (or absent, defaulting to "Active")
+      // as an unchanged-status note; giving it a different value forces the status-change path.
+      const previousStatus = args.kind === "injury_status" ? (args.statusFrom ?? "Active") : status;
+      await ctx.runMutation(internal.wireDetect.ingestInjuryEntries, {
+        entries: [
+          {
+            entry: {
+              id: `dev-${now}`,
+              status,
+              date: new Date(now).toISOString(),
+              shortComment: args.note,
+              athlete: { espnId: args.espnId, name: args.espnId },
+            },
+            previousStatus,
+          },
+        ],
+        fetchedAt: now,
+      });
+    }
+
+    // Explicit annotations on every same-file `internal.devTools.*` call below: per this repo's
+    // Convex guidelines, a same-file `ctx.runQuery`/`ctx.runMutation` reference otherwise hits a
+    // TypeScript circularity limitation.
+    const event: { _id: Id<"wireEvents"> } | null = await ctx.runQuery(internal.devTools.latestWireEventForPlayer, {
+      espnId: args.espnId,
+    });
+    const eventId = event?._id;
+    let globalPost: { _id: Id<"wirePosts">; status: string } | null = eventId
+      ? await ctx.runQuery(internal.devTools.wirePostForEvent, { eventId })
+      : null;
+
+    if (globalPost?.status === "take_pending") {
+      await ctx.runAction(internal.wireGenerate.flushTakeBatch, {});
+      globalPost = eventId ? await ctx.runQuery(internal.devTools.wirePostForEvent, { eventId }) : null;
+    }
+
+    let leaguePosts: unknown[] = [];
+    const postId = globalPost?._id;
+    if (args.leagueId && postId) {
+      await ctx.runMutation(internal.wireOverlay.fanOutGlobalPostForLeague, {
+        postId,
+        leagueId: args.leagueId,
+      });
+      leaguePosts = await ctx.runQuery(internal.devTools.leaguePostsForGlobalPost, {
+        postId,
+        leagueId: args.leagueId,
+      });
+    }
+
+    return { event, globalPost, leaguePosts };
+  },
+});

@@ -74,6 +74,7 @@ import type * as lib_standingsThroughWeek from "../lib/standingsThroughWeek.js";
 import type * as lib_teamClaims from "../lib/teamClaims.js";
 import type * as lib_tradesFromTransactions from "../lib/tradesFromTransactions.js";
 import type * as lib_weekOneGate from "../lib/weekOneGate.js";
+import type * as lib_wireLeaguePosting from "../lib/wireLeaguePosting.js";
 import type * as matchupRosters from "../matchupRosters.js";
 import type * as matchups from "../matchups.js";
 import type * as migrations from "../migrations.js";
@@ -100,6 +101,12 @@ import type * as tradesSync from "../tradesSync.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
+import type * as wire from "../wire.js";
+import type * as wireDetect from "../wireDetect.js";
+import type * as wireGenerate from "../wireGenerate.js";
+import type * as wireOverlay from "../wireOverlay.js";
+import type * as wireRoutine from "../wireRoutine.js";
+import type * as wireSourcesNode from "../wireSourcesNode.js";
 
 import type {
   ApiFromModules,
@@ -174,6 +181,7 @@ declare const fullApi: ApiFromModules<{
   "lib/teamClaims": typeof lib_teamClaims;
   "lib/tradesFromTransactions": typeof lib_tradesFromTransactions;
   "lib/weekOneGate": typeof lib_weekOneGate;
+  "lib/wireLeaguePosting": typeof lib_wireLeaguePosting;
   matchupRosters: typeof matchupRosters;
   matchups: typeof matchups;
   migrations: typeof migrations;
@@ -200,6 +208,12 @@ declare const fullApi: ApiFromModules<{
   transactions: typeof transactions;
   users: typeof users;
   validators: typeof validators;
+  wire: typeof wire;
+  wireDetect: typeof wireDetect;
+  wireGenerate: typeof wireGenerate;
+  wireOverlay: typeof wireOverlay;
+  wireRoutine: typeof wireRoutine;
+  wireSourcesNode: typeof wireSourcesNode;
 }>;
 
 /**

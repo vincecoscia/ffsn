@@ -1464,6 +1464,12 @@ async function updateContentStatusHandler(
     await ctx.scheduler.runAfter(0, internal.notifications.notifyArticlePublished, {
       articleId: args.articleId,
     });
+    // The Wire (ffsn-the-wire-spec.md §5.2/§8.2): a routine "new article" post, same silent-backfill
+    // exemption as the reader notification above - a quiet catch-up publish should not surface on
+    // the live feed either.
+    await ctx.scheduler.runAfter(0, internal.wireRoutine.onArticlePublished, {
+      articleId: args.articleId,
+    });
   }
 }
 

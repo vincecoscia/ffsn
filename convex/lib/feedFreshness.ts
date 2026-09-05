@@ -4,7 +4,14 @@
  * succeeded. Pure, so the thresholds are unit-tested.
  */
 
-export type FeedName = "sleeper_players" | "sleeper_trending" | "nflverse_injuries" | "ffc_adp" | "espn_news";
+export type FeedName =
+  | "sleeper_players"
+  | "sleeper_trending"
+  | "nflverse_injuries"
+  | "ffc_adp"
+  | "espn_news"
+  // The Wire (spec ffsn-the-wire-spec.md §11): ESPN's injuries poll, every 5 min in season.
+  | "espn_injuries";
 
 export interface FeedRun {
   source: FeedName;
@@ -20,6 +27,7 @@ const LABELS: Record<FeedName, string> = {
   nflverse_injuries: "nflverse injuries",
   ffc_adp: "FFC ADP",
   espn_news: "ESPN news",
+  espn_injuries: "ESPN injuries",
 };
 
 /** How old the last successful run may be before the feed counts as stale (ms). */
@@ -29,9 +37,17 @@ export const STALE_AFTER_MS: Record<FeedName, number> = {
   nflverse_injuries: 50 * 60 * 60 * 1000, // daily; 404s before the season count as failures
   ffc_adp: 50 * 60 * 60 * 1000, // daily
   espn_news: 6 * 60 * 60 * 1000, // hourly
+  espn_injuries: 2 * 60 * 60 * 1000, // polled every 5 min in season, 30 min otherwise (Wire spec §5.1/§6)
 };
 
-const ORDER: FeedName[] = ["sleeper_players", "sleeper_trending", "nflverse_injuries", "ffc_adp", "espn_news"];
+const ORDER: FeedName[] = [
+  "sleeper_players",
+  "sleeper_trending",
+  "nflverse_injuries",
+  "ffc_adp",
+  "espn_news",
+  "espn_injuries",
+];
 
 export function ago(ms: number): string {
   if (ms < 60 * 60 * 1000) return `${Math.max(1, Math.round(ms / 60000))}m ago`;

@@ -1373,6 +1373,10 @@ export default defineSchema({
     // (spec section 9.1) so a commissioner's own choices are never overwritten.
     preferencesTouchedAt: v.optional(v.number()),
 
+    // The Wire (ffsn-the-wire-spec.md §11 kill switches): commissioner toggle on the settings
+    // page. Absent means on - most leagues never touch this.
+    wireEnabled: v.optional(v.boolean()),
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2162,5 +2166,128 @@ export default defineSchema({
     .index("by_espn", ["espnId"])
     .index("by_sleeper", ["sleeperId"])
     .index("by_gsis", ["gsisId"]),
+
+  /* ------------------------------------------------------------------------ *
+   * The Wire (ffsn-the-wire-spec.md §4). A live, league-scoped feed of short
+   * posts reacting to NFL injuries, news, transactions and league events.
+   * `wireEvents` is the global, deduped fact log (one row per real-world
+   * event); `wirePosts` is the global tier-1 take/card; `wireLeaguePosts` is
+   * the per-league tier-2 overlay + tier-3 routine post; `wireSourceState` is
+   * the cursor + health row every poller keeps (mirrors `intelSyncRuns`, with
+   * a cursor). The fact card itself (`facts`) is validated by
+   * `src/lib/ai/wire/card.ts#validateFactCard`, not by this schema - it is
+   * `v.any()` here for the same reason `playerIntel`-adjacent blobs are: the
+   * card's shape is the pure prompt layer's contract, not the database's.
+   * ------------------------------------------------------------------------ */
+  wireEvents: defineTable({
+    kind: v.string(), // GlobalEventKind (src/lib/ai/wire/types.ts) - see that file for the full P1/P2 list
+    dedupeKey: v.string(), // e.g. "injury_status:3116389:Out"
+    observedAt: v.number(), // the source's own timestamp when it has one
+    detectedAt: v.number(),
+    players: v.array(
+      v.object({
+        espnId: v.string(),
+        name: v.string(),
+        position: v.optional(v.string()),
+        nflTeam: v.optional(v.string()),
+        percentOwned: v.optional(v.number()),
+        adpPositionRank: v.optional(v.number()),
+      })
+    ),
+    nflTeam: v.optional(v.string()),
+    facts: v.any(), // WireFactCard - validated by src/lib/ai/wire/card.ts#validateFactCard
+    interest: v.number(), // 0-100, spec §7
+    source: v.object({
+      type: v.string(), // WireSourceType (src/lib/ai/wire/types.ts)
+      id: v.optional(v.string()),
+      url: v.optional(v.string()),
+      fetchedAt: v.number(),
+    }),
+    // Set when a later event for the same player coalesces into an earlier
+    // one's post instead of creating a new one (spec §6 "Coalesce").
+    coalescedInto: v.optional(v.id("wireEvents")),
+    // The first card player's espnId, copied out of `players` so the per-player lookups
+    // (same-player penalty, coalesce target) are an indexed range instead of a window scan -
+    // the first dev poll read past Convex's 16 MB limit doing 100 such scans (2026-09-05).
+    primaryEspnId: v.optional(v.string()),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_detected", ["detectedAt"])
+    .index("by_kind_detected", ["kind", "detectedAt"])
+    .index("by_player_detected", ["primaryEspnId", "detectedAt"]),
+
+  wirePosts: defineTable({
+    // Global tier (spec §3.1): one post per event, patched in place when a
+    // pending take lands or a later event coalesces into this one.
+    eventId: v.id("wireEvents"),
+    kind: v.string(), // GlobalEventKind - carried here too so readers/digest never re-join wireEvents just for it
+    persona: v.string(), // WirePersona
+    text: v.string(), // the global take, or the plain card rendering while a take is pending/failed
+    tags: v.array(v.string()), // WireTag[]
+    variants: v.optional(
+      v.object({
+        owner: v.optional(v.string()),
+        opponent: v.optional(v.string()),
+        freeAgent: v.optional(v.string()),
+      })
+    ),
+    status: v.union(v.literal("card"), v.literal("take_pending"), v.literal("take"), v.literal("held")),
+    interest: v.number(),
+    generationStats: v.optional(
+      v.object({
+        costUsd: v.number(),
+        model: v.string(),
+        effort: v.string(),
+        batchId: v.optional(v.string()),
+        flags: v.array(v.string()),
+      })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_created", ["createdAt"])
+    .index("by_event", ["eventId"])
+    .index("by_status_created", ["status", "createdAt"]),
+
+  wireLeaguePosts: defineTable({
+    // League tier (spec §3.2/§3.3): overlays (globalPostId set) and routine
+    // posts (globalPostId absent), both filled with no model call.
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    week: v.optional(v.number()),
+    kind: v.string(), // WireEventKind
+    persona: v.string(),
+    text: v.string(),
+    tags: v.array(v.string()),
+    globalPostId: v.optional(v.id("wirePosts")), // set for overlays; the UI nests this under the global post
+    impact: v.optional(
+      v.object({
+        teamId: v.id("teams"),
+        variant: v.string(), // OverlayVariant ("owner" | "opponent" | "freeAgent")
+        slots: v.record(v.string(), v.string()),
+      })
+    ),
+    featuredTeams: v.array(v.id("teams")),
+    dedupeKey: v.string(),
+    generationStats: v.optional(
+      v.object({ costUsd: v.number(), model: v.string(), effort: v.string() })
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_league_created", ["leagueId", "createdAt"])
+    .index("by_league_dedupe", ["leagueId", "dedupeKey"])
+    .index("by_global_post", ["globalPostId"])
+    .index("by_global_post_league", ["globalPostId", "leagueId"]),
+
+  // One row per source: cursor + health, so a poll diffs instead of
+  // re-reading and a broken source shows up in the operator digest (spec §11).
+  wireSourceState: defineTable({
+    source: v.string(), // "espn_injuries" | "espn_news" | ...
+    cursor: v.optional(v.any()),
+    lastRunAt: v.number(),
+    ok: v.boolean(),
+    summary: v.string(),
+    error: v.optional(v.string()),
+  }).index("by_source", ["source"]),
 
 });

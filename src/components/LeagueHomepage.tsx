@@ -28,6 +28,7 @@ import { LeagueWeeklySection } from "./LeagueWeeklySection";
 import { ArticleList } from "./ArticleList";
 import { TeamLogo } from "./TeamLogo";
 import { LeagueSidebar } from "@/components/league/LeagueSidebar";
+import { WirePanel } from "@/components/wire";
 import { MyDeskRelationships } from "./MyDeskRelationships";
 import { WriterLineup } from "./WriterLineup";
 import { LeagueWaitingOnComment } from "./WaitingOnComment";
@@ -211,6 +212,9 @@ export function LeagueHomepage({ league, teams, teamClaims, currentUserId, isCom
 
         {/* Scoreboard */}
         <LeagueWeeklySection leagueId={league._id} teams={teams} seasonId={currentSeason} />
+
+        {/* The Wire — the live desk feed (spec deliverable #2). Renders nothing when empty/loading. */}
+        <WirePanel leagueId={league._id} />
 
         {/* League stories */}
         <div className="flex flex-col gap-5">
