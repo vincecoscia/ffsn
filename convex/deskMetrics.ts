@@ -17,6 +17,7 @@
  * comes back `null` rather than 0 — "we don't have that yet" is a different statement from "zero".
  */
 
+import { formatFeedFreshness, staleFeeds, type FeedRun } from "./lib/feedFreshness";
 import { v } from "convex/values";
 import {
   internalAction,
@@ -945,6 +946,13 @@ export const sendOperatorDigest = internalAction({
 
     const leagues = await ctx.runQuery(internal.leagues.listLeagues, {});
 
+    // The feeds behind PLAYER INTEL and the mock draft's ADP (2026-09-05): a feed that stopped is
+    // in the subject line, not buried.
+    const feedRuns: FeedRun[] = await ctx.runQuery(internal.intelSync.latestSyncRuns, {});
+    const latestNews = await ctx.runQuery(internal.espnNews.latestPublishedAt, {});
+    if (latestNews !== null) feedRuns.push({ source: "espn_news", ranAt: latestNews, ok: true });
+    const stale = staleFeeds(feedRuns, now);
+
     const lines: string[] = [];
     const totals = { published: 0, held: 0, failed: 0, deferred: 0, coveredUsd: 0 };
     let activeLeagues = 0;
@@ -977,13 +985,15 @@ export const sendOperatorDigest = internalAction({
     const window = `${new Date(since).toISOString()} → ${new Date(now).toISOString()}`;
     const subject =
       `FFSN desk digest: ${totals.published} published, ${totals.held} held, ` +
-      `${totals.failed} failed, ${totals.deferred} deferred`;
+      `${totals.failed} failed, ${totals.deferred} deferred` +
+      (stale.length > 0 ? ` - ${stale.length} feed(s) stale` : "");
 
     const body = [
       `Window: ${window}`,
       `Leagues: ${leagues.length} (${activeLeagues} with activity)`,
-      `Automated + interview spend across all leagues this season: $${totals.coveredUsd.toFixed(2)}`,
+      `Automated + interview spend across all leagues this season: ${totals.coveredUsd.toFixed(2)}`,
       `Season run-rate horizon: ${DIGEST_RUN_RATE_WEEKS} weeks`,
+      formatFeedFreshness(feedRuns, now),
       "",
       lines.length > 0 ? lines.join("\n\n") : "Nothing to report.",
     ].join("\n");

@@ -619,6 +619,8 @@ export interface LeagueDataContext {
     recentNews?: Array<{ headline: string; published: string }>;
     /** Fantasy Football Calculator ADP for the league's format (convex/intel.ts), when the feed has him. */
     ffcAdp?: number;
+    /** The board's season, when the feed fell back to another year's board. */
+    ffcSeason?: number;
     /** Sleeper trending adds over the last day. */
     trendingAdds?: number;
     /** A fresh feed's injury line, when one carries it (status, body part, the day it was fetched). */
@@ -699,7 +701,7 @@ export interface LeagueDataContext {
     };
     cleared?: { source: string; fetchedAt: number; espnStatus: string };
     depthChart?: { team?: string; position: string; order: number };
-    market?: { ffcAdp?: number; ffcPositionRank?: number; bye?: number; timesDrafted?: number; market?: string; trendingAdds?: number };
+    market?: { season?: number; ffcAdp?: number; ffcPositionRank?: number; bye?: number; timesDrafted?: number; market?: string; trendingAdds?: number };
     news: Array<{ headline: string; description?: string; publishedAt: string; url?: string }>;
   }>;
   memorableMoments?: Array<{
@@ -1388,7 +1390,7 @@ where the two ever disagree, <FACTS> wins.
         bits.push(injury);
       }
       if (entry.depthChart) bits.push('depth chart: ' + entry.depthChart.position + (entry.depthChart.order ? entry.depthChart.order : ''));
-      if (entry.market?.ffcAdp !== undefined) bits.push('FFC ADP ' + entry.market.ffcAdp);
+      if (entry.market?.ffcAdp !== undefined) bits.push('FFC ADP ' + entry.market.ffcAdp + (entry.market.season !== undefined && entry.market.season !== this.options.leagueData.currentSeason ? ' (' + entry.market.season + ' board)' : ''));
       if (entry.market?.trendingAdds) bits.push('trending: ' + entry.market.trendingAdds + ' adds');
       if (entry.news.length) bits.push('news: ' + entry.news.map(n => '"' + n.headline + '" (' + n.published + ')').join('; '));
       out += line + ' ' + bits.join(' · ') + '\n';
@@ -2994,7 +2996,7 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
         } else if (p.feedCleared) {
           line += ' · ' + p.feedCleared.source + ' as of ' + new Date(p.feedCleared.asOf).toISOString().slice(0, 10) + ': no injury listed';
         }
-        if (p.ffcAdp !== undefined) line += ' · FFC ADP ' + fmt1(p.ffcAdp);
+        if (p.ffcAdp !== undefined) line += ' · FFC ADP ' + fmt1(p.ffcAdp) + (p.ffcSeason !== undefined && p.ffcSeason !== data.currentSeason ? ' (' + p.ffcSeason + ' board)' : '');
         if (p.trendingAdds) line += ' · trending +' + p.trendingAdds + ' adds';
         if (p.bye) line += ' · bye ' + p.bye;
         if (p.recentNews && p.recentNews.length) line += ' · news: ' + p.recentNews.map(n => '"' + n.headline + '" (' + n.published + ')').join('; ');

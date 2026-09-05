@@ -725,6 +725,9 @@ interface FfcPlayer {
   bye?: number;
 }
 
+/** Next season's boards are fetched once ESPN has at least this many players in the new pool. */
+const NEXT_SEASON_POOL_MIN = 200;
+
 const ffcAdpUrl = (format: string, teams: number, season: number) =>
   `https://fantasyfootballcalculator.com/api/v1/adp/${format}?teams=${teams}&year=${season}`;
 
@@ -733,18 +736,27 @@ export const syncFfcAdp = internalAction({
   returns: v.object({
     success: v.boolean(),
     boards: v.array(
-      v.object({ market: v.string(), fetched: v.number(), matched: v.number(), unmatched: v.number(), error: v.optional(v.string()) }),
+      v.object({ market: v.string(), season: v.number(), fetched: v.number(), matched: v.number(), unmatched: v.number(), error: v.optional(v.string()) }),
     ),
     intel: v.object({ inserted: v.number(), updated: v.number(), touched: v.number() }),
   }),
   handler: async (ctx) => {
-    const season = nflSeasonYearFor();
-    const players: PlayersEnhancedForMatch = await ctx.runQuery(internal.intelSync.listPlayersEnhancedForSeason, { season });
+    const boards: Array<{ market: string; season: number; fetched: number; matched: number; unmatched: number; error?: string }> = [];
+    const allIntelRows: IntelUpsertRow[] = [];
+
+    // This season's boards, and next season's as soon as ESPN has opened the new player pool
+    // (the ids the boards are keyed to): a dynasty or best-ball league drafting in May reads the
+    // new year's ADP while the app's own season label (Aug->Jul) still says last year.
+    const thisSeason = nflSeasonYearFor();
+    const seasons = [thisSeason];
+    const nextPool: PlayersEnhancedForMatch = await ctx.runQuery(internal.intelSync.listPlayersEnhancedForSeason, { season: thisSeason + 1 });
+    if (nextPool.length >= NEXT_SEASON_POOL_MIN) seasons.push(thisSeason + 1);
+
+    for (const season of seasons) {
+    const players: PlayersEnhancedForMatch =
+      season === thisSeason ? await ctx.runQuery(internal.intelSync.listPlayersEnhancedForSeason, { season }) : nextPool;
     const espnRefs: EspnPlayerRef[] = players.map((p) => ({ espnId: p.espnId, fullName: p.fullName, position: p.position, team: p.team }));
     const matchIndex = buildEspnMatchIndex(espnRefs);
-
-    const boards: Array<{ market: string; fetched: number; matched: number; unmatched: number; error?: string }> = [];
-    const allIntelRows: IntelUpsertRow[] = [];
 
     for (const format of FFC_FORMATS) {
       for (const teams of FFC_TEAM_SIZES) {
@@ -752,7 +764,7 @@ export const syncFfcAdp = internalAction({
         try {
           const response = await fetchWithRetry(ffcAdpUrl(format, teams, season), { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
           if (!response.ok) {
-            boards.push({ market, fetched: 0, matched: 0, unmatched: 0, error: `HTTP ${response.status}` });
+            boards.push({ market, season, fetched: 0, matched: 0, unmatched: 0, error: `HTTP ${response.status}` });
             continue;
           }
           const body = (await response.json()) as { players?: FfcPlayer[] };
@@ -791,15 +803,16 @@ export const syncFfcAdp = internalAction({
             });
           }
 
-          boards.push({ market, fetched: ffcPlayers.length, matched, unmatched });
+          boards.push({ market, season, fetched: ffcPlayers.length, matched, unmatched });
           if (unmatched > 0) {
             console.warn(`syncFfcAdp: ${unmatched} unmatched name(s) on ${market} (of ${ffcPlayers.length})`);
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : "fetch failed";
-          boards.push({ market, fetched: 0, matched: 0, unmatched: 0, error: message });
+          boards.push({ market, season, fetched: 0, matched: 0, unmatched: 0, error: message });
         }
       }
+    }
     }
 
     let inserted = 0;
@@ -812,7 +825,8 @@ export const syncFfcAdp = internalAction({
       touched += result.touched;
     }
 
-    return { success: boards.every((b) => !b.error), boards, intel: { inserted, updated, touched } };
+    // Next season's boards may 404 for weeks after ESPN opens its pool; only this season decides success.
+    return { success: boards.filter((b) => b.season === thisSeason).every((b) => !b.error), boards, intel: { inserted, updated, touched } };
   },
 });
 
@@ -866,5 +880,106 @@ export const syncAllPlayerIntel = internalAction({
     }
 
     return result;
+  },
+});
+
+// --- Cron entry point with a run log ------------------------------------
+
+export const INTEL_SOURCES = ["sleeper_players", "sleeper_trending", "nflverse_injuries", "ffc_adp"] as const;
+export type IntelSyncSource = (typeof INTEL_SOURCES)[number];
+
+const syncRunSourceValidator = v.union(
+  v.literal("sleeper_players"),
+  v.literal("sleeper_trending"),
+  v.literal("nflverse_injuries"),
+  v.literal("ffc_adp"),
+);
+
+export const recordSyncRun = internalMutation({
+  args: { source: syncRunSourceValidator, ranAt: v.number(), ok: v.boolean(), summary: v.string(), error: v.optional(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("intelSyncRuns", args);
+    // Keep the log short: the digest reads the latest row per source, nothing reads history.
+    const old = await ctx.db
+      .query("intelSyncRuns")
+      .withIndex("by_source_ranAt", (q) => q.eq("source", args.source).lt("ranAt", args.ranAt - 14 * 24 * 60 * 60 * 1000))
+      .take(50);
+    for (const row of old) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+/** The latest run per source, for the operator digest (convex/lib/feedFreshness.ts). */
+export const latestSyncRuns = internalQuery({
+  args: {},
+  returns: v.array(
+    v.object({ source: syncRunSourceValidator, ranAt: v.number(), ok: v.boolean(), summary: v.string(), error: v.optional(v.string()) }),
+  ),
+  handler: async (ctx) => {
+    const out: Array<{ source: IntelSyncSource; ranAt: number; ok: boolean; summary: string; error?: string }> = [];
+    for (const source of INTEL_SOURCES) {
+      const row = await ctx.db
+        .query("intelSyncRuns")
+        .withIndex("by_source_ranAt", (q) => q.eq("source", source))
+        .order("desc")
+        .first();
+      if (row) out.push({ source: row.source, ranAt: row.ranAt, ok: row.ok, summary: row.summary, error: row.error });
+    }
+    return out;
+  },
+});
+
+/**
+ * What the crons call (2026-09-05): one feed per run, its outcome written to `intelSyncRuns` so
+ * a feed that silently stops (a moved URL, a schema change upstream) shows up in the next
+ * operator digest instead of going unnoticed until an article reads stale intel.
+ */
+export const runIntelSync = internalAction({
+  args: { source: syncRunSourceValidator },
+  returns: v.object({ ok: v.boolean(), summary: v.string() }),
+  handler: async (ctx, { source }): Promise<{ ok: boolean; summary: string }> => {
+    const ranAt = Date.now();
+    let ok = false;
+    let summary = "";
+    let error: string | undefined;
+    try {
+      switch (source) {
+        case "sleeper_players": {
+          const r = await ctx.runAction(internal.intelSync.syncSleeperPlayers, {});
+          ok = r.success;
+          error = "error" in r ? r.error : undefined;
+          summary = `${r.kept} players, ${r.intel.inserted + r.intel.updated} changed`;
+          break;
+        }
+        case "sleeper_trending": {
+          const r = await ctx.runAction(internal.intelSync.syncSleeperTrending, {});
+          ok = r.success;
+          summary = `${r.mapped} of ${r.fetched} trending mapped`;
+          break;
+        }
+        case "nflverse_injuries": {
+          const r = await ctx.runAction(internal.intelSync.syncNflverseInjuries, {});
+          ok = r.success;
+          error = "error" in r ? r.error : undefined;
+          summary = `${r.matched} players matched`;
+          break;
+        }
+        case "ffc_adp": {
+          const r = await ctx.runAction(internal.intelSync.syncFfcAdp, {});
+          ok = r.success;
+          const seasons = [...new Set(r.boards.filter((b) => !b.error).map((b) => b.season))].join("/");
+          const failed = r.boards.filter((b) => b.error).length;
+          summary = `${r.boards.length - failed} boards (${seasons || "none"}), ${r.intel.inserted + r.intel.updated} changed`;
+          error = failed > 0 ? `${failed} board(s) failed` : undefined;
+          break;
+        }
+      }
+    } catch (err) {
+      ok = false;
+      error = err instanceof Error ? err.message : String(err);
+    }
+    await ctx.runMutation(internal.intelSync.recordSyncRun, { source, ranAt, ok, summary, error });
+    return { ok, summary };
   },
 });

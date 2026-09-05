@@ -69,6 +69,8 @@ const depthChartValidator = v.object({
 });
 
 const marketValidator = v.object({
+  /** The season the board belongs to; differs from the article's season only on a fallback. */
+  season: v.optional(v.number()),
   ffcAdp: v.optional(v.number()),
   ffcPositionRank: v.optional(v.number()),
   bye: v.optional(v.number()),
@@ -157,7 +159,7 @@ export async function getIntelForPlayersImpl(
     const results: PlayerIntelEntry[] = [];
 
     for (const espnId of ids) {
-      const [intelDocs, playerDoc] = await Promise.all([
+      const [thisSeasonDocs, playerDoc] = await Promise.all([
         ctx.db
           .query("playerIntel")
           .withIndex("by_player_season", (q) => q.eq("espnId", espnId).eq("season", season))
@@ -168,9 +170,28 @@ export async function getIntelForPlayersImpl(
           .first(),
       ]);
 
+      // Season labels are bookkeeping (Aug->Jul on the sync side, ESPN's on the league side): a
+      // dynasty draft in May asks for next season while the feeds still stamp last season's
+      // label. Injury, practice, depth chart and trending are season-agnostic, so last season's
+      // rows stand in when this season has none (the freshness windows still apply, so nothing
+      // stale gets through); a market board falls back too, carrying its own season for the
+      // prompt to label.
+      let intelDocs = thisSeasonDocs;
+      const isMarket = (row: { kind: string }) => row.kind === "market";
+      const needAgnostic = !thisSeasonDocs.some((row) => !isMarket(row));
+      const needMarket = !thisSeasonDocs.some(isMarket);
+      if (needAgnostic || needMarket) {
+        const previous = await ctx.db
+          .query("playerIntel")
+          .withIndex("by_player_season", (q) => q.eq("espnId", espnId).eq("season", season - 1))
+          .collect();
+        intelDocs = [...thisSeasonDocs, ...previous.filter((row) => (isMarket(row) ? needMarket : needAgnostic))];
+      }
+
       const freshRows: FreshIntelRow[] = intelDocs.map((row) => ({
         source: row.source,
         kind: row.kind,
+        season: row.season,
         fetchedAt: row.fetchedAt,
         observedAt: row.observedAt,
         team: row.team,

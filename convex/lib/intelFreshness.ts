@@ -23,6 +23,8 @@ export type IntelKind = "injury" | "practice" | "depth_chart" | "market" | "tren
 export interface FreshIntelRow {
   source: IntelSource;
   kind: IntelKind;
+  /** The season label the sync stamped; read back so a fallback board can say which year it is. */
+  season?: number;
   fetchedAt: number;
   observedAt?: number;
   team?: string;
@@ -100,6 +102,7 @@ export interface FreshDepthChart {
 }
 
 export interface FreshMarket {
+  season?: number;
   ffcAdp?: number;
   ffcPositionRank?: number;
   bye?: number;
@@ -304,6 +307,7 @@ export function selectFreshIntel(
   let market: FreshMarket | undefined;
   if (chosenMarketRow || freshTrendingAdds !== undefined) {
     market = {
+      season: chosenMarketRow?.season,
       ffcAdp: chosenMarketRow?.adp,
       ffcPositionRank: chosenMarketRow?.adpPositionRank,
       bye: chosenMarketRow?.bye,

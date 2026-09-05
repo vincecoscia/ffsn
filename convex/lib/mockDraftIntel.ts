@@ -39,6 +39,8 @@ export interface PoolPlayer {
   recentNews?: Array<{ headline: string; published: string }>;
   /** Fantasy Football Calculator ADP for the league's format, when the feed has him. */
   ffcAdp?: number;
+  /** The season of that board, when it is not the pool's own (an offseason fallback). */
+  ffcSeason?: number;
   /** Sleeper trending adds over the last day, when he is on the list. */
   trendingAdds?: number;
   /** A fresh feed's injury line (convex/intel.ts), when a feed carries one. */
@@ -77,7 +79,7 @@ export interface IntelForPool {
   espnId: string;
   injury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; fetchedAt: number };
   cleared?: { source: string; fetchedAt: number };
-  market?: { ffcAdp?: number; trendingAdds?: number };
+  market?: { season?: number; ffcAdp?: number; trendingAdds?: number };
   news?: Array<{ headline: string; publishedAt: string }>;
 }
 
@@ -99,7 +101,10 @@ export function mergeIntelIntoPool(
     const entry = byId.get(player.playerId);
     if (!entry) return player;
     const next: PoolPlayer = { ...player };
-    if (entry.market?.ffcAdp !== undefined) next.ffcAdp = entry.market.ffcAdp;
+    if (entry.market?.ffcAdp !== undefined) {
+      next.ffcAdp = entry.market.ffcAdp;
+      if (entry.market.season !== undefined) next.ffcSeason = entry.market.season;
+    }
     if (entry.market?.trendingAdds !== undefined) next.trendingAdds = entry.market.trendingAdds;
     if (entry.injury) {
       next.intelInjury = {
