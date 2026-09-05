@@ -160,7 +160,34 @@ export interface FactsPlayer {
  */
 export interface FactsRoster {
   teamId: string;
-  players: Array<{ id: string; name: string; pos: string }>;
+  /** `injuryStatus` only when ESPN lists something other than ACTIVE (QUESTIONABLE, OUT, INJURY_RESERVE...). */
+  players: Array<{ id: string; name: string; pos: string; injuryStatus?: string }>;
+}
+
+/**
+ * One rostered (or pool) player's fresh intel from the feeds (convex/intel.ts, 2026-09-05):
+ * injury and practice status with the date it was observed, depth chart, market, and the last
+ * few ESPN headlines. Every date is a calendar day (YYYY-MM-DD) so the writer can say "as of".
+ */
+export interface FactsIntel {
+  id: string;
+  name: string;
+  pos?: string;
+  nflTeam?: string;
+  fantasyTeamId?: string;
+  injury?: {
+    status: string;
+    bodyPart?: string;
+    practice?: string;
+    notes?: string;
+    since?: string;
+    source: string;
+    asOf: string;
+    espnStatus?: string;
+  };
+  depthChart?: { team?: string; position: string; order: number };
+  market?: { ffcAdp?: number; ffcPositionRank?: number; trendingAdds?: number };
+  news: Array<{ headline: string; published: string }>;
 }
 
 export interface FactsMatchup {
@@ -355,6 +382,8 @@ export interface FactsBlock {
   matchups: FactsMatchup[];
   /** Full rosters (see FactsRoster); absent when the payload carries no team rosters. */
   rosters?: FactsRoster[];
+  /** Fresh feed intel for rostered / pool players (see FactsIntel). Absent when no feed has anything today. */
+  intel?: FactsIntel[];
   /** Games that have NOT been played, for `weekly_preview`. Empty for every other type. */
   upcoming: FactsUpcoming[];
   /** The playoff picture and bracket (see FactsPlayoffs); absent when the payload carries none. */
@@ -404,6 +433,61 @@ export interface FactsBlock {
     adpDelta?: number;
     projected?: number;
   }>;
+  /**
+   * The mock-draft pool (owner ask, 2026-09-05): the players a mock draft may name, with the ADP
+   * a reach or value call must quote. Absent for every other content type.
+   */
+  draftPool?: Array<{
+    id: string;
+    name: string;
+    pos: string;
+    nflTeam?: string;
+    adp: number;
+    adpPositionRank?: number;
+    injuryStatus?: string;
+    bye?: number;
+    projected?: number;
+    /** ESPN's season outlook, verbatim, for the top of the pool: the only history a mock draft may quote. */
+    outlook?: string;
+  }>;
+  /**
+   * The rest of what a mock draft may state (2026-09-05): the format, the draft order and last
+   * year's draft per manager. The editor reads only <FACTS>, so a habit line ("waited until round
+   * 12 for a quarterback") has to be here or it scores as invented. Absent for every other type.
+   */
+  mockDraft?: {
+    draftType?: string;
+    leagueType?: string;
+    teamCount: number;
+    rounds?: number;
+    previousSeason?: number;
+    order: Array<{ slot: number; teamId: string; team: string; manager?: string }>;
+    lastYear: Array<{
+      teamId: string;
+      team: string;
+      manager?: string;
+      slot?: number;
+      record?: string;
+      rank?: number;
+      firstThree: string[];
+      positionalStart?: string;
+      firstQbRound?: number;
+      firstTeRound?: number;
+      biggestReach?: { player: string; pos: string; pick: number; adp: number; spotsEarly: number };
+      bestValue?: { player: string; pos: string; pick: number; adp: number; spotsLate: number };
+      positionCounts: Record<string, number>;
+    }>;
+    injuryWatch: Array<{
+      id: string;
+      name: string;
+      pos: string;
+      nflTeam?: string;
+      adp: number;
+      injuryStatus: string;
+      latestHeadline?: string;
+      published?: string;
+    }>;
+  };
   quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string }>;
   nonRespondents: Array<{ speaker: string; teamId: string; status: "no_response" | "declined" }>;
   relationships: Array<{
@@ -1231,9 +1315,12 @@ function buildRosters(data: LeagueDataContext, teams: TeamIndex): FactsRoster[] 
         const id = str(p.playerId) ?? str(p.espnId);
         const name = str(p.playerName) ?? str(p.fullName);
         if (!id || !name) return undefined;
-        return { id: `P${id}`, name, pos: str(p.position) ?? "FLEX" };
+        const status = str(p.injuryStatus);
+        const entry: FactsRoster["players"][number] = { id: `P${id}`, name, pos: str(p.position) ?? "FLEX" };
+        if (status && status.toUpperCase() !== "ACTIVE") entry.injuryStatus = status;
+        return entry;
       })
-      .filter((player): player is { id: string; name: string; pos: string } => player !== undefined);
+      .filter((player): player is FactsRoster["players"][number] => player !== undefined);
     if (players.length > 0) rosters.push({ teamId, players });
   }
   return rosters;
@@ -1365,6 +1452,174 @@ export function buildBoard(data: LeagueDataContext, teams: TeamIndex): FactsBoar
   };
 }
 
+/**
+ * The mock-draft pool as FACTS (owner ask, 2026-09-05): ids, names and the ADP every reach or
+ * value call must quote, so the verifier knows the names and the numbers. Undefined when the
+ * payload carries no pool (every content type but the mock draft).
+ */
+export function buildDraftPoolFacts(data: LeagueDataContext): FactsBlock["draftPool"] {
+  const pool = data.availablePlayers;
+  if (!pool || pool.length === 0) return undefined;
+  const entries = pool
+    .map(player => {
+      const adp = num(player.adp) ?? num(player.ownership?.averageDraftPosition);
+      if (adp === undefined || adp <= 0) return undefined;
+      return {
+        id: `P${player.playerId}`,
+        name: player.playerName,
+        pos: (player.position || "FLEX").toUpperCase(),
+        nflTeam: str(player.nflTeam) ?? str(player.proTeam) ?? str(player.team),
+        adp: round1(adp),
+        adpPositionRank: num(player.adpPositionRank),
+        injuryStatus: player.injuryStatus && player.injuryStatus !== "ACTIVE" ? player.injuryStatus : undefined,
+        bye: num(player.bye),
+        projected: player.projectedStats ? round1(player.projectedStats.projectedTotal) : undefined,
+        // Verbatim, so a stat Mel repeats from it ("fell to 3.40 yards per carry") is checkable.
+        outlook: player.seasonOutlook && player.seasonOutlook.trim().length > 0 ? player.seasonOutlook.trim() : undefined,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+  return entries.length > 0 ? entries : undefined;
+}
+
+/**
+ * The mock-draft frame as FACTS (2026-09-05): format, draft order, last year's draft per manager
+ * and the injury watch, so the editor and the eval judge can settle "GLORY ASSHOLE waited until
+ * round 12 for a quarterback" the way they settle a score. Undefined when the payload carries no
+ * draft order and no tendencies (every content type but the mock draft).
+ */
+export function buildMockDraftFacts(data: LeagueDataContext, teams: TeamIndex): FactsBlock["mockDraft"] {
+  const order = data.draftOrder ?? [];
+  const tendencies = data.draftTendencies ?? [];
+  const watch = data.injuryWatch ?? [];
+  if (order.length === 0 && tendencies.length === 0) return undefined;
+  const resolve = (teamId: string, teamName: string) => teams.resolve(teamId, teamName) ?? teamId;
+  return {
+    draftType: str(data.draftType),
+    leagueType: str(data.leagueType),
+    teamCount: data.teams.length,
+    rounds: num(asLoose(data.draftSettings ?? {}).rounds),
+    previousSeason: num(data.previousSeason),
+    order: order.map(pick => ({
+      slot: pick.position,
+      teamId: resolve(pick.teamId, pick.teamName),
+      team: pick.teamName,
+      manager: str(pick.manager),
+    })),
+    lastYear: tendencies.map(t => ({
+      teamId: resolve(t.teamId, t.teamName),
+      team: t.teamName,
+      manager: str(t.manager),
+      slot: num(t.draftSlot),
+      record: str(t.lastSeasonRecord),
+      rank: num(t.lastSeasonRank),
+      firstThree: t.firstThree,
+      positionalStart: str(t.positionalStart),
+      firstQbRound: num(t.firstQbRound),
+      firstTeRound: num(t.firstTeRound),
+      biggestReach: t.biggestReach
+        ? { player: t.biggestReach.player, pos: t.biggestReach.pos, pick: t.biggestReach.pick, adp: round1(t.biggestReach.adp), spotsEarly: round1(t.biggestReach.delta) }
+        : undefined,
+      bestValue: t.bestValue
+        ? { player: t.bestValue.player, pos: t.bestValue.pos, pick: t.bestValue.pick, adp: round1(t.bestValue.adp), spotsLate: round1(Math.abs(t.bestValue.delta)) }
+        : undefined,
+      positionCounts: t.positionCounts,
+    })),
+    injuryWatch: watch.map(w => ({
+      id: `P${w.playerId}`,
+      name: w.playerName,
+      pos: w.position,
+      nflTeam: str(w.proTeam),
+      adp: round1(w.adp),
+      injuryStatus: w.injuryStatus,
+      latestHeadline: w.latestHeadline?.headline,
+      published: w.latestHeadline?.published,
+    })),
+  };
+}
+
+/** A feed timestamp as the calendar day the writer may print ("as of 2026-09-04"). */
+function isoDay(value: unknown): string | undefined {
+  const ms = typeof value === "number" ? value : typeof value === "string" ? Date.parse(value) : NaN;
+  if (!Number.isFinite(ms)) return undefined;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * The INTEL facts (2026-09-05): what the fresh feeds say about the players in this article, keyed
+ * by the same P<espnId> as the rosters and the draft pool, with the fantasy team each one sits on
+ * so a writer can say whose problem a Questionable is. Undefined when no feed carried anything.
+ */
+export function buildIntelFacts(
+  data: LeagueDataContext,
+  rosters: FactsRoster[],
+  pool: FactsBlock["draftPool"]
+): FactsIntel[] | undefined {
+  const entries = data.playerIntel ?? [];
+  if (entries.length === 0) return undefined;
+  const rosterById = new Map<string, { name: string; pos: string; teamId: string }>();
+  for (const roster of rosters) {
+    for (const player of roster.players) rosterById.set(player.id, { name: player.name, pos: player.pos, teamId: roster.teamId });
+  }
+  // The NFL club comes off the payload's roster rows; the FACTS roster keeps only id/name/pos.
+  const nflTeamById = new Map<string, string>();
+  for (const team of data.teams ?? []) {
+    for (const player of team.roster ?? []) {
+      const p = asLoose(player);
+      const id = str(p.playerId) ?? str(p.espnId);
+      const club = str(p.nflTeam) ?? str(p.proTeam) ?? str(p.team);
+      if (id && club) nflTeamById.set(`P${id}`, club);
+    }
+  }
+  const poolById = new Map((pool ?? []).map(player => [player.id, player]));
+  const out: FactsIntel[] = [];
+  for (const entry of entries) {
+    const id = `P${entry.espnId}`;
+    const rostered = rosterById.get(id);
+    const pooled = poolById.get(id);
+    const name = str(entry.name) ?? rostered?.name ?? pooled?.name;
+    if (!name) continue;
+    const news = (entry.news ?? [])
+      .map(item => ({ headline: item.headline, published: isoDay(item.publishedAt) ?? item.publishedAt }))
+      .slice(0, 3);
+    const injury = entry.injury
+      ? {
+          status: entry.injury.status,
+          bodyPart: str(entry.injury.bodyPart),
+          practice: str(entry.injury.practice),
+          notes: str(entry.injury.notes),
+          since: isoDay(entry.injury.since),
+          source: entry.injury.source,
+          asOf: isoDay(entry.injury.fetchedAt) ?? "",
+          espnStatus: str(entry.injury.espnStatus),
+        }
+      : undefined;
+    const market = entry.market
+      ? {
+          ffcAdp: num(entry.market.ffcAdp),
+          ffcPositionRank: num(entry.market.ffcPositionRank),
+          trendingAdds: num(entry.market.trendingAdds),
+        }
+      : undefined;
+    const hasMarket = market && (market.ffcAdp !== undefined || market.trendingAdds !== undefined);
+    if (!injury && !entry.depthChart && !hasMarket && news.length === 0) continue;
+    out.push({
+      id,
+      name,
+      pos: rostered?.pos ?? pooled?.pos,
+      nflTeam: nflTeamById.get(id) ?? pooled?.nflTeam ?? str(entry.depthChart?.team),
+      fantasyTeamId: rostered?.teamId,
+      injury,
+      depthChart: entry.depthChart
+        ? { team: str(entry.depthChart.team), position: entry.depthChart.position, order: entry.depthChart.order }
+        : undefined,
+      market: hasMarket ? market : undefined,
+      news,
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const data = req.leagueData;
   const teams = new TeamIndex(data);
@@ -1476,6 +1731,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const board = buildBoard(data, teams);
 
   const missing = computeMissingRequiredData(req.contentType, data);
+  const draftPool = buildDraftPoolFacts(data);
   // Before kickoff every record is a blank and every standing is alphabetical; a writer handed
   // them anyway wrote "0-0 Halyard Bay leads the league". The board is the material instead.
   if (board?.basis === "this week's projections") {
@@ -1537,6 +1793,12 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     data.leagueHistory?.seasons?.[data.leagueHistory.seasons.length - 1]?.year ??
     new Date().getFullYear();
 
+  // The feeds had nothing (or the sync has not run): the writer must not describe an injury, a
+  // practice report or a news item the rosters and the pool do not carry.
+  if (!data.playerIntel || data.playerIntel.length === 0) {
+    missing.push("intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool");
+  }
+
   return {
     schema: "ffsn.facts.v1",
     league: {
@@ -1558,6 +1820,9 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     transactions,
     trades,
     draftPicks: draftPicks.length > 0 ? draftPicks : undefined,
+    draftPool,
+    mockDraft: buildMockDraftFacts(data, teams),
+    intel: buildIntelFacts(data, rosters, draftPool),
     quotes,
     nonRespondents,
     relationships,

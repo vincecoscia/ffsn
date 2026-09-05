@@ -110,6 +110,12 @@ export const prepareAIContentData = internalAction({
           leagueType: mockDraftData.leagueType,
           availablePlayers: mockDraftData.availablePlayers,
           playerCount: mockDraftData.playerCount,
+          // Receipts for the mock draft (owner ask, 2026-09-05): last year's draft per manager,
+          // the injury watch and the season those tendencies come from.
+          draftTendencies: mockDraftData.draftTendencies,
+          injuryWatch: mockDraftData.injuryWatch,
+          previousSeason: mockDraftData.previousSeason,
+          playerIntel: mockDraftData.playerIntel,
           metadata: mockDraftData.metadata,
           // Empty arrays for non-draft content
           recentMatchups: [],

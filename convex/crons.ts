@@ -153,4 +153,42 @@ crons.daily(
   {},
 );
 
+// --- Player intelligence layer (Sept 2026) -----------------------------
+//
+// Fresh injury/practice/depth-chart/market color for AI sportswriters, kept
+// on each feed's own natural cadence rather than one combined job - see
+// `convex/intelSync.ts` for why each sync is idempotent and safe to rerun,
+// and `convex/intel.ts` for how staleness is judged on read. (`syncAllPlayerIntel`
+// also exists as a single manually-invokable entry point that runs all four
+// in sequence; it is intentionally not cron-wired since the four feeds don't
+// share a cadence.) Uses `crons.cron`/`crons.interval` (not `crons.daily`),
+// per this repo's current Convex guidelines.
+crons.cron(
+  "sync Sleeper players (player intel)",
+  "30 10 * * *",
+  internal.intelSync.syncSleeperPlayers,
+  {},
+);
+
+crons.interval(
+  "sync Sleeper trending adds (player intel)",
+  { hours: 6 },
+  internal.intelSync.syncSleeperTrending,
+  {},
+);
+
+crons.cron(
+  "sync nflverse injuries (player intel)",
+  "0 11 * * *",
+  internal.intelSync.syncNflverseInjuries,
+  {},
+);
+
+crons.cron(
+  "sync FFC ADP (player intel)",
+  "0 12 * * *",
+  internal.intelSync.syncFfcAdp,
+  {},
+);
+
 export default crons;

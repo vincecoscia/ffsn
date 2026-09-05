@@ -603,6 +603,19 @@ export interface LeagueDataContext {
     injured?: boolean;
     injuryStatus?: string;
     seasonOutlook?: string;
+    /** ESPN ADP and the ranks the mock draft pool carries (convex/lib/mockDraftIntel.ts). */
+    adp?: number;
+    adpPositionRank?: number;
+    adpRank?: number;
+    bye?: number;
+    nflTeam?: string;
+    recentNews?: Array<{ headline: string; published: string }>;
+    /** Fantasy Football Calculator ADP for the league's format (convex/intel.ts), when the feed has him. */
+    ffcAdp?: number;
+    /** Sleeper trending adds over the last day. */
+    trendingAdds?: number;
+    /** A fresh feed's injury line, when one carries it (status, body part, the day it was fetched). */
+    intelInjury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; asOf: number };
     recentStats?: { avgPoints: number; trend: string; };
     upcomingSchedule?: Array<{ week: number; opponent: string; difficulty: "easy" | "medium" | "hard"; }>;
     projectedStats?: {
@@ -628,6 +641,56 @@ export interface LeagueDataContext {
   }>;
   draftType?: string; // "Snake", "Auction", "Manual"
   leagueType?: string; // "Dynasty", "Keeper", "Redraft"
+  /** Last year's draft per manager, the receipts behind a mock-draft take (convex/lib/mockDraftIntel.ts). */
+  draftTendencies?: Array<{
+    teamId: string;
+    teamName: string;
+    manager: string;
+    draftSlot?: number;
+    lastSeasonRecord?: string;
+    lastSeasonRank?: number;
+    firstThree: string[];
+    positionalStart: string;
+    firstQbRound?: number;
+    firstTeRound?: number;
+    biggestReach?: { player: string; pos: string; pick: number; adp: number; delta: number };
+    bestValue?: { player: string; pos: string; pick: number; adp: number; delta: number };
+    positionCounts: Record<string, number>;
+  }>;
+  /** High-profile pool players ESPN does not list ACTIVE today, with their latest headline. */
+  injuryWatch?: Array<{
+    playerId: string;
+    playerName: string;
+    position: string;
+    proTeam: string;
+    adp: number;
+    injuryStatus: string;
+    latestHeadline?: { headline: string; published: string };
+  }>;
+  /** The season the tendencies come from. */
+  previousSeason?: number;
+  /**
+   * Fresh feed intel per player (convex/intel.ts, 2026-09-05): injury / practice with the day it
+   * was observed, depth chart, market, last headlines. Present for every content type in live
+   * mode; facts.ts turns it into the INTEL facts and this builder prints PLAYER INTEL from those.
+   */
+  playerIntel?: Array<{
+    espnId: string;
+    name?: string;
+    injury?: {
+      status: string;
+      bodyPart?: string;
+      practice?: string;
+      notes?: string;
+      since?: number;
+      source: string;
+      fetchedAt: number;
+      espnStatus?: string;
+    };
+    depthChart?: { team?: string; position: string; order: number };
+    market?: { ffcAdp?: number; ffcPositionRank?: number; bye?: number; timesDrafted?: number; market?: string; trendingAdds?: number };
+    news: Array<{ headline: string; description?: string; publishedAt: string; url?: string }>;
+  }>;
   memorableMoments?: Array<{
     seasonId: number;
     type: string;
@@ -1246,6 +1309,9 @@ where the two ever disagree, <FACTS> wins.
 
     prompt += `\n${this.addContentSpecificData(leagueData)}`;
 
+    const intelBlock = this.buildPlayerIntelBlock();
+    if (intelBlock) prompt += `\n${intelBlock}\n`;
+
     if (customContext) {
       prompt += `\nADDITIONAL CONTEXT FROM THE COMMISSIONER:\n${customContext}\n`;
     }
@@ -1264,9 +1330,54 @@ where the two ever disagree, <FACTS> wins.
   benchImpact. Bench players without benchImpact are not part of the story.
 - Every number you print must be in <FACTS>, or a sum or difference of two numbers that are, with
   both inputs shown.
+- Injuries, practice reports, depth-chart moves and news: only what PLAYER INTEL (the intel entries
+  in <FACTS>) or a roster's injuryStatus carries, with its date. No return timelines, no diagnosis
+  beyond the printed body part, no "expected back" that is not printed. If the intel is listed as
+  missing, the roster status is the whole injury story.
 - If a section has thin material, write less. Padding is the failure mode this desk cares about.`;
 
     return prompt;
+  }
+
+  /**
+   * PLAYER INTEL (2026-09-05): the fresh feeds, rendered from the INTEL facts so the prose and
+   * <FACTS> agree to the day. Injuries first, then news-only players; capped so a 14-team league
+   * does not print 200 lines, with the rest left in <FACTS> for lookup by id.
+   */
+  private buildPlayerIntelBlock(): string | null {
+    const intel = this.facts.intel;
+    if (!intel || intel.length === 0) return null;
+    const teamName = new Map(this.facts.teams.map(team => [team.id, team.name]));
+    const weight = (entry: NonNullable<FactsBlock["intel"]>[number]) =>
+      (entry.injury ? 100 : 0) + (entry.depthChart ? 5 : 0) + entry.news.length * 10 + (entry.market?.trendingAdds ? 3 : 0);
+    const ranked = [...intel].sort((a, b) => weight(b) - weight(a));
+    const CAP = 30;
+    const shown = ranked.slice(0, CAP);
+    let out = 'PLAYER INTEL (fresh feeds, each line dated; nothing here is older than its date says):\n';
+    for (const entry of shown) {
+      const where = [entry.pos, entry.nflTeam].filter(Boolean).join(', ');
+      const owner = entry.fantasyTeamId ? teamName.get(entry.fantasyTeamId) : undefined;
+      const line = '- ' + entry.name + (where ? ' (' + where + ')' : '') + (owner ? ' on ' + owner : '') + ':';
+      const bits: string[] = [];
+      if (entry.injury) {
+        let injury = entry.injury.status.toUpperCase().replace(/_/g, ' ');
+        if (entry.injury.bodyPart) injury += ' (' + entry.injury.bodyPart + ')';
+        if (entry.injury.since) injury += ' since ' + entry.injury.since;
+        if (entry.injury.practice) injury += ', practice: ' + entry.injury.practice;
+        injury += ' - ' + entry.injury.source + ' as of ' + entry.injury.asOf;
+        if (entry.injury.espnStatus && entry.injury.espnStatus.toUpperCase() !== entry.injury.status.toUpperCase()) {
+          injury += ' (ESPN still lists ' + entry.injury.espnStatus.replace(/_/g, ' ') + ')';
+        }
+        bits.push(injury);
+      }
+      if (entry.depthChart) bits.push('depth chart: ' + entry.depthChart.position + (entry.depthChart.order ? entry.depthChart.order : ''));
+      if (entry.market?.ffcAdp !== undefined) bits.push('FFC ADP ' + entry.market.ffcAdp);
+      if (entry.market?.trendingAdds) bits.push('trending: ' + entry.market.trendingAdds + ' adds');
+      if (entry.news.length) bits.push('news: ' + entry.news.map(n => '"' + n.headline + '" (' + n.published + ')').join('; '));
+      out += line + ' ' + bits.join(' · ') + '\n';
+    }
+    if (ranked.length > CAP) out += '- ...and ' + (ranked.length - CAP) + ' more in <FACTS> intel, by player id.\n';
+    return out;
   }
 
   private addContentSpecificData(data: LeagueDataContext): string {
@@ -2794,10 +2905,6 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
   }
 
   private buildMockDraftData(data: LeagueDataContext): string {
-    console.log("=== buildMockDraftData START (OPTIMIZED) ===");
-    console.log("Draft order available:", !!data.draftOrder);
-    console.log("Available players:", data.availablePlayers?.length || 0);
-
     // A mock draft is a prediction over the available-player pool. Without the pool the model
     // has nothing to draft from; measured 2026-09-02, it wrote a one-section stub and stopped.
     // Refuse up front so the scheduler defers (and re-syncs) instead of publishing a stub.
@@ -2805,116 +2912,99 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
       throw new InsufficientDataError('mock_draft', ['available_players (ESPN free-agent pool)']);
     }
 
-    let mockDraftData = `MOCK DRAFT INFORMATION:\n\n`;
-    
-    // Compact League Settings
-    mockDraftData += `LEAGUE SETTINGS:\n`;
-    mockDraftData += `- ${data.leagueType || 'Redraft'} | ${data.draftType || 'Snake'}\n`;
-    mockDraftData += `- ${data.teams.length} teams | ${data.rosterSize || 16} roster spots\n`;
-    mockDraftData += this.formatLines(['scoring', 'roster']);
-    mockDraftData += '\n';
-    
-    // Draft Order (compact format)
+    const teamCount = data.totalTeams || data.teams.length;
+    const rosterSize = data.rosterSize || 16;
+    const rounds = rosterSize;
+    const fmt1 = (n: number | undefined) => (n === undefined ? '' : Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+    let out = 'MOCK DRAFT INFORMATION:\n\n';
+
+    // The format, spelled out: the draft type, the league type and the team count decide what a
+    // sane pick even is (owner ask, 2026-09-05).
+    out += this.formatLines(['scoring', 'roster']);
+    out += '- ' + (data.leagueType || 'Redraft') + ' league, ' + (data.draftType || 'Snake') + ' draft, ' + teamCount + ' teams, ' + rosterSize + ' roster spots (' + rounds + ' rounds, ' + teamCount * rounds + ' picks)\n';
+    if (data.draftType === 'Snake') {
+      out += '- Snake: the order reverses every round. Slot 1 picks 1 and ' + teamCount * 2 + '; slot ' + teamCount + ' picks ' + teamCount + ' and ' + (teamCount + 1) + ' back to back (the turn).\n';
+    }
+    out += '\n';
+
     if (data.draftOrder && data.draftOrder.length > 0) {
-      mockDraftData += `DRAFT ORDER:\n`;
-      const orderList = data.draftOrder
-        .slice(0, 12) // Limit to 12 teams max
-        .map(pick => `${pick.position}. ${pick.teamName}`)
-        .join(' | ');
-      mockDraftData += `${orderList}\n\n`;
+      out += 'DRAFT ORDER (round 1):\n';
+      out += data.draftOrder.map(pick => pick.position + '. ' + pick.teamName + (pick.manager ? ' (' + pick.manager + ')' : '')).join(' | ') + '\n\n';
     }
-    
-    // Enhanced player pool presentation with outlook and projections
-    if (data.availablePlayers && data.availablePlayers.length > 0) {
-      mockDraftData += `TOP 50 DRAFT-ELIGIBLE PLAYERS:\n\n`;
-      
-      // Group players by position
-      const playersByPosition = data.availablePlayers.reduce((acc: Record<string, typeof data.availablePlayers>, player: typeof data.availablePlayers[0]) => {
-        const pos = player.position || 'UNKNOWN';
-        if (!acc[pos]) acc[pos] = [];
-        acc[pos].push(player);
-        return acc;
-      }, {} as Record<string, typeof data.availablePlayers>);
-      
-      // Show top players by position with enhanced data
-      const positions = ['QB', 'RB', 'WR', 'TE'];
-      positions.forEach(pos => {
-        if (playersByPosition[pos] && playersByPosition[pos].length > 0) {
-          mockDraftData += `\n${pos}s:\n`;
-          const topPlayers = playersByPosition[pos]
-            .slice(0, pos === 'QB' || pos === 'TE' ? 8 : 15); // More players shown
-          
-          topPlayers.forEach((p, idx) => {
-            mockDraftData += `${idx + 1}. ${p.playerName} (${p.proTeam})`;
-            
-            // Add projected stats if available
-            if (p.projectedStats) {
-              mockDraftData += ` - Proj: ${p.projectedStats.projectedTotal.toFixed(0)} pts (${p.projectedStats.projectedAverage.toFixed(1)} ppg)`;
-            }
-            
-            // Add outlook if available (truncate if too long)
-            if (p.seasonOutlook && p.seasonOutlook.length > 0) {
-              const outlook = p.seasonOutlook.length > 250 
-                ? p.seasonOutlook.substring(0, 250) + '...' 
-                : p.seasonOutlook;
-              mockDraftData += `\n   Outlook: ${outlook}`;
-            }
-            
-            mockDraftData += '\n';
-          });
+
+    // Last year's draft, per manager: the receipts. A hot take about a manager should be pinned
+    // to one of these lines.
+    if (data.draftTendencies && data.draftTendencies.length > 0) {
+      out += 'HOW EACH MANAGER DRAFTED LAST YEAR' + (data.previousSeason ? ' (' + data.previousSeason + ')' : '') + ':\n';
+      for (const t of data.draftTendencies) {
+        const bits: string[] = [];
+        if (t.lastSeasonRecord) bits.push('finished ' + t.lastSeasonRecord + (t.lastSeasonRank ? ' (' + ordinal(t.lastSeasonRank) + ')' : ''));
+        if (t.firstThree.length) bits.push('opened ' + t.positionalStart + ': ' + t.firstThree.join(', '));
+        if (t.firstQbRound) bits.push('first QB in round ' + t.firstQbRound);
+        if (t.firstTeRound) bits.push('first TE in round ' + t.firstTeRound);
+        if (t.biggestReach) bits.push('biggest reach: ' + t.biggestReach.player + ' (' + t.biggestReach.pos + ') at pick ' + t.biggestReach.pick + ', ADP ' + fmt1(t.biggestReach.adp) + ' (' + fmt1(t.biggestReach.delta) + ' spots early)');
+        if (t.bestValue) bits.push('best value: ' + t.bestValue.player + ' (' + t.bestValue.pos + ') at pick ' + t.bestValue.pick + ', ADP ' + fmt1(t.bestValue.adp) + ' (' + fmt1(Math.abs(t.bestValue.delta)) + ' spots late)');
+        const counts = Object.entries(t.positionCounts).sort(([, a], [, b]) => b - a).map(([pos, n]) => n + ' ' + pos).join(', ');
+        if (counts) bits.push('took ' + counts);
+        out += '- ' + t.teamName + ' (' + t.manager + (t.draftSlot ? ', slot ' + t.draftSlot + ' this year' : '') + '): ' + bits.join('; ') + '\n';
+      }
+      out += '\n';
+    }
+
+    // The pool, by position, with every number a take can be pinned to.
+    const pool = data.availablePlayers;
+    const byPosition = new Map<string, typeof pool>();
+    for (const p of pool) {
+      const pos = (p.position || 'FLEX').toUpperCase();
+      byPosition.set(pos, [...(byPosition.get(pos) ?? []), p]);
+    }
+    const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DST', 'D/ST', 'DEF'];
+    const positions = [...byPosition.keys()].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+    out += 'DRAFT POOL - the top ' + pool.length + ' players by ESPN ADP. Every player you name must come from this list, and every reach or value call must quote the ADP printed here.\n';
+    out += 'Line format: ADP <overall> · <pos><rank at position> · Name (NFL team) · proj <season total> pts [· status] [· news]\n';
+    for (const pos of positions) {
+      const players = [...(byPosition.get(pos) ?? [])].sort((a, b) => (a.adp ?? a.ownership?.averageDraftPosition ?? 999) - (b.adp ?? b.ownership?.averageDraftPosition ?? 999));
+      out += '\n' + pos + ' (' + players.length + ' in pool):\n';
+      for (const p of players) {
+        const adp = p.adp ?? p.ownership?.averageDraftPosition;
+        const rank = p.adpPositionRank ? pos + p.adpPositionRank : pos;
+        let line = 'ADP ' + fmt1(adp) + ' · ' + rank + ' · ' + p.playerName + ' (' + (p.proTeam || p.nflTeam || p.team || 'FA') + ')';
+        if (p.projectedStats) line += ' · proj ' + p.projectedStats.projectedTotal.toFixed(0) + ' pts (' + p.projectedStats.projectedAverage.toFixed(1) + ' ppg)';
+        if (p.injuryStatus && p.injuryStatus !== 'ACTIVE') line += ' · STATUS: ' + p.injuryStatus.replace(/_/g, ' ');
+        if (p.intelInjury && p.intelInjury.status.toUpperCase() !== 'ACTIVE') {
+          line += ' · feed: ' + p.intelInjury.status.toUpperCase().replace(/_/g, ' ') + (p.intelInjury.bodyPart ? ' (' + p.intelInjury.bodyPart + ')' : '') + ' as of ' + new Date(p.intelInjury.asOf).toISOString().slice(0, 10);
         }
-      });
-      mockDraftData += '\n';
+        if (p.ffcAdp !== undefined) line += ' · FFC ADP ' + fmt1(p.ffcAdp);
+        if (p.trendingAdds) line += ' · trending +' + p.trendingAdds + ' adds';
+        if (p.bye) line += ' · bye ' + p.bye;
+        if (p.recentNews && p.recentNews.length) line += ' · news: ' + p.recentNews.map(n => '"' + n.headline + '" (' + n.published + ')').join('; ');
+        if (p.seasonOutlook && p.seasonOutlook.length > 0) line += ' · outlook in <FACTS> draftPool P' + p.playerId;
+        out += line + '\n';
+      }
     }
-    
-    // OPTIMIZED: Simplified team list
-    if (data.teams && data.teams.length > 0) {
-      mockDraftData += `DRAFT POSITIONS:\n`;
-      const teamList = data.teams
-        .filter(team => team.draftPosition && team.draftPosition > 0)
-        .sort((a, b) => (a.draftPosition || 0) - (b.draftPosition || 0))
-        .slice(0, 12)
-        .map(team => {
-          const pos = team.draftPosition || 0;
-          if (pos > 0 && pos <= 3) return `${pos}. ${team.name} (early)`;
-          if (pos > 0 && pos >= data.teams.length - 2) return `${pos}. ${team.name} (turn)`;
-          return `${pos}. ${team.name}`;
-        });
-      mockDraftData += teamList.join(', ') + '\n\n';
+    out += '\nESPN\'s season outlook for each player who has one is the `outlook` field of that player\'s draftPool entry in <FACTS>. It is the ONLY history and stat context you have: a number or a season from it may be quoted, anything else about a player\'s past is off limits.\n\n';
+
+    if (data.injuryWatch && data.injuryWatch.length > 0) {
+      out += 'INJURY WATCH (high-profile players not listed ACTIVE by ESPN today):\n';
+      for (const w of data.injuryWatch) {
+        out += '- ' + w.playerName + ' (' + w.position + ', ' + w.proTeam + ') ADP ' + fmt1(w.adp) + ': ' + w.injuryStatus.replace(/_/g, ' ') + (w.latestHeadline ? ' - "' + w.latestHeadline.headline + '" (' + w.latestHeadline.published + ')' : '') + '\n';
+      }
+      out += '\n';
     }
-    
-    // OPTIMIZED: Condensed strategy notes
-    mockDraftData += `KEY DRAFT STRATEGY:\n`;
-    mockDraftData += `- Format: ${data.leagueType} ${data.draftType} (${data.scoringType})\n`;
-    
-    if (data.draftType === 'Auction') {
-      mockDraftData += `- Budget wisely, target 2-3 studs + depth\n`;
-    } else {
-      mockDraftData += `- Early picks: Elite RB/WR | Mid: Best available | Late: Upside\n`;
-    }
-    
-    if (data.leagueType === 'Dynasty') {
-      mockDraftData += `- Prioritize youth and multi-year value\n`;
-    } else if (data.leagueType === 'Keeper') {
-      mockDraftData += `- Account for keeper values in strategy\n`;
-    }
-    
-    mockDraftData += `\nMOCK DRAFT PREDICTION INSTRUCTIONS:
-- You are PREDICTING what each team WILL draft based on their needs and the available players
-- This is a pre-draft prediction exercise - no picks have been made yet
-- Present your predictions for rounds 1-2 in a "by team" format
-- Base predictions on: team needs, draft position, player projections, player outlook, and league scoring settings
-- For each pick, explain WHY you predict that team will select that player
-- For later rounds (3+), provide general strategy predictions and likely targets
-- Remember: You're forecasting future decisions, not critiquing past ones
-- Use player projections and outlook to justify picks, NOT just ADP rankings
-- Avoid mentioning ADP unless it's crucial for explaining a reach/value pick`;
-    
-    const finalLength = mockDraftData.length;
-    console.log("Optimized mock draft data length:", finalLength, "(was", mockDraftData.length, ")");
-    console.log("=== buildMockDraftData END (OPTIMIZED) ===");
-    
-    return mockDraftData;
+
+    out += 'MOCK DRAFT RULES:\n';
+    out += '- You are PREDICTING what each team will draft; no picks have been made. Go pick by pick for rounds 1 and 2 in draft order' + (data.draftType === 'Snake' ? ' (remember the snake: round 2 runs backwards)' : '') + ', then rounds 3-8 by likely targets and position runs, then late-round sleepers and handcuffs.\n';
+    out += '- Every player you name is in the DRAFT POOL above. A player who is not in the pool does not exist for this article.\n';
+    out += '- Every reach or value call quotes the ADP printed here and says how many spots early or late the pick would be. That is the receipt; a take without one is an opinion, not a take.\n';
+    out += '- A player marked with a STATUS or listed under INJURY WATCH may be predicted, but say the status and what it does to his price. Never invent an injury, a return date or a depth-chart change that is not printed here.\n';
+    out += '- Use last year\'s draft lines to predict a manager\'s habits (the RB-RB opener, the early QB, the reach), and name the manager when you do.\n';
+    out += '- The projections and outlooks are ESPN\'s; you may disagree, loudly, but the numbers you print are theirs.\n';
+    if (data.leagueType === 'Dynasty') out += '- Dynasty: age and multi-year value change every price; say so when they do.\n';
+    else if (data.leagueType === 'Keeper') out += '- Keeper league: kept players are off the board; predict around the keepers you can see.\n';
+    if (data.draftType === 'Auction') out += '- Auction: think in dollars and nomination strategy, not slots.\n';
+
+    return out;
   }
 
   /**

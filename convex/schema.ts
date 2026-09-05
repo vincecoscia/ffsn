@@ -2064,4 +2064,87 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_kind_sent", ["kind", "sentAt"]),
 
+  // --- Player intelligence layer (Sept 2026) --------------------------
+  //
+  // Fresh, cited color for AI sportswriters: injuries, practice status,
+  // depth chart, and market data (ADP/trending) sourced from Sleeper,
+  // nflverse, and the Fantasy Football Calculator, keyed to the same
+  // ESPN athlete id as `playersEnhanced.espnId`. See `convex/intelSync.ts`
+  // for the sync actions that populate this table and `convex/intel.ts` /
+  // `convex/lib/intelFreshness.ts` for how it is read back with a
+  // freshness policy applied (stale feeds are dropped, not shown as current).
+  //
+  // One row per (espnId, season, source, kind) - UPSERT, never append -
+  // except `kind: "market"`, where the `market` field ("ppr-10", "ppr-12",
+  // half-ppr/standard x 10/12) is an additional part of the identity: FFC
+  // publishes six ADP boards per season and each is worth keeping.
+  playerIntel: defineTable({
+    espnId: v.string(),
+    season: v.number(),
+    source: v.union(v.literal("sleeper"), v.literal("nflverse"), v.literal("ffc")),
+    kind: v.union(
+      v.literal("injury"),
+      v.literal("practice"),
+      v.literal("depth_chart"),
+      v.literal("market"),
+      v.literal("trending"),
+    ),
+    fetchedAt: v.number(),
+    // When the source itself says the value changed (Sleeper `news_updated` /
+    // `injury_start_date`, nflverse `date_modified`) - not always available.
+    observedAt: v.optional(v.number()),
+    team: v.optional(v.string()),
+    position: v.optional(v.string()),
+
+    // kind: "injury"
+    injuryStatus: v.optional(v.string()),
+    injuryBodyPart: v.optional(v.string()),
+    injuryNotes: v.optional(v.string()),
+    // Previous value + when it changed, tracked only on the injury row, so
+    // "questionable since Wednesday" (etc.) can be stated instead of just
+    // the current snapshot.
+    previousInjuryStatus: v.optional(v.string()),
+    statusChangedAt: v.optional(v.number()),
+
+    // kind: "practice"
+    practiceStatus: v.optional(v.string()),
+    practiceDescription: v.optional(v.string()),
+
+    // kind: "depth_chart"
+    depthPosition: v.optional(v.string()),
+    depthOrder: v.optional(v.number()),
+
+    // kind: "market" (source: "ffc")
+    adp: v.optional(v.number()),
+    adpPositionRank: v.optional(v.number()),
+    timesDrafted: v.optional(v.number()),
+    bye: v.optional(v.number()),
+    // Format + league size this ADP board came from, e.g. "ppr-10" - part of
+    // this row's identity (see table comment above), not just metadata.
+    market: v.optional(v.string()),
+
+    // kind: "trending" (source: "sleeper")
+    trendingAdds: v.optional(v.number()),
+  })
+    .index("by_player_season", ["espnId", "season"])
+    .index("by_season_kind", ["season", "kind"])
+    .index("by_fetched", ["fetchedAt"]),
+
+  // Cross-reference from ESPN's athlete id (this codebase's primary player
+  // key) to the id space each intel source uses instead: Sleeper's players/nfl
+  // feed carries `espn_id`, nflverse's players.csv carries both `espn_id` and
+  // `gsis_id`. Built and kept current by `convex/intelSync.ts`.
+  playerIdMap: defineTable({
+    espnId: v.string(),
+    sleeperId: v.optional(v.string()),
+    gsisId: v.optional(v.string()),
+    fullName: v.string(),
+    position: v.optional(v.string()),
+    team: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_espn", ["espnId"])
+    .index("by_sleeper", ["sleeperId"])
+    .index("by_gsis", ["gsisId"]),
+
 });
