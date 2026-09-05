@@ -163,32 +163,34 @@ crons.daily(
 // in sequence; it is intentionally not cron-wired since the four feeds don't
 // share a cadence.) Uses `crons.cron`/`crons.interval` (not `crons.daily`),
 // per this repo's current Convex guidelines.
-crons.cron(
+// Sleeper is the freshest injury / depth-chart source; every 4 hours keeps a Sunday inactive
+// or a Wednesday designation inside the 3-day freshness window with room to spare (2026-09-05).
+crons.interval(
   "sync Sleeper players (player intel)",
-  "30 10 * * *",
-  internal.intelSync.syncSleeperPlayers,
-  {},
+  { hours: 4 },
+  internal.intelSync.runIntelSync,
+  { source: "sleeper_players" },
 );
 
 crons.interval(
   "sync Sleeper trending adds (player intel)",
   { hours: 6 },
-  internal.intelSync.syncSleeperTrending,
-  {},
+  internal.intelSync.runIntelSync,
+  { source: "sleeper_trending" },
 );
 
 crons.cron(
   "sync nflverse injuries (player intel)",
   "0 11 * * *",
-  internal.intelSync.syncNflverseInjuries,
-  {},
+  internal.intelSync.runIntelSync,
+  { source: "nflverse_injuries" },
 );
 
 crons.cron(
   "sync FFC ADP (player intel)",
   "0 12 * * *",
-  internal.intelSync.syncFfcAdp,
-  {},
+  internal.intelSync.runIntelSync,
+  { source: "ffc_adp" },
 );
 
 export default crons;

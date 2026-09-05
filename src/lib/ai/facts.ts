@@ -188,7 +188,7 @@ export interface FactsIntel {
   /** ESPN tags him, the fresh feed lists no injury as of that day. */
   cleared?: { source: string; asOf: string; espnStatus: string };
   depthChart?: { team?: string; position: string; order: number };
-  market?: { ffcAdp?: number; ffcPositionRank?: number; trendingAdds?: number };
+  market?: { season?: number; ffcAdp?: number; ffcPositionRank?: number; trendingAdds?: number };
   news: Array<{ headline: string; published: string }>;
 }
 
@@ -1605,6 +1605,7 @@ export function buildIntelFacts(
       : undefined;
     const market = entry.market
       ? {
+          season: num(entry.market.season),
           ffcAdp: num(entry.market.ffcAdp),
           ffcPositionRank: num(entry.market.ffcPositionRank),
           trendingAdds: num(entry.market.trendingAdds),

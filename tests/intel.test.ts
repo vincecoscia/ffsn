@@ -176,3 +176,33 @@ describe("intel.getIntelForPlayers", () => {
     expect(result).toEqual([]);
   });
 });
+
+describe("getIntelForPlayers - season fallback (offseason / dynasty drafts)", () => {
+  it("reads last season's injury, depth and board rows when the requested season has none, and labels the board's season", async () => {
+    const t = convexTest(schema, modules);
+    await seedPlayerEnhanced(t, { espnId: "900", fullName: "Offseason Back", position: "RB", team: "DET" });
+    await seedIntel(t, [
+      { espnId: "900", season: SEASON - 1, source: "sleeper", kind: "injury", injuryStatus: "Questionable", injuryBodyPart: "Knee", fetchedAt: daysAgo(1) },
+      { espnId: "900", season: SEASON - 1, source: "sleeper", kind: "depth_chart", depthPosition: "RB", depthOrder: 1, fetchedAt: daysAgo(1) },
+      { espnId: "900", season: SEASON - 1, source: "ffc", kind: "market", market: "ppr-12", adp: 8.5, adpPositionRank: 4, fetchedAt: daysAgo(2) },
+    ]);
+    const [entry] = await t.query(internal.intel.getIntelForPlayers, { season: SEASON, espnIds: ["900"], now: NOW });
+    expect(entry?.injury).toMatchObject({ status: "Questionable", bodyPart: "Knee", source: "sleeper" });
+    expect(entry?.depthChart).toMatchObject({ position: "RB", order: 1 });
+    expect(entry?.market).toMatchObject({ ffcAdp: 8.5, season: SEASON - 1 });
+  });
+
+  it("prefers this season's rows and does not mix in last season's when they exist", async () => {
+    const t = convexTest(schema, modules);
+    await seedPlayerEnhanced(t, { espnId: "901", fullName: "Current Back", position: "RB", team: "DET" });
+    await seedIntel(t, [
+      { espnId: "901", season: SEASON, source: "sleeper", kind: "injury", injuryStatus: undefined, fetchedAt: daysAgo(1) },
+      { espnId: "901", season: SEASON - 1, source: "sleeper", kind: "injury", injuryStatus: "Out", fetchedAt: daysAgo(1) },
+      { espnId: "901", season: SEASON, source: "ffc", kind: "market", market: "ppr-12", adp: 3.1, adpPositionRank: 2, fetchedAt: daysAgo(1) },
+      { espnId: "901", season: SEASON - 1, source: "ffc", kind: "market", market: "ppr-12", adp: 40, adpPositionRank: 20, fetchedAt: daysAgo(1) },
+    ]);
+    const [entry] = await t.query(internal.intel.getIntelForPlayers, { season: SEASON, espnIds: ["901"], now: NOW });
+    expect(entry?.injury).toBeUndefined();
+    expect(entry?.market).toMatchObject({ ffcAdp: 3.1, season: SEASON });
+  });
+});

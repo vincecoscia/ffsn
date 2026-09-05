@@ -155,6 +155,7 @@ export const dailyPlayerSync = internalAction({
     const results = {
       defaultStats: null as any,
       leagueStats: null as any,
+      nextSeasonDefaultStats: null as any,
     };
     
     console.log(`Starting daily player sync for ${currentSeason} season`);
@@ -166,6 +167,22 @@ export const dailyPlayerSync = internalAction({
         season: currentSeason,
         forceUpdate: false // Only sync if not recently synced
       });
+
+      // Next season's pool, once ESPN opens it (usually May): a dynasty or best-ball league that
+      // drafts in the offseason reads the new year's ADP and outlooks instead of last year's, and
+      // the FFC boards for the new year key on these ids. ESPN answers 404 until then; that is
+      // logged, never thrown.
+      const month = new Date().getMonth();
+      if (month >= 3 && month <= 6) {
+        try {
+          results.nextSeasonDefaultStats = await ctx.runAction(internal.playerSync.syncPlayersDefaultStats, {
+            season: currentSeason + 1,
+            forceUpdate: false,
+          });
+        } catch (error) {
+          console.log(`Next season (${currentSeason + 1}) player pool is not open yet:`, error instanceof Error ? error.message : error);
+        }
+      }
       
       // 2. If league ID provided, sync league-specific stats
       if (leagueId) {

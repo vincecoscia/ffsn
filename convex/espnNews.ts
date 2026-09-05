@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { internalAction } from "./_generated/server";
+import { internalAction, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
@@ -276,5 +276,16 @@ export const scheduledNewsSync = internalAction({
       console.error("Scheduled news sync error:", error);
       throw error;
     }
+  },
+});
+/** When the newest stored headline was published: the feed's own freshness for the operator digest. */
+export const latestPublishedAt = internalQuery({
+  args: {},
+  returns: v.union(v.number(), v.null()),
+  handler: async (ctx) => {
+    const newest = await ctx.db.query("espnNews").withIndex("by_published").order("desc").first();
+    if (!newest) return null;
+    const ms = Date.parse(newest.published);
+    return Number.isFinite(ms) ? ms : null;
   },
 });

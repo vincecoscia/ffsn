@@ -2134,6 +2134,22 @@ export default defineSchema({
   // key) to the id space each intel source uses instead: Sleeper's players/nfl
   // feed carries `espn_id`, nflverse's players.csv carries both `espn_id` and
   // `gsis_id`. Built and kept current by `convex/intelSync.ts`.
+  // One row per intel sync run (convex/intelSync.ts `runIntelSync`), so "are the feeds
+  // current?" is a stored fact the operator digest reads, not something re-derived from
+  // playerIntel.fetchedAt across thousands of rows.
+  intelSyncRuns: defineTable({
+    source: v.union(
+      v.literal("sleeper_players"),
+      v.literal("sleeper_trending"),
+      v.literal("nflverse_injuries"),
+      v.literal("ffc_adp"),
+    ),
+    ranAt: v.number(),
+    ok: v.boolean(),
+    summary: v.string(),
+    error: v.optional(v.string()),
+  }).index("by_source_ranAt", ["source", "ranAt"]),
+
   playerIdMap: defineTable({
     espnId: v.string(),
     sleeperId: v.optional(v.string()),
