@@ -49,6 +49,19 @@ export interface CardFont {
 }
 
 let fontsPromise: Promise<CardFont[]> | undefined;
+let logoPromise: Promise<string> | undefined;
+
+/**
+ * The FFSN mark (the real artwork, footballs and all) as a data URL, read once per process.
+ * `src/app/og-assets/ffsn-logo.png` is public/FFSN.png with its white background knocked
+ * out so it sits on the dark plate.
+ */
+export function loadLogoDataUrl(): Promise<string> {
+  logoPromise ??= readFile(join(process.cwd(), "src/app/og-assets/ffsn-logo.png")).then(
+    (buffer) => `data:image/png;base64,${buffer.toString("base64")}`
+  );
+  return logoPromise;
+}
 
 /** The four faces the cards set in, read once per process from src/app/og-fonts. */
 export function loadCardFonts(): Promise<CardFont[]> {
@@ -83,7 +96,21 @@ const eyebrow: CSSProperties = {
   color: SIGNAL,
 };
 
-/** The FFSN badge: the logo's skewed red plate and inner keyline, set in type. */
+/** The real FFSN mark. `width` in px; the artwork is 3:2. */
+function Logo({ src, width }: { src: string; width: number }): ReactElement {
+  const height = Math.round(width * (2 / 3));
+  return (
+    <img
+      src={src}
+      width={width}
+      height={height}
+      alt="FFSN"
+      style={{ width, height, objectFit: "contain" }}
+    />
+  );
+}
+
+/** The FFSN badge set in type; the fallback when the artwork cannot be read. */
 function Badge({ scale = 1 }: { scale?: number }): ReactElement {
   const width = 300 * scale;
   const height = 150 * scale;
@@ -237,12 +264,12 @@ function Frame({ children, background }: { children: ReactElement | ReactElement
 /* Cards                                                                       */
 /* -------------------------------------------------------------------------- */
 
-export function SiteCard(): ReactElement {
+export function SiteCard({ logo }: { logo?: string }): ReactElement {
   return (
     <Frame>
-      <div style={{ display: "flex", flexGrow: 1, alignItems: "center", padding: "0 64px", gap: 56 }}>
-        <div style={{ display: "flex", flexShrink: 0, transform: "rotate(-4deg)" }}>
-          <Badge scale={1.15} />
+      <div style={{ display: "flex", flexGrow: 1, alignItems: "center", padding: "0 56px 0 40px", gap: 40 }}>
+        <div style={{ display: "flex", flexShrink: 0 }}>
+          {logo ? <Logo src={logo} width={420} /> : <div style={{ display: "flex", transform: "rotate(-4deg)" }}><Badge scale={1.15} /></div>}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 18, width: 660, flexShrink: 0 }}>
           <div style={eyebrow}>
@@ -284,6 +311,8 @@ export interface ArticleCardProps {
   writerRole: string;
   /** Absolute URL of the story's banner art, dimmed behind the headline when present. */
   bannerUrl?: string;
+  /** The mark as a data URL (`loadLogoDataUrl`); the typed badge stands in without it. */
+  logo?: string;
 }
 
 function headlineSize(title: string): number {
@@ -304,8 +333,8 @@ export function ArticleCard(props: ArticleCardProps): ReactElement {
             <span style={{ display: "flex", width: 12, height: 12, borderRadius: 6, backgroundColor: RED, marginRight: 14 }} />
             <span style={{ display: "flex", maxWidth: 900, overflow: "hidden", whiteSpace: "nowrap" }}>{kicker}</span>
           </div>
-          <div style={{ display: "flex", transform: "rotate(-4deg)" }}>
-            <Badge scale={0.42} />
+          <div style={{ display: "flex", flexShrink: 0, marginTop: -8 }}>
+            {props.logo ? <Logo src={props.logo} width={168} /> : <div style={{ display: "flex", transform: "rotate(-4deg)" }}><Badge scale={0.42} /></div>}
           </div>
         </div>
         <div
