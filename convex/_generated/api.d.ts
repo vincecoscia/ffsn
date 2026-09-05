@@ -50,6 +50,7 @@ import type * as lib_espnClient from "../lib/espnClient.js";
 import type * as lib_espnConnection from "../lib/espnConnection.js";
 import type * as lib_espnSettings from "../lib/espnSettings.js";
 import type * as lib_espnTransactions from "../lib/espnTransactions.js";
+import type * as lib_feedFreshness from "../lib/feedFreshness.js";
 import type * as lib_generationFailure from "../lib/generationFailure.js";
 import type * as lib_intelFreshness from "../lib/intelFreshness.js";
 import type * as lib_intelMapping from "../lib/intelMapping.js";
@@ -149,6 +150,7 @@ declare const fullApi: ApiFromModules<{
   "lib/espnConnection": typeof lib_espnConnection;
   "lib/espnSettings": typeof lib_espnSettings;
   "lib/espnTransactions": typeof lib_espnTransactions;
+  "lib/feedFreshness": typeof lib_feedFreshness;
   "lib/generationFailure": typeof lib_generationFailure;
   "lib/intelFreshness": typeof lib_intelFreshness;
   "lib/intelMapping": typeof lib_intelMapping;
