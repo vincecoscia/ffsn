@@ -499,6 +499,40 @@ export function verifyArticle(
       });
     }
   }
+  // The mock-draft pool and the intel entries (2026-09-05): a writer cites "P4429795" for Gibbs
+  // in the structured fields, and nobody owns him yet, so the team is "T?" and a predicted
+  // drafting team is not a wrong team. A live run was held on seven of these. Only these
+  // entries are unowned; a matchup player whose side never resolved ("T?" off a bye row) is not.
+  const unownedPlayers = new Set<FactsPlayer>();
+  for (const player of facts.draftPool ?? []) {
+    if (playerById.has(player.id)) continue;
+    const entry: FactsPlayer = {
+      id: player.id,
+      name: player.name,
+      pos: player.pos,
+      nflTeam: player.nflTeam,
+      fantasyTeamId: "T?",
+      points: 0,
+      projected: player.projected,
+      lineup: "bench",
+    };
+    playerById.set(player.id, entry);
+    unownedPlayers.add(entry);
+  }
+  for (const intel of facts.intel ?? []) {
+    if (playerById.has(intel.id)) continue;
+    const entry: FactsPlayer = {
+      id: intel.id,
+      name: intel.name,
+      pos: intel.pos ?? "FLEX",
+      nflTeam: intel.nflTeam,
+      fantasyTeamId: intel.fantasyTeamId ?? "T?",
+      points: 0,
+      lineup: "bench",
+    };
+    playerById.set(intel.id, entry);
+    if (!intel.fantasyTeamId) unownedPlayers.add(entry);
+  }
   // Writers sometimes cite a player by the bare ESPN id ("4242335") instead of the FACTS id
   // ("P4242335" / "M3P4242335"). Same player, same team; index the bare id too so a real player is
   // never blocked as unknown for the prefix alone (the dominant hold reason on the 2025 backfill).
@@ -574,7 +608,10 @@ export function verifyArticle(
       continue;
     }
     const onRestingTeam = restingTeamIds.has(player.fantasyTeamId) && known.fantasyTeamId === "T?";
-    if (player.fantasyTeamId && known.fantasyTeamId !== player.fantasyTeamId && !onRestingTeam) {
+    // An unowned player (draft pool, pre-draft intel) has no fantasy team to get wrong; the team a
+    // mock draft attaches is the prediction.
+    const unowned = unownedPlayers.has(known);
+    if (player.fantasyTeamId && known.fantasyTeamId !== player.fantasyTeamId && !onRestingTeam && !unowned) {
       violations.push({
         kind: "wrong_fantasy_team",
         detail: `${player.playerName}: article says ${player.fantasyTeamId}, FACTS says ${known.fantasyTeamId} (${player.playerId})`,

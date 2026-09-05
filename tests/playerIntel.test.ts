@@ -319,3 +319,31 @@ describe("INTEL facts - cleared", () => {
     expect(userPrompt).toContain("Puka Nacua (WR, SF) on Halyard Bay: ESPN lists QUESTIONABLE; sleeper as of 2026-09-04 lists no injury");
   });
 });
+
+describe("verifier - pool players cited in the structured fields", () => {
+  it("resolves a draft-pool id and accepts a predicted drafting team", () => {
+    const pool: PoolPlayer[] = [
+      { playerId: "4429795", playerName: "Jahmyr Gibbs", position: "RB", proTeam: "DET", adp: 1.3, adpPositionRank: 1, adpRank: 1, seasonOutlook: "", projectedStats: null, ownership: { averageDraftPosition: 1.3 } },
+    ];
+    const data = leagueData({
+      draftType: "Snake",
+      draftOrder: [{ position: 1, teamId: "1", teamName: "Halyard Bay", manager: "Hal" }],
+      availablePlayers: pool as unknown as LeagueDataContext["availablePlayers"],
+      playerIntel: [{ espnId: "3117251", name: "Christian McCaffrey", injury: { status: "Questionable", source: "sleeper", fetchedAt: NOW }, news: [] }],
+    } as Partial<LeagueDataContext>);
+    const facts = buildFactsBlock({ contentType: "mock_draft", leagueData: data });
+    const halyard = facts.teams.find(team => team.name === "Halyard Bay")!.id;
+    const piece = {
+      ...article([["Round one", "Gibbs goes first."]]),
+      featuredPlayers: [
+        { playerId: "P4429795", playerName: "Jahmyr Gibbs", fantasyTeamId: halyard },
+        { playerId: "P3117251", playerName: "Christian McCaffrey", fantasyTeamId: halyard },
+      ],
+    } as unknown as GeneratedArticleT;
+    const violations = verifyArticle(piece, facts);
+    expect(violations.filter(v => v.kind === "unknown_player" || v.kind === "wrong_fantasy_team")).toEqual([]);
+    // A player nobody knows is still blocked.
+    const ghost = { ...piece, featuredPlayers: [{ playerId: "P1", playerName: "Nobody Real", fantasyTeamId: halyard }] } as unknown as GeneratedArticleT;
+    expect(verifyArticle(ghost, facts).some(v => v.kind === "unknown_player" && v.severity === "block")).toBe(true);
+  });
+});
