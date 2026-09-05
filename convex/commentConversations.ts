@@ -4,6 +4,7 @@ import { api, internal } from "./_generated/api";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
 import { Id } from "./_generated/dataModel";
 import { getLeagueMembership, requireIdentity } from "./lib/auth";
+import { looksLikeDecline } from "./lib/declineDetection";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
@@ -262,6 +263,13 @@ export const sendUserResponse = mutation({
       throw new Error("Unauthorized");
     }
 
+    // A closed interview takes no more replies. The chat hides the composer, but this
+    // mutation is public: a late reply to a declined request used to re-run processing
+    // and flip it to "completed" with the decline inside the raw text.
+    if (request.status !== "pending" && request.status !== "active") {
+      throw new Error("This interview is closed");
+    }
+
     // Get message count to determine order
     const existingMessages = await ctx.db
       .query("commentConversations")
@@ -412,6 +420,18 @@ export const processUserResponse = internalAction({
         }
       }
 
+      // A bare decline ("no comment", "I'd rather not get into it today") must never become
+      // a response row: the analysis happily marks "I'd rather not get into it" as a
+      // quotable span, and the writer would print it as the manager's comment. The
+      // off-topic gate used to swallow these. `looksLikeDecline` is sentence-level, so a
+      // reply with a real sentence in it never matches.
+      if (looksLikeDecline(userMessage.content) || analysis.isDecline === true) {
+        await ctx.runMutation(internal.commentConversations.recordDeclineInternal, {
+          commentRequestId: args.commentRequestId,
+        });
+        return;
+      }
+
       // Count total messages so far for this conversation
       const allMessages = await ctx.runQuery(internal.commentConversations.getUserMessages, {
         commentRequestId: args.commentRequestId,
@@ -485,12 +505,22 @@ export const generateAIFollowUp = internalAction({
       console.log("AI follow-up generated:", result);
 
       // Honor a decline once (spec §5): if Sam read the reply as "no comment", the
-      // request is marked declined instead of being asked a second question.
+      // request is marked declined instead of being asked a second question - unless
+      // the manager actually said something quotable first ("...that's all, no further
+      // comment"). That is an answer with a close on the end, not a decline; last
+      // season it was recorded as a decline and the words were never used.
       if (result.shouldRecordDecline) {
-        await ctx.runMutation(internal.commentConversations.recordDeclineInternal, {
+        const spoke = await ctx.runQuery(internal.commentConversations.hasQuotableReply, {
           commentRequestId: args.commentRequestId,
         });
-        return;
+        if (!spoke) {
+          await ctx.runMutation(internal.commentConversations.recordDeclineInternal, {
+            commentRequestId: args.commentRequestId,
+          });
+          return;
+        }
+        result.intent = "closing";
+        result.shouldEndAfterResponse = true;
       }
 
       // Check for abuse detection
@@ -516,11 +546,14 @@ export const generateAIFollowUp = internalAction({
         shouldEndAfterResponse: result.shouldEndAfterResponse,
       });
 
-      // Sam just closed. If the response row already exists, the manager gets the
-      // quote-approval prompt right here; otherwise `createCommentResponse` posts it
-      // the moment the row lands. Either way it appears once (spec §8.1).
+      // Sam just closed on a complete first answer. Build the response row NOW from
+      // what they said (`processCompletedResponse` upserts, and `createCommentResponse`
+      // posts the quote-approval prompt once the row lands), while the request stays
+      // active so a reply to "anything else?" is still taken. Before this, nothing was
+      // written until a second reply arrived: a manager who answered fully and then
+      // went quiet was expired at the deadline and told the article ran without them.
       if (result.intent === "closing") {
-        await ctx.runMutation(internal.commentConversations.postQuoteApprovalMessage, {
+        await ctx.scheduler.runAfter(0, internal.commentConversations.processCompletedResponse, {
           commentRequestId: args.commentRequestId,
         });
       }
@@ -674,6 +707,23 @@ export const declineCommentRequest = mutation({
     });
 
     return { success: true };
+  },
+});
+
+/** True when any reply on this request carries a verbatim quotable span. */
+export const hasQuotableReply = internalQuery({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const messages = await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request", q => q.eq("commentRequestId", args.commentRequestId))
+      .collect();
+    return messages.some(
+      m =>
+        m.messageType === "user_response" &&
+        keepVerbatimSegments(m.content, m.responseAnalysis?.quotableSegments ?? []).length > 0
+    );
   },
 });
 
@@ -962,6 +1012,33 @@ export const createAIMessage = internalMutation({
   },
 });
 
+/** Writer first names for Sam's sign-off; unknown slugs read as "the desk". */
+const WRITER_FIRST_NAMES: Record<string, string> = {
+  "curtis-vaughn": "Curtis",
+  "sam-ortega": "Sam",
+  "nina-sharpe": "Nina",
+  "dex-alvarez": "Dex",
+  "mel-diaper": "Mel",
+  "reggie-banks": "Reggie",
+  "walt-brennan": "Walt",
+};
+
+/**
+ * Sam's last line after the manager's final answer. No question in it: the interview is
+ * over, and a trailing question would invite a reply the flow has nowhere to put.
+ */
+export function buildSignOff(managerName: string | undefined, writerPersona: string | undefined, seed: number): string {
+  const first = managerName?.trim().split(/\s+/)[0];
+  const name = first ? `, ${first}` : "";
+  const writer = WRITER_FIRST_NAMES[writerPersona ?? ""] ?? "the desk";
+  const variants = [
+    `Thanks${name}. That's everything I needed - I'll get this over to ${writer}.`,
+    `Appreciate the time${name}. I've got what I need; ${writer} takes it from here.`,
+    `Got it${name}. That's the interview - ${writer} has the pen from here.`,
+  ];
+  return variants[Math.abs(seed) % variants.length];
+}
+
 export const completeConversation = internalMutation({
   args: {
     commentRequestId: v.id("commentRequests"),
@@ -987,25 +1064,36 @@ export const completeConversation = internalMutation({
       )
       .collect();
 
-    let systemMessage = "Thanks for your input! Your insights will be included in the upcoming article.";
-    
-    if (args.reason === "auto_ended") {
-      systemMessage = "Conversation ended. Thank you for your time!";
-    } else if (args.reason === "abuse_detected") {
-      systemMessage = "Let's keep the conversation focused on your fantasy football experience.";
+    // Sam signs off in her own voice (the spec's close belongs to her, not to a system
+    // line); the quote-approval card follows once the response row lands. Abuse still
+    // gets the plain system line.
+    if (args.reason === "abuse_detected") {
+      await ctx.db.insert("commentConversations", {
+        commentRequestId: args.commentRequestId,
+        leagueId: request.leagueId,
+        userId: request.targetUserId,
+        messageType: "system_message",
+        content: "Let's keep it on your team. We'll go to print with whatever is usable.",
+        messageOrder: messages.length,
+        isRead: false,
+        createdAt: Date.now(),
+        threadDepth: 0,
+      });
+    } else {
+      const user = await ctx.db.get(request.targetUserId);
+      await ctx.db.insert("commentConversations", {
+        commentRequestId: args.commentRequestId,
+        leagueId: request.leagueId,
+        userId: request.targetUserId,
+        messageType: "ai_confirmation",
+        content: buildSignOff(user?.name, request.writerPersona, messages.length),
+        messageOrder: messages.length,
+        isRead: false,
+        aiMetadata: { intent: "sign_off" },
+        createdAt: Date.now(),
+        threadDepth: 0,
+      });
     }
-
-    await ctx.db.insert("commentConversations", {
-      commentRequestId: args.commentRequestId,
-      leagueId: request.leagueId,
-      userId: request.targetUserId,
-      messageType: "system_message",
-      content: systemMessage,
-      messageOrder: messages.length,
-      isRead: false,
-      createdAt: Date.now(),
-      threadDepth: 0,
-    });
 
     // Process the response for article use
     await ctx.scheduler.runAfter(0, internal.commentConversations.processCompletedResponse, {
@@ -1213,13 +1301,33 @@ export const createCommentResponse = internalMutation({
       .filter(q => q && q.trim().length > 0)
       .map(q => ({ original: q, text: q, status: "pending" as const }));
 
-    await ctx.db.insert("commentResponses", {
-      ...args,
-      quoteReview: quoteReview.length > 0 ? quoteReview : undefined,
-      integrationStatus: "pending",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    // Upsert: the row is built when Sam closes and rebuilt if the manager adds a
+    // reply to "anything else?". Entries the manager already approved, edited or
+    // withdrew keep their status; only genuinely new quotes are added as pending.
+    const existing = await responseForRequest(ctx, args.commentRequestId);
+    if (existing) {
+      const kept = existing.quoteReview ?? [];
+      const known = new Set(kept.map(q => q.original));
+      const merged = [...kept, ...quoteReview.filter(q => !known.has(q.original))];
+      await ctx.db.patch(existing._id, {
+        rawResponse: args.rawResponse,
+        processedResponse: args.processedResponse,
+        responseType: args.responseType,
+        relevanceMetadata: args.relevanceMetadata,
+        userEngagementLevel: args.userEngagementLevel,
+        processedAt: args.processedAt,
+        quoteReview: merged.length > 0 ? merged : undefined,
+        updatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.insert("commentResponses", {
+        ...args,
+        quoteReview: quoteReview.length > 0 ? quoteReview : undefined,
+        integrationStatus: "pending",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
 
     // The manager sees the approval prompt once, immediately after the close.
     await postQuoteApproval(ctx, args.commentRequestId);

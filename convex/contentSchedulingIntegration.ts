@@ -1,29 +1,17 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
 import { contentTypePersonaMap, DEFAULT_PERSONA } from "../src/lib/ai/persona-prompts";
 import { leagueCurrentSeason } from "./lib/season";
 import { espnConnectionBlocked } from "./lib/espnConnection";
+import { COMMENT_WINDOWS_MS, LOOKBACK_INTERVIEW_TYPES, resolveInterviewees } from "./lib/interviewees";
 
 /**
- * Content types that reach out for comment before they are written
- * (spec section 9.1). Nothing else opens an interview: a power rankings piece
- * that pesters eight managers every Wednesday is how a league turns
- * notifications off.
+ * Content types that reach out for comment before they are written (spec section 9.1)
+ * are the keys of `COMMENT_WINDOWS_MS` in convex/lib/interviewees.ts. Nothing else opens
+ * an interview: a power rankings piece that pesters every manager each Wednesday is how a
+ * league turns notifications off.
  */
-const COMMENT_WINDOWS_MS: Record<string, number> = {
-  weekly_recap: 12 * 60 * 60 * 1000, // requests go out 12h before print
-  trade_analysis: 6 * 60 * 60 * 1000, // event type: 6h
-  draft_rankings: 6 * 60 * 60 * 1000, // event type: 6h
-};
-
-/** How many managers we are willing to interview for one article. */
-const MAX_REQUESTS: Record<string, number> = {
-  weekly_recap: 8,
-  trade_analysis: 4,
-  draft_rankings: 10,
-};
 
 /**
  * Integration hook: when content is scheduled, line up the comment requests so
@@ -80,112 +68,26 @@ export const onContentScheduled = internalMutation({
       scheduledContent?.seasonId ??
       leagueCurrentSeason(league);
 
-    // Teams are per-season documents (spec section 2): the same franchise gets
-    // a fresh `teams` row every season, so scoping to (leagueId, seasonId) via
-    // `by_season` is required - without it every season's rows come back and
-    // stale/duplicate owner strings leak into selection.
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_season", (q) => q.eq("leagueId", args.leagueId).eq("seasonId", season))
-      .collect();
-
-    if (teams.length === 0) {
-      console.log(`No teams found for league ${args.leagueId} season ${season}`);
-      return { scheduled: false, reason: "no teams", teams: 0, claimed: 0, targeted: 0 };
-    }
-
-    // Manager identity lives in `teamClaims`, never `teams.owner` -
-    // `teams.owner` is always an ESPN owner display name (e.g. "Gabe Coscia"),
-    // not a Clerk id (see convex/aiQueries.ts and convex/relationships.ts).
-    // Build teamId -> Clerk id from this league's active claims for the
-    // article's season, then Clerk id -> `users` doc id.
-    const claims = await ctx.db
-      .query("teamClaims")
-      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
-      .collect();
-    const activeClaims = claims.filter((c) => c.seasonId === season && c.status === "active");
-
-    const clerkIdByTeamId = new Map<Id<"teams">, string>();
-    for (const claim of activeClaims) {
-      clerkIdByTeamId.set(claim.teamId, claim.userId);
-    }
-
-    const uniqueClerkIds = Array.from(new Set(clerkIdByTeamId.values()));
-    const userIdByClerkId = new Map<string, Id<"users">>();
-    await Promise.all(
-      uniqueClerkIds.map(async (clerkId) => {
-        const user = await ctx.db
-          .query("users")
-          .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
-          .unique();
-        if (user) userIdByClerkId.set(clerkId, user._id);
-      }),
-    );
-
-    /** Teams with no active claim for this season are simply skipped. */
-    const resolveUserIds = (candidateTeams: typeof teams): Id<"users">[] => {
-      const ids: Id<"users">[] = [];
-      for (const team of candidateTeams) {
-        const clerkId = clerkIdByTeamId.get(team._id);
-        const userId = clerkId ? userIdByClerkId.get(clerkId) : undefined;
-        if (userId) ids.push(userId);
-      }
-      return ids;
-    };
-
-    let selectedTeams = teams;
-
-    if (args.contentType === "weekly_recap") {
-      // Only the managers who actually played that week have anything to say.
-      const week = scheduledContent?.week ?? scheduledContent?.contextData?.week;
-      if (week) {
-        // `by_unique_matchup` is (leagueId, seasonId, matchupPeriod, ...), so an
-        // equality prefix on the first three fields scopes this to exactly the
-        // league/season/week without a separate post-filter.
-        const matchups = await ctx.db
-          .query("matchups")
-          .withIndex("by_unique_matchup", (q) =>
-            q.eq("leagueId", args.leagueId).eq("seasonId", season).eq("matchupPeriod", week),
-          )
-          .collect();
-
-        const playingTeamIds = new Set<string>();
-        for (const matchup of matchups) {
-          playingTeamIds.add(matchup.homeTeamId);
-          playingTeamIds.add(matchup.awayTeamId);
-        }
-
-        const playing = teams.filter((t) => t.externalId && playingTeamIds.has(t.externalId));
-        if (playing.length > 0) selectedTeams = playing;
-      }
-    } else if (args.contentType === "trade_analysis") {
-      // Both sides of the trade that triggered this article, and nobody else.
-      const eventData = scheduledContent?.contextData?.eventData;
-      const involved = new Set<string>(
-        [eventData?.teamA?.teamId, eventData?.teamB?.teamId].filter(
-          (id): id is string => typeof id === "string",
-        ),
-      );
-      if (involved.size > 0) {
-        const participants = teams.filter((t) => t.externalId && involved.has(t.externalId));
-        if (participants.length > 0) selectedTeams = participants;
-      }
-    }
-    // draft_rankings: everyone in the league drafted, so everyone is fair game.
-
-    const limit = MAX_REQUESTS[args.contentType] ?? 5;
-    const targetUserIds = resolveUserIds(selectedTeams).slice(0, limit);
-    const counts = { teams: teams.length, claimed: activeClaims.length, targeted: targetUserIds.length };
+    // Who to ask, from this season's active claims (convex/lib/interviewees.ts). The same
+    // helper runs again at send time, so this list is a preview, not a contract.
+    const { targetUserIds, counts } = await resolveInterviewees(ctx, {
+      leagueId: args.leagueId,
+      season,
+      contentType: args.contentType,
+      week: scheduledContent?.week ?? scheduledContent?.contextData?.week,
+      eventData: scheduledContent?.contextData?.eventData ?? null,
+    });
 
     if (targetUserIds.length === 0) {
       console.log("No claimed managers to request comments from", counts);
       return { scheduled: false, reason: "no claimed managers", ...counts };
     }
 
-    // Send the requests one window before print. `runAt` with a time already in
-    // the past fires immediately, which is the right behaviour for an event
-    // article scheduled less than its window ahead.
-    const sendAt = args.scheduledTime - window;
+    // A story about a finished week sends one window before print (and then waits for
+    // ESPN to finalize the week, and for 07:00 league time). An event story - a trade,
+    // the draft - reaches out right now, while the managers are still around: sending at
+    // print minus six hours would have pinged a draft-night league at 3 AM.
+    const sendAt = LOOKBACK_INTERVIEW_TYPES.has(args.contentType) ? args.scheduledTime - window : Date.now();
 
     await ctx.scheduler.runAt(sendAt, internal.commentRequests.createRequestsForScheduledContent, {
       scheduledContentId: args.scheduledContentId,
