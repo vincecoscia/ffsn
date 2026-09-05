@@ -252,6 +252,17 @@ export function WeeklyContentCard({ leagueId, canManage, className }: WeeklyCont
               </Link>
             </Button>
             <Button
+              variant="link"
+              size="sm"
+              asChild
+              className="h-9 px-0 font-sans normal-case tracking-normal"
+            >
+              <Link href={`/leagues/${leagueId}/content-calendar`}>
+                See the full calendar
+                <ArrowUpRight className="size-4" aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button
               variant={contentEnabled ? "outline" : "default"}
               size="sm"
               disabled={isSaving}

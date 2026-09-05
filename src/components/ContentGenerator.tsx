@@ -61,6 +61,14 @@ import {
   formatPrintDeadline,
 } from "@/components/PrintDeadlineField";
 import { CreditWallet, useCreditBalance } from "@/components/CreditWallet";
+import { formatPrintTime } from "@/components/content-schedule/scheduleTime";
+import {
+  findMatchingCalendarEntry,
+  CalendarStatusChip,
+  formatShortDay,
+  type CalendarEntry,
+  type ContentCalendarResult,
+} from "@/components/content-calendar";
 import { cn } from "@/lib/utils";
 
 interface ContentGeneratorProps {
@@ -85,6 +93,63 @@ function describeGenerationError(error: unknown, fallbackTitle: string): { title
 }
 
 // Writers come from the roster (spec §3) — retired personas are never selectable.
+
+interface CalendarMatchInfo {
+  message: string;
+  secondary?: string;
+  linkHref?: string;
+  linkLabel?: string;
+}
+
+/**
+ * Owner ask: warn a manager before they spend credits on a story the League Pass's
+ * automatic programming already has coming (or already ran). `entry` is whatever
+ * `findMatchingCalendarEntry` matched against the picker's current content type + week.
+ */
+function describeCalendarMatch(
+  entry: CalendarEntry,
+  timeZone: string,
+  label: string,
+  credits: number,
+  leagueId: Id<"leagues">
+): CalendarMatchInfo {
+  const creditsWord = `${credits} credit${credits === 1 ? "" : "s"}`;
+
+  if (entry.status === "published") {
+    const ranOn = entry.at != null ? ` on ${formatShortDay(entry.at, timeZone)}` : "";
+    return {
+      message: `Already published — ${label} ran${ranOn} (included in your League Pass).`,
+      linkHref: entry.articleId ? `/articles/${entry.articleId}` : undefined,
+      linkLabel: entry.articleId ? "Read it" : undefined,
+    };
+  }
+
+  if (
+    entry.status === "projected" ||
+    entry.status === "pending" ||
+    entry.status === "generating" ||
+    entry.status === "batched"
+  ) {
+    const isEstimated = entry.timing === "estimated";
+    const whenText = entry.at != null ? formatPrintTime(entry.at, timeZone) : null;
+    const printsClause = whenText
+      ? `prints ${isEstimated ? "an estimated " : ""}${whenText}`
+      : "hasn't been scheduled yet";
+    return {
+      message: `Already on the schedule — ${label} ${printsClause}, included in your League Pass. Generating it now costs ${creditsWord}.`,
+      secondary: isEstimated ? entry.note ?? undefined : undefined,
+      linkHref: `/leagues/${leagueId}/content-calendar`,
+      linkLabel: "View calendar",
+    };
+  }
+
+  // failed / cancelled / backlogged / skipped: it didn't run — state it plainly, no red alarm.
+  return {
+    message: `The scheduled ${label} didn't run. Generating it now costs ${creditsWord}.`,
+    linkHref: `/leagues/${leagueId}/content-calendar`,
+    linkLabel: "View calendar",
+  };
+}
 
 interface ContentTypeOption {
   value: string;
@@ -218,6 +283,13 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
   const espnConnection = useQuery(api.leagues.getEspnConnection, { leagueId });
   const espnConnectionBroken = Boolean(
     espnConnection?.isPrivate && espnConnection.credentialStatus === "invalid"
+  );
+  // Owner ask: warn before a manager spends credits on a story the League Pass's automatic
+  // programming already has coming. Read unconditionally (any league member may see it) —
+  // matched against the picker's selection below, once a content type is chosen.
+  const calendarData: ContentCalendarResult | null | undefined = useQuery(
+    api.contentCalendar.getContentCalendar,
+    { leagueId }
   );
   // Shared with the CreditWallet strip mounted below, so the balance is read
   // from a single query rather than each duplicating `getUserCredits`.
@@ -430,6 +502,24 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
     : undefined;
   const insufficientCredits =
     requiredCredits != null && creditBalance != null && creditBalance < requiredCredits;
+
+  // Same content type, then an exact week match when both the picker and the row have one
+  // (weekly recap), else the soonest future row of that type (spec: match by content type
+  // and week, where the type takes one).
+  const matchedCalendarEntry =
+    calendarData && selectedContentType
+      ? findMatchingCalendarEntry(calendarData, selectedContentType, selectedWeek)
+      : null;
+  const calendarMatch =
+    calendarData && matchedCalendarEntry && selectedContentType
+      ? describeCalendarMatch(
+          matchedCalendarEntry,
+          calendarData.timezone,
+          contentTypeLabel(selectedContentType),
+          requiredCredits ?? 0,
+          leagueId
+        )
+      : null;
 
   return (
     <Panel padding="lg" className="mx-auto w-full max-w-4xl">
@@ -846,6 +936,36 @@ export function ContentGenerator({ leagueId, isCommissioner }: ContentGeneratorP
               )}
             </div>
           </Panel>
+
+          {/* Already on the League Pass calendar? (owner ask, spec: content calendar) */}
+          {calendarMatch && (
+            <Panel lifted padding="md" className="border-l-4 border-l-bc-signal">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="bc-label-sm text-bc-text-3">League Pass programming</span>
+                  <p className="text-[14px] leading-relaxed text-bc-ink">{calendarMatch.message}</p>
+                  {calendarMatch.secondary && (
+                    <p className="text-[13px] leading-relaxed text-bc-text-3">
+                      {calendarMatch.secondary}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-none items-center gap-3">
+                  {matchedCalendarEntry && <CalendarStatusChip status={matchedCalendarEntry.status} />}
+                  {calendarMatch.linkHref && calendarMatch.linkLabel && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      asChild
+                      className="h-auto px-0 font-sans text-[13px] normal-case tracking-normal"
+                    >
+                      <Link href={calendarMatch.linkHref}>{calendarMatch.linkLabel}</Link>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Panel>
+          )}
 
           {/* Generation Summary */}
           {selectedTemplate && selectedPersona && (

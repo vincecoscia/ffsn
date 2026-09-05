@@ -70,6 +70,32 @@ export function nextWallClockAtOrAfter(afterMs: number, hour: number, minute: nu
   return afterMs;
 }
 
+/**
+ * The first instant on weekday `dayOfWeek` (0 = Sunday, zone-local) at `hour:minute` that is
+ * >= `afterMs`. A weekly schedule's slot inside an NFL week boundary.
+ */
+export function nextWeekdayWallClockAtOrAfter(
+  afterMs: number,
+  dayOfWeek: number,
+  hour: number,
+  minute: number,
+  timeZone: string
+): number {
+  const p = zoneParts(afterMs, timeZone);
+  for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
+    const candidate = instantOfLocal(p.year, p.month, p.day + dayOffset, hour, minute, timeZone);
+    const weekday = new Date(Date.UTC(p.year, p.month - 1, p.day + dayOffset)).getUTCDay();
+    if (weekday === dayOfWeek && candidate >= afterMs) return candidate;
+  }
+  return afterMs;
+}
+
+/** `hour:minute` (zone-local) on the same zone-local calendar day as `instantMs`. */
+export function wallClockOnLocalDay(instantMs: number, hour: number, minute: number, timeZone: string): number {
+  const p = zoneParts(instantMs, timeZone);
+  return instantOfLocal(p.year, p.month, p.day, hour, minute, timeZone);
+}
+
 /** Round `afterMs` up to the next full hour (UTC-agnostic; a full hour is a full hour everywhere with :00 offsets). */
 export function nextFullHour(afterMs: number): number {
   return Math.ceil(afterMs / HOUR_MS) * HOUR_MS;
