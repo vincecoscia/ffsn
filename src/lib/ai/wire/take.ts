@@ -151,6 +151,12 @@ Rules for every string you return:
    UPDATE belong to the live game desk; do not use them here. Most posts carry one tag; REPORTED
    plus OPINION when you add a read.
 9. Broadcast register, as always: no field names, no ids, no timestamps, no JSON in the prose.
+10. Sources by name: "espnRosteredPct" is the share of ESPN leagues that roster the player and
+    "sleeperAddsLast24h" is Sleeper's 24-hour add count. Never credit the percentage to Sleeper or the
+    adds to ESPN; when in doubt, give the number without a platform.
+11. It is still you. Lead with your own register - the signature moves above are not optional on the
+    Wire - and never open two posts in a row the same way. A flat sentence with a number in it is a
+    card, not a take.
 
 Return exactly one entry per card, keyed by its postId, through the wire_takes tool.`;
 
@@ -179,7 +185,8 @@ export function modelCardView(card: WireFactCard): Record<string, unknown> {
       name: player.name,
       position: player.position,
       nflTeam: player.nflTeam,
-      percentOwned: player.percentOwned,
+      // Labeled by source so the model never credits ESPN's roster percentage to Sleeper (seen on beta 2026-09-05).
+      espnRosteredPct: player.percentOwned,
       adpPositionRank: player.adpPositionRank,
     })),
     nflTeam: card.nflTeam,
@@ -191,7 +198,7 @@ export function modelCardView(card: WireFactCard): Record<string, unknown> {
     depthOrderFrom: card.depthOrderFrom,
     depthOrderTo: card.depthOrderTo,
     depthPosition: card.depthPosition,
-    trendingAdds: card.trendingAdds,
+    sleeperAddsLast24h: card.trendingAdds,
     source: sourceLabel(card.source.type),
   };
 }

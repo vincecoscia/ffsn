@@ -645,6 +645,9 @@ export const ingestDepthChart = internalMutation({
   },
 });
 
+/** How many of one Sleeper trending sync's rows may become takes (the rest are cards). */
+const TRENDING_TAKES_PER_SYNC = 3;
+
 const trendingRowValidator = v.object({
   espnId: v.string(),
   trendingAdds: v.number(),
@@ -660,6 +663,16 @@ export const ingestTrending = internalMutation({
     let skipped = 0;
     const now = Date.now();
     const dateKey = new Date(now).toISOString().slice(0, 10);
+
+    // One sync's trending board is a ranking, not eight separate stories (beta, 2026-09-05: eight
+    // Nina takes from one preseason waiver frenzy). Only the top three by adds may earn a take; the
+    // rest post as plain cards.
+    const takeEligible = new Set(
+      [...rows]
+        .sort((a, b) => b.trendingAdds - a.trendingAdds)
+        .slice(0, TRENDING_TAKES_PER_SYNC)
+        .map((row) => row.espnId)
+    );
 
     for (const row of rows) {
       const dedupeKey = `trending:${row.espnId}:${dateKey}`;
@@ -688,7 +701,8 @@ export const ingestTrending = internalMutation({
       }
 
       const recentAt = await recentSamePlayerPostAt(ctx, row.espnId, now);
-      const interest = clampInterest(scoreInterest(card, { recentSamePlayerPostAt: recentAt, now }));
+      const rawInterest = clampInterest(scoreInterest(card, { recentSamePlayerPostAt: recentAt, now }));
+      const interest = takeEligible.has(row.espnId) ? rawInterest : Math.min(rawInterest, TAKE_MIN_INTEREST - 1);
 
       const eventId = await ctx.db.insert("wireEvents", {
         kind: "trending",
