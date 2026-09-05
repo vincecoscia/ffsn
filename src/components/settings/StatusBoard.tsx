@@ -2,10 +2,13 @@
 
 import { useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { Panel, SectionHeader, Chip, Spinner } from "@/components/broadcast";
+import { Button } from "@/components/ui/button";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { DEFAULT_TIME_ZONE } from "@/components/content-schedule/timezones";
 import { formatPrintTime, nextWeeklyOccurrence } from "@/components/content-schedule/scheduleTime";
@@ -209,7 +212,20 @@ export function StatusBoard({ leagueId, className }: StatusBoardProps) {
     <Panel padding="md" className={className}>
       <SectionHeader kicker="Status" title="League at a glance" />
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatusTile tile={programmingTile} />
+        <div className="flex flex-col gap-1.5">
+          <StatusTile tile={programmingTile} />
+          <Button
+            variant="link"
+            size="sm"
+            asChild
+            className="h-auto self-start px-0 font-sans text-[12px] normal-case tracking-normal"
+          >
+            <Link href={`/leagues/${leagueId}/content-calendar`}>
+              See the full calendar
+              <ArrowUpRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </Button>
+        </div>
         <StatusTile tile={espnTile} />
         <StatusTile tile={passTile} />
         <StatusTile tile={managersTile} />
