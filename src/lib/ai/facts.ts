@@ -1610,7 +1610,11 @@ export function buildIntelFacts(
           trendingAdds: num(entry.market.trendingAdds),
         }
       : undefined;
-    const hasMarket = market && (market.ffcAdp !== undefined || market.trendingAdds !== undefined);
+    // An entry that only carries a market line is not intel for an article: the mock draft prints
+    // the FFC ADP on the pool line already, and an in-season piece has no use for a draft price.
+    // Trending adds are the exception (waiver pieces). 200 market-only entries once added ~90k
+    // characters of FACTS to a mock draft (2026-09-05).
+    const hasMarket = market !== undefined && market.trendingAdds !== undefined && market.trendingAdds > 0;
     const cleared = entry.cleared
       ? { source: entry.cleared.source, asOf: isoDay(entry.cleared.fetchedAt) ?? "", espnStatus: entry.cleared.espnStatus }
       : undefined;

@@ -1359,6 +1359,8 @@ where the two ever disagree, <FACTS> wins.
   private buildPlayerIntelBlock(): string | null {
     const intel = this.facts.intel;
     if (!intel || intel.length === 0) return null;
+    // The mock draft's pool lines and injury watch already carry the feed's word per player.
+    if (this.options.contentType === 'mock_draft') return null;
     const teamName = new Map(this.facts.teams.map(team => [team.id, team.name]));
     const weight = (entry: NonNullable<FactsBlock["intel"]>[number]) =>
       (entry.injury ? 100 : 0) + (entry.cleared ? 40 : 0) + (entry.depthChart ? 5 : 0) + entry.news.length * 10 + (entry.market?.trendingAdds ? 3 : 0);
