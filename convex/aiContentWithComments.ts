@@ -621,7 +621,14 @@ export const checkAndGenerate = internalAction({
       commentRequestIds: args.commentRequestIds,
     });
 
-    // First, expire all pending/active comment requests for this article
+    // A manager who replied but whose interview never formally closed (Sam's close
+    // went unanswered, or a follow-up step failed) still gets their words in: build
+    // their response row before the requests are closed out.
+    for (const commentRequestId of args.commentRequestIds) {
+      await ctx.runAction(internal.commentConversations.processCompletedResponse, { commentRequestId });
+    }
+
+    // Then close out every request still open for this article
     await ctx.runMutation(internal.aiContentWithComments.expireCommentRequests, {
       commentRequestIds: args.commentRequestIds,
     });
@@ -1136,20 +1143,42 @@ export const expireCommentRequests = internalMutation({
       const request = await ctx.db.get(requestId);
       if (!request) continue;
       
-      // Only expire requests that are still pending or active
+      // Only close requests that are still pending or active
       if (request.status === "pending" || request.status === "active") {
-        // Update request status to expired
-        await ctx.db.patch(requestId, {
-          status: "expired",
-          conversationState: "auto_ended",
-          expiredAt: Date.now(),
-          updatedAt: Date.now(),
-        });
+        // A manager who spoke goes to print with what they gave us; only a request
+        // nobody answered is "expired" (same rule as commentRequests.expireRequest).
+        const response = await ctx.db
+          .query("commentResponses")
+          .withIndex("by_comment_request", q => q.eq("commentRequestId", requestId))
+          .first();
+        const now = Date.now();
+        if (response) {
+          // Silence is consent (spec §8.1): approve whatever is still pending at print.
+          if (response.quoteReview?.some(q => q.status === "pending")) {
+            await ctx.db.patch(response._id, {
+              quoteReview: response.quoteReview.map(q => (q.status === "pending" ? { ...q, status: "approved" as const } : q)),
+              updatedAt: now,
+            });
+          }
+          await ctx.db.patch(requestId, {
+            status: "completed",
+            conversationState: "response_complete",
+            completedAt: now,
+            updatedAt: now,
+          });
+        } else {
+          await ctx.db.patch(requestId, {
+            status: "expired",
+            conversationState: "auto_ended",
+            expiredAt: now,
+            updatedAt: now,
+          });
+        }
 
         // Add system message to close the conversation
         const existingMessages = await ctx.db
           .query("commentConversations")
-          .withIndex("by_comment_request", q => 
+          .withIndex("by_comment_request", q =>
             q.eq("commentRequestId", requestId)
           )
           .collect();
@@ -1159,14 +1188,16 @@ export const expireCommentRequests = internalMutation({
           leagueId: request.leagueId,
           userId: request.targetUserId,
           messageType: "system_message",
-          content: "This comment request has expired. The article has been generated without your input.",
+          content: response
+            ? "We're at the deadline - going to print with what you gave us. Thanks."
+            : "This comment request has expired. The article has been generated without your input.",
           messageOrder: existingMessages.length,
           isRead: false,
-          createdAt: Date.now(),
+          createdAt: now,
           threadDepth: 0,
         });
 
-        console.log(`Expired comment request ${requestId}`);
+        console.log(`${response ? "Completed" : "Expired"} comment request ${requestId} at the deadline`);
       }
     }
   },

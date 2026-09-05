@@ -60,6 +60,12 @@ export interface ConversationContext {
   /* --- The matchup (spec §5) ------------------------------------------------ */
   opponentName?: string;
   opponentScore?: number;
+  /**
+   * The opponent in a matchup that has not been decided yet (a preview, or a recap asked
+   * for before ESPN finalized the week). Never paired with a score: Sam may name who they
+   * play, not how it went.
+   */
+  upcomingOpponentName?: string;
   /** Absolute point margin of the result, `|teamScore - opponentScore|`. */
   margin?: number;
   /** Total points left on the bench (lineupSlotId 20). */
@@ -486,6 +492,20 @@ function fmt(n: number | undefined, digits = 1): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(digits);
 }
 
+/** A record with no games in it ("0-0", "0-0-0") is not a standing worth stating. */
+function hasGames(record: string | undefined): boolean {
+  return !!record && !/^0-0(-0)?$/.test(record.trim());
+}
+
+/**
+ * The CONTEXT block exactly as Sam sees it. Exported so the interview harness and its
+ * checks (`src/lib/ai/interview-checks.ts`) verify questions against the same text the
+ * model was given, rather than a copy that can drift.
+ */
+export function buildInterviewFactBlock(context: ConversationContext): string {
+  return conversationService.factBlock(context);
+}
+
 export class ConversationService {
   /** The templated close, shaped as a normal interviewer turn. No model call, no cost. */
   private templatedClose(context: ConversationContext): AIConversationResult {
@@ -754,12 +774,13 @@ Rules:
 HARD RULES
 1. Ask exactly one question per message. Never two.
 2. Every question must contain at least one specific verified fact from CONTEXT - an opponent, a margin, a player and a point total, a dollar amount, a pick number. If CONTEXT lacks a specific fact, ask about the one thing you do know and say less.
-3. Never state a fact that is not in CONTEXT. Never guess a player's NFL team, injury, or rookie status. Never speculate about what another manager thinks.
+3. Never state a fact that is not in CONTEXT. Never guess a player's NFL team, injury, or rookie status. Never speculate about what another manager thinks. Never add color CONTEXT does not have (which day the game was, how long it took, how it felt).
+3a. Numbers are quoted exactly as CONTEXT writes them - never rounded, never "about", never "140-plus". A score is always the manager's points first, then the opponent's, in CONTEXT's order: "lost 107.6-143.8 to Team Rive", never "dropped 143.8 to 107.6".
 4. Never give advice, analysis, predictions, or opinions. If asked for one, say you just take notes and re-ask your question once.
 5. Never characterize their decision as good or bad. "Walk me through it," not "why would you do that?"
-6. Maximum two questions total: the opener, then at most one follow-up that digs into a specific thing they actually said. If their first answer is complete, skip the follow-up and close.
-7. After their final answer, always close with a variation of "Anything else you want on the record?" and set intent to "closing".
-8. If they decline, say "no comment," or go silent on substance, thank them once and end. Never push twice. Set intent to "closing" and shouldRecordDecline to true.
+6. Maximum two questions total: the opener, then at most one follow-up that digs into a specific thing they actually said. If their first answer is complete, skip the follow-up and close. A follow-up asks for a new beat - the why, the what-next - never a restatement of numbers they just gave you or that were in your opener.
+7. After their final answer, always close with a variation of "Anything else you want on the record?" and set intent to "closing". Never staple a follow-up onto the close: a message is either the one follow-up or the close, not both.
+8. If they decline, say "no comment," or go silent on substance, thank them once and end. Never push twice. Set intent to "closing" and shouldRecordDecline to true. An answer that ends with "that's all" or "no further comment" is an answer, not a decline: close with intent "closing" and shouldRecordDecline false.
 9. If they go off-topic or ask about you, one light redirect, then end.
 10. You may use a writer's recent line about this manager from CONTEXT and offer them the reply: "Mel called your Hurts pick 'nineteen picks of air.' Anything you want to say to him?" Only when that line is in CONTEXT, and quote it exactly as CONTEXT has it.
 
@@ -772,13 +793,24 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
    * The CONTEXT block: only lines backed by real data are emitted, so the "never state a
    * fact not in CONTEXT" rule is enforceable by what is absent.
    */
+  /** Public alias of `buildFactBlock` for `buildInterviewFactBlock`. */
+  factBlock(context: ConversationContext): string {
+    return this.buildFactBlock(context);
+  }
+
   private buildFactBlock(context: ConversationContext): string {
     const { teamPerformance: tp, leagueContext, week, seasonId, contentType } = context;
     const lines: string[] = [];
 
-    lines.push(`Story: ${contentType.replace(/_/g, ' ')} - Week ${week}, ${seasonId} season${context.leagueName ? `, ${context.leagueName}` : ''}`);
+    // A draft piece or an offseason story has no week; "Week 0" is never a thing to say.
+    const weekLabel = week > 0 ? `Week ${week}, ` : '';
+    lines.push(`Story: ${contentType.replace(/_/g, ' ')} - ${weekLabel}${seasonId} season${context.leagueName ? `, ${context.leagueName}` : ''}`);
     lines.push(`Manager: ${context.managerName ?? 'Unknown manager'}`);
     lines.push(`Team: ${context.teamName ?? tp.teamName}`);
+
+    if (context.upcomingOpponentName && !(tp.score > 0)) {
+      lines.push(`${week > 0 ? `Week ${week} matchup` : 'Next matchup'}: vs ${context.upcomingOpponentName} (not played yet - no result to cite)`);
+    }
 
     if (tp.score > 0) {
       const result = tp.won ? 'Won' : 'Lost';
@@ -794,7 +826,7 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     }
 
     const standing = leagueContext.standings.find((s) => s.teamId === tp.teamId);
-    if (standing) lines.push(`Standing: #${standing.rank} (${standing.record})`);
+    if (standing && hasGames(standing.record)) lines.push(`Standing: #${standing.rank} (${standing.record})`);
 
     if (context.benchPoints !== undefined && context.benchPoints > 0) {
       const top = context.topBenchPlayer;
@@ -946,7 +978,11 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     const tradePhrase = context.tradesThisWeek?.[0]
       ? `the trade with ${context.tradesThisWeek[0].withTeam} (sent ${context.tradesThisWeek[0].gave.join(', ') || 'nothing'}, got ${context.tradesThisWeek[0].received.join(', ') || 'nothing'})`
       : null;
-    const rankPhrase = standing ? `their #${standing.rank} spot at ${standing.record}` : null;
+    const rankPhrase = standing && hasGames(standing.record) ? `their #${standing.rank} spot at ${standing.record}` : null;
+    const upcomingPhrase =
+      context.upcomingOpponentName && !(tp.score > 0)
+        ? `their ${week > 0 ? `Week ${week} ` : 'upcoming '}matchup against ${context.upcomingOpponentName}`
+        : null;
     const rivalryPhrase = context.rivalry
       ? `their ${context.rivalry.allTimeRecord} all-time record against ${context.rivalry.opponent}`
       : null;
@@ -978,9 +1014,9 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
               rankPhrase
             );
       case 'weekly_preview':
-        return firstOf(rankPhrase, marginPhrase, topPerformer);
+        return firstOf(upcomingPhrase && rankPhrase ? `${upcomingPhrase} at ${standing!.record}` : upcomingPhrase, rankPhrase, marginPhrase, topPerformer);
       case 'power_rankings':
-        return firstOf(rankPhrase, marginPhrase);
+        return firstOf(rankPhrase, marginPhrase, upcomingPhrase);
       case 'waiver_wire_report':
         return firstOf(faabPhrase, addPhrase, worstPerformer, rankPhrase);
       case 'trade_analysis':
@@ -1004,9 +1040,9 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
       case 'hall_of_shame':
         return firstOf(benchPhrase, lineupPhrase, worstPerformer, rankPhrase);
       case 'season_welcome':
-        return firstOf(rankPhrase, pickPhrase);
+        return firstOf(rankPhrase, pickPhrase, upcomingPhrase);
       default:
-        return firstOf(marginPhrase, benchPhrase, rankPhrase, topPerformer);
+        return firstOf(marginPhrase, benchPhrase, rankPhrase, topPerformer, upcomingPhrase);
     }
   }
 
@@ -1038,7 +1074,7 @@ THEIR LAST ANSWER
 
 TASK
 ${isLastQuestion
-  ? `This is your last message. If their answer left one specific thing they said worth one more beat, ask that single follow-up and set intent to "follow_up" with shouldEndAfterResponse true. Otherwise close with a variation of "Anything else you want on the record?" and set intent to "closing".`
+  ? `This is your last message. If their answer left one specific thing they said worth one more beat, ask that single follow-up (quote at most one short phrase of theirs, then ask about something they did NOT address - never re-ask what they answered, never re-list your opener's numbers) and set intent to "follow_up" with shouldEndAfterResponse true. Otherwise close with a variation of "Anything else you want on the record?" and set intent to "closing". One or the other, never a follow-up with "anything else" stapled on.`
   : `Ask one follow-up that digs into a specific thing they actually said, then set shouldEndAfterResponse to true.`}
 If they declined, said no comment, or gave nothing on substance, thank them once, set intent to "closing" and shouldRecordDecline to true.`;
   }

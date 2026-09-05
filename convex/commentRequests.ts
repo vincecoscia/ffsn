@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import type { ConversationContext } from "../src/lib/ai/conversation-service";
 // Type-only: never a value import from a convex/*.ts module here (see the repo-wide gotcha about
 // `internal` recursion). `WaiverLedger` is a plain interface with no runtime footprint.
@@ -45,6 +45,66 @@ function writerDisplayName(slug: string): string {
 
 /** ESPN bench lineup slot. Shared by the bench-points and lineup-decision reducers. */
 const BENCH_SLOT_ID = 20;
+/** ESPN injured-reserve slot. Never a starter, never the bench (interview harness, Sept 2026). */
+const IR_SLOT_ID = 21;
+const NON_STARTER_SLOTS = new Set([BENCH_SLOT_ID, IR_SLOT_ID]);
+
+/**
+ * Interviews for these types are about a finished week: they wait for ESPN to finalize it
+ * (mirrors `LOOKBACK_CONTENT` in contentScheduling.ts, kept separate so this module never
+ * value-imports one that references `internal`).
+ */
+const LOOKBACK_INTERVIEW_TYPES = new Set([
+  "weekly_recap",
+  "power_rankings",
+  "waiver_wire_report",
+  "bank_statement",
+  "mid_season_awards",
+  "hall_of_shame",
+]);
+const WEEK_FINAL_RECHECK_MS = 30 * 60 * 1000;
+/** Managers get at least this long to answer; below it we print without interviews. */
+const MIN_INTERVIEW_WINDOW_MS = 60 * 60 * 1000;
+
+/** A transaction that actually happened. Lost, withdrawn and still-pending claims are not moves. */
+function transactionExecuted(tx: { outcome?: string; status: string; isPending: boolean }): boolean {
+  if (tx.outcome) return tx.outcome === "executed";
+  return !tx.isPending && tx.status === "EXECUTED";
+}
+
+function normalizeQuoteText(text: string): string {
+  return text
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”‟]/g, '"')
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * The first prior quote that is provably something the manager typed: an approved or
+ * edited review entry, an approved quote, or a ledger quote that is a verbatim span of
+ * the raw reply. Last season's ledger rows carry topic labels ("draft strategy") where
+ * quotes should be, and the old fallback to `processedResponse` handed Sam the whole raw
+ * reply - neither may be read back to a manager as "already on the record".
+ */
+function verbatimPriorQuote(response: Doc<"commentResponses">): string | undefined {
+  const raw = normalizeQuoteText(response.rawResponse);
+  const review = response.quoteReview ?? [];
+  const candidates = [
+    ...review.filter(q => q.status === "approved").map(q => q.text),
+    ...(response.approvedQuotes ?? []),
+    ...(response.relevanceMetadata.extractedQuotes ?? []),
+  ];
+  for (const candidate of candidates) {
+    const needle = normalizeQuoteText(candidate);
+    if (needle.length >= 12 && raw.includes(needle)) return candidate;
+  }
+  // An edited entry is the manager's own rewrite of their words; it need not be a span.
+  const edited = review.find(q => q.status === "edited")?.text;
+  return edited && edited.trim().length > 0 ? edited : undefined;
+}
 
 // Create comment requests for scheduled content
 export const createRequestsForScheduledContent = internalMutation({
@@ -89,6 +149,32 @@ export const createRequestsForScheduledContent = internalMutation({
       scheduledContent.contextData?.seasonId ??
       scheduledContent.seasonId ??
       leagueCurrentSeason(league);
+
+    // A recap, ranking or waiver report is about a finished week. Interviews used to go
+    // out one window before print - for a Tuesday 09:00 recap that is Monday 21:00, in
+    // the middle of Monday Night Football, with a score that was still moving. Wait for
+    // ESPN to finalize the week (the same rule the article itself waits on), re-checking
+    // every 30 minutes while at least an hour of interview window is left; past that,
+    // the article prints without interviews rather than with wrong ones.
+    const articleWeek = scheduledContent.contextData?.week ?? scheduledContent.week;
+    if (LOOKBACK_INTERVIEW_TYPES.has(scheduledContent.contentType) && articleWeek) {
+      const finality: { final: boolean; reason: string } = await ctx.runQuery(
+        internal.contentScheduling.isWeekFinal,
+        { leagueId: scheduledContent.leagueId, seasonId: articleSeason, week: articleWeek }
+      );
+      if (!finality.final) {
+        const retryAt = Date.now() + WEEK_FINAL_RECHECK_MS;
+        if (retryAt <= scheduledContent.scheduledFor - MIN_INTERVIEW_WINDOW_MS) {
+          await ctx.scheduler.runAt(retryAt, internal.commentRequests.createRequestsForScheduledContent, args);
+          console.log(
+            `Week ${articleWeek} not final for ${args.scheduledContentId} (${finality.reason}); re-checking at ${new Date(retryAt).toISOString()}`
+          );
+          return { created: false, reason: "week_not_final_deferred" as const, retryAt };
+        }
+        console.log(`Week ${articleWeek} not final for ${args.scheduledContentId} (${finality.reason}); printing without interviews`);
+        return { created: false, reason: "week_not_final" as const };
+      }
+    }
 
     // Create a request for each target user
     const requestIds = await Promise.all(
@@ -208,7 +294,8 @@ export const buildConversationContext = internalQuery({
     if (!request) return null;
 
     const league = await ctx.db.get(request.leagueId);
-    const targetSeason = request.articleContext.seasonId || league?.espnData?.seasonId || 0;
+    // The season the story is about; a request stamped without one means the current season.
+    const targetSeason = request.articleContext.seasonId ?? leagueCurrentSeason(league);
     const week = request.articleContext.week || 0;
 
     // Get conversation history for follow-up context
@@ -282,45 +369,32 @@ export const buildConversationContext = internalQuery({
       }
     }
 
-    // Prefer finding matchup by league + week (any season), then infer season from it
-    const periodMatchups = await ctx.db
+    // The matchup is pinned to the article's season. This used to key on league + week
+    // across EVERY season and prefer whichever season had a score, so a preview, or a
+    // recap asked for before ESPN finalized the week, was answered with LAST season's
+    // week-N game - opponent, score, bench and waiver moves included (the interview
+    // harness caught it on every 2026 scenario). A matchup is decided only when ESPN has
+    // stamped a winner (or it belongs to a past season and has a score); an undecided one
+    // contributes the opponent's name and nothing else.
+    const leagueSeasonNow = league ? leagueCurrentSeason(league) : targetSeason;
+    const isPastSeason = targetSeason < leagueSeasonNow;
+    const seasonMatchups = await ctx.db
       .query("matchups")
-      .withIndex("by_league_period", q => q.eq("leagueId", request.leagueId).eq("matchupPeriod", week))
+      .withIndex("by_league_season", q => q.eq("leagueId", request.leagueId).eq("seasonId", targetSeason))
       .collect();
 
-    const candidateMatches = periodMatchups.filter(
-      (m) => teamExternalId && (m.homeTeamId === teamExternalId || m.awayTeamId === teamExternalId)
-    );
+    const matchupIsDecided = (m: { winner?: string; homeScore: number; awayScore: number }) =>
+      m.winner !== undefined || (isPastSeason && (m.homeScore > 0 || m.awayScore > 0));
 
-    const currentLeagueSeason = league?.espnData?.seasonId || targetSeason;
+    const matchup =
+      week > 0 && teamExternalId
+        ? seasonMatchups.find(
+            m => m.matchupPeriod === week && (m.homeTeamId === teamExternalId || m.awayTeamId === teamExternalId)
+          ) ?? null
+        : null;
+    const matchupDecided = !!matchup && matchupIsDecided(matchup);
 
-    const hasNonZeroScore = (m: any) =>
-      (m.homeScore && m.homeScore > 0) || (m.awayScore && m.awayScore > 0) ||
-      (m.homeRoster?.appliedStatTotal && m.homeRoster.appliedStatTotal > 0) ||
-      (m.awayRoster?.appliedStatTotal && m.awayRoster.appliedStatTotal > 0) ||
-      (m.homePointsByScoringPeriod && typeof m.homePointsByScoringPeriod[String(week)] === 'number' && m.homePointsByScoringPeriod[String(week)] > 0) ||
-      (m.awayPointsByScoringPeriod && typeof m.awayPointsByScoringPeriod[String(week)] === 'number' && m.awayPointsByScoringPeriod[String(week)] > 0);
-
-    // Prefer matches with non-zero score, and with seasonId <= currentLeagueSeason, then highest seasonId
-    let matchup = candidateMatches
-      .filter(hasNonZeroScore)
-      .sort((a, b) => (b.seasonId || 0) - (a.seasonId || 0))
-      .find(m => (m.seasonId || 0) <= currentLeagueSeason) || null;
-
-    if (!matchup && candidateMatches.length > 0) {
-      matchup = candidateMatches.sort((a, b) => (b.seasonId || 0) - (a.seasonId || 0))[0];
-    }
-
-    // Fallback: use provided/league season if no direct match found
-    if (!matchup) {
-      const seasonMatchups = await ctx.db
-        .query("matchups")
-        .withIndex("by_league_season", q => q.eq("leagueId", request.leagueId).eq("seasonId", targetSeason))
-        .collect();
-      matchup = seasonMatchups.find(m => m.matchupPeriod === week && (!teamExternalId || m.homeTeamId === teamExternalId || m.awayTeamId === teamExternalId)) || null;
-    }
-
-    const seasonIdUsed = matchup?.seasonId ?? targetSeason;
+    const seasonIdUsed = targetSeason;
 
     // Derive performance metrics
     let teamScore = 0;
@@ -349,7 +423,13 @@ export const buildConversationContext = internalQuery({
       pointGain: number;
     }> = [];
 
-    if (matchup && teamExternalId) {
+    // Who they play, when the game is not final: a preview names the opponent, never a score.
+    let upcomingOpponentName: string | undefined;
+    if (matchup && teamExternalId && !matchupDecided) {
+      opponentExternalId = matchup.homeTeamId === teamExternalId ? matchup.awayTeamId : matchup.homeTeamId;
+    }
+
+    if (matchup && teamExternalId && matchupDecided) {
       const isHome = matchup.homeTeamId === teamExternalId;
       teamScore = isHome ? matchup.homeScore : matchup.awayScore;
       const opponentScore = isHome ? matchup.awayScore : matchup.homeScore;
@@ -391,8 +471,8 @@ export const buildConversationContext = internalQuery({
       
       underperformers = players
         .filter((p: any) => {
-          // Filter out bench players and players without projections
-          return p.lineupSlotId !== 20 && 
+          // Starters only: bench (20) and IR (21) never "underperformed"
+          return !NON_STARTER_SLOTS.has(p.lineupSlotId) &&
                  p.projectedPoints && 
                  p.points < p.projectedPoints * 0.8 &&
                  (p.projectedPoints - p.points) >= 2; // Minimum 2 point underperformance (lowered threshold)
@@ -430,8 +510,8 @@ export const buildConversationContext = internalQuery({
 
       overperformers = players
         .filter((p: any) => {
-          // Filter out bench players and players without projections
-          return p.lineupSlotId !== 20 && 
+          // Starters only: bench (20) and IR (21) never "overperformed"
+          return !NON_STARTER_SLOTS.has(p.lineupSlotId) &&
                  p.projectedPoints && 
                  p.points > p.projectedPoints * 1.2 &&
                  (p.points - p.projectedPoints) >= 2; // Minimum 2 point overperformance (lowered threshold)
@@ -464,7 +544,10 @@ export const buildConversationContext = internalQuery({
       // reducer as the article path in aiQueries.ts (~L1938), copied rather than
       // imported so the two paths stay independently editable.
       const benchPlayers = players.filter((p: any) => p.lineupSlotId === BENCH_SLOT_ID);
-      const starters = players.filter((p: any) => p.lineupSlotId !== BENCH_SLOT_ID);
+      // IR (slot 21) is neither: a player on IR with 0 points was being reported as the
+      // "worst starter at the position", which turned every healthy bench player into a
+      // lineup mistake (48 real weeks of the 2025 season, per the interview harness).
+      const starters = players.filter((p: any) => !NON_STARTER_SLOTS.has(p.lineupSlotId));
       benchPoints = benchPlayers.reduce((sum: number, p: any) => sum + (p.points || 0), 0);
 
       const bestBench = [...benchPlayers].sort((a: any, b: any) => (b.points || 0) - (a.points || 0))[0];
@@ -521,36 +604,57 @@ export const buildConversationContext = internalQuery({
         )
         .first();
       opponentName = opponentTeam?.name;
+      if (!matchupDecided) upcomingOpponentName = opponentName;
     }
 
-    // Build standings for the given season
+    // Standings as of the article's week, tallied from this season's decided matchups.
+    // `teams.record` is whatever the last sync wrote: the final record when a story looks
+    // back at an earlier week, a stale one when the interview lands before the sync - a
+    // manager was told he was "#4" the week he was #1. Regular-season games only; a
+    // request with no week (draft, offseason) gets the standings as they stand.
     const allTeams = await ctx.db
       .query("teams")
       .withIndex("by_season", q => q.eq("leagueId", request.leagueId).eq("seasonId", seasonIdUsed))
       .collect();
 
+    const regularSeasonWeeks: number = league?.settings?.regularSeasonMatchupPeriods ?? 14;
+    const throughWeek = week > 0 ? Math.min(week, regularSeasonWeeks) : regularSeasonWeeks;
+    const tally = new Map<string, { wins: number; losses: number; ties: number; pointsFor: number }>();
+    for (const t of allTeams) tally.set(t.externalId, { wins: 0, losses: 0, ties: 0, pointsFor: 0 });
+    for (const m of seasonMatchups) {
+      if (m.matchupPeriod > throughWeek || !matchupIsDecided(m)) continue;
+      const home = tally.get(m.homeTeamId);
+      const away = tally.get(m.awayTeamId);
+      if (!home || !away) continue;
+      home.pointsFor += m.homeScore;
+      away.pointsFor += m.awayScore;
+      const winner =
+        m.winner ?? (m.homeScore > m.awayScore ? "home" : m.awayScore > m.homeScore ? "away" : "tie");
+      if (winner === "home") {
+        home.wins++;
+        away.losses++;
+      } else if (winner === "away") {
+        away.wins++;
+        home.losses++;
+      } else {
+        home.ties++;
+        away.ties++;
+      }
+    }
+
     const standings = allTeams
-      .sort((a, b) => {
-        // Sort by wins first
-        if (a.record.wins !== b.record.wins) {
-          return (b.record.wins || 0) - (a.record.wins || 0);
-        }
-        // Then by win percentage
-        const aTotalGames = (a.record.wins || 0) + (a.record.losses || 0) + (a.record.ties || 0);
-        const bTotalGames = (b.record.wins || 0) + (b.record.losses || 0) + (b.record.ties || 0);
-        const aWinPct = aTotalGames > 0 ? (a.record.wins || 0) / aTotalGames : 0;
-        const bWinPct = bTotalGames > 0 ? (b.record.wins || 0) / bTotalGames : 0;
-        if (aWinPct !== bWinPct) {
-          return bWinPct - aWinPct;
-        }
-        // Then by points for (tiebreaker)
-        return (b.record.pointsFor || 0) - (a.record.pointsFor || 0);
-      })
-      .map((t, idx) => ({
+      .map(t => ({ team: t, rec: tally.get(t.externalId)! }))
+      .sort(
+        (a, b) =>
+          b.rec.wins - a.rec.wins ||
+          b.rec.pointsFor - a.rec.pointsFor ||
+          a.team.name.localeCompare(b.team.name)
+      )
+      .map(({ team: t, rec }, idx) => ({
         teamId: t._id,
         teamName: t.name,
         rank: idx + 1,
-        record: `${t.record.wins || 0}-${t.record.losses || 0}${t.record.ties ? `-${t.record.ties}` : ''}`,
+        record: `${rec.wins}-${rec.losses}${rec.ties ? `-${rec.ties}` : ''}`,
       }));
 
     // Get draft data with isRookie information for draft-related content types
@@ -620,7 +724,7 @@ export const buildConversationContext = internalQuery({
             q.neq(q.field("type"), "ROSTER")
           )
         )
-        .take(10);
+        .take(40);
 
       // One lookup per distinct player across all of this team's transactions.
       const playerNames = new Map<number, string>();
@@ -638,6 +742,12 @@ export const buildConversationContext = internalQuery({
       }
 
       for (const transaction of periodTransactions) {
+        // Only moves that happened. Lost, withdrawn and still-pending claims were listed
+        // as pickups ("added Woody Marks for $21" on a claim that lost), so Sam asked
+        // managers to walk her through players they never got. Losing bids are stated as
+        // such by the waiver ledger below.
+        if (!transactionExecuted(transaction)) continue;
+        if (transactionsThisWeek.length >= 10) break;
         const playersAdded: string[] = [];
         const playersDropped: string[] = [];
         for (const item of transaction.items) {
@@ -675,10 +785,21 @@ export const buildConversationContext = internalQuery({
         )
         .take(100);
 
+      // A trade article is about the trade, whenever it happened. Every other story only
+      // gets trades from this week or last - a week-1 recap was opening on a trade from
+      // week 9 of the previous season, and a mid-season recap on one from weeks earlier.
+      const isTradeStory =
+        request.contentType === "trade_analysis" ||
+        request.contentType === "trade_block_tuesday" ||
+        request.contentType === "trade_rumor_mill";
+      const tradeIsCurrent = (t: { week?: number }) =>
+        isTradeStory || (t.week !== undefined && week > 0 && t.week >= week - 1 && t.week <= week);
+
       const involving = seasonTrades
         .filter(t =>
           (t.status === "accepted" || t.status === "completed") &&
-          (t.teamA.teamId === teamExternalId || t.teamB.teamId === teamExternalId)
+          (t.teamA.teamId === teamExternalId || t.teamB.teamId === teamExternalId) &&
+          tradeIsCurrent(t)
         )
         .sort((a, b) => b.tradeDate - a.tradeDate)
         .slice(0, 2);
@@ -739,12 +860,12 @@ export const buildConversationContext = internalQuery({
     for (const response of priorResponses) {
       if (response.leagueId !== request.leagueId) continue;
       if (response.commentRequestId === args.commentRequestId) continue;
-      const text =
-        response.approvedQuotes?.[0] ??
-        response.relevanceMetadata.extractedQuotes?.[0] ??
-        response.processedResponse;
-      if (!text) continue;
       const priorRequest = await ctx.db.get(response.commentRequestId);
+      // This season only. What a manager said about last year's team is not context for
+      // this one, and it is where the label-shaped "quotes" of the old ledger live.
+      if (priorRequest?.articleContext.seasonId !== seasonIdUsed) continue;
+      const text = verbatimPriorQuote(response);
+      if (!text) continue;
       priorQuotes.push({
         week: priorRequest?.articleContext.week,
         text: text.length > 240 ? `${text.slice(0, 239)}…` : text,
@@ -787,8 +908,10 @@ export const buildConversationContext = internalQuery({
 
     for (const event of writerEvents) {
       if (event.type !== "article_roast" && event.type !== "article_praise") continue;
-      // Last 3 weeks only; week-less events (offseason pieces) are always eligible.
-      if (week > 0 && event.week !== undefined && event.week <= week - 3) continue;
+      // Last 3 weeks only, and never a later week than the story's (a replay or a
+      // backfill would otherwise hand Sam a line the writer has not written yet);
+      // week-less events (offseason pieces) are always eligible.
+      if (week > 0 && event.week !== undefined && (event.week <= week - 3 || event.week > week)) continue;
       const article = event.articleId ? await ctx.db.get(event.articleId) : null;
       recentMentions.push({
         week: event.week,
@@ -841,7 +964,7 @@ export const buildConversationContext = internalQuery({
         }
       | undefined;
 
-    if (team && request.contentType === "waiver_wire_report") {
+    if (team && request.contentType === "waiver_wire_report" && week > 0) {
       // Explicit type annotation: a cross-module `ctx.runQuery(internal.aiQueries...)` call whose
       // result feeds back into this same handler's inferred return type can make the generated api
       // type recursive (repo-wide gotcha) - anchoring it here breaks the cycle.
@@ -945,6 +1068,7 @@ export const buildConversationContext = internalQuery({
 
       // The matchup, in the detail that makes an opener specific.
       opponentName,
+      upcomingOpponentName,
       opponentScore: opponentScoreOut,
       margin,
       benchPoints,
@@ -1516,6 +1640,12 @@ export const expireOldRequests = internalAction({
     });
 
     for (const request of activeRequests) {
+      // A manager who replied but whose interview never formally closed (Sam's close
+      // went unanswered, or the follow-up step failed) still gets their words in: build
+      // the response row before the request is closed out.
+      await ctx.runAction(internal.commentConversations.processCompletedResponse, {
+        commentRequestId: request._id,
+      });
       await ctx.runMutation(internal.commentRequests.expireRequest, {
         commentRequestId: request._id,
       });
@@ -1581,30 +1711,61 @@ export const expireRequest = internalMutation({
     commentRequestId: v.id("commentRequests"),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.commentRequestId, {
-      status: "expired",
-      conversationState: "auto_ended",
-      expiredAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) return;
+    if (request.status !== "pending" && request.status !== "active") return;
+
+    // Deadline. A manager who spoke goes to print with what they gave us; only a
+    // request nobody answered is "expired". Telling someone who answered that the
+    // article ran "without your input" was last season's most-reported complaint.
+    const response = await ctx.db
+      .query("commentResponses")
+      .withIndex("by_comment_request", q => q.eq("commentRequestId", args.commentRequestId))
+      .first();
+    const now = Date.now();
+    if (response) {
+      // Silence is consent (spec §8.1): whatever the manager had not reviewed by the
+      // deadline is approved here, so the scheduled path prints it too.
+      if (response.quoteReview?.some(q => q.status === "pending")) {
+        await ctx.db.patch(response._id, {
+          quoteReview: response.quoteReview.map(q => (q.status === "pending" ? { ...q, status: "approved" as const } : q)),
+          updatedAt: now,
+        });
+      }
+      await ctx.db.patch(args.commentRequestId, {
+        status: "completed",
+        conversationState: "response_complete",
+        completedAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(args.commentRequestId, {
+        status: "expired",
+        conversationState: "auto_ended",
+        expiredAt: now,
+        updatedAt: now,
+      });
+    }
 
     // Add system message
     const messages = await ctx.db
       .query("commentConversations")
-      .withIndex("by_comment_request", q => 
+      .withIndex("by_comment_request", q =>
         q.eq("commentRequestId", args.commentRequestId)
       )
       .collect();
 
     await ctx.db.insert("commentConversations", {
       commentRequestId: args.commentRequestId,
-      leagueId: (await ctx.db.get(args.commentRequestId))!.leagueId,
-      userId: (await ctx.db.get(args.commentRequestId))!.targetUserId,
+      leagueId: request.leagueId,
+      userId: request.targetUserId,
       messageType: "system_message",
-      content: "This comment request has expired. The article will be generated without your input.",
+      content: response
+        ? "We're at the deadline - going to print with what you gave us. Thanks."
+        : "This comment request has expired. The article will be generated without your input.",
       messageOrder: messages.length,
       isRead: false,
-      createdAt: Date.now(),
+      createdAt: now,
       threadDepth: 0,
     });
   },

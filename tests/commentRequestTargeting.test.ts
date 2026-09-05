@@ -129,7 +129,9 @@ async function seed(t: ReturnType<typeof convexTest>) {
     });
     // currTeamB is deliberately left unclaimed.
 
-    // Both current-season teams played in the target week.
+    // Both current-season teams played in the target week. `winner` marks the
+    // week as final: createRequestsForScheduledContent defers a recap's
+    // interviews until ESPN has stamped one (see tests/interviewContextBuilder.test.ts).
     await ctx.db.insert("matchups", {
       leagueId,
       seasonId: SEASON,
@@ -139,6 +141,7 @@ async function seed(t: ReturnType<typeof convexTest>) {
       awayTeamId: "2",
       homeScore: 110.4,
       awayScore: 98.2,
+      winner: "home",
       createdAt: now,
     });
 
