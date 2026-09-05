@@ -27,7 +27,14 @@ const injuryCard = (overrides: Partial<WireFactCard> = {}): WireFactCard => ({
 
 async function seedLeague(
   ctx: TestCtx,
-  opts: { passActive?: boolean; waiverType?: "faab" | "waivers" | "free_agency"; faabBudget?: number; wireEnabled?: boolean } = {}
+  opts: {
+    passActive?: boolean;
+    waiverType?: "faab" | "waivers" | "free_agency";
+    faabBudget?: number;
+    wireEnabled?: boolean;
+    /** Seed a leagueSeasons row sitting before its draft; keeperCount > 0 makes it a keeper league. */
+    preDraft?: { keeperCount: number };
+  } = {}
 ) {
   const now = Date.now();
   const leagueId = await ctx.db.insert("leagues", {
@@ -117,6 +124,17 @@ async function seedLeague(
     updatedAt: now,
     createdAt: now,
   });
+
+  if (opts.preDraft) {
+    await ctx.db.insert("leagueSeasons", {
+      leagueId,
+      seasonId: SEASON,
+      settings: {},
+      draftInfo: { drafted: false, inProgress: false },
+      draftSettings: { keeperCount: opts.preDraft.keeperCount, keeperCountFuture: 0 },
+      createdAt: now,
+    });
+  }
 
   return { leagueId, ownerTeamId, opponentTeamId };
 }
@@ -223,6 +241,65 @@ describe("wireOverlay: per-league fill", () => {
     expect(freeAgent).toBeDefined();
     expect(freeAgent!.text).toContain("Backup Guy");
     expect(freeAgent!.featuredTeams).toHaveLength(0);
+  });
+
+  it("pre-draft REDRAFT league -> no overlay rows, even for a kept-looking roster or a star on the board", async () => {
+    const t = convexTest(schema, modules);
+    const { leagueId } = await t.run((ctx) => seedLeague(ctx, { waiverType: "faab", faabBudget: 100, preDraft: { keeperCount: 0 } }));
+
+    // Rostered star (seedLeague puts 9101 on Owner Team) and an unrostered, widely-owned one.
+    const rostered = await t.run((ctx) => seedPost(ctx, injuryCard()));
+    const onBoard = await t.run((ctx) =>
+      seedPost(ctx, injuryCard({ players: [{ espnId: "9199", name: "Board Guy", position: "RB", nflTeam: "KC", percentOwned: 90 }] }))
+    );
+    await t.mutation(internal.wireOverlay.fanOutGlobalPostForLeague, { postId: rostered.postId, leagueId });
+    await t.mutation(internal.wireOverlay.fanOutGlobalPostForLeague, { postId: onBoard.postId, leagueId, backupEspnId: "9202", backupName: "Backup Guy" });
+
+    const rows = await t.run((ctx) =>
+      ctx.db.query("wireLeaguePosts").withIndex("by_league_created", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("pre-draft KEEPER league -> owner note for a kept player without waiver sentences; draft-board note with ADP for a star on the board", async () => {
+    const t = convexTest(schema, modules);
+    const { leagueId } = await t.run((ctx) => seedLeague(ctx, { waiverType: "faab", faabBudget: 100, preDraft: { keeperCount: 2 } }));
+
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("playerIntel", {
+        espnId: "9199",
+        season: new Date().getFullYear() >= SEASON ? SEASON : SEASON, // intel season label = current NFL season
+        source: "ffc",
+        kind: "market",
+        fetchedAt: now,
+        market: "ppr-12",
+        adp: 18.4,
+        adpPositionRank: 7,
+      })
+    );
+
+    const kept = await t.run((ctx) => seedPost(ctx, injuryCard()));
+    const onBoard = await t.run((ctx) =>
+      seedPost(ctx, injuryCard({ players: [{ espnId: "9199", name: "Board Guy", position: "RB", nflTeam: "KC", percentOwned: 90 }] }))
+    );
+    await t.mutation(internal.wireOverlay.fanOutGlobalPostForLeague, { postId: kept.postId, leagueId });
+    await t.mutation(internal.wireOverlay.fanOutGlobalPostForLeague, { postId: onBoard.postId, leagueId, backupEspnId: "9202", backupName: "Backup Guy" });
+
+    const rows = await t.run((ctx) =>
+      ctx.db.query("wireLeaguePosts").withIndex("by_league_created", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    const owner = rows.find((r) => r.impact?.variant === "owner");
+    expect(owner).toBeDefined();
+    expect(owner!.text).toContain("Owner Team");
+    expect(owner!.text).not.toMatch(/FAAB|waivers/);
+    expect(rows.find((r) => r.impact?.variant === "opponent")).toBeUndefined();
+
+    const board = rows.find((r) => !r.impact);
+    expect(board).toBeDefined();
+    expect(board!.text).toContain("still on the board");
+    expect(board!.text).not.toContain("Backup Guy");
+    expect(board!.text).toMatch(/ADP 18\.4, RB7/);
   });
 
   it("no active pass -> no overlay rows at all", async () => {

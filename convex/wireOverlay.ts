@@ -16,6 +16,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasActivePass } from "./credits";
 import { leagueCurrentSeason, nflSeasonYearFor } from "./lib/season";
+import { isPreDraftRedraft } from "./lib/matchupSummary";
 import { faabSlot, insertLeaguePostIfNew, managerNameFor } from "./lib/wireLeaguePosting";
 import {
   CARD_MIN_INTEREST,
@@ -161,6 +162,43 @@ async function findBackupCandidate(
   return enriched ? { espnId: nextUp.espnId, name: enriched.fullName } : null;
 }
 
+type DraftPhase = "predraft_redraft" | "predraft_keeper" | "drafted";
+
+/**
+ * Where this league's season sits relative to its draft. Reuses `isPreDraftRedraft`'s rule
+ * (matchupSummary.ts): `draftInfo.drafted` must be the literal `false` to count as pre-draft, and a
+ * keeper/dynasty league (keeperCount or keeperCountFuture > 0) is the keeper case. Anything else,
+ * including an unsynced season, is treated as drafted so real rosters are never hidden.
+ */
+async function draftPhaseFor(ctx: MutationCtx, leagueId: Id<"leagues">, seasonId: number): Promise<DraftPhase> {
+  const season = await ctx.db
+    .query("leagueSeasons")
+    .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
+    .first();
+  if (!season || season.draftInfo?.drafted !== false) return "drafted";
+  return isPreDraftRedraft(season) ? "predraft_redraft" : "predraft_keeper";
+}
+
+const ADP_MARKET_PREFERENCE = ["ppr-12", "ppr-10", "half-ppr-12", "half-ppr-10", "standard-12", "standard-10"];
+
+/** `{adp}` / `{adpRank}` from the freshest FFC market board for this player (intel sync), if any. */
+async function adpSlotsFor(ctx: MutationCtx, player: WireCardPlayer): Promise<WireSlots> {
+  const season = nflSeasonYearFor();
+  const rows = await ctx.db
+    .query("playerIntel")
+    .withIndex("by_player_season", (q) => q.eq("espnId", player.espnId).eq("season", season))
+    .filter((q) => q.eq(q.field("kind"), "market"))
+    .take(12);
+  const byPreference = [...rows].sort(
+    (a, b) => ADP_MARKET_PREFERENCE.indexOf(a.market ?? "") - ADP_MARKET_PREFERENCE.indexOf(b.market ?? "")
+  );
+  const board = byPreference.find((row) => row.adp !== undefined);
+  if (!board || board.adp === undefined) return {};
+  const slots: WireSlots = { adp: board.adp.toFixed(1) };
+  if (board.adpPositionRank !== undefined && player.position) slots.adpRank = `${player.position}${board.adpPositionRank}`;
+  return slots;
+}
+
 function basePlayerSlots(card: WireFactCard, player: WireCardPlayer): WireSlots {
   const slots: WireSlots = { player: player.name };
   if (player.position) slots.pos = player.position;
@@ -263,7 +301,16 @@ export const fanOutGlobalPostForLeague = internalMutation({
 
     const seasonId = leagueCurrentSeason(league);
     const now = Date.now();
-    const week = (await currentMatchupPeriod(ctx, leagueId, seasonId)) ?? undefined;
+
+    // Draft phase (owner ask, 2026-09-05): before its draft a REDRAFT league has no rosters and no
+    // waiver wire, so it gets the global wire only - no overlay at all. A KEEPER league before its
+    // draft keeps owner notes for the players already kept, and an unrostered player gets a
+    // draft-board note (ADP) instead of a waiver note. Unknown/unsynced draft state counts as drafted.
+    const draftPhase = await draftPhaseFor(ctx, leagueId, seasonId);
+    if (draftPhase === "predraft_redraft") return null;
+    const preDraft = draftPhase === "predraft_keeper";
+
+    const week = preDraft ? undefined : ((await currentMatchupPeriod(ctx, leagueId, seasonId)) ?? undefined);
 
     const language = await ctx.runQuery(internal.languageSettings.getLeagueLanguage, { leagueId });
     const baseSlots = basePlayerSlots(card, player);
@@ -275,14 +322,15 @@ export const fanOutGlobalPostForLeague = internalMutation({
       const effectiveInterest = post.interest + (isStarter ? STARTER_OVERLAY_BONUS : 0);
       if (effectiveInterest < CARD_MIN_INTEREST) return null;
 
-      const bestFA = await findBestFreeAgent(ctx, leagueId, seasonId, player.position);
+      // Pre-draft (keeper): no waiver wire yet, so the FAAB / best-free-agent sentences drop.
+      const bestFA = preDraft ? undefined : await findBestFreeAgent(ctx, leagueId, seasonId, player.position);
 
       // Owner variant.
       const ownerSlots: WireSlots = {
         ...baseSlots,
         team: ownership.team.name,
         manager: managerNameFor(ownership.team),
-        faab: faabSlot(league, ownership.team),
+        faab: preDraft ? undefined : faabSlot(league, ownership.team),
         bestFA,
       };
       await tryInsertVariant(ctx, {
@@ -300,8 +348,10 @@ export const fanOutGlobalPostForLeague = internalMutation({
         now,
       });
 
-      // Opponent variant: this week's matchup for the owner's team.
-      const opponentTeam = await findOpponentTeam(ctx, leagueId, seasonId, ownership.team.externalId, week ?? 0);
+      // Opponent variant: this week's matchup for the owner's team (none before the draft).
+      const opponentTeam = preDraft
+        ? null
+        : await findOpponentTeam(ctx, leagueId, seasonId, ownership.team.externalId, week ?? 0);
       if (opponentTeam) {
         const opponentSlots: WireSlots = {
           ...baseSlots,
@@ -334,6 +384,26 @@ export const fanOutGlobalPostForLeague = internalMutation({
       (player.percentOwned ?? 0) >= FREE_AGENT_MIN_PERCENT_OWNED ||
       (card.trendingAdds ?? 0) >= FREE_AGENT_MIN_TRENDING_ADDS;
     if (!widelyRelevant) return null;
+
+    // Pre-draft keeper league: he is on the board, not the wire - a draft-board note with his ADP.
+    if (preDraft) {
+      const adp = await adpSlotsFor(ctx, player);
+      await tryInsertVariant(ctx, {
+        leagueId,
+        seasonId,
+        week,
+        post,
+        card,
+        variant: "draftBoard",
+        slots: { ...baseSlots, ...adp },
+        teamId: undefined,
+        featuredTeams: [],
+        featuredTeamNames: [],
+        language,
+        now,
+      });
+      return null;
+    }
 
     const bestFA = await findBestFreeAgent(ctx, leagueId, seasonId, player.position);
     const backup = await backupSlotFor(ctx, leagueId, seasonId, backupEspnId, backupName);
@@ -389,7 +459,10 @@ interface VariantInsertArgs {
 async function tryInsertVariant(ctx: MutationCtx, args: VariantInsertArgs): Promise<void> {
   const { leagueId, seasonId, week, post, card, variant, slots, teamId, featuredTeams, featuredTeamNames, language, now } = args;
 
-  const template = post.variants?.[variant] ?? defaultVariants(card)[variant];
+  // The model writes owner/opponent/freeAgent; draftBoard (and any variant it skipped) falls back
+  // to the deterministic default template.
+  const modelVariants = post.variants as Partial<Record<OverlayVariant, string>> | undefined;
+  const template = modelVariants?.[variant] ?? defaultVariants(card)[variant];
   const filled = fillVariant(template, slots);
   if (!filled.ok) return;
 

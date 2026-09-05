@@ -5,6 +5,7 @@ const OVERLAY_LABELS: Record<string, string> = {
   owner: "Your league",
   opponent: "Opponent",
   freeAgent: "Waiver watch",
+  draftBoard: "Draft board",
 };
 
 function overlayLabel(variant: string): string {

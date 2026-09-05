@@ -459,6 +459,8 @@ export function sampleSlotsFor(kind: WireEventKind): WireSlots {
     faab: "$31",
     bestFA: "Jake Browning",
     backup: "Jake Browning",
+    adp: "18.4",
+    adpRank: "RB7",
     trendingAdds: "1,240",
     week: "4",
     score: "142.8",

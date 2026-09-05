@@ -107,6 +107,14 @@ For every league with an active pass, and for every global event with interest �
    ≥ 30% of leagues (ESPN `percentOwned`) or trending ≥ 500 adds; otherwise no overlay.
 6. Language: the filled sentence is then decorated by the league's language allowance exactly like a
    stock line (§3.3); the base text is clean.
+7. **Draft phase (owner, 2026-09-05).** A REDRAFT league before its draft (`draftInfo.drafted === false`,
+   no keeper slots, the `isPreDraftRedraft` rule) has no rosters and no waiver wire: it sees the global
+   wire only, no overlays. A KEEPER league before its draft keeps owner notes for players already
+   kept (FAAB and best-free-agent sentences drop, no opponent note), and an unrostered but
+   high-profile player gets a **draftBoard** variant instead of freeAgent: "{player} is still on the
+   board in this league. ADP {adp}, {adpRank} before this. Draft accordingly." (ADP from the FFC intel
+   boards; the sentence drops when there is none). An unsynced draft state counts as drafted so real
+   rosters are never hidden.
 
 Overlay rows carry `impact: { teamId, variant, slots }` so the UI can render the team tile and the
 verifier can re-check the fill.

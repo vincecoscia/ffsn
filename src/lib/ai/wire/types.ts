@@ -226,6 +226,8 @@ export const SLOT_TOKENS = [
   "faab", // "$31"
   "bestFA", // best free agent at the position in this league
   "backup", // next man up on the NFL depth chart, if unrostered here
+  "adp", // FFC overall ADP, e.g. "18.4" (pre-draft keeper leagues, spec §3.2)
+  "adpRank", // FFC positional ADP rank, e.g. "QB3"
   "trendingAdds",
   "week",
   "score", // "142.8"
@@ -245,7 +247,12 @@ export const SLOT_TOKENS = [
 export type SlotToken = (typeof SLOT_TOKENS)[number];
 export type WireSlots = Partial<Record<SlotToken, string>>;
 
-export type OverlayVariant = "owner" | "opponent" | "freeAgent";
+/**
+ * owner / opponent / freeAgent are the in-season variants (spec §3.2). draftBoard is the pre-draft
+ * KEEPER-league stand-in for freeAgent: an unrostered player is not "on the wire" before a draft, he
+ * is on the board, so the note talks ADP, never waivers. Pre-draft REDRAFT leagues get no overlay.
+ */
+export type OverlayVariant = "owner" | "opponent" | "freeAgent" | "draftBoard";
 
 /** What one Sonnet call returns per fact card (spec §3.1). Strings ≤ MAX_POST_CHARS. */
 export interface WireTakeSet {

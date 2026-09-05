@@ -142,7 +142,29 @@ function injuryNoteLeads(card: WireFactCard): { owner: string; opponent: string 
  * carries only the slots it needs, so a league without FAAB simply loses the FAAB sentence and a
  * card without a position keeps its lead. Lead sentences never depend on `{pos}` for that reason.
  */
+/**
+ * The pre-draft keeper-league note for an unrostered player (spec §3.2): the player is on the draft
+ * board, not the waiver wire. Sentence 2 drops when the league has no FFC ADP for him.
+ */
+function draftBoardTemplate(card: WireFactCard): string {
+  switch (card.kind) {
+    case "injury_status":
+    case "injury_note":
+      return "{player} ({pos}) is still on the board in this league. ADP {adp}, {adpRank} before this. Draft accordingly.";
+    case "depth_chart":
+      return "{player} is still on the board here and just moved up the {nflTeam} depth chart. ADP {adp}, {adpRank} before this.";
+    case "trending":
+      return "{player} is still on the board here. {trendingAdds} Sleeper leagues added him in the last day. ADP {adp}, {adpRank}.";
+    default:
+      return "{player} ({pos}) is still on the board in this league. ADP {adp}, {adpRank}.";
+  }
+}
+
 export function defaultVariants(card: WireFactCard): Record<OverlayVariant, string> {
+  return { ...baseVariants(card), draftBoard: draftBoardTemplate(card) };
+}
+
+function baseVariants(card: WireFactCard): Record<Exclude<OverlayVariant, "draftBoard">, string> {
   switch (card.kind) {
     case "injury_status": {
       const tier = statusTier(card);
