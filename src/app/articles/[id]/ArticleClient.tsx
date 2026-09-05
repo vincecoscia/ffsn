@@ -252,6 +252,7 @@ export function ArticleClient({ articleId }: ArticleClientProps) {
                   week={typeof week === "number" ? week : undefined}
                   writerResponse={quote.writerResponse}
                   writerPersona={article.persona}
+                  source={quote.source}
                 />
               ))}
             </div>

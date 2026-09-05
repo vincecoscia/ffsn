@@ -158,6 +158,7 @@ export function MarkdownPreview({
                   week={quoteWeek}
                   writerResponse={quote.writerResponse}
                   writerPersona={quotePersona}
+                  source={quote.source}
                 />
               );
             }

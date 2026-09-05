@@ -45,6 +45,10 @@ export const GLOBAL_EVENT_KINDS = [
 
 /** League kinds happen inside one league; they never get a global post. */
 export const LEAGUE_EVENT_KINDS = [
+  // Social layer (spec §17): managers post and reply; a writer answers a manager reply.
+  "manager_post",
+  "manager_reply",
+  "writer_reply",
   // P1 (stock lines, no model)
   "waiver_processed",
   "add_drop",
@@ -109,6 +113,9 @@ export const WIRE_PERSONA_FOR_KIND: Record<WireEventKind, WirePersona> = {
   big_line: "reggie-banks",
   bust_watch: "mel-diaper",
   weather: "nina-sharpe",
+  manager_post: "curtis-vaughn", // unused: a manager post has an author, not a persona
+  manager_reply: "curtis-vaughn", // unused, as above
+  writer_reply: "curtis-vaughn", // overridden by the writer being answered
   waiver_processed: "dex-alvarez",
   add_drop: "dex-alvarez",
   trade: "dex-alvarez",
@@ -283,13 +290,15 @@ export const FREE_AGENT_MIN_TRENDING_ADDS = 500;
 export const GLOBAL_TAKES_PER_HOUR = 40;
 export const LEAGUE_POSTS_PER_HOUR = 15;
 export const LEAGUE_POSTS_PER_DAY = 80;
-/** Kinds exempt from the per-league limits (they land together by design). */
+/** Kinds exempt from the per-league limits (they land together by design). `writer_reply` has its
+ *  own limits (`WRITER_REPLIES_PER_*` below), so the general per-league cap must not also apply. */
 export const LEAGUE_LIMIT_EXEMPT_KINDS: ReadonlySet<string> = new Set([
   "week_final",
   "game_of_week",
   "top_score",
   "low_score",
   "bench_points",
+  "writer_reply",
 ]);
 
 export const TAKE_BATCH_WINDOW_MINUTES = 10;
@@ -321,6 +330,132 @@ export interface StockLine {
 }
 
 /* ------------------------------------------------------------------------------------------- *
+ * Social layer (spec §17): reactions, manager posts and replies, writer replies
+ * ------------------------------------------------------------------------------------------- */
+
+/** Same set as article reactions (articleReactions.reaction). */
+export const WIRE_REACTIONS = ["fire", "lol", "salty", "respect"] as const;
+export type WireReaction = (typeof WIRE_REACTIONS)[number];
+export type WireReactionCounts = Record<WireReaction, number>;
+export const EMPTY_REACTION_COUNTS: WireReactionCounts = { fire: 0, lol: 0, salty: 0, respect: 0 };
+
+/** A reaction on a WRITER's post moves the reader's relationship with that writer by this much
+ *  (spec §17.1: a third of the article deltas, rounded to whole points; lol is neutral). */
+export const WIRE_REACTION_DELTAS: Record<WireReaction, number> = { fire: 1, lol: 0, salty: -1, respect: 1 };
+/** A manager's reply that jabs / thanks the writer it answers (sentiment from the writer-reply call). */
+export const WIRE_JAB_DELTA = -4;
+export const WIRE_THANKS_DELTA = 4;
+
+export const MANAGER_POST_MAX_CHARS = 280;
+export const MANAGER_POSTS_PER_HOUR = 10;
+export const MANAGER_POSTS_PER_DAY = 40;
+/** Writer replies (one Sonnet call each): per manager per hour, per league per day, per thread. */
+export const WRITER_REPLIES_PER_MANAGER_PER_HOUR = 3;
+export const WRITER_REPLIES_PER_LEAGUE_PER_DAY = 30;
+export const WRITER_REPLIES_PER_THREAD_PER_MANAGER = 2;
+/** Sam chases a standalone manager post with one question this often (seeded), at most once per manager per day. */
+export const SAM_CHASE_ONE_IN = 3;
+/** How many prior turns of a thread the writer-reply call sees. */
+export const MAX_THREAD_CONTEXT = 6;
+/** Manager wire statements stay quotable by the article writers for this long. */
+export const WIRE_STATEMENT_QUOTABLE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Content types that never draw a manager's Wire statements into their FACTS block (spec §17.5) -
+ *  a mock draft, draft rankings/strategy guide and the season welcome all run before or outside
+ *  the season's Wire activity, so there is nothing relevant for them to quote. */
+export const WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES: ReadonlySet<string> = new Set([
+  "mock_draft",
+  "draft_rankings",
+  "draft_strategy_guide",
+  "season_welcome",
+]);
+
+/**
+ * Where a ledger quote came from (spec §17.4): a Sam interview (the default, and what every quote
+ * was before the Wire) or a manager's public post on The Wire. Carried on `CommentResponseData`,
+ * `FactsBlock.quotes[]` and the stored article quote; the article prompt attributes "wire" quotes
+ * as said on The Wire, never as told to Sam.
+ */
+export type WireQuoteSource = "interview" | "wire";
+
+/** Where a reply hangs: a global writer post or a league post. */
+export interface WireReplyTarget {
+  scope: "global" | "league";
+  id: string;
+}
+
+/** The manager behind a manager post/reply, as the UI shows it. */
+export interface WireAuthorRef {
+  /** Clerk subject. */
+  userId: string;
+  displayName: string;
+  team?: WireTeamRef;
+}
+
+export type ManagerTextRating = LanguageRating;
+
+/** `moderateManagerText` (src/lib/ai/wire/moderate.ts): what a manager may post at this league's rating. */
+export interface ModerationResult {
+  ok: boolean;
+  /** Trimmed, whitespace-collapsed text (unchanged content). */
+  text: string;
+  /** Human-readable reasons, e.g. "Too long (312/280)", "This league is rated Clean: drop 'damn'". */
+  violations: string[];
+}
+
+export type WriterReplySentiment = "jab" | "thanks" | "neutral";
+
+/** Input to `generateWriterReply` (src/lib/ai/wire/reply.ts). */
+export interface WriterReplyInput {
+  persona: WirePersona;
+  /** "reply": answer a manager who replied to this writer's post. "chase": Sam asks one follow-up on a standalone manager post. */
+  mode: "reply" | "chase";
+  /** The writer's own post the manager replied to (absent in chase mode). */
+  writerPostText?: string;
+  /** The fact card behind that post when it was a global post - the only facts the writer may restate. */
+  card?: WireFactCard;
+  /** The manager's text being answered (or, in chase mode, the standalone post). */
+  managerText: string;
+  manager: { displayName: string; teamName: string; relationshipTier: string; recentEvidence: string[] };
+  /** Earlier turns in this thread, oldest first, at most MAX_THREAD_CONTEXT. */
+  thread: Array<{ author: "writer" | "manager"; text: string }>;
+  languageRating: LanguageRating;
+  /** True when the manager opted their team down to clean language. */
+  cleanTeam: boolean;
+  week?: number;
+}
+
+export interface WriterReplyResult {
+  /** Absent when the model's answer failed verification - no reply is posted. */
+  text?: string;
+  /** How the MANAGER's text read to the writer: drives the relationship meter (spec §17.3). */
+  sentiment: WriterReplySentiment;
+  flags: string[];
+  costUsd: number;
+  model: string;
+  effort: string;
+}
+
+/** Reactions on one post as the UI renders them. */
+export interface WireReactionsView {
+  counts: WireReactionCounts;
+  /** The viewer's own reaction, if any. */
+  mine?: WireReaction;
+}
+
+/** One reply in a thread: a manager (author) or a writer (persona). */
+export interface WireReplyView {
+  _id: string;
+  kind: "manager_reply" | "writer_reply";
+  author?: WireAuthorRef;
+  persona?: string;
+  text: string;
+  createdAt: number;
+  reactions: WireReactionsView;
+  /** Soft-deleted by the author or the commissioner; text is the placeholder. */
+  deleted?: boolean;
+}
+
+/* ------------------------------------------------------------------------------------------- *
  * Post statuses and query view shapes (what convex/wire.ts returns, what the UI renders)
  * ------------------------------------------------------------------------------------------- */
 
@@ -347,11 +482,20 @@ export interface WireLeaguePostView {
   _id: string;
   leagueId: string;
   kind: WireEventKind;
-  persona: string;
+  /** The writer, for desk posts; absent on a manager post (see `author`). */
+  persona?: string;
+  /** The manager, on a manager_post. */
+  author?: WireAuthorRef;
   text: string;
   tags: WireTag[];
   week?: number;
   createdAt: number;
+  reactions: WireReactionsView;
+  /** Manager and writer replies on this post, oldest first. */
+  replies: WireReplyView[];
+  deleted?: boolean;
+  /** True when the viewer may delete this post (author or commissioner). */
+  canDelete: boolean;
   /** Set on overlays; the UI nests these under their global post and never lists them alone. */
   globalPostId?: string;
   impact?: {
@@ -377,6 +521,9 @@ export interface WireGlobalPostView {
   timetable?: string;
   source: { type: WireSourceType; url?: string };
   overlays: WireLeaguePostView[];
+  reactions: WireReactionsView;
+  /** This league's manager and writer replies on the global post, oldest first. */
+  replies: WireReplyView[];
 }
 
 /** `wire.getWireStatus` — what the page needs before it renders anything. */
@@ -384,12 +531,18 @@ export interface WireStatusView {
   passActive: boolean;
   wireEnabled: boolean;
   isCommissioner: boolean;
+  /** The viewer's claimed team in this league; posting requires one. */
+  myTeam?: WireTeamRef;
+  /** The league's language rating, for the composer's hint. */
+  languageRating: LanguageRating;
 }
 
 /** `wire.getRecentForTicker` item: newest global + league posts, merged, for the header strip. */
 export interface WireTickerItem {
   _id: string;
-  persona: string;
+  /** Writer slug, or absent for a manager post (then `authorName` is set). */
+  persona?: string;
+  authorName?: string;
   text: string;
   tags: WireTag[];
   createdAt: number;

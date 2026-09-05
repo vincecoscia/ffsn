@@ -241,6 +241,8 @@ const COMMON_WORDS = new Set([
   "september", "october", "november", "december", "fantasy", "football", "league", "playoff",
   "playoffs", "championship", "bench", "starter", "waiver", "faab", "adp", "ppr", "nfl", "espn",
   "ffsn", "round", "pick", "draft", "points", "manager", "commissioner", "good", "evening",
+  // The league's live feed: "said on The Wire" is attribution, not a person (spec §17.4).
+  "wire",
 ]);
 
 const NFL_TEAMS = new Set([

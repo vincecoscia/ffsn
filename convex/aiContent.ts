@@ -9,6 +9,10 @@ import { contentTemplates } from "../src/lib/ai/content-templates";
 // layer, so Convex and the generator apply the same rule rather than two copies
 // of it.
 import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
+import {
+  WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES,
+  WIRE_STATEMENT_QUOTABLE_MS,
+} from "../src/lib/ai/wire/types";
 
 /** The editor pass exactly as it is stored on `aiContent.generationStats.editor`. */
 export type StoredEditorReview = Infer<typeof editorReviewValidator>;
@@ -865,6 +869,20 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         console.log(
           `Loaded ${commentResponses?.length ?? 0} quoted managers and ${nonRespondents?.length ?? 0} non-respondents for scheduled content`
         );
+      }
+
+      // The Wire (ffsn-the-wire-spec.md §17.5): same statement pull as the prepared path in
+      // aiContentHelpers.generateAIContentWithData - a manager's Wire post/reply is quotable
+      // alongside (never merged into) an interview entry.
+      if (!WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES.has(args.contentType)) {
+        const wireStatements = await ctx.runQuery(internal.wire.getManagerStatementsForArticle, {
+          leagueId: args.leagueId,
+          since: Date.now() - WIRE_STATEMENT_QUOTABLE_MS,
+        });
+        if (wireStatements.length > 0) {
+          commentResponses = [...(commentResponses ?? []), ...wireStatements];
+          console.log(`Added ${wireStatements.length} manager statement(s) from The Wire`);
+        }
       }
 
       // The writer's standing with each manager in this league (spec section 6).

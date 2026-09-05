@@ -23,6 +23,18 @@ export type WireLeaguePost = FunctionReturnType<typeof api.wire.getLeaguePosts>[
 export type WireStatus = FunctionReturnType<typeof api.wire.getWireStatus>;
 export type WireTickerRow = FunctionReturnType<typeof api.wire.getRecentForTicker>[number];
 
+/**
+ * Social-layer view shapes (spec §17), also derived from the query validators rather than
+ * hand-duplicated — same rationale as the four types above. `WireReplyItem` and
+ * `WireReactionsView` are identical whether they came off a global or a league post (both post
+ * validators embed the same `replyViewValidator`/`reactionsViewValidator`), so either source type
+ * works; `WireLeaguePost` is picked because it's also where `WireAuthorRefView` comes from.
+ */
+export type WireReplyItem = WireLeaguePost["replies"][number];
+export type WireReactionsView = WireLeaguePost["reactions"];
+export type WireAuthorRefView = NonNullable<WireLeaguePost["author"]>;
+export type WireTeamRefView = NonNullable<WireAuthorRefView["team"]>;
+
 export type WireFeedItem =
   | { scope: "global"; createdAt: number; post: WireGlobalPost }
   | { scope: "league"; createdAt: number; post: WireLeaguePost };

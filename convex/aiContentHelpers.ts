@@ -23,6 +23,10 @@ import {
   MAX_GENERATION_RETRIES,
 } from "./lib/generationFailure";
 import { questionTopicFor, teamForUser } from "./lib/teamClaims";
+import {
+  WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES,
+  WIRE_STATEMENT_QUOTABLE_MS,
+} from "../src/lib/ai/wire/types";
 
 /** Build the spec section 4.2 `CommentResponseData` for one stored response. */
 async function toCommentResponseData(
@@ -361,6 +365,21 @@ export const generateAIContentWithData = internalAction({
           week: preparedData.leagueData.currentWeek,
         });
         console.log(`Found ${commentResponses.length} comment responses for manual content`);
+      }
+
+      // The Wire (ffsn-the-wire-spec.md §17.5): a manager's public post/reply is quotable by the
+      // writers too, alongside (never merged into) an interview entry - a manager can have one of
+      // each. Skipped for content types with nothing Wire-relevant to say (mock drafts, draft
+      // material, the season welcome all run before or outside the season's Wire activity).
+      if (!WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES.has(args.contentType)) {
+        const wireStatements = await ctx.runQuery(internal.wire.getManagerStatementsForArticle, {
+          leagueId: args.leagueId,
+          since: Date.now() - WIRE_STATEMENT_QUOTABLE_MS,
+        });
+        if (wireStatements.length > 0) {
+          commentResponses = [...commentResponses, ...wireStatements];
+          console.log(`Added ${wireStatements.length} manager statement(s) from The Wire`);
+        }
       }
 
       // The writer's standing with each manager (spec section 6). Fetched here

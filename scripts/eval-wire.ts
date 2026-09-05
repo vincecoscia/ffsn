@@ -19,6 +19,10 @@
  * LIVE MODE (`--live`, needs ANTHROPIC_API_KEY — read from .env.local when the environment lacks
  * it) sends the top N cards to `generateWireTakes` as one persona and prints the raw takes, the
  * flags and the cost. Costs money (well under a cent for three cards); never part of `npm test`.
+ *
+ * REPLY MODE (`--reply`, live only) runs three writer-reply scenarios through `generateWriterReply`
+ * (spec §17.3): a feud-tier manager jabbing Dex's injury post, a favorite-tier manager thanking
+ * Nina, and a standalone manager post for Sam's chase. Prints text, sentiment, flags and cost.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -28,6 +32,7 @@ import { injuryEntryToCard, newsArticleToCard, parseEspnInjuriesPayload, parseEs
 import { defaultVariants, fillVariant } from "../src/lib/ai/wire/fill";
 import { scoreInterest } from "../src/lib/ai/wire/interest";
 import { pickStockLine, sampleSlotsFor, stockLineCounts } from "../src/lib/ai/wire/stock-lines";
+import { generateWriterReply, prepareWriterReplyRequest } from "../src/lib/ai/wire/reply";
 import { generateWireTakes, prepareWireTakeRequest, resolveWireRoute, type WireTakeInput } from "../src/lib/ai/wire/take";
 import {
   CARD_MIN_INTEREST,
@@ -36,6 +41,7 @@ import {
   WIRE_PERSONA_FOR_KIND,
   type WireFactCard,
   type WirePersona,
+  type WriterReplyInput,
 } from "../src/lib/ai/wire/types";
 import { verifyTake } from "../src/lib/ai/wire/verify";
 
@@ -45,12 +51,13 @@ import { verifyTake } from "../src/lib/ai/wire/verify";
 
 interface Options {
   live: boolean;
+  reply: boolean;
   persona?: string;
   limit: number;
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { live: false, limit: 12 };
+  const options: Options = { live: false, reply: false, limit: 12 };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -63,6 +70,9 @@ function parseArgs(argv: string[]): Options {
       case "--live":
         options.live = true;
         break;
+      case "--reply":
+        options.reply = true;
+        break;
       case "--persona":
         options.persona = value();
         break;
@@ -71,9 +81,10 @@ function parseArgs(argv: string[]): Options {
         break;
       case "--help":
       case "-h":
-        console.log(`Usage: npm run eval:wire [-- --live] [--persona <slug>] [--limit N]
+        console.log(`Usage: npm run eval:wire [-- --live | --reply] [--persona <slug>] [--limit N]
 
   --live               Generate real takes for the top N cards (requires ANTHROPIC_API_KEY). Costs money.
+  --reply              Run three live writer-reply scenarios: a feud jab at Dex, a favorite thanking Nina, Sam's chase. Costs money.
   --persona <slug>     Offline: only this persona's stock lines. Live: the persona that writes the takes.
   --limit N            Cards to print offline (default 12) / cards to send live (default 3).`);
         process.exit(0);
@@ -306,10 +317,111 @@ async function runLive(options: Options, cards: EvalCard[]): Promise<void> {
 /* Entry point                                                                 */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/* Reply (live)                                                                */
+/* -------------------------------------------------------------------------- */
+
+/** The three social-layer scenarios (spec §17.3). The first uses the top injury card from the fixtures. */
+function replyScenarios(cards: EvalCard[]): Array<{ label: string; input: WriterReplyInput }> {
+  const injury = cards.find(({ card }) => card.kind === "injury_status") ?? cards[0];
+  const dexPost = injury ? renderCard(injury.card).text : "Here's what I've got. REPORTED. Stand by.";
+  const ninaPost = "Class. Moisty Loins left 31.4 points on the bench and lost by 6.5. Circle that column. Show your work.";
+  return [
+    {
+      label: "feud-tier manager jabs Dex's injury post",
+      input: {
+        persona: "dex-alvarez",
+        mode: "reply",
+        writerPostText: dexPost,
+        card: injury?.card,
+        managerText: `lol Dex, you "reported" this 40 minutes after everyone else had it. Elite insider work as always.`,
+        manager: {
+          displayName: "Gabe Coscia",
+          teamName: "Gabe's Gang",
+          relationshipTier: "feud",
+          recentEvidence: ["called the desk's trade coverage 'a yard sale nobody drove to' in a week 3 reply"],
+        },
+        thread: [],
+        languageRating: "salty",
+        cleanTeam: false,
+        week: 4,
+      },
+    },
+    {
+      label: "favorite-tier manager thanks Nina",
+      input: {
+        persona: "nina-sharpe",
+        mode: "reply",
+        writerPostText: ninaPost,
+        managerText: "Honestly fair, Nina. Thanks for actually showing the math instead of just dunking on me.",
+        manager: { displayName: "Manny", teamName: "Moisty Loins", relationshipTier: "favorite", recentEvidence: [] },
+        thread: [
+          { author: "manager", text: "31.4 on the bench is brutal, I know." },
+          { author: "writer", text: "Known is not the same as fixed. Pop quiz next week." },
+        ],
+        languageRating: "salty",
+        cleanTeam: false,
+        week: 4,
+      },
+    },
+    {
+      label: "Sam chases a standalone manager post",
+      input: {
+        persona: "sam-ortega",
+        mode: "chase",
+        managerText: "Benching my RB1 this week. Gut call. Don't @ me.",
+        manager: { displayName: "Riv", teamName: "Team Rive", relationshipTier: "neutral", recentEvidence: [] },
+        thread: [],
+        languageRating: "clean",
+        cleanTeam: false,
+        week: 4,
+      },
+    },
+  ];
+}
+
+async function runReply(cards: EvalCard[]): Promise<void> {
+  const apiKey = loadApiKey();
+  if (!apiKey) {
+    failures.push("--reply needs ANTHROPIC_API_KEY in the environment or .env.local");
+    return;
+  }
+  const scenarios = replyScenarios(cards);
+  console.log(`The Wire — live writer-reply eval · ${scenarios.length} scenario(s) · route ${JSON.stringify(resolveWireRoute())}\n`);
+
+  let totalCost = 0;
+  for (const { label, input } of scenarios) {
+    const prepared = prepareWriterReplyRequest(input);
+    const userChars = typeof prepared.params.messages[0].content === "string" ? prepared.params.messages[0].content.length : 0;
+    console.log(`— ${label}`);
+    console.log(`  persona   ${prepared.persona.slug} · mode ${input.mode} · tier ${input.manager.relationshipTier} · rating ${input.cleanTeam ? "clean (opted down)" : input.languageRating}`);
+    console.log(`  prompt    system ${prepared.systemPrompt.length} chars (cached) + standing ${prepared.standing.length} chars · user ${userChars} chars · max_tokens ${prepared.params.max_tokens}`);
+    if (input.writerPostText) console.log(`  writer    ${input.writerPostText}`);
+    console.log(`  manager   ${input.managerText}`);
+
+    const started = Date.now();
+    const result = await generateWriterReply(input, apiKey);
+    const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+    totalCost += result.costUsd;
+
+    console.log(`  reply     ${result.text ? `${result.text}  (${result.text.length} chars)` : "(none — failed verification, nothing posts)"}`);
+    console.log(`  sentiment ${result.sentiment}`);
+    console.log(`  flags     ${result.flags.length > 0 ? result.flags.join(" | ") : "none"}`);
+    console.log(`  cost      $${result.costUsd.toFixed(5)} · ${result.model} · effort ${result.effort} · ${elapsed}s`);
+    console.log();
+  }
+  console.log(`total cost $${totalCost.toFixed(5)}`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Entry point                                                                 */
+/* -------------------------------------------------------------------------- */
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const cards = buildCards();
-  if (options.live) await runLive(options, cards);
+  if (options.reply) await runReply(cards);
+  else if (options.live) await runLive(options, cards);
   else runOffline(options, cards);
 
   if (failures.length > 0) {

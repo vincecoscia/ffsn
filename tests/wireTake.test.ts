@@ -241,7 +241,9 @@ describe("module boundaries", () => {
     const files = Object.keys(sources);
     expect(files.length).toBeGreaterThanOrEqual(9);
     for (const [file, source] of Object.entries(sources)) {
-      if (file.endsWith("/take.ts")) {
+      // take.ts and reply.ts (spec §17.3) are the two "use node" entry points; everything else is
+      // imported by the Convex default runtime and must stay pure.
+      if (file.endsWith("/take.ts") || file.endsWith("/reply.ts")) {
         expect(source).toContain("@anthropic-ai/sdk");
         continue;
       }

@@ -6,6 +6,7 @@ import { EmptyState, Panel, Spinner } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { WireOverlayBlock } from "./WireOverlayBlock";
 import { WirePost } from "./WirePost";
 import type { WireFeedItem } from "./useLeagueWire";
@@ -16,6 +17,13 @@ export interface WireFeedProps {
   isLoadingMore: boolean;
   canLoadMore: boolean;
   onLoadMore: () => void;
+  leagueId: Id<"leagues">;
+  /** Clerk user id of the signed-in viewer — needed so a reply's Delete action can tell its own
+   *  author apart from anyone else's (see WirePost's `viewerUserId`). */
+  viewerUserId?: string;
+  isCommissioner: boolean;
+  /** The viewer's claimed team name; absent hides every Reply affordance in the feed. */
+  replyAsTeamName?: string;
   className?: string;
 }
 
@@ -27,6 +35,10 @@ export function WireFeed({
   isLoadingMore,
   canLoadMore,
   onLoadMore,
+  leagueId,
+  viewerUserId,
+  isCommissioner,
+  replyAsTeamName,
   className,
 }: WireFeedProps) {
   if (isLoadingFirstPage) {
@@ -68,6 +80,14 @@ export function WireFeed({
             createdAt={item.post.createdAt}
             status={item.post.status}
             source={item.post.source}
+            leagueId={leagueId}
+            scope="global"
+            postId={item.post._id}
+            reactions={item.post.reactions}
+            replies={item.post.replies}
+            replyAsTeamName={replyAsTeamName}
+            viewerUserId={viewerUserId}
+            isCommissioner={isCommissioner}
           >
             {item.post.overlays.length > 0 && (
               <div className="flex flex-col gap-3 border-t border-bc-hairline pt-3">
@@ -86,9 +106,20 @@ export function WireFeed({
           <WirePost
             key={item.post._id}
             persona={item.post.persona}
+            author={item.post.author}
             text={item.post.text}
             tags={item.post.tags}
             createdAt={item.post.createdAt}
+            leagueId={leagueId}
+            scope="league"
+            postId={item.post._id}
+            reactions={item.post.reactions}
+            replies={item.post.replies}
+            deleted={item.post.deleted}
+            canDelete={item.post.canDelete}
+            replyAsTeamName={replyAsTeamName}
+            viewerUserId={viewerUserId}
+            isCommissioner={isCommissioner}
           />
         )
       )}

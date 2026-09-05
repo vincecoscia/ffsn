@@ -34,6 +34,7 @@ import {
   relationshipTierValidator,
   writerRelationshipContextValidator,
 } from "./validators";
+import { WIRE_REACTION_DELTAS } from "../src/lib/ai/wire/types";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                    */
@@ -67,6 +68,9 @@ export const DELTAS = {
   interview_jab: { hostile: -8, dismissive: -4 },
   interview_praise: { friendly: 6 },
   reaction: { salty: -2, respect: 2, fire: 1, lol: 1 },
+  // The Wire (spec §17.3): how a writer read a manager's reply to them.
+  wire_jab: -4,
+  wire_praise: 4,
 } as const;
 
 /** Weekly decay: move 15% toward 0, at least 1 point, never crossing 0. */
@@ -147,7 +151,9 @@ type RelationshipEventType =
   | "interview_praise"
   | "reaction"
   | "decay"
-  | "manual";
+  | "manual"
+  | "wire_jab"
+  | "wire_praise";
 
 interface ApplyEventArgs {
   leagueId: Id<"leagues">;
@@ -160,6 +166,9 @@ interface ApplyEventArgs {
   articleId?: Id<"aiContent">;
   commentRequestId?: Id<"commentRequests">;
   week?: number;
+  /** The Wire (spec §17): the wire post this event is about, for the ledger row and for
+   *  `syncWireReactionEvent`'s reconciliation lookup. */
+  wirePostKey?: string;
 }
 
 /**
@@ -277,6 +286,7 @@ async function applyEvent(
     commentRequestId: args.commentRequestId,
     week: args.week,
     evidence,
+    wirePostKey: args.wirePostKey,
     createdAt: now,
   });
 
@@ -381,6 +391,7 @@ export const recordEvent = internalMutation({
     articleId: v.optional(v.id("aiContent")),
     commentRequestId: v.optional(v.id("commentRequests")),
     week: v.optional(v.number()),
+    wirePostKey: v.optional(v.string()),
   },
   returns: recordResultValidator,
   handler: async (ctx, args) => {
@@ -636,6 +647,124 @@ export const syncReactionEvent = internalMutation({
     if (!user) return neutral;
 
     return await reconcileReactionForUser(ctx, article, user);
+  },
+});
+
+/**
+ * The Wire (spec §17.2): a reaction on a WRITER's post moves that writer's relationship with the
+ * reacting manager, one third of an article reaction's weight (`WIRE_REACTION_DELTAS`). Called by
+ * `wireSocial.syncWireReaction` (an action, since `wire.react` runs from the default runtime and
+ * schedules across to it) after every reaction add/switch/remove on a writer post - never called
+ * for a reaction on a manager's own post, which the caller filters out before scheduling this.
+ *
+ * Same "reset then apply" shape as {@link reconcileReactionForUser}, keyed on `wirePostKey`
+ * instead of `articleId` (a wire post has no `aiContent` row to hang the ledger off of). Per spec
+ * §17.2, a row is inserted only when the CURRENT reaction has a non-zero delta ("lol" and no
+ * reaction both leave the meter untouched, and leave no row).
+ */
+export const syncWireReactionEvent = internalMutation({
+  args: {
+    leagueId: v.id("leagues"),
+    userId: v.string(), // Clerk subject (the reactor)
+    persona: v.string(),
+    wirePostKey: v.string(),
+    postText: v.string(),
+  },
+  returns: recordResultValidator,
+  handler: async (ctx, args) => {
+    const neutral = { recorded: false, score: 0, tier: tierForScore(0) };
+    const user = await userByClerkId(ctx, args.userId);
+    if (!user) return neutral;
+
+    const existingRows = (
+      await ctx.db
+        .query("relationshipEvents")
+        .withIndex("by_league_user_persona", (q) =>
+          q.eq("leagueId", args.leagueId).eq("userId", user._id).eq("persona", args.persona)
+        )
+        .order("desc")
+        .take(200)
+    ).filter((e) => e.type === "reaction" && e.wirePostKey === args.wirePostKey);
+
+    const current = await ctx.db
+      .query("wireReactions")
+      .withIndex("by_post_user", (q) => q.eq("postKey", args.wirePostKey).eq("userId", args.userId))
+      .unique();
+
+    const targetDelta = current ? WIRE_REACTION_DELTAS[current.reaction] : 0;
+    const shouldInsert = current !== null && targetDelta !== 0;
+    const snippet = args.postText.length > 120 ? `${args.postText.slice(0, 119)}…` : args.postText;
+    const evidence = shouldInsert
+      ? truncateEvidence(`Reacted ${current!.reaction} to ${args.persona}'s wire post: "${snippet}"`)
+      : undefined;
+
+    const relationshipRow = await ctx.db
+      .query("writerRelationships")
+      .withIndex("by_league_user_persona", (q) =>
+        q.eq("leagueId", args.leagueId).eq("userId", user._id).eq("persona", args.persona)
+      )
+      .unique();
+
+    const isNoop = existingRows.length === 0 && !shouldInsert;
+    if (isNoop) {
+      const score = relationshipRow?.score ?? 0;
+      return { recorded: false, score, tier: tierForScore(score) };
+    }
+
+    for (const existing of existingRows) {
+      await ctx.db.delete(existing._id);
+    }
+
+    const now = Date.now();
+    if (shouldInsert) {
+      await ctx.db.insert("relationshipEvents", {
+        leagueId: args.leagueId,
+        userId: user._id,
+        persona: args.persona,
+        type: "reaction",
+        delta: targetDelta,
+        evidence: evidence!,
+        wirePostKey: args.wirePostKey,
+        createdAt: now,
+      });
+    }
+
+    const priorDelta = existingRows.reduce((sum, e) => sum + e.delta, 0);
+    const score = clampScore((relationshipRow?.score ?? 0) - priorDelta + (shouldInsert ? targetDelta : 0));
+    const tier = tierForScore(score);
+    const eventCount = Math.max(
+      0,
+      (relationshipRow?.eventCount ?? 0) - existingRows.length + (shouldInsert ? 1 : 0)
+    );
+    const lastEventAt = shouldInsert ? now : relationshipRow?.lastEventAt;
+
+    const league = await ctx.db.get(args.leagueId);
+    const team = await teamForUser(ctx, args.leagueId, user, leagueCurrentSeason(league));
+
+    if (relationshipRow) {
+      await ctx.db.patch(relationshipRow._id, {
+        score,
+        tier,
+        eventCount,
+        lastEventAt,
+        teamId: team?._id ?? relationshipRow.teamId,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("writerRelationships", {
+        leagueId: args.leagueId,
+        userId: user._id,
+        teamId: team?._id,
+        persona: args.persona,
+        score,
+        tier,
+        eventCount,
+        lastEventAt,
+        updatedAt: now,
+      });
+    }
+
+    return { recorded: true, score, tier };
   },
 });
 

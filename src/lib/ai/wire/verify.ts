@@ -97,6 +97,15 @@ function nameIsKnown(noun: string, allowed: ReadonlyArray<string>): boolean {
   });
 }
 
+/**
+ * The multi-word proper nouns in `text` that are neither wire furniture, an NFL team, the desk's
+ * own names, nor (a part of) anything in `allowed`. Shared by the take verifier (allowed = the
+ * card) and the writer-reply verifier (allowed = the card, the manager, the thread).
+ */
+export function unknownNames(text: string, allowed: ReadonlyArray<string>): string[] {
+  return properNouns(text).filter(noun => !nameIsKnown(noun, allowed));
+}
+
 /** A global take against its card. Any violation means the take is dropped for the plain card. */
 export function verifyTake(text: string, card: WireFactCard): VerifyResult {
   const violations: string[] = [];
@@ -112,30 +121,33 @@ export function verifyTake(text: string, card: WireFactCard): VerifyResult {
     if (!allowedNumbers.has(number)) violations.push(`unverified_number: ${number}`);
   }
 
-  const allowedNames = cardNames(card);
-  for (const noun of properNouns(trimmed)) {
-    if (!nameIsKnown(noun, allowedNames)) violations.push(`unknown_name: ${noun}`);
-  }
+  for (const noun of unknownNames(trimmed, cardNames(card))) violations.push(`unknown_name: ${noun}`);
 
-  for (const pattern of REPORTER_PATTERNS) {
-    const match = trimmed.match(pattern);
-    if (match) {
-      violations.push(`reporter_attribution: "${match[0]}"`);
-      break;
-    }
-  }
-
-  if (!card.timetable) {
-    const match = trimmed.match(TIMETABLE_WORDS);
-    if (match) violations.push(`timetable_without_card: "${match[0]}"`);
-  } else {
-    const found = extractTimetable(trimmed);
-    if (found && normaliseTimetable(found) !== normaliseTimetable(card.timetable)) {
-      violations.push(`timetable_mismatch: "${found}" is not "${card.timetable}"`);
-    }
-  }
+  violations.push(...reporterViolations(trimmed), ...timetableViolations(trimmed, card));
 
   return { ok: violations.length === 0, violations };
+}
+
+/** A reporter, outlet or unnamed-source credit in `text` — at most one violation, the first match. */
+export function reporterViolations(text: string): string[] {
+  for (const pattern of REPORTER_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return [`reporter_attribution: "${match[0]}"`];
+  }
+  return [];
+}
+
+/** Timetable talk the card does not carry, or a timetable that is not the card's, in `text`. */
+export function timetableViolations(text: string, card: WireFactCard): string[] {
+  if (!card.timetable) {
+    const match = text.match(TIMETABLE_WORDS);
+    return match ? [`timetable_without_card: "${match[0]}"`] : [];
+  }
+  const found = extractTimetable(text);
+  if (found && normaliseTimetable(found) !== normaliseTimetable(card.timetable)) {
+    return [`timetable_mismatch: "${found}" is not "${card.timetable}"`];
+  }
+  return [];
 }
 
 /* ------------------------------------------------------------------------------------------- *

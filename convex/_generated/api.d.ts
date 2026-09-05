@@ -75,6 +75,7 @@ import type * as lib_teamClaims from "../lib/teamClaims.js";
 import type * as lib_tradesFromTransactions from "../lib/tradesFromTransactions.js";
 import type * as lib_weekOneGate from "../lib/weekOneGate.js";
 import type * as lib_wireLeaguePosting from "../lib/wireLeaguePosting.js";
+import type * as lib_wireSocialRules from "../lib/wireSocialRules.js";
 import type * as matchupRosters from "../matchupRosters.js";
 import type * as matchups from "../matchups.js";
 import type * as migrations from "../migrations.js";
@@ -106,6 +107,8 @@ import type * as wireDetect from "../wireDetect.js";
 import type * as wireGenerate from "../wireGenerate.js";
 import type * as wireOverlay from "../wireOverlay.js";
 import type * as wireRoutine from "../wireRoutine.js";
+import type * as wireSocial from "../wireSocial.js";
+import type * as wireSocialData from "../wireSocialData.js";
 import type * as wireSourcesNode from "../wireSourcesNode.js";
 
 import type {
@@ -182,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   "lib/tradesFromTransactions": typeof lib_tradesFromTransactions;
   "lib/weekOneGate": typeof lib_weekOneGate;
   "lib/wireLeaguePosting": typeof lib_wireLeaguePosting;
+  "lib/wireSocialRules": typeof lib_wireSocialRules;
   matchupRosters: typeof matchupRosters;
   matchups: typeof matchups;
   migrations: typeof migrations;
@@ -213,6 +217,8 @@ declare const fullApi: ApiFromModules<{
   wireGenerate: typeof wireGenerate;
   wireOverlay: typeof wireOverlay;
   wireRoutine: typeof wireRoutine;
+  wireSocial: typeof wireSocial;
+  wireSocialData: typeof wireSocialData;
   wireSourcesNode: typeof wireSourcesNode;
 }>;
 

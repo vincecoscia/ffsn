@@ -2043,6 +2043,10 @@ export default defineSchema({
     week: v.optional(v.number()),
     evidence: v.string(), // <= 280 chars: the sentence or quote that caused it
     createdAt: v.number(),
+    // The Wire (spec §17): set on a "reaction" event synced from a wire post reaction, or a
+    // "wire_jab"/"wire_praise" event recorded from a writer-reply's read of a manager's post - the
+    // key `syncWireReaction` reconciles against, same convention as `articleId` for article reactions.
+    wirePostKey: v.optional(v.string()),
   })
     .index("by_league_user_persona", ["leagueId", "userId", "persona"])
     .index("by_article", ["articleId"])
@@ -2242,6 +2246,11 @@ export default defineSchema({
         flags: v.array(v.string()),
       })
     ),
+    // Denormalized reaction tally (spec §17), patched by wire.react - the same "count on the post,
+    // never .collect() the reactions table" pattern as articleReactions would use if it kept one.
+    reactionCounts: v.optional(
+      v.object({ fire: v.number(), lol: v.number(), salty: v.number(), respect: v.number() })
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2251,12 +2260,14 @@ export default defineSchema({
 
   wireLeaguePosts: defineTable({
     // League tier (spec §3.2/§3.3): overlays (globalPostId set) and routine
-    // posts (globalPostId absent), both filled with no model call.
+    // posts (globalPostId absent), both filled with no model call. Also the social layer (spec §17):
+    // a manager_post/manager_reply has an author instead of a persona, and a writer_reply answers one.
     leagueId: v.id("leagues"),
     seasonId: v.number(),
     week: v.optional(v.number()),
     kind: v.string(), // WireEventKind
-    persona: v.string(),
+    // Absent on a manager post/reply - see `authorUserId` below instead.
+    persona: v.optional(v.string()),
     text: v.string(),
     tags: v.array(v.string()),
     globalPostId: v.optional(v.id("wirePosts")), // set for overlays; the UI nests this under the global post
@@ -2272,12 +2283,65 @@ export default defineSchema({
     generationStats: v.optional(
       v.object({ costUsd: v.number(), model: v.string(), effort: v.string() })
     ),
+    // Social layer (spec §17). A manager_post/manager_reply carries the author instead of a
+    // persona; `replyTo` is what it answers (a global writer post or a league post); `rootScope`/
+    // `rootId` is the THREAD ROOT - a reply to a reply still points at the original root so the
+    // whole thread can be fetched with one `by_root` range instead of walking `replyTo` chains.
+    authorUserId: v.optional(v.string()), // Clerk subject
+    authorTeamId: v.optional(v.id("teams")),
+    replyTo: v.optional(
+      v.object({ scope: v.union(v.literal("global"), v.literal("league")), id: v.string() })
+    ),
+    rootScope: v.optional(v.union(v.literal("global"), v.literal("league"))),
+    rootId: v.optional(v.string()),
+    // Soft delete (author or commissioner): replies and reactions on the post stay, the UI shows a
+    // placeholder in their place.
+    deletedAt: v.optional(v.number()),
+    deletedBy: v.optional(v.union(v.literal("author"), v.literal("commissioner"))),
+    // How the WRITER read the manager's text, set by the writer-reply call on a manager_post/
+    // manager_reply (never on the writer_reply itself) - drives the relationship move (spec §17.3).
+    sentiment: v.optional(v.union(v.literal("jab"), v.literal("thanks"), v.literal("neutral"))),
+    reactionCounts: v.optional(
+      v.object({ fire: v.number(), lol: v.number(), salty: v.number(), respect: v.number() })
+    ),
     createdAt: v.number(),
   })
     .index("by_league_created", ["leagueId", "createdAt"])
     .index("by_league_dedupe", ["leagueId", "dedupeKey"])
     .index("by_global_post", ["globalPostId"])
-    .index("by_global_post_league", ["globalPostId", "leagueId"]),
+    .index("by_global_post_league", ["globalPostId", "leagueId"])
+    // Every reply on one target (global or league post id), oldest first (spec §17: getGlobalPosts/
+    // getLeaguePosts thread the replies onto their target).
+    .index("by_league_reply", ["leagueId", "replyTo.id", "createdAt"])
+    // One manager's own posts in a league, newest first - the per-manager rate limit and
+    // `getManagerStatementsForArticle`'s per-author grouping.
+    .index("by_league_author_created", ["leagueId", "authorUserId", "createdAt"])
+    // Every reply in one thread (never the root itself - see wireSocialData.ts's header comment),
+    // oldest first. Scoped by leagueId first: a GLOBAL post's thread can have replies from many
+    // different leagues, each of which must only ever see its own league's replies.
+    .index("by_root", ["leagueId", "rootId", "createdAt"])
+    // Season roll-up for deskMetrics.getLeagueSeasonSpend: writer_reply generation cost counts
+    // toward the league's automation cap just like an article does.
+    .index("by_league_season", ["leagueId", "seasonId"]),
+
+  // Reactions on a wire post (spec §17), mirroring `articleReactions`. `postKey` is
+  // `"global:<wirePosts id>"` or `"league:<wireLeaguePosts id>"` - a single string key lets one
+  // table and one pair of indexes cover both post tables without a union id column.
+  wireReactions: defineTable({
+    postKey: v.string(),
+    scope: v.union(v.literal("global"), v.literal("league")),
+    leagueId: v.id("leagues"),
+    userId: v.string(), // Clerk subject, same convention as articleReactions.userId
+    reaction: v.union(
+      v.literal("fire"),
+      v.literal("lol"),
+      v.literal("salty"),
+      v.literal("respect")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_post_user", ["postKey", "userId"])
+    .index("by_post", ["postKey"]),
 
   // One row per source: cursor + health, so a poll diffs instead of
   // re-reading and a broken source shows up in the operator digest (spec §11).

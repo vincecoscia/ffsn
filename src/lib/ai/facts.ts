@@ -30,6 +30,7 @@ import type {
   RelationshipEventSummary,
   WriterRelationshipContext,
 } from "./content-generation-service";
+import type { WireQuoteSource } from "./wire/types";
 
 export interface FactsTeam {
   /** `"T" + externalId` — the id the model must cite. */
@@ -492,7 +493,8 @@ export interface FactsBlock {
       published?: string;
     }>;
   };
-  quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string }>;
+  /** `source` (spec §17.4): "interview" for a Sam interview, "wire" for a manager's public post on The Wire. */
+  quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string; source: WireQuoteSource }>;
   nonRespondents: Array<{ speaker: string; teamId: string; status: "no_response" | "declined" }>;
   relationships: Array<{
     teamId: string;
@@ -1718,6 +1720,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
         teamId,
         questionTopic: response.questionTopic,
         text: trimmed,
+        source: response.source ?? "interview",
       });
     });
   });

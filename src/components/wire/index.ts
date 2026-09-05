@@ -10,6 +10,10 @@ export {
   type WireLeaguePost,
   type WireStatus,
   type WireTickerRow,
+  type WireReplyItem,
+  type WireReactionsView,
+  type WireAuthorRefView,
+  type WireTeamRefView,
   type UseLeagueWireOptions,
   type UseLeagueWireResult,
 } from "./useLeagueWire";
@@ -18,3 +22,7 @@ export { WireOverlayBlock, type WireOverlayBlockProps } from "./WireOverlayBlock
 export { WireTagChip, type WireTagChipProps } from "./WireTagChip";
 export { WireFeed, type WireFeedProps } from "./WireFeed";
 export { WirePanel, type WirePanelProps } from "./WirePanel";
+export { WireReactionBar, type WireReactionBarProps } from "./WireReactionBar";
+export { ManagerPlate, type ManagerPlateProps } from "./ManagerPlate";
+export { WireComposer, type WireComposerProps } from "./WireComposer";
+export { WireReplyComposer, type WireReplyComposerProps } from "./WireReplyComposer";

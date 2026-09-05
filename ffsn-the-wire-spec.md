@@ -576,6 +576,61 @@ Still open:
    the bench" claim targets a slot whose player left injured. Applies to weekly_recap, bank_statement,
    waiver_wire_report, power_rankings and every interview.
 
+## 17. Social layer (owner-approved 2026-09-05: "build it all")
+
+Managers are on the Wire too. Everything here is league-scoped, pass-gated, and follows the league's
+language rating.
+
+### 17.1 Reactions
+- Same set as articles: fire / lol / salty / respect. One per viewer per post, tap again to remove,
+  on global posts, league posts and replies. Counts are denormalized on the post (`reactionCounts`),
+  the viewer's own reaction is a point read (`wireReactions.by_post_user`).
+- A reaction on a **writer's** post moves the reader's relationship with that writer by a third of
+  the article deltas, rounded: fire +1, respect +1, salty −1, lol 0. Reconciled to at most one ledger
+  row per (post, reader, writer) exactly like article reactions (`relationshipEvents.wirePostKey`).
+  Reactions on manager posts move nothing.
+
+### 17.2 Manager posts and replies
+- A member with a **claimed team** can post (`manager_post`) or reply (`manager_reply`) to any global
+  or league post; a reply to a reply stays in the same thread (`rootScope`/`rootId`). ≤ 280 chars.
+- `moderateManagerText` enforces the league rating before insert: Clean → no tracked word; Salty →
+  mild only; Unfiltered → anything tracked. The violation names the word to the author only.
+- Limits: 10 posts an hour and 40 a day per manager. Author or commissioner can soft-delete
+  (`deletedAt`, `deletedBy`); replies and reactions stay and the text renders as removed.
+- Rendering: a manager plate (team tile, team name, manager name) instead of a writer plate;
+  threads render replies oldest-first under the post; manager posts appear on the page, the
+  homepage panel and the ticker (author name in place of a writer).
+
+### 17.3 Writers answer (one Sonnet 5 call, ≤ 280 chars, `src/lib/ai/wire/reply.ts`)
+- **Reply mode**: a manager replies to a writer's post (or to that writer's earlier reply) → the same
+  writer answers, in voice, at the pair's relationship tier (`relationshipPosture[tier]`), with only
+  the fact card and the thread as permitted facts, language per rating and the manager's clean-team
+  opt-down.
+- **Chase mode**: a standalone manager post gets one question from Sam one time in three (seeded),
+  at most once per manager per day. No opinion, one question mark.
+- The call also classifies the manager's text toward the writer: jab → `wire_jab` −4, thanks →
+  `wire_praise` +4 on the relationship meter (a public jab counts half an interview jab). A reply
+  that fails verification posts nothing but the sentiment still counts.
+- Limits: 3 writer replies per manager per hour, 30 per league per day, 2 per thread per manager;
+  a league at its season automation cap gets none. Cost lands on the reply row and in
+  `getLeagueSeasonSpend`, so it counts against the $60 cap.
+
+### 17.3a Implementation notes (S-A, 2026-09-05)
+- `wireLeaguePosts.by_root` is scoped `["leagueId","rootId","createdAt"]`: a global post's thread
+  has replies from many leagues, and a league must only ever see its own. Both feed queries render
+  threads from `by_root`; `by_league_reply` serves target validation and the hourly rate count.
+- A thread's root is resolved from the target at post time (a target that carries `replyTo` hands
+  down its own root), so replies-to-replies flatten into one list.
+- `writer_reply` is exempt from the per-league post limits (it has its own three limits).
+- The spend gate reads `getLeagueSeasonSpend().totalUsd` against `automationSpendCapUsd()`.
+
+### 17.4 On the record
+- Manager posts and replies from the last 7 days are handed to the article writers as quotes with
+  `source: "wire"` (up to 3 per manager, 6 per article), alongside interview quotes, through the same
+  ledger, ids, verifier and pull-quote directive. The writer attributes them as "said on The Wire",
+  never as told to Sam; the pull quote's strip reads "Said on The Wire · Week N". Excluded from the
+  draft-season types (mock_draft, draft_rankings, draft_strategy_guide, season_welcome).
+
 ## Appendix A — sources consulted (2026-09-05)
 
 - ESPN endpoint shapes: live probes recorded above; community docs

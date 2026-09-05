@@ -48,6 +48,10 @@ const MAX_FLAGS = 20;
 /** How many articles / comment requests one season spend roll-up may scan. */
 const MAX_SPEND_ROWS = 1000;
 
+/** How many `wireLeaguePosts` rows one season spend roll-up may scan (spec ffsn-the-wire-spec.md
+ *  §17.4) - generously above what a league's own per-day post rate limit could produce in a season. */
+const MAX_WIRE_SPEND_ROWS = 2000;
+
 /** Regular season + playoffs. Used only to project a season from a run rate. */
 const SEASON_WEEKS = 18;
 
@@ -169,6 +173,20 @@ async function seasonSpend(
     interviews++;
   }
 
+  // The Wire (ffsn-the-wire-spec.md §17.4): a writer_reply's generation cost counts toward the
+  // same automation cap an article's would - it's one Sonnet call same as any other, just billed
+  // to the league instead of a manager. Overlay/routine posts never carry `generationStats` (no
+  // model call), so this naturally only ever picks up writer replies without a `kind` filter.
+  const wirePosts = await ctx.db
+    .query("wireLeaguePosts")
+    .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
+    .take(MAX_WIRE_SPEND_ROWS);
+  for (const post of wirePosts) {
+    const cost = post.generationStats?.costUsd;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) continue;
+    automatedUsd += cost;
+  }
+
   const totalUsd = automatedUsd + manualUsd + interviewUsd;
 
   return {
@@ -179,7 +197,10 @@ async function seasonSpend(
     totalUsd: round4(totalUsd),
     articles: counted,
     interviews,
-    truncated: articles.length === MAX_SPEND_ROWS || requests.length === MAX_SPEND_ROWS,
+    truncated:
+      articles.length === MAX_SPEND_ROWS ||
+      requests.length === MAX_SPEND_ROWS ||
+      wirePosts.length === MAX_WIRE_SPEND_ROWS,
     firstArticleAt,
   };
 }

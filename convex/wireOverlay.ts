@@ -17,7 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { hasActivePass } from "./credits";
 import { leagueCurrentSeason, nflSeasonYearFor } from "./lib/season";
 import { isPreDraftRedraft } from "./lib/matchupSummary";
-import { faabSlot, insertLeaguePostIfNew, managerNameFor } from "./lib/wireLeaguePosting";
+import { currentMatchupPeriod, faabSlot, insertLeaguePostIfNew, managerNameFor } from "./lib/wireLeaguePosting";
 import {
   CARD_MIN_INTEREST,
   FREE_AGENT_MIN_PERCENT_OWNED,
@@ -51,27 +51,6 @@ async function findOwnerTeam(
     if (rosterEntry) return { team, lineupSlotId: rosterEntry.lineupSlotId };
   }
   return null;
-}
-
-/** Mirrors convex/matchups.ts#getCurrentWeekMatchups: the first synced week with any undecided
- *  matchup, or the last synced week if every one so far is final. Bounded to 18 NFL weeks. */
-async function currentMatchupPeriod(
-  ctx: MutationCtx,
-  leagueId: Id<"leagues">,
-  seasonId: number
-): Promise<number | null> {
-  let lastSyncedWeek: number | null = null;
-  for (let week = 1; week <= 18; week++) {
-    const weekMatchups = await ctx.db
-      .query("matchups")
-      .withIndex("by_league_period", (q) => q.eq("leagueId", leagueId).eq("matchupPeriod", week))
-      .filter((q) => q.eq(q.field("seasonId"), seasonId))
-      .take(40);
-    if (weekMatchups.length === 0) break;
-    lastSyncedWeek = week;
-    if (weekMatchups.some((m) => !m.winner)) return week;
-  }
-  return lastSyncedWeek;
 }
 
 async function findOpponentTeam(

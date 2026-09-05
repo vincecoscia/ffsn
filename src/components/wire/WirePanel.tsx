@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { Panel, PersonaAvatar, SectionHeader, personaName } from "@/components/broadcast";
 import { useNow } from "@/components/useNow";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { ManagerPlate } from "./ManagerPlate";
 import { formatWireTime } from "./WirePost";
 import { WireTagChip } from "./WireTagChip";
 import { useLeagueWire } from "./useLeagueWire";
@@ -45,26 +46,40 @@ export function WirePanel({ leagueId, className }: WirePanelProps) {
         }
       />
       <div className="mt-4 flex flex-col">
-        {items.map((item) => (
-          <div
-            key={item.post._id}
-            className="flex min-w-0 items-center gap-3 border-t border-bc-hairline py-3 first:border-t-0"
-          >
-            <PersonaAvatar persona={item.post.persona} size={28} className="flex-none" />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate font-display text-[13px] font-bold uppercase tracking-[0.01em] text-bc-ink">
-                  {personaName(item.post.persona)}
-                </span>
-                <span className="bc-label-sm flex-none text-bc-text-3">
-                  {formatWireTime(item.post.createdAt, now)}
-                </span>
-              </div>
-              <p className="truncate text-[13px] text-bc-text-2">{item.post.text}</p>
+        {items.map((item) => {
+          // Only a league-tier post can be a manager's — a global post is always writer-authored,
+          // so `item.post.persona` there is never absent (see `convex/wire.ts`'s
+          // `globalPostViewValidator` vs `leaguePostViewValidator`).
+          const author = item.scope === "league" ? item.post.author : undefined;
+          const time = formatWireTime(item.post.createdAt, now);
+          return (
+            <div
+              key={item.post._id}
+              className="flex min-w-0 items-center gap-3 border-t border-bc-hairline py-3 first:border-t-0"
+            >
+              {author ? (
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <ManagerPlate author={author} size={28} meta={time} />
+                  <p className="truncate text-[13px] text-bc-text-2">{item.post.text}</p>
+                </div>
+              ) : (
+                <>
+                  <PersonaAvatar persona={item.post.persona ?? ""} size={28} className="flex-none" />
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-display text-[13px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+                        {personaName(item.post.persona ?? "")}
+                      </span>
+                      <span className="bc-label-sm flex-none text-bc-text-3">{time}</span>
+                    </div>
+                    <p className="truncate text-[13px] text-bc-text-2">{item.post.text}</p>
+                  </div>
+                </>
+              )}
+              {item.post.tags[0] && <WireTagChip tag={item.post.tags[0]} className="flex-none" />}
             </div>
-            {item.post.tags[0] && <WireTagChip tag={item.post.tags[0]} className="flex-none" />}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Panel>
   );

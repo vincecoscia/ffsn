@@ -5,6 +5,7 @@ import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDa
 import type { CleanTeam, LanguageRating } from './language';
 import { cleanTeamViolations, countProfanity, MILD_PROFANITY, PROFANITY_WORDS, STRONG_PROFANITY, stripExemptPhrases } from './language';
 import { enhancePromptWithComments } from './comment-integration';
+import type { WireQuoteSource } from './wire/types';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
 import {
@@ -247,6 +248,11 @@ export interface CommentResponseData {
   /** Verbatim, post-approval. At least one. */
   quotes: string[];
   rawResponse: string;
+  /**
+   * Where the quotes came from (spec §17.4): a Sam interview (absent = "interview") or the manager's
+   * own post on The Wire. A "wire" quote is attributed as said on The Wire, never as told to Sam.
+   */
+  source?: WireQuoteSource;
 }
 
 export interface NonRespondent {
@@ -369,6 +375,10 @@ const ArticleQuote = z.object({
   writerResponse: z
     .string()
     .describe("Your in-voice reply to this quote as it appears in the article, 1-3 sentences"),
+  source: z
+    .enum(["interview", "wire"])
+    .optional()
+    .describe('Copy facts.quotes[].source when it is "wire" (the manager said it on The Wire); omit otherwise.'),
 });
 
 /**
@@ -696,6 +706,24 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
  * delete quote Q1 from the article.
  */
 const QUOTE_BEARING_KINDS = new Set(['bad_quote', 'ghost_speaker', 'unknown_quote_directive']);
+/**
+ * The article's quotes with `source` carried from the FACTS ledger by quoteId (spec §17.4). The
+ * ledger is authoritative — whatever the model wrote in `source` is replaced — and the field is set
+ * only for a "wire" quote, so an interview quote is stored exactly as it always was (the stored
+ * shape's validator, `articleQuoteValidator`, is strict).
+ */
+export function withQuoteSources(
+  quotes: GeneratedArticleT["quotes"],
+  facts: Pick<FactsBlock, "quotes">
+): GeneratedArticleT["quotes"] {
+  const sourceById = new Map(facts.quotes.map(quote => [quote.id, quote.source]));
+  return quotes.map(quote => {
+    const stored: GeneratedArticleT["quotes"][number] = { ...quote };
+    delete stored.source;
+    return sourceById.get(quote.quoteId) === "wire" ? { ...stored, source: "wire" } : stored;
+  });
+}
+
 function quoteIdsIn(violations: Violation[]): Set<string> {
   const ids = new Set<string>();
   for (const violation of violations) {
@@ -1622,7 +1650,7 @@ export async function completeArticleFromMessage(
     costUsd: ledger.usd,
     route,
     cacheReadTokens: ledger.cacheReadTokens,
-    quotes: article.quotes ?? [],
+    quotes: withQuoteSources(article.quotes ?? [], facts),
     managerMentions: article.managerMentions ?? [],
     claims: article.claims ?? [],
     reviewFlags: violations,

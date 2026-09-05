@@ -1073,6 +1073,10 @@ Hard rules for quotes:
   invent their reaction, their reasoning, or a reason for their silence.
 - For every ledger quote you use, respond to it in voice in the same section. That reply is what you
   report in quotes[].writerResponse.
+- A quote whose source is "wire" is something the manager posted publicly on The Wire, the league's
+  live feed. Attribute it as said on The Wire ("{name} said on The Wire", "posted to the Wire"),
+  never as told to Sam or to the sideline, and never as an interview. The ":::quote{id=…}" directive
+  works the same.
 
 How a quote is placed in the body — this is the only way to print one:
 - Put the directive line ":::quote{id=Q1}" on a line of its own, where the quote belongs, using the

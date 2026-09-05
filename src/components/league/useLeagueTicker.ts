@@ -129,7 +129,8 @@ export function useLeagueTicker(
   return useMemo<LeagueTickerResult>(() => {
     const base = { season: currentSeason };
     const wireItems: TickerItem[] = (wirePosts ?? []).map((post) => ({
-      k: personaName(post.persona).split(" ")[0],
+      // A manager post carries `authorName` instead of `persona` (see `wire.getRecentForTicker`).
+      k: post.persona ? personaName(post.persona).split(" ")[0] : (post.authorName?.split(" ")[0] ?? "Manager"),
       v: post.text.length > 90 ? `${post.text.slice(0, 89)}…` : post.text,
     }));
     const storyItem: TickerItem[] =

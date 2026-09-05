@@ -254,7 +254,7 @@ export function prepareWireTakeRequest(
 }
 
 /** Same request with `strict` removed from every tool definition (the API's strict-mode fallback). */
-function withoutStrictTools(params: Anthropic.MessageCreateParamsNonStreaming): Anthropic.MessageCreateParamsNonStreaming {
+export function withoutStrictTools(params: Anthropic.MessageCreateParamsNonStreaming): Anthropic.MessageCreateParamsNonStreaming {
   if (!params.tools) return params;
   return {
     ...params,

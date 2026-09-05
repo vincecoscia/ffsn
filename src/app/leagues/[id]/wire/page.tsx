@@ -10,7 +10,7 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 import { LeaguePageLayout } from "@/components/LeaguePageLayout";
 import { LoadingScreen, Panel, SectionHeader } from "@/components/broadcast";
 import { Button } from "@/components/ui/button";
-import { WireFeed, useLeagueWire } from "@/components/wire";
+import { WireComposer, WireFeed, useLeagueWire } from "@/components/wire";
 
 interface WirePageProps {
   params: Promise<{ id: string }>;
@@ -70,12 +70,18 @@ export default function WirePage({ params }: WirePageProps) {
           </Panel>
         )}
 
+        <WireComposer leagueId={leagueId} status={status} />
+
         <WireFeed
           items={wire.items}
           isLoadingFirstPage={wire.isLoadingFirstPage}
           isLoadingMore={wire.isLoadingMore}
           canLoadMore={wire.canLoadMore}
           onLoadMore={wire.loadMore}
+          leagueId={leagueId}
+          viewerUserId={userId}
+          isCommissioner={status.isCommissioner}
+          replyAsTeamName={status.myTeam?.name}
         />
       </div>
     </LeaguePageLayout>
