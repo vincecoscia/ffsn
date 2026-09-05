@@ -21,7 +21,8 @@
         "player_scores (rosters) — not available",
         "standings — not available",
         "quotes — Hollis Vance (T9) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
@@ -29,7 +30,8 @@
       "missing": [
         "upcoming matchups — not available",
         "quotes — Hollis Vance (T9) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
     },
@@ -39,7 +41,8 @@
         "player_projections — not available",
         "draft_order — not available",
         "quotes — Hollis Vance (T9) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
@@ -47,7 +50,8 @@
       "missing": [
         "standings — not available",
         "quotes — Hollis Vance (T9) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
@@ -55,7 +59,8 @@
       "missing": [
         "trade_details — no trades in the payload",
         "quotes — Hollis Vance (T9) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
     }

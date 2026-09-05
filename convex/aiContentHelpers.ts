@@ -115,6 +115,7 @@ export const prepareAIContentData = internalAction({
           draftTendencies: mockDraftData.draftTendencies,
           injuryWatch: mockDraftData.injuryWatch,
           previousSeason: mockDraftData.previousSeason,
+          playerIntel: mockDraftData.playerIntel,
           metadata: mockDraftData.metadata,
           // Empty arrays for non-draft content
           recentMatchups: [],

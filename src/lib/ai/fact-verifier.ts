@@ -42,6 +42,7 @@ export type ViolationKind =
   | "eliminated_as_contender"
   /** A weekly_preview written before kickoff cites a record beside a team, or "points for": nobody has played yet. */
   | "records_before_kickoff"
+  | "unsupported_injury"
   /** Editor pass scored the facts below 3; the article is held for review (spec §11.2.7). */
   | "editor_hold"
   /** Editor pass scored the voice below 3. A warning; voice never blocks (spec §11.2.7). */
@@ -339,6 +340,28 @@ function splitSentences(text: string): string[] {
 }
 
 /**
+ * Words that make a sentence an injury claim (2026-09-05). A sentence with one of these AND a known
+ * player who has no injury anywhere in FACTS (roster status, intel, draft pool, injury watch,
+ * an injury-shaped headline) is an invented injury, the failure last season's managers named.
+ */
+const INJURY_CLAIM_RE =
+  /\b(injur\w*|questionable|doubtful|hamstring|ankle|knee|concussion|acl|mcl|achilles|groin|calf|shoulder|oblique|surgery|out for|injured reserve|on ir|the ir\b|pup list|day[- ]to[- ]day|banged up|limited in practice|did not practice|dnp|sidelined|hurt|nursing an?|dealing with an?)\b/i;
+
+/** The names FACTS says are hurt (or were hurt in a headline), lowercased. */
+function injurySupportedNames(facts: FactsBlock): Set<string> {
+  const names = new Set<string>();
+  for (const roster of facts.rosters ?? []) {
+    for (const player of roster.players) if (player.injuryStatus) names.add(player.name.toLowerCase());
+  }
+  for (const entry of facts.intel ?? []) {
+    if (entry.injury || entry.news.some(item => INJURY_CLAIM_RE.test(item.headline))) names.add(entry.name.toLowerCase());
+  }
+  for (const player of facts.draftPool ?? []) if (player.injuryStatus) names.add(player.name.toLowerCase());
+  for (const player of facts.mockDraft?.injuryWatch ?? []) names.add(player.name.toLowerCase());
+  return names;
+}
+
+/**
  * Proper-noun warnings that are almost always the start of an ordinary sentence rather than a name
  * the writer invented (spec §11.3.11). "The Grinders had it won" must not read as an unknown
  * player, or the real warnings drown.
@@ -497,6 +520,8 @@ export function verifyArticle(
   }
   // The mock-draft pool (owner ask, 2026-09-05): every player in it is a real, citable name.
   for (const player of facts.draftPool ?? []) playerNames.add(player.name.toLowerCase());
+  for (const entry of facts.intel ?? []) playerNames.add(entry.name.toLowerCase());
+  const injuredNames = injurySupportedNames(facts);
   const quoteById = new Map(facts.quotes.map(quote => [quote.id, quote]));
   const ledgerTexts = facts.quotes.map(quote => normalizeQuote(quote.text));
   const silentSpeakers = new Set(facts.nonRespondents.map(entry => entry.speaker.toLowerCase()));
@@ -712,6 +737,23 @@ export function verifyArticle(
         continue;
       }
       violations.push({ kind: "unknown_player", detail: noun, section: section.name, severity: "warn" });
+    }
+
+    // Injury claims about a player nothing in FACTS says is hurt (2026-09-05). A sentence that
+    // also names a player FACTS does list as hurt is left alone: "with Nacua Questionable, Kupp
+    // is fine" is about Nacua.
+    for (const sentence of splitSentences(content)) {
+      if (!INJURY_CLAIM_RE.test(sentence)) continue;
+      const lower = sentence.toLowerCase();
+      const named = [...playerNames].filter(name => name.length > 4 && lower.includes(name));
+      if (named.length === 0) continue;
+      if (named.some(name => injuredNames.has(name))) continue;
+      violations.push({
+        kind: "unsupported_injury",
+        detail: `${named[0]}: "${sentence.trim().slice(0, 100)}"`,
+        section: section.name,
+        severity: "warn",
+      });
     }
   }
 

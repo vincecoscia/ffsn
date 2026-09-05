@@ -37,6 +37,70 @@ export interface PoolPlayer {
   projectedStats: { projectedTotal: number; projectedAverage: number } | null;
   ownership: { averageDraftPosition: number };
   recentNews?: Array<{ headline: string; published: string }>;
+  /** Fantasy Football Calculator ADP for the league's format, when the feed has him. */
+  ffcAdp?: number;
+  /** Sleeper trending adds over the last day, when he is on the list. */
+  trendingAdds?: number;
+  /** A fresh feed's injury line (convex/intel.ts), when a feed carries one. */
+  intelInjury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; asOf: number };
+}
+
+/** The slice of a `PlayerIntelEntry` (convex/intel.ts) the pool merge reads; structural so this file stays pure. */
+export interface IntelForPool {
+  espnId: string;
+  injury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; fetchedAt: number };
+  market?: { ffcAdp?: number; trendingAdds?: number };
+  news?: Array<{ headline: string; publishedAt: string }>;
+}
+
+/**
+ * Folds fresh feed intel into the pool and the injury watch (2026-09-05). A feed status wins over
+ * ESPN's when ESPN says ACTIVE (Sleeper posts the Questionable hours earlier); the FFC ADP and
+ * trending adds ride along as extra receipts; a high-profile player a feed lists hurt joins the
+ * injury watch even when ESPN has no headline for him.
+ */
+export function mergeIntelIntoPool(
+  pool: PoolPlayer[],
+  injuryWatch: InjuryWatchEntry[],
+  intel: IntelForPool[],
+): { pool: PoolPlayer[]; injuryWatch: InjuryWatchEntry[] } {
+  const byId = new Map(intel.map(entry => [entry.espnId, entry]));
+  const watched = new Set(injuryWatch.map(entry => entry.playerId));
+  const extraWatch: InjuryWatchEntry[] = [];
+  const merged = pool.map(player => {
+    const entry = byId.get(player.playerId);
+    if (!entry) return player;
+    const next: PoolPlayer = { ...player };
+    if (entry.market?.ffcAdp !== undefined) next.ffcAdp = entry.market.ffcAdp;
+    if (entry.market?.trendingAdds !== undefined) next.trendingAdds = entry.market.trendingAdds;
+    if (entry.injury) {
+      next.intelInjury = {
+        status: entry.injury.status,
+        bodyPart: entry.injury.bodyPart,
+        practice: entry.injury.practice,
+        since: entry.injury.since,
+        source: entry.injury.source,
+        asOf: entry.injury.fetchedAt,
+      };
+      const feedStatus = entry.injury.status.toUpperCase().replace(/\s+/g, "_");
+      if (!next.injuryStatus && feedStatus !== "ACTIVE") next.injuryStatus = feedStatus;
+      if (next.adp <= INJURY_WATCH_ADP && !watched.has(player.playerId) && feedStatus !== "ACTIVE") {
+        watched.add(player.playerId);
+        const headline = entry.news?.[0];
+        extraWatch.push({
+          playerId: player.playerId,
+          playerName: player.playerName,
+          position: player.position,
+          proTeam: player.proTeam,
+          adp: player.adp,
+          injuryStatus: next.injuryStatus ?? feedStatus,
+          latestHeadline: headline ? { headline: headline.headline, published: headline.publishedAt } : undefined,
+        });
+      }
+    }
+    return next;
+  });
+  return { pool: merged, injuryWatch: [...injuryWatch, ...extraWatch].sort((a, b) => a.adp - b.adp) };
 }
 
 /** How many players carry ESPN's full season outlook; the rest get one line. */

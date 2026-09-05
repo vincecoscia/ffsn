@@ -18,13 +18,15 @@
   "byType": {
     "weekly_recap": {
       "missing": [
-        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
     "weekly_preview": {
       "missing": [
-        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
@@ -33,19 +35,22 @@
         "draft_results (draftPicks) — not available",
         "player_projections — not available",
         "draft_order — not available",
-        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
     "power_rankings": {
       "missing": [
-        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
     "trade_analysis": {
       "missing": [
-        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     }

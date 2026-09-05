@@ -53,12 +53,14 @@ import {
   buildDraftPool,
   buildDraftTendencies,
   leagueTypeFromDraftSettings,
+  mergeIntelIntoPool,
   OUTLOOK_DEPTH,
   POOL_SIZE,
   type DraftTendency,
   type NewsSource,
   type PoolSource,
 } from "./lib/mockDraftIntel";
+import { getIntelForPlayersImpl, intelHasContent, type PlayerIntelEntry } from "./intel";
 import { getSimplifiedDraftDataImpl } from "./draftRankingsHelpers";
 import type { PlayerBoardMatchupInput, PlayerBoardTeamInput } from "./lib/playerBoard";
 
@@ -1642,6 +1644,22 @@ export const getLeagueDataForAI = internalQuery({
       };
     });
     
+    // Fresh player intel (Sleeper / nflverse / FFC via convex/intel.ts) for every rostered player,
+    // live mode only: a backfill describes a past week, and today's injury report is not part of
+    // it. Only entries that say something survive, so the prompt does not print 160 blank lines.
+    let playerIntel: PlayerIntelEntry[] = [];
+    if (!historicalMode) {
+      try {
+        const rosteredIds = [...new Set(
+          enhancedTeams.flatMap(team => (team.roster ?? []).map(player => String(player.espnId ?? player.playerId)))
+        )].filter(id => id && id !== "undefined");
+        const intel = await getIntelForPlayersImpl(ctx, { season: currentSeason, espnIds: rosteredIds, now: Date.now() });
+        playerIntel = intel.filter(intelHasContent);
+      } catch (error) {
+        console.log("Player intel lookup failed, continuing without it:", error);
+      }
+    }
+
     return {
       league: {
         id: league._id,
@@ -1653,6 +1671,9 @@ export const getLeagueDataForAI = internalQuery({
       currentSeason,
       leagueType: inferredLeagueType,
       teams: enhancedTeams,
+      // Fresh injury / practice / depth-chart / news intel keyed by ESPN id (2026-09-05). Carried
+      // through aiContent.ts's reshape; src/lib/ai/facts.ts turns it into the INTEL facts.
+      playerIntel,
       standings,
       // Present only when the league has divisions (spec: format audit).
       divisionStandings,
@@ -1931,7 +1952,23 @@ export const getMockDraftDataForAI = internalQuery({
       } catch (error) {
         console.log("News query failed, continuing without headlines:", error);
       }
-      const { pool: draftablePlayers, injuryWatch } = attachNewsAndInjuryWatch(basePool, newsSources, Date.now());
+      const attached = attachNewsAndInjuryWatch(basePool, newsSources, Date.now());
+
+      // Fresh feeds (Sleeper / nflverse / FFC) for the pool: a Questionable that ESPN still lists
+      // ACTIVE, the FFC ADP as a second market, trending adds. Merged into the pool lines and the
+      // injury watch; the raw entries ride along as `playerIntel` for FACTS.
+      let playerIntel: PlayerIntelEntry[] = [];
+      try {
+        const intel = await getIntelForPlayersImpl(ctx, {
+          season: targetSeason,
+          espnIds: attached.pool.map(player => player.playerId),
+          now: Date.now(),
+        });
+        playerIntel = intel.filter(intelHasContent);
+      } catch (error) {
+        console.log("Player intel lookup failed, continuing without it:", error);
+      }
+      const { pool: draftablePlayers, injuryWatch } = mergeIntelIntoPool(attached.pool, attached.injuryWatch, playerIntel);
 
       // Last year's draft, per manager: the receipts behind a hot take ("reached 41 spots for
       // Kamara", "went RB-RB-RB", "waited until round 9 for a quarterback").
@@ -2027,6 +2064,7 @@ export const getMockDraftDataForAI = internalQuery({
         draftTendencies,
         injuryWatch,
         previousSeason,
+        playerIntel,
         metadata: {
           dataFreshness: Date.now(),
           draftablePlayersCount: draftablePlayers.length,

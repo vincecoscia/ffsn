@@ -1178,6 +1178,8 @@ async function getLeagueDataForGenerationHandler(
       // League-relative player rankings (owner directive, 2026-09-03 - convex/lib/playerBoard.ts).
       // Whitelist entry only; the `PlayerBoard` shape itself lives in src/lib/ai/prompt-builder.ts.
       playerBoard: enrichedData.playerBoard,
+      // Fresh player intel (convex/intel.ts, 2026-09-05) - the INTEL facts and the prompt's PLAYER INTEL block.
+      playerIntel: enrichedData.playerIntel,
 
       // ENHANCED: Historical data for season welcome packages
       previousSeasons: enrichedData.previousSeasons || {},

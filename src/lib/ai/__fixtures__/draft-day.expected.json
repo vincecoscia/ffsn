@@ -22,7 +22,8 @@
         "player_scores (rosters) — not available",
         "standings — not available",
         "quotes — Ruth Tanaka (T10) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
     },
@@ -30,14 +31,16 @@
       "missing": [
         "upcoming matchups — not available",
         "quotes — Ruth Tanaka (T10) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
     },
     "draft_rankings": {
       "missing": [
         "quotes — Ruth Tanaka (T10) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
@@ -45,7 +48,8 @@
       "missing": [
         "standings — not available",
         "quotes — Ruth Tanaka (T10) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
@@ -53,7 +57,8 @@
       "missing": [
         "trade_details — no trades in the payload",
         "quotes — Ruth Tanaka (T10) did not respond to the comment request",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
+        "priorClaims — none. You have no prediction history in this league; do not claim one.",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
     }

@@ -854,12 +854,19 @@ async function runEditorPass(
       .map(section => `## ${section.name}\n${section.content}`)
       .join('\n\n');
     const persona = getPersona(prepared.request.persona);
+    // A mock draft is predictions in the declarative ("1.01 Moisty Loins - Jahmyr Gibbs"); read as
+    // facts, they score the piece 1/5 with nothing cited (live run, 2026-09-05). Tell the editor
+    // what the claims are.
+    const typeNote =
+      prepared.request.contentType === 'mock_draft'
+        ? '\n\nTHIS IS A MOCK DRAFT. Every pick it announces and every player a team "takes", "reaches for" or "waits on" is the writer\'s prediction, not a claim; do not report predicted picks. The factual claims are ADP, positional rank, projection, status and outlook (draftPool), and the format, draft order and last year\'s picks, rounds and records (mockDraft).'
+        : '';
 
     const params: Anthropic.MessageCreateParamsNonStreaming = {
       model: 'claude-sonnet-5',
       max_tokens: 900,
       output_config: { effort: 'low' },
-      system: `${EDITOR_SYSTEM}\n\nTHE WRITER\n${persona.voice}`,
+      system: `${EDITOR_SYSTEM}${typeNote}\n\nTHE WRITER\n${persona.voice}`,
       messages: [
         {
           role: 'user' as const,

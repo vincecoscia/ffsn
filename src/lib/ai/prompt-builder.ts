@@ -610,6 +610,12 @@ export interface LeagueDataContext {
     bye?: number;
     nflTeam?: string;
     recentNews?: Array<{ headline: string; published: string }>;
+    /** Fantasy Football Calculator ADP for the league's format (convex/intel.ts), when the feed has him. */
+    ffcAdp?: number;
+    /** Sleeper trending adds over the last day. */
+    trendingAdds?: number;
+    /** A fresh feed's injury line, when one carries it (status, body part, the day it was fetched). */
+    intelInjury?: { status: string; bodyPart?: string; practice?: string; since?: number; source: string; asOf: number };
     recentStats?: { avgPoints: number; trend: string; };
     upcomingSchedule?: Array<{ week: number; opponent: string; difficulty: "easy" | "medium" | "hard"; }>;
     projectedStats?: {
@@ -663,6 +669,28 @@ export interface LeagueDataContext {
   }>;
   /** The season the tendencies come from. */
   previousSeason?: number;
+  /**
+   * Fresh feed intel per player (convex/intel.ts, 2026-09-05): injury / practice with the day it
+   * was observed, depth chart, market, last headlines. Present for every content type in live
+   * mode; facts.ts turns it into the INTEL facts and this builder prints PLAYER INTEL from those.
+   */
+  playerIntel?: Array<{
+    espnId: string;
+    name?: string;
+    injury?: {
+      status: string;
+      bodyPart?: string;
+      practice?: string;
+      notes?: string;
+      since?: number;
+      source: string;
+      fetchedAt: number;
+      espnStatus?: string;
+    };
+    depthChart?: { team?: string; position: string; order: number };
+    market?: { ffcAdp?: number; ffcPositionRank?: number; bye?: number; timesDrafted?: number; market?: string; trendingAdds?: number };
+    news: Array<{ headline: string; description?: string; publishedAt: string; url?: string }>;
+  }>;
   memorableMoments?: Array<{
     seasonId: number;
     type: string;
@@ -1281,6 +1309,9 @@ where the two ever disagree, <FACTS> wins.
 
     prompt += `\n${this.addContentSpecificData(leagueData)}`;
 
+    const intelBlock = this.buildPlayerIntelBlock();
+    if (intelBlock) prompt += `\n${intelBlock}\n`;
+
     if (customContext) {
       prompt += `\nADDITIONAL CONTEXT FROM THE COMMISSIONER:\n${customContext}\n`;
     }
@@ -1299,9 +1330,54 @@ where the two ever disagree, <FACTS> wins.
   benchImpact. Bench players without benchImpact are not part of the story.
 - Every number you print must be in <FACTS>, or a sum or difference of two numbers that are, with
   both inputs shown.
+- Injuries, practice reports, depth-chart moves and news: only what PLAYER INTEL (the intel entries
+  in <FACTS>) or a roster's injuryStatus carries, with its date. No return timelines, no diagnosis
+  beyond the printed body part, no "expected back" that is not printed. If the intel is listed as
+  missing, the roster status is the whole injury story.
 - If a section has thin material, write less. Padding is the failure mode this desk cares about.`;
 
     return prompt;
+  }
+
+  /**
+   * PLAYER INTEL (2026-09-05): the fresh feeds, rendered from the INTEL facts so the prose and
+   * <FACTS> agree to the day. Injuries first, then news-only players; capped so a 14-team league
+   * does not print 200 lines, with the rest left in <FACTS> for lookup by id.
+   */
+  private buildPlayerIntelBlock(): string | null {
+    const intel = this.facts.intel;
+    if (!intel || intel.length === 0) return null;
+    const teamName = new Map(this.facts.teams.map(team => [team.id, team.name]));
+    const weight = (entry: NonNullable<FactsBlock["intel"]>[number]) =>
+      (entry.injury ? 100 : 0) + (entry.depthChart ? 5 : 0) + entry.news.length * 10 + (entry.market?.trendingAdds ? 3 : 0);
+    const ranked = [...intel].sort((a, b) => weight(b) - weight(a));
+    const CAP = 30;
+    const shown = ranked.slice(0, CAP);
+    let out = 'PLAYER INTEL (fresh feeds, each line dated; nothing here is older than its date says):\n';
+    for (const entry of shown) {
+      const where = [entry.pos, entry.nflTeam].filter(Boolean).join(', ');
+      const owner = entry.fantasyTeamId ? teamName.get(entry.fantasyTeamId) : undefined;
+      const line = '- ' + entry.name + (where ? ' (' + where + ')' : '') + (owner ? ' on ' + owner : '') + ':';
+      const bits: string[] = [];
+      if (entry.injury) {
+        let injury = entry.injury.status.toUpperCase().replace(/_/g, ' ');
+        if (entry.injury.bodyPart) injury += ' (' + entry.injury.bodyPart + ')';
+        if (entry.injury.since) injury += ' since ' + entry.injury.since;
+        if (entry.injury.practice) injury += ', practice: ' + entry.injury.practice;
+        injury += ' - ' + entry.injury.source + ' as of ' + entry.injury.asOf;
+        if (entry.injury.espnStatus && entry.injury.espnStatus.toUpperCase() !== entry.injury.status.toUpperCase()) {
+          injury += ' (ESPN still lists ' + entry.injury.espnStatus.replace(/_/g, ' ') + ')';
+        }
+        bits.push(injury);
+      }
+      if (entry.depthChart) bits.push('depth chart ' + entry.depthChart.position + (entry.depthChart.order ? ordinal(entry.depthChart.order) : ''));
+      if (entry.market?.ffcAdp !== undefined) bits.push('FFC ADP ' + entry.market.ffcAdp);
+      if (entry.market?.trendingAdds) bits.push('trending: ' + entry.market.trendingAdds + ' adds');
+      if (entry.news.length) bits.push('news: ' + entry.news.map(n => '"' + n.headline + '" (' + n.published + ')').join('; '));
+      out += line + ' ' + bits.join(' · ') + '\n';
+    }
+    if (ranked.length > CAP) out += '- ...and ' + (ranked.length - CAP) + ' more in <FACTS> intel, by player id.\n';
+    return out;
   }
 
   private addContentSpecificData(data: LeagueDataContext): string {
@@ -2896,6 +2972,11 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
         let line = 'ADP ' + fmt1(adp) + ' · ' + rank + ' · ' + p.playerName + ' (' + (p.proTeam || p.nflTeam || p.team || 'FA') + ')';
         if (p.projectedStats) line += ' · proj ' + p.projectedStats.projectedTotal.toFixed(0) + ' pts (' + p.projectedStats.projectedAverage.toFixed(1) + ' ppg)';
         if (p.injuryStatus && p.injuryStatus !== 'ACTIVE') line += ' · STATUS: ' + p.injuryStatus.replace(/_/g, ' ');
+        if (p.intelInjury && p.intelInjury.status.toUpperCase() !== 'ACTIVE') {
+          line += ' · feed: ' + p.intelInjury.status.toUpperCase().replace(/_/g, ' ') + (p.intelInjury.bodyPart ? ' (' + p.intelInjury.bodyPart + ')' : '') + ' as of ' + new Date(p.intelInjury.asOf).toISOString().slice(0, 10);
+        }
+        if (p.ffcAdp !== undefined) line += ' · FFC ADP ' + fmt1(p.ffcAdp);
+        if (p.trendingAdds) line += ' · trending +' + p.trendingAdds + ' adds';
         if (p.bye) line += ' · bye ' + p.bye;
         if (p.recentNews && p.recentNews.length) line += ' · news: ' + p.recentNews.map(n => '"' + n.headline + '" (' + n.published + ')').join('; ');
         if (p.seasonOutlook && p.seasonOutlook.length > 0) line += ' · outlook in <FACTS> draftPool P' + p.playerId;
