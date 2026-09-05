@@ -20,7 +20,7 @@ import { internalAction, internalMutation, internalQuery, type ActionCtx } from 
 import { internal } from "./_generated/api";
 import { Doc } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
-import { buildEspnMatchIndex, EspnPlayerRef, matchPlayerToEspnId, normalizePosition, parseCsvRecords } from "./lib/intelMapping";
+import { buildEspnMatchIndex, EspnPlayerRef, matchPlayerToEspnId, normalizePosition, parseCsvRecords, resolveEspnId } from "./lib/intelMapping";
 
 // --- Shared fetch helper ------------------------------------------------
 
@@ -248,14 +248,25 @@ type IdMapBySleeperLookup = { espnId: string; team?: string; position?: string }
 type IdMapByGsisLookup = { espnId: string } | null;
 type PlayersEnhancedForMatch = Array<{ espnId: string; fullName: string; position: string; team?: string }>;
 
-export const playerIdMapIsEmpty = internalQuery({
+/**
+ * Whether the id map still needs nflverse's players.csv: true while fewer than
+ * `GSIS_COVERAGE_MIN` rows carry a gsis_id. The Sleeper sync fills sleeperId and (where Sleeper
+ * has it) gsisId, but Sleeper's gsis coverage is thin, and nflverse injuries are keyed on gsis -
+ * checking only for an empty map (the first build) left in-season injuries unable to resolve.
+ */
+export const playerIdMapNeedsGsis = internalQuery({
   args: {},
   returns: v.boolean(),
   handler: async (ctx) => {
-    const first = await ctx.db.query("playerIdMap").first();
-    return first === null;
+    const withGsis = await ctx.db
+      .query("playerIdMap")
+      .withIndex("by_gsis", (q) => q.gt("gsisId", ""))
+      .take(GSIS_COVERAGE_MIN);
+    return withGsis.length < GSIS_COVERAGE_MIN;
   },
 });
+
+const GSIS_COVERAGE_MIN = 500;
 
 /** Minimal `playersEnhanced` projection used to match FFC's ADP list onto ESPN ids. */
 export const listPlayersEnhancedForSeason = internalQuery({
@@ -288,6 +299,8 @@ const REAL_POSITIONS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 
 interface SleeperPlayer {
   espn_id?: number | string | null;
+  gsis_id?: string | null;
+  active?: boolean | null;
   position?: string | null;
   team?: string | null;
   full_name?: string | null;
@@ -320,14 +333,21 @@ export const syncSleeperPlayers = internalAction({
     success: v.boolean(),
     fetched: v.number(),
     kept: v.number(),
+    /** Players Sleeper carried no espn_id for that a name + position (+ team) match resolved. */
+    matchedByName: v.number(),
     idMap: v.object({ inserted: v.number(), updated: v.number() }),
     intel: v.object({ inserted: v.number(), updated: v.number(), touched: v.number() }),
     error: v.optional(v.string()),
   }),
   handler: async (ctx) => {
-    const empty = { success: false, fetched: 0, kept: 0, idMap: { inserted: 0, updated: 0 }, intel: { inserted: 0, updated: 0, touched: 0 } };
+    const empty = { success: false, fetched: 0, kept: 0, matchedByName: 0, idMap: { inserted: 0, updated: 0 }, intel: { inserted: 0, updated: 0, touched: 0 } };
     try {
       const season = nflSeasonYearFor();
+      // This season's ESPN pool, for the players Sleeper has no espn_id for (about half of the
+      // active skill players, 2026-09-05): matched by name + position, team as the tiebreak.
+      const pool: PlayersEnhancedForMatch = await ctx.runQuery(internal.intelSync.listPlayersEnhancedForSeason, { season });
+      const matchIndex = buildEspnMatchIndex(pool.map((p) => ({ espnId: p.espnId, fullName: p.fullName, position: p.position, team: p.team })));
+      let matchedByName = 0;
       const response = await fetchWithRetry(SLEEPER_PLAYERS_URL, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
       if (!response.ok) {
         return { ...empty, error: `Sleeper players HTTP ${response.status}` };
@@ -339,14 +359,20 @@ export const syncSleeperPlayers = internalAction({
       const intelRows: IntelUpsertRow[] = [];
 
       for (const [sleeperId, p] of entries) {
-        if (!p || p.espn_id == null || p.espn_id === "") continue;
-        if (!p.position || !REAL_POSITIONS.has(p.position)) continue;
+        if (!p || !p.position || !REAL_POSITIONS.has(p.position)) continue;
+        // A retired player keeps his row in Sleeper's feed (active: false); he has no injury
+        // or depth-chart line worth a row, and a name match could hand his status to a
+        // namesake still playing.
+        if (p.active === false) continue;
 
-        const espnId = String(p.espn_id);
         const fullName = p.full_name || `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
         const team = p.team ?? undefined;
+        const resolved = resolveEspnId(p.espn_id, { name: fullName, position: p.position, team }, matchIndex);
+        if (!resolved) continue;
+        if (resolved.via === "name") matchedByName++;
+        const espnId = resolved.espnId;
 
-        idMapRows.push({ espnId, sleeperId, fullName, position: p.position, team });
+        idMapRows.push({ espnId, sleeperId, gsisId: p.gsis_id ?? undefined, fullName, position: p.position, team });
 
         const observedAt = (() => {
           const start = parseSleeperTimestamp(p.injury_start_date);
@@ -418,6 +444,7 @@ export const syncSleeperPlayers = internalAction({
         success: true,
         fetched: entries.length,
         kept: idMapRows.length,
+        matchedByName,
         idMap: { inserted: idMapInserted, updated: idMapUpdated },
         intel: { inserted: intelInserted, updated: intelUpdated, touched: intelTouched },
       };
@@ -572,8 +599,8 @@ export const syncNflverseInjuries = internalAction({
       const season = nflSeasonYearFor();
 
       let idMapBootstrapped = false;
-      const isEmpty: boolean = await ctx.runQuery(internal.intelSync.playerIdMapIsEmpty, {});
-      if (isEmpty) {
+      const needsGsis: boolean = await ctx.runQuery(internal.intelSync.playerIdMapNeedsGsis, {});
+      if (needsGsis) {
         idMapBootstrapped = await bootstrapPlayerIdMapFromNflverse(ctx);
       }
 
@@ -949,7 +976,7 @@ export const runIntelSync = internalAction({
           const r = await ctx.runAction(internal.intelSync.syncSleeperPlayers, {});
           ok = r.success;
           error = "error" in r ? r.error : undefined;
-          summary = `${r.kept} players, ${r.intel.inserted + r.intel.updated} changed`;
+          summary = `${r.kept} players (${r.matchedByName} matched by name), ${r.intel.inserted + r.intel.updated} changed`;
           break;
         }
         case "sleeper_trending": {

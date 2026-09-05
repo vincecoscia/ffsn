@@ -220,3 +220,23 @@ export function matchPlayerToEspnId(index: EspnMatchIndex, candidate: MatchCandi
 
   return null; // Ambiguous: same normalized name + position, no team tiebreak.
 }
+
+/**
+ * The ESPN id for a feed row: the feed's own `espn_id` when it carries one, else a name +
+ * position (+ team) match against this season's ESPN pool. Sleeper's players feed has an
+ * `espn_id` for only ~1,470 of ~3,230 active skill players (2026-09-05: Chase, Gibbs, Nacua and
+ * Jeanty all lacked one), so without the fallback half the league's stars never get an injury
+ * or depth-chart line.
+ */
+export function resolveEspnId(
+  explicitId: number | string | null | undefined,
+  candidate: MatchCandidate,
+  index: EspnMatchIndex,
+): { espnId: string; via: "id" | "name" } | null {
+  if (explicitId !== null && explicitId !== undefined && String(explicitId).trim() !== "") {
+    return { espnId: String(explicitId).trim(), via: "id" };
+  }
+  if (!candidate.name || !candidate.position) return null;
+  const matched = matchPlayerToEspnId(index, candidate);
+  return matched ? { espnId: matched, via: "name" } : null;
+}

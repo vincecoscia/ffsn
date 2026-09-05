@@ -6,6 +6,7 @@ import {
   normalizePosition,
   parseCsvRecords,
   parseCsvRows,
+  resolveEspnId,
 } from "../convex/lib/intelMapping";
 
 describe("parseCsvRows", () => {
@@ -181,5 +182,27 @@ describe("buildEspnMatchIndex / matchPlayerToEspnId", () => {
   it("returns null when there is no candidate at all", () => {
     const index = buildEspnMatchIndex([{ espnId: "1", fullName: "Justin Jefferson", position: "WR", team: "MIN" }]);
     expect(matchPlayerToEspnId(index, { name: "Nobody Here", position: "WR" })).toBeNull();
+  });
+});
+
+describe("resolveEspnId", () => {
+  const index = buildEspnMatchIndex([
+    { espnId: "4362628", fullName: "Ja'Marr Chase", position: "WR", team: "CIN" },
+    { espnId: "1", fullName: "Josh Allen", position: "QB", team: "BUF" },
+    { espnId: "2", fullName: "Josh Allen", position: "QB", team: "JAX" },
+    { espnId: "3", fullName: "Lions D/ST", position: "D/ST", team: "DET" },
+  ]);
+
+  it("keeps the feed's own espn id when it has one", () => {
+    expect(resolveEspnId(3117251, { name: "Christian McCaffrey", position: "RB", team: "SF" }, index)).toEqual({ espnId: "3117251", via: "id" });
+    expect(resolveEspnId(" 3117251 ", { name: "x", position: "RB" }, index)?.espnId).toBe("3117251");
+  });
+
+  it("falls back to name + position, with the team as the tiebreak, and refuses an ambiguous match", () => {
+    expect(resolveEspnId(null, { name: "Ja'Marr Chase", position: "WR", team: "CIN" }, index)).toEqual({ espnId: "4362628", via: "name" });
+    expect(resolveEspnId(undefined, { name: "Josh Allen", position: "QB", team: "BUF" }, index)).toEqual({ espnId: "1", via: "name" });
+    expect(resolveEspnId(undefined, { name: "Josh Allen", position: "QB" }, index)).toBeNull();
+    expect(resolveEspnId("", { name: "Nobody Here", position: "WR", team: "CIN" }, index)).toBeNull();
+    expect(resolveEspnId(null, { name: "", position: "WR" }, index)).toBeNull();
   });
 });
