@@ -84,31 +84,9 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
       },
     };
 
-    // Add banner image if available
-    if (article.bannerImageUrl) {
-      metadata.openGraph!.images = [
-        {
-          url: article.bannerImageUrl,
-          width: 1200,
-          height: 630,
-          alt: article.title,
-        }
-      ];
-      metadata.twitter!.images = [article.bannerImageUrl];
-    } else {
-      // Fallback to FFSN logo
-      const fallbackImage = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://ffsn.ai'}/FFSN.png`;
-      metadata.openGraph!.images = [
-        {
-          url: fallbackImage,
-          width: 512,
-          height: 512,
-          alt: 'FFSN Logo',
-        }
-      ];
-      metadata.twitter!.images = [fallbackImage];
-    }
-
+    // The card image comes from ./opengraph-image.tsx (headline, league, week, byline on
+    // the Broadcast plate, banner art dimmed behind it). Setting `images` here would
+    // override that file convention.
     return metadata;
   } catch (error) {
     console.error('Error generating metadata:', error);
