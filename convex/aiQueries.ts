@@ -48,6 +48,18 @@ import type { PlayoffContext } from "./lib/playoffTypes";
 // league-relative player rankings the week-1 (and every other week's) preview cites instead of
 // bare 0-0 records (owner directive, 2026-09-03).
 import { buildPlayerBoard, sumStarterProjected, topKeyPlayers } from "./lib/playerBoard";
+import {
+  attachNewsAndInjuryWatch,
+  buildDraftPool,
+  buildDraftTendencies,
+  leagueTypeFromDraftSettings,
+  OUTLOOK_DEPTH,
+  POOL_SIZE,
+  type DraftTendency,
+  type NewsSource,
+  type PoolSource,
+} from "./lib/mockDraftIntel";
+import { getSimplifiedDraftDataImpl } from "./draftRankingsHelpers";
 import type { PlayerBoardMatchupInput, PlayerBoardTeamInput } from "./lib/playerBoard";
 
 /**
@@ -109,17 +121,18 @@ async function buildManagerNames(
   teams: Array<Doc<"teams">>,
   seasonId: number
 ): Promise<Map<string, string>> {
+  // ESPN owner strings arrive with stray whitespace ("Matthew  Colominas "); tidy them once here
+  // so prose, FACTS and the verifier all see the same name.
+  const tidy = (name: string) => name.replace(/\s+/g, " ").trim();
   const names = new Map<string, string>();
   for (const team of teams) {
     const fromEspn = espnManagerName(team);
     if (fromEspn) {
-      names.set(team._id, fromEspn);
+      names.set(team._id, tidy(fromEspn));
       continue;
     }
-    names.set(
-      team._id,
-      (await claimedManagerName(ctx, team._id, seasonId)) ?? UNKNOWN_MANAGER
-    );
+    const claimed = await claimedManagerName(ctx, team._id, seasonId);
+    names.set(team._id, claimed ? tidy(claimed) : UNKNOWN_MANAGER);
   }
   return names;
 }
@@ -1864,72 +1877,104 @@ export const getMockDraftDataForAI = internalQuery({
       // Manager display names, never the raw ESPN owner string (spec section 2).
       const managerNames = await buildManagerNames(ctx, teams, targetSeason);
       
-      // Fetch top 50 players with enhanced data
-      console.log("Fetching player data for mock draft...");
-      let topPlayers: any[] = [];
-      
+      // The draft pool (owner ask, 2026-09-05): the top ${POOL_SIZE} players by ESPN ADP for the
+      // season, read through the ADP index - this used to take an arbitrary 200 rows of the
+      // 1,100-player table and keep the 50 best of those, so most of the first round could be
+      // missing. Each player carries ADP, positional ADP rank, projection, injury status and
+      // ESPN's season outlook (full text for the top ${OUTLOOK_DEPTH}).
+      let poolSources: PoolSource[] = [];
       try {
-        // Get top 50 players by season
-        const allPlayers = await ctx.db
+        const ranked = await ctx.db
           .query("playersEnhanced")
-          .withIndex("by_season", q => q.eq("season", targetSeason))
-          .take(200); // Larger batch to ensure we get enough players
-        
-        // Filter and sort - only players with valid ADP
-        topPlayers = allPlayers
-          .filter(p => {
-            const adp = p.ownership?.averageDraftPosition;
-            return adp && adp > 0 && adp <= 100; // Top 100 ADP to ensure we get 50
-          })
-          .sort((a, b) => (a.ownership?.averageDraftPosition || 999) - (b.ownership?.averageDraftPosition || 999))
-          .slice(0, 50); // Top 50 players
-          
-        console.log("Found", topPlayers.length, "top players");
+          .withIndex("by_season_adp", q => q.eq("season", targetSeason).gt("ownership.averageDraftPosition", 0))
+          .order("asc")
+          .filter(q => q.eq(q.field("active"), true))
+          .take(POOL_SIZE + 40);
+        poolSources = ranked.map(player => {
+          const projectedStats = Array.isArray(player.stats)
+            ? player.stats.find((stat: any) =>
+                stat.externalId === String(targetSeason) && stat.statSourceId === 1 && stat.appliedTotal > 0
+              )
+            : null;
+          return {
+            espnId: player.espnId,
+            fullName: player.fullName,
+            defaultPosition: player.defaultPosition,
+            proTeamAbbrev: player.proTeamAbbrev,
+            adp: player.ownership?.averageDraftPosition ?? 0,
+            injured: player.injured,
+            injuryStatus: player.injuryStatus,
+            seasonOutlook: player.seasonOutlook,
+            projected: projectedStats
+              ? { total: projectedStats.appliedTotal || 0, average: projectedStats.appliedAverage || 0 }
+              : null,
+          };
+        });
+        console.log("Draft pool candidates:", poolSources.length);
       } catch (error) {
-        console.log("Player query failed, using minimal fallback:", error);
-        topPlayers = []; // Continue with empty players
+        console.log("Player query failed, continuing with an empty pool:", error);
       }
-      
-      // Create enhanced player data with seasonOutlook and projected stats
-      const draftablePlayers = topPlayers.length > 0 
-        ? topPlayers.map(player => {
-            // Get the target season's projected stats (find the entry with
-            // matching externalId and statSourceId 1)
-            const projectedStats = player.stats && Array.isArray(player.stats)
-              ? player.stats.find((stat: any) =>
-                  stat.externalId === String(targetSeason) &&
-                  stat.statSourceId === 1 &&
-                  stat.appliedTotal > 0
-                )
-              : null;
-            
-            const projectedData = projectedStats
-              ? {
-                  projectedTotal: projectedStats.appliedTotal || 0,
-                  projectedAverage: projectedStats.appliedAverage || 0
-                }
-              : null;
-            
-            return {
-              playerId: player.espnId,
-              playerName: player.fullName,
-              position: player.defaultPosition,
-              proTeam: player.proTeamAbbrev || "",
-              // Free agents have no fantasy team; the NFL team is still explicit.
-              nflTeam: player.proTeamAbbrev || undefined,
-              seasonOutlook: player.seasonOutlook || "",
-              projectedStats: projectedData,
-              ownership: {
-                averageDraftPosition: player.ownership?.averageDraftPosition || 0,
-              },
-            };
-          })
-        : [
-            { playerId: "1", playerName: "CeeDee Lamb", position: "WR", proTeam: "DAL", ownership: { averageDraftPosition: 3.5 } },
-            { playerId: "2", playerName: "Christian McCaffrey", position: "RB", proTeam: "SF", ownership: { averageDraftPosition: 1.2 } },
-            { playerId: "3", playerName: "Tyreek Hill", position: "WR", proTeam: "MIA", ownership: { averageDraftPosition: 2.8 } },
-          ];
-      
+      const basePool = buildDraftPool(poolSources);
+
+      // The week's ESPN headlines for pool players, plus a 30-day window for injury context.
+      // `espnNews.categories.athletes[].id` is the same ESPN athlete id as `playersEnhanced.espnId`.
+      let newsSources: NewsSource[] = [];
+      try {
+        const recentNews = await ctx.db.query("espnNews").withIndex("by_published").order("desc").take(600);
+        newsSources = recentNews
+          .filter(item => item.categories?.athletes?.length)
+          .map(item => ({
+            headline: item.headline,
+            published: item.published,
+            athleteIds: item.categories.athletes.map(a => String(a.id)),
+          }));
+      } catch (error) {
+        console.log("News query failed, continuing without headlines:", error);
+      }
+      const { pool: draftablePlayers, injuryWatch } = attachNewsAndInjuryWatch(basePool, newsSources, Date.now());
+
+      // Last year's draft, per manager: the receipts behind a hot take ("reached 41 spots for
+      // Kamara", "went RB-RB-RB", "waited until round 9 for a quarterback").
+      let draftTendencies: DraftTendency[] = [];
+      let previousSeason: number | undefined;
+      try {
+        const prior = await getSimplifiedDraftDataImpl(ctx, { leagueId: args.leagueId, seasonId: targetSeason - 1 });
+        if (prior.draftPicks.length > 0) {
+          previousSeason = targetSeason - 1;
+          const priorTeamIdByName = new Map(prior.draftOrder.map(entry => [entry.teamName, entry.teamId]));
+          // The draft order only lists teams in the order; fall back to last season's team rows.
+          const priorTeams = await ctx.db
+            .query("teams")
+            .withIndex("by_season", q => q.eq("leagueId", args.leagueId).eq("seasonId", targetSeason - 1))
+            .collect();
+          const lastSeason = new Map<string, { record: string; rank: number }>();
+          const rankedPrior = [...priorTeams].sort(
+            (a, b) => (b.record.wins ?? 0) - (a.record.wins ?? 0) || (b.record.pointsFor ?? 0) - (a.record.pointsFor ?? 0)
+          );
+          rankedPrior.forEach((t, index) => {
+            priorTeamIdByName.set(t.name, t.externalId);
+            lastSeason.set(t.externalId, {
+              record: `${t.record.wins ?? 0}-${t.record.losses ?? 0}${t.record.ties ? `-${t.record.ties}` : ""}`,
+              rank: index + 1,
+            });
+          });
+          const pickOrder: number[] = leagueSeason.draftSettings?.pickOrder ?? [];
+          draftTendencies = buildDraftTendencies({
+            picks: prior.draftPicks,
+            priorTeamIdByName,
+            currentTeams: teams.map(team => ({
+              externalId: team.externalId,
+              name: team.name,
+              manager: managerNames.get(team._id) ?? UNKNOWN_MANAGER,
+              draftSlot: pickOrder.length ? pickOrder.findIndex(id => String(id) === team.externalId) + 1 || undefined : undefined,
+            })),
+            lastSeason,
+          });
+        }
+      } catch (error) {
+        console.log("Prior draft lookup failed, continuing without tendencies:", error);
+      }
+
       // Extract draft order (simplified)
       let draftOrder: Array<{ position: number; teamId: string; teamName: string; manager: string }> = [];
       if (leagueSeason.draftSettings?.pickOrder && teams.length > 0) {
@@ -1962,7 +2007,7 @@ export const getMockDraftDataForAI = internalQuery({
         seasonId: targetSeason,
         draftOrder,
         draftType: leagueSeason.draftSettings?.type === "AUCTION" ? "Auction" : "Snake",
-        leagueType: leagueSeason.draft?.some(pick => pick.keeper) ? "Keeper" : "Redraft",
+        leagueType: leagueTypeFromDraftSettings(leagueSeason.draftSettings),
         scoringType: league.settings.scoringType,
         rosterSize: league.settings.rosterSize,
         leagueFormat,
@@ -1979,6 +2024,9 @@ export const getMockDraftDataForAI = internalQuery({
         })),
         availablePlayers: draftablePlayers,
         playerCount: draftablePlayers.length,
+        draftTendencies,
+        injuryWatch,
+        previousSeason,
         metadata: {
           dataFreshness: Date.now(),
           draftablePlayersCount: draftablePlayers.length,

@@ -343,7 +343,10 @@ function splitSentences(text: string): string[] {
  * the writer invented (spec §11.3.11). "The Grinders had it won" must not read as an unknown
  * player, or the real warnings drown.
  */
-const LEADING_NOISE_WORDS = new Set(["the", "because", "here", "and", "but", "so", "now"]);
+const LEADING_NOISE_WORDS = new Set([
+  "the", "because", "here", "and", "but", "so", "now", "once", "when", "after", "before", "if", "then",
+  "with", "without", "unless", "until", "while", "every", "no", "not", "take", "write", "put", "watch",
+]);
 
 /**
  * Playoff contention (owner ask: articles centred on the teams still in it). A team the bracket has
@@ -434,7 +437,9 @@ export function verifyArticle(
   const teamById = new Map(facts.teams.map(team => [team.id, team]));
   const teamNames = new Set(facts.teams.map(team => team.name.toLowerCase()));
   const managers = new Set(
-    facts.teams.map(team => (team.manager ?? "").toLowerCase()).filter(name => name.length > 0)
+    facts.teams
+      .map(team => (team.manager ?? "").replace(/\s+/g, " ").trim().toLowerCase())
+      .filter(name => name.length > 0)
   );
   // Division names are proper nouns a writer legitimately prints ("the East", "Team X leads the
   // West") and must never read as an unknown team or player (spec: format audit).
@@ -490,6 +495,8 @@ export function verifyArticle(
     if (claim.player.name) playerNames.add(claim.player.name.toLowerCase());
     if (claim.dropped?.name) playerNames.add(claim.dropped.name.toLowerCase());
   }
+  // The mock-draft pool (owner ask, 2026-09-05): every player in it is a real, citable name.
+  for (const player of facts.draftPool ?? []) playerNames.add(player.name.toLowerCase());
   const quoteById = new Map(facts.quotes.map(quote => [quote.id, quote]));
   const ledgerTexts = facts.quotes.map(quote => normalizeQuote(quote.text));
   const silentSpeakers = new Set(facts.nonRespondents.map(entry => entry.speaker.toLowerCase()));

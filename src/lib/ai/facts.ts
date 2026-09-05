@@ -404,6 +404,23 @@ export interface FactsBlock {
     adpDelta?: number;
     projected?: number;
   }>;
+  /**
+   * The mock-draft pool (owner ask, 2026-09-05): the players a mock draft may name, with the ADP
+   * a reach or value call must quote. Absent for every other content type.
+   */
+  draftPool?: Array<{
+    id: string;
+    name: string;
+    pos: string;
+    nflTeam?: string;
+    adp: number;
+    adpPositionRank?: number;
+    injuryStatus?: string;
+    bye?: number;
+    projected?: number;
+    /** ESPN's season outlook, verbatim, for the top of the pool: the only history a mock draft may quote. */
+    outlook?: string;
+  }>;
   quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string }>;
   nonRespondents: Array<{ speaker: string; teamId: string; status: "no_response" | "declined" }>;
   relationships: Array<{
@@ -1365,6 +1382,36 @@ export function buildBoard(data: LeagueDataContext, teams: TeamIndex): FactsBoar
   };
 }
 
+/**
+ * The mock-draft pool as FACTS (owner ask, 2026-09-05): ids, names and the ADP every reach or
+ * value call must quote, so the verifier knows the names and the numbers. Undefined when the
+ * payload carries no pool (every content type but the mock draft).
+ */
+export function buildDraftPoolFacts(data: LeagueDataContext): FactsBlock["draftPool"] {
+  const pool = data.availablePlayers;
+  if (!pool || pool.length === 0) return undefined;
+  const entries = pool
+    .map(player => {
+      const adp = num(player.adp) ?? num(player.ownership?.averageDraftPosition);
+      if (adp === undefined || adp <= 0) return undefined;
+      return {
+        id: `P${player.playerId}`,
+        name: player.playerName,
+        pos: (player.position || "FLEX").toUpperCase(),
+        nflTeam: str(player.nflTeam) ?? str(player.proTeam) ?? str(player.team),
+        adp: round1(adp),
+        adpPositionRank: num(player.adpPositionRank),
+        injuryStatus: player.injuryStatus && player.injuryStatus !== "ACTIVE" ? player.injuryStatus : undefined,
+        bye: num(player.bye),
+        projected: player.projectedStats ? round1(player.projectedStats.projectedTotal) : undefined,
+        // Verbatim, so a stat Mel repeats from it ("fell to 3.40 yards per carry") is checkable.
+        outlook: player.seasonOutlook && player.seasonOutlook.trim().length > 0 ? player.seasonOutlook.trim() : undefined,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+  return entries.length > 0 ? entries : undefined;
+}
+
 export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const data = req.leagueData;
   const teams = new TeamIndex(data);
@@ -1558,6 +1605,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     transactions,
     trades,
     draftPicks: draftPicks.length > 0 ? draftPicks : undefined,
+    draftPool: buildDraftPoolFacts(data),
     quotes,
     nonRespondents,
     relationships,
