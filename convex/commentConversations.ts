@@ -263,6 +263,13 @@ export const sendUserResponse = mutation({
       throw new Error("Unauthorized");
     }
 
+    // A closed interview takes no more replies. The chat hides the composer, but this
+    // mutation is public: a late reply to a declined request used to re-run processing
+    // and flip it to "completed" with the decline inside the raw text.
+    if (request.status !== "pending" && request.status !== "active") {
+      throw new Error("This interview is closed");
+    }
+
     // Get message count to determine order
     const existingMessages = await ctx.db
       .query("commentConversations")
@@ -418,7 +425,7 @@ export const processUserResponse = internalAction({
       // quotable span, and the writer would print it as the manager's comment. The
       // off-topic gate used to swallow these. `looksLikeDecline` is sentence-level, so a
       // reply with a real sentence in it never matches.
-      if (looksLikeDecline(userMessage.content)) {
+      if (looksLikeDecline(userMessage.content) || analysis.isDecline === true) {
         await ctx.runMutation(internal.commentConversations.recordDeclineInternal, {
           commentRequestId: args.commentRequestId,
         });
@@ -1005,6 +1012,33 @@ export const createAIMessage = internalMutation({
   },
 });
 
+/** Writer first names for Sam's sign-off; unknown slugs read as "the desk". */
+const WRITER_FIRST_NAMES: Record<string, string> = {
+  "curtis-vaughn": "Curtis",
+  "sam-ortega": "Sam",
+  "nina-sharpe": "Nina",
+  "dex-alvarez": "Dex",
+  "mel-diaper": "Mel",
+  "reggie-banks": "Reggie",
+  "walt-brennan": "Walt",
+};
+
+/**
+ * Sam's last line after the manager's final answer. No question in it: the interview is
+ * over, and a trailing question would invite a reply the flow has nowhere to put.
+ */
+export function buildSignOff(managerName: string | undefined, writerPersona: string | undefined, seed: number): string {
+  const first = managerName?.trim().split(/\s+/)[0];
+  const name = first ? `, ${first}` : "";
+  const writer = WRITER_FIRST_NAMES[writerPersona ?? ""] ?? "the desk";
+  const variants = [
+    `Thanks${name}. That's everything I needed - I'll get this over to ${writer}.`,
+    `Appreciate the time${name}. I've got what I need; ${writer} takes it from here.`,
+    `Got it${name}. That's the interview - ${writer} has the pen from here.`,
+  ];
+  return variants[Math.abs(seed) % variants.length];
+}
+
 export const completeConversation = internalMutation({
   args: {
     commentRequestId: v.id("commentRequests"),
@@ -1030,25 +1064,36 @@ export const completeConversation = internalMutation({
       )
       .collect();
 
-    let systemMessage = "Thanks for your input! Your insights will be included in the upcoming article.";
-    
-    if (args.reason === "auto_ended") {
-      systemMessage = "Conversation ended. Thank you for your time!";
-    } else if (args.reason === "abuse_detected") {
-      systemMessage = "Let's keep the conversation focused on your fantasy football experience.";
+    // Sam signs off in her own voice (the spec's close belongs to her, not to a system
+    // line); the quote-approval card follows once the response row lands. Abuse still
+    // gets the plain system line.
+    if (args.reason === "abuse_detected") {
+      await ctx.db.insert("commentConversations", {
+        commentRequestId: args.commentRequestId,
+        leagueId: request.leagueId,
+        userId: request.targetUserId,
+        messageType: "system_message",
+        content: "Let's keep it on your team. We'll go to print with whatever is usable.",
+        messageOrder: messages.length,
+        isRead: false,
+        createdAt: Date.now(),
+        threadDepth: 0,
+      });
+    } else {
+      const user = await ctx.db.get(request.targetUserId);
+      await ctx.db.insert("commentConversations", {
+        commentRequestId: args.commentRequestId,
+        leagueId: request.leagueId,
+        userId: request.targetUserId,
+        messageType: "ai_confirmation",
+        content: buildSignOff(user?.name, request.writerPersona, messages.length),
+        messageOrder: messages.length,
+        isRead: false,
+        aiMetadata: { intent: "sign_off" },
+        createdAt: Date.now(),
+        threadDepth: 0,
+      });
     }
-
-    await ctx.db.insert("commentConversations", {
-      commentRequestId: args.commentRequestId,
-      leagueId: request.leagueId,
-      userId: request.targetUserId,
-      messageType: "system_message",
-      content: systemMessage,
-      messageOrder: messages.length,
-      isRead: false,
-      createdAt: Date.now(),
-      threadDepth: 0,
-    });
 
     // Process the response for article use
     await ctx.scheduler.runAfter(0, internal.commentConversations.processCompletedResponse, {

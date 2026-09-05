@@ -9,6 +9,9 @@ import type { WaiverLedger } from "../src/lib/ai/prompt-builder";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
 import { leagueCurrentSeason } from "./lib/season";
 import { espnConnectionBlocked } from "./lib/espnConnection";
+import { alignPrintTime, localHour, nextWallClockAtOrAfter } from "./lib/printTime";
+import { LOOKBACK_INTERVIEW_TYPES, resolveInterviewees } from "./lib/interviewees";
+import { reminderTimes } from "./lib/reminderTimes";
 
 // Helper function to identify defense positions
 function isDefensePosition(position: string): boolean {
@@ -49,22 +52,18 @@ const BENCH_SLOT_ID = 20;
 const IR_SLOT_ID = 21;
 const NON_STARTER_SLOTS = new Set([BENCH_SLOT_ID, IR_SLOT_ID]);
 
-/**
- * Interviews for these types are about a finished week: they wait for ESPN to finalize it
- * (mirrors `LOOKBACK_CONTENT` in contentScheduling.ts, kept separate so this module never
- * value-imports one that references `internal`).
- */
-const LOOKBACK_INTERVIEW_TYPES = new Set([
-  "weekly_recap",
-  "power_rankings",
-  "waiver_wire_report",
-  "bank_statement",
-  "mid_season_awards",
-  "hall_of_shame",
-]);
 const WEEK_FINAL_RECHECK_MS = 30 * 60 * 1000;
 /** Managers get at least this long to answer; below it we print without interviews. */
 const MIN_INTERVIEW_WINDOW_MS = 60 * 60 * 1000;
+/**
+ * Scheduled interviews are not sent at night (owner, 2026-09-05: "reach out Tuesday
+ * morning"). A week that ESPN finalizes at half past midnight waits until 07:00 league
+ * time; the print time moves with it under the window rule below.
+ */
+const QUIET_HOURS_START = 22;
+const QUIET_HOURS_END = 7;
+/** Quiet hours only apply to the scheduled path; a commissioner's manual trigger sends at once. */
+const QUIET_HOURS_MIN_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 /** A transaction that actually happened. Lost, withdrawn and still-pending claims are not moves. */
 function transactionExecuted(tx: { outcome?: string; status: string; isPending: boolean }): boolean {
@@ -176,9 +175,55 @@ export const createRequestsForScheduledContent = internalMutation({
       }
     }
 
+    const window = args.requestTimeBeforeGeneration ?? 0;
+    const schedule = await ctx.db.get(scheduledContent.contentScheduleId);
+
+    // Quiet hours: a scheduled recap whose week went final overnight reaches out at 07:00
+    // league time, not at 00:30. The window rule below then moves the print time with it.
+    if (LOOKBACK_INTERVIEW_TYPES.has(scheduledContent.contentType) && window >= QUIET_HOURS_MIN_WINDOW_MS) {
+      const hour = localHour(currentTime, schedule?.timezone);
+      if (hour >= QUIET_HOURS_START || hour < QUIET_HOURS_END) {
+        const retryAt = nextWallClockAtOrAfter(currentTime, QUIET_HOURS_END, 0, schedule?.timezone ?? "America/New_York");
+        await ctx.scheduler.runAt(retryAt, internal.commentRequests.createRequestsForScheduledContent, args);
+        console.log(`Quiet hours for ${args.scheduledContentId}; sending interviews at ${new Date(retryAt).toISOString()}`);
+        return { created: false, reason: "quiet_hours_deferred" as const, retryAt };
+      }
+    }
+
+    // The article never prints before the interview window has run (owner, 2026-09-05:
+    // a full day for a recap, a few hours for an event piece). When the requests go out
+    // late - a recap that waited for Monday night, a trade article scheduled minutes after
+    // the trade - the print time moves out to send time + window, on the schedule's own
+    // hour so the story still lands at its usual time of day (a Tuesday 11:00 recap whose
+    // interviews went out Tuesday 07:00 prints Wednesday 11:00).
+    let printAt = scheduledContent.scheduledFor;
+    if (window > 0 && scheduledContent.status === "pending" && scheduledContent.scheduledFor - currentTime < window) {
+      printAt = alignPrintTime(currentTime + window, schedule?.schedule, schedule?.timezone);
+      await ctx.db.patch(scheduledContent._id, { scheduledFor: printAt, updatedAt: currentTime });
+      console.log(
+        `Print time for ${args.scheduledContentId} moved from ${new Date(scheduledContent.scheduledFor).toISOString()} to ${new Date(printAt).toISOString()} so managers get the full ${Math.round(window / 3600000)}h window`
+      );
+    }
+
+    // Who to ask is resolved now, not when the row was created: a recap asks everyone who
+    // played and a draft piece everyone who drafted, from the claims as they stand today
+    // (a list queued under an older cap, or before a manager claimed, is not trusted).
+    // Anything the caller named on top of that is kept.
+    let targetUserIds = args.targetUserIds;
+    if (scheduledContent.contentType === "weekly_recap" || scheduledContent.contentType === "draft_rankings") {
+      const resolved = await resolveInterviewees(ctx, {
+        leagueId: scheduledContent.leagueId,
+        season: articleSeason,
+        contentType: scheduledContent.contentType,
+        week: articleWeek,
+        eventData: scheduledContent.contextData?.eventData ?? null,
+      });
+      targetUserIds = Array.from(new Set([...resolved.targetUserIds, ...args.targetUserIds]));
+    }
+
     // Create a request for each target user
     const requestIds = await Promise.all(
-      args.targetUserIds.map(async (userId) => {
+      targetUserIds.map(async (userId) => {
         // Check if request already exists
         const existing = await ctx.db
           .query("commentRequests")
@@ -238,7 +283,7 @@ export const createRequestsForScheduledContent = internalMutation({
           },
           status: "pending",
           scheduledSendTime,
-          articleGenerationTime: scheduledContent.scheduledFor,
+          articleGenerationTime: printAt,
           conversationState: "not_started",
           aiContext: {
             initialPrompt: "",
@@ -400,6 +445,7 @@ export const buildConversationContext = internalQuery({
     let teamScore = 0;
     let projectedScore: number | undefined = undefined;
     let won = false;
+    let tie = false;
     let underperformers: Array<{ player: string; position: string; expectedPts: number; actualPts: number; }> = [];
     let overperformers: Array<{ player: string; position: string; expectedPts: number; actualPts: number; }> = [];
 
@@ -459,6 +505,7 @@ export const buildConversationContext = internalQuery({
       // reported as a loss while `margin` said otherwise. Recompute it from the score
       // we actually publish - Sam states this result out loud.
       won = teamScore > opponentScore;
+      tie = matchup.winner === "tie" || (teamScore > 0 && teamScore === opponentScore);
 
       // Debug: Log all players to understand position formats
       console.log("All roster players:", players.map(p => ({ 
@@ -641,6 +688,18 @@ export const buildConversationContext = internalQuery({
         away.ties++;
       }
     }
+
+    // ESPN's playoff seed is only quoted when the synced record is exactly the record we
+    // tallied through this week - i.e. the sync is as fresh as the story - so Sam and the
+    // article (which ranks by seed) never disagree about a live week.
+    const myTally = team ? tally.get(team.externalId) : undefined;
+    const syncedRecord = team?.record;
+    const talliedGames = myTally ? myTally.wins + myTally.losses + myTally.ties : -1;
+    const syncedGames = syncedRecord ? (syncedRecord.wins ?? 0) + (syncedRecord.losses ?? 0) + (syncedRecord.ties ?? 0) : -2;
+    const playoffSeed =
+      syncedRecord?.playoffSeed && syncedRecord.playoffSeed > 0 && talliedGames === syncedGames && talliedGames > 0
+        ? syncedRecord.playoffSeed
+        : undefined;
 
     const standings = allTeams
       .map(t => ({ team: t, rec: tally.get(t.externalId)! }))
@@ -1070,6 +1129,8 @@ export const buildConversationContext = internalQuery({
       opponentName,
       upcomingOpponentName,
       opponentScore: opponentScoreOut,
+      tie,
+      playoffSeed,
       margin,
       benchPoints,
       topBenchPlayer,
@@ -1294,6 +1355,22 @@ export const sendInitialRequests = internalAction({
           deadline: request.articleGenerationTime,
         });
 
+        // Two nudges for a manager who has not answered: halfway through the window and
+        // 30 minutes before print (spec §5). `sendReminder` re-checks at fire time.
+        const reminders = reminderTimes(Date.now(), request.articleGenerationTime);
+        if (reminders.halfway) {
+          await ctx.scheduler.runAt(reminders.halfway, internal.commentRequests.sendReminder, {
+            commentRequestId: request._id,
+            final: false,
+          });
+        }
+        if (reminders.final) {
+          await ctx.scheduler.runAt(reminders.final, internal.commentRequests.sendReminder, {
+            commentRequestId: request._id,
+            final: true,
+          });
+        }
+
       } catch (error) {
         console.error(`Error processing request ${request._id}:`, error);
         // Continue with other requests
@@ -1313,6 +1390,88 @@ export const sendInitialRequests = internalAction({
         scheduledContentId: args.scheduledContentId,
       });
     }
+  },
+});
+
+/** What a reminder needs, plus whether the manager has already replied. */
+export const getRequestForReminder = internalQuery({
+  args: { commentRequestId: v.id("commentRequests") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      status: v.string(),
+      targetUserId: v.id("users"),
+      leagueId: v.id("leagues"),
+      leagueName: v.string(),
+      contentType: v.string(),
+      writerPersona: v.optional(v.string()),
+      week: v.optional(v.number()),
+      articleGenerationTime: v.number(),
+      question: v.optional(v.string()),
+      hasReply: v.boolean(),
+      alreadySent: v.array(v.string()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.commentRequestId);
+    if (!request) return null;
+    const league = await ctx.db.get(request.leagueId);
+    const messages = await ctx.db
+      .query("commentConversations")
+      .withIndex("by_comment_request_order", q => q.eq("commentRequestId", args.commentRequestId))
+      .collect();
+    return {
+      status: request.status,
+      targetUserId: request.targetUserId,
+      leagueId: request.leagueId,
+      leagueName: league?.name ?? "your league",
+      contentType: request.contentType,
+      writerPersona: request.writerPersona,
+      week: request.articleContext.week,
+      articleGenerationTime: request.articleGenerationTime,
+      question: messages.find(m => m.messageType === "ai_question")?.content,
+      hasReply: messages.some(m => m.messageType === "user_response"),
+      alreadySent: request.notificationsSent.map(n => n.type),
+    };
+  },
+});
+
+/**
+ * A reminder to a manager who has not answered yet. Scheduled by `sendInitialRequests`
+ * and `aiContentWithComments.sendManualCommentRequest` at half the window and 30 minutes
+ * before print; a request that was answered, closed, or already reminded is left alone.
+ */
+export const sendReminder = internalAction({
+  args: { commentRequestId: v.id("commentRequests"), final: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const request = await ctx.runQuery(internal.commentRequests.getRequestForReminder, {
+      commentRequestId: args.commentRequestId,
+    });
+    if (!request || request.status !== "active" || request.hasReply) return null;
+    const type = args.final ? "final_reminder" : "reminder";
+    if (request.alreadySent.includes(type)) return null;
+    const minutesRemaining = Math.round((request.articleGenerationTime - Date.now()) / 60000);
+    if (minutesRemaining < 5) return null;
+
+    await ctx.runAction(internal.notifications.sendExpiringNotification, {
+      userId: request.targetUserId,
+      commentRequestId: args.commentRequestId,
+      leagueId: request.leagueId,
+      minutesRemaining,
+      leagueName: request.leagueName,
+      writerPersona: request.writerPersona,
+      week: request.week,
+      deadline: request.articleGenerationTime,
+      question: request.question,
+      final: args.final,
+      articleType: request.contentType,
+    });
+    await ctx.runMutation(internal.commentRequests.updateRequestStatus, {
+      commentRequestId: args.commentRequestId,
+      notificationSent: { type, sentAt: Date.now(), method: "app_notification", delivered: true },
+    });
+    return null;
   },
 });
 

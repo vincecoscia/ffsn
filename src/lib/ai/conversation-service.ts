@@ -66,6 +66,10 @@ export interface ConversationContext {
    * play, not how it went.
    */
   upcomingOpponentName?: string;
+  /** True when the decided matchup ended level; `teamPerformance.won` is false then. */
+  tie?: boolean;
+  /** ESPN's playoff seed, present only when the synced record is as fresh as this week. */
+  playoffSeed?: number;
   /** Absolute point margin of the result, `|teamScore - opponentScore|`. */
   margin?: number;
   /** Total points left on the bench (lineupSlotId 20). */
@@ -292,6 +296,13 @@ export interface ResponseAnalysisResult {
   offTopicScore: number; // 0-100, higher means more off-topic
   /** Only personas actually named in context or in the reply. */
   writerSentiment: WriterSentiment[];
+  /**
+   * True only when the reply as a whole refuses to comment ("no comment", "not today, Sam").
+   * A reply that says anything about the team is not a decline, whatever it ends with.
+   * `commentConversations.processUserResponse` records a decline on this OR on the phrase
+   * detector in convex/lib/declineDetection.ts.
+   */
+  isDecline: boolean;
   /** Undefined when the local heuristic fallback answered instead of a model. */
   usage?: InterviewUsage;
   /** Measured API cost of this analysis. 0 when no model call was made. */
@@ -607,6 +618,9 @@ export class ConversationService {
         "Printable spans copied CHARACTER FOR CHARACTER from the reply. Each string must appear in the reply exactly as written - do not fix spelling, punctuation, capitalization, or word order, and never join text from two different sentences. Return an empty array rather than a paraphrase."
       ),
       offTopicScore: z.number().min(0).max(100).describe("How off-topic the response is (0=on-topic, 100=completely off-topic)"),
+      isDecline: z.coerce.boolean().default(false).describe(
+        "True ONLY when the reply as a whole refuses to comment - 'no comment', 'not today', 'leave me out of it' - and says nothing about the team. False whenever the manager said anything about their team, even if they end with 'no further comment'."
+      ),
       writerSentiment: z.array(z.object({
         persona: z.enum(personaOptions.length > 0 ? (personaOptions as [string, ...string[]]) : ['sam-ortega']).describe("Writer slug the manager talked about"),
         sentiment: z.enum(["hostile", "dismissive", "neutral", "friendly"]).describe("How the manager talked about that writer"),
@@ -636,7 +650,9 @@ Rules:
 3. writerSentiment only covers writers actually named or unmistakably referred to in the reply, and
    only from the list above. "hostile" is an insult or an attack, "dismissive" waves the writer off,
    "friendly" is praise or warmth, "neutral" is a plain mention.
-4. Do not judge whether the manager's decisions were good or bad.`;
+4. Do not judge whether the manager's decisions were good or bad.
+5. isDecline is true only for a reply that refuses to comment and says nothing about the team.
+   "No comment." is a decline. "Joe Burrow killed me, no further comment." is an answer.`;
 
     const call = async (model: string) => {
       const response = await anthropic.messages.create({
@@ -690,6 +706,7 @@ Rules:
         sentiment: this.analyzeSentiment(userResponse),
         quotableSegments: keepVerbatimSegments(userResponse, this.extractQuotes(userResponse)),
         offTopicScore: this.calculateOffTopicScore(userResponse, context),
+        isDecline: false,
         writerSentiment: [],
         costUsd: 0,
       };
@@ -813,11 +830,11 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     }
 
     if (tp.score > 0) {
-      const result = tp.won ? 'Won' : 'Lost';
+      const result = context.tie ? 'Tied' : tp.won ? 'Won' : 'Lost';
       if (context.opponentName && context.opponentScore !== undefined) {
         lines.push(
-          `Week ${week} result: ${result} ${fmt(tp.score)}-${fmt(context.opponentScore)} ${tp.won ? 'over' : 'to'} ${context.opponentName}` +
-          (context.margin !== undefined ? ` (margin ${fmt(context.margin)})` : '')
+          `Week ${week} result: ${result} ${fmt(tp.score)}-${fmt(context.opponentScore)} ${context.tie ? 'with' : tp.won ? 'over' : 'to'} ${context.opponentName}` +
+          (context.margin !== undefined && !context.tie ? ` (margin ${fmt(context.margin)})` : '')
         );
       } else {
         lines.push(`Week ${week} result: ${result} with ${fmt(tp.score)} points`);
@@ -826,7 +843,12 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     }
 
     const standing = leagueContext.standings.find((s) => s.teamId === tp.teamId);
-    if (standing && hasGames(standing.record)) lines.push(`Standing: #${standing.rank} (${standing.record})`);
+    if (standing && hasGames(standing.record)) {
+      lines.push(
+        `Standing: #${standing.rank} by record (${standing.record})` +
+          (context.playoffSeed ? `, ESPN playoff seed #${context.playoffSeed}` : '')
+      );
+    }
 
     if (context.benchPoints !== undefined && context.benchPoints > 0) {
       const top = context.topBenchPlayer;
@@ -943,7 +965,9 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     const { teamPerformance: tp, leagueContext, week } = context;
     const standing = leagueContext.standings.find((s) => s.teamId === tp.teamId);
     const marginPhrase =
-      context.margin !== undefined && context.opponentName
+      context.tie && context.opponentName && context.opponentScore !== undefined
+        ? `the ${fmt(tp.score)}-${fmt(context.opponentScore)} tie with ${context.opponentName}`
+        : context.margin !== undefined && context.opponentName
         ? `the ${fmt(context.margin)}-point ${tp.won ? 'win over' : 'loss to'} ${context.opponentName}`
         : tp.score > 0
         ? `their ${fmt(tp.score)}-point Week ${week}`

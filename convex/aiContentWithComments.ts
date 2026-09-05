@@ -14,6 +14,7 @@ import { leagueCurrentSeason } from "./lib/season";
 import { requireCommissioner, requireLeagueMember } from "./lib/auth";
 import { espnConnectionBlocked } from "./lib/espnConnection";
 import { teamForUser, userByClerkId } from "./lib/teamClaims";
+import { reminderTimes } from "./lib/reminderTimes";
 import { INTERVIEWER_PERSONA, DEFAULT_WRITER_PERSONA } from "./commentRequests";
 
 /* -------------------------------------------------------------------------- */
@@ -504,6 +505,21 @@ export const sendManualCommentRequest = internalAction({
         },
       });
       
+      // Two nudges for a manager who has not answered (spec §5); `sendReminder` re-checks.
+      const reminders = reminderTimes(Date.now(), request.articleGenerationTime);
+      if (reminders.halfway) {
+        await ctx.scheduler.runAt(reminders.halfway, internal.commentRequests.sendReminder, {
+          commentRequestId: args.commentRequestId,
+          final: false,
+        });
+      }
+      if (reminders.final) {
+        await ctx.scheduler.runAt(reminders.final, internal.commentRequests.sendReminder, {
+          commentRequestId: args.commentRequestId,
+          final: true,
+        });
+      }
+
       // Send notification to user
       await ctx.scheduler.runAfter(0, internal.notifications.sendCommentRequest, {
         userId: request.targetUserId,

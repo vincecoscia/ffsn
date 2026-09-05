@@ -658,7 +658,7 @@ describe.skipIf(!DATA_DIR || !LEAGUE)("interview context harness (real data repl
               problems.push(`opponentScore ${context.opponentScore} vs ${m.opponentScore}`);
             }
             if (tp.won !== m.won && !m.tie) problems.push(`won ${tp.won} vs ${m.won}`);
-            if (m.tie && tp.won === false) problems.push("tie reported as a loss");
+            if (m.tie && !context.tie) problems.push("tie reported as a loss");
             if (context.margin === undefined || Math.abs(context.margin - m.margin) > 0.06) {
               problems.push(`margin ${context.margin} vs ${m.margin}`);
             }

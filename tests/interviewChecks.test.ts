@@ -99,7 +99,7 @@ describe("factBlockFor - the CONTEXT block Sam is actually shown", () => {
     const block = factBlockFor(context());
     expect(block).toContain("Story: weekly recap - Week 7, 2026 season");
     expect(block).toContain("Week 7 result: Lost 112.9-118.4 to Kittle Me This (margin 5.5)");
-    expect(block).toContain("Standing: #6 (4-3)");
+    expect(block).toContain("Standing: #6 by record (4-3)");
     expect(block).toContain("Bench points: 31.2 (most: Jaylen Waddle, WR, 22.6)");
     expect(block).toContain("Transaction (waiver): added Tyjae Spears, dropped Rico Dowdle for $17 FAAB");
     expect(block).toContain('Mel Diaper wrote about this manager in Week 6 ("Draft Grades: Receipts Edition")');

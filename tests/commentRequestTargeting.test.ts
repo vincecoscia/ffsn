@@ -295,6 +295,53 @@ describe("onContentScheduled manager targeting", () => {
   });
 });
 
+describe("onContentScheduled send time", () => {
+  it("sends a recap's requests one window (24h) before print", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    const scheduledTime = Date.now() + 48 * 60 * 60 * 1000;
+    const result = await t.mutation(internal.contentSchedulingIntegration.onContentScheduled, {
+      scheduledContentId: ids.scheduledContentId,
+      leagueId: ids.leagueId,
+      contentType: "weekly_recap",
+      scheduledTime,
+      writerPersona: "curtis-vaughn",
+    });
+    expect(result).toMatchObject({ scheduled: true, sendAt: scheduledTime - 24 * 60 * 60 * 1000 });
+  });
+
+  it("sends an event article's requests immediately, not at print minus the window", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    const now = Date.now();
+    const tradeRow = await t.run((ctx) =>
+      ctx.db.insert("scheduledContent", {
+        leagueId: ids.leagueId,
+        contentScheduleId: ids.contentScheduleId,
+        contentType: "trade_analysis",
+        scheduledFor: now + 15 * 60 * 1000,
+        status: "pending",
+        attempts: 0,
+        maxAttempts: 3,
+        contextData: { seasonId: SEASON, eventData: { teamA: { teamId: "1" }, teamB: { teamId: "2" } } },
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+    const result = (await t.mutation(internal.contentSchedulingIntegration.onContentScheduled, {
+      scheduledContentId: tradeRow,
+      leagueId: ids.leagueId,
+      contentType: "trade_analysis",
+      scheduledTime: now + 15 * 60 * 1000,
+      writerPersona: "mel-diaper",
+    })) as { scheduled: boolean; sendAt?: number; requests?: number };
+    expect(result.scheduled).toBe(true);
+    expect(result.requests).toBe(1); // only Alpha's manager has claimed a side
+    expect(result.sendAt).toBeGreaterThanOrEqual(now);
+    expect(result.sendAt!).toBeLessThan(now + 5000);
+  });
+});
+
 describe("createRequestsForScheduledContent manager resolution", () => {
   it("resolves the target's team via teamClaims for the article's season, not teams.owner === userId", async () => {
     const t = convexTest(schema, modules);

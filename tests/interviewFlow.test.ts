@@ -1,7 +1,7 @@
 import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, it } from "vitest";
 import schema from "../convex/schema";
-import { internal } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { looksLikeDecline } from "../convex/lib/declineDetection";
 
@@ -207,6 +207,34 @@ describe("deadline handling", () => {
     expect(quoted[0].quotes).toEqual(["Fine week"]);
     const silent = await t.query(internal.aiContentWithComments.getNonRespondents, { commentRequestIds: [ids.requestId] });
     expect(silent).toHaveLength(0);
+  });
+});
+
+describe("closed interviews", () => {
+  it("completeConversation signs off in Sam's voice with no trailing question", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    await reply(t, ids, "Fine week, moving on.", ["Fine week, moving on."]);
+    await t.mutation(internal.commentConversations.completeConversation, { commentRequestId: ids.requestId, reason: "sufficient_response" });
+    const all = await messages(t, ids.requestId);
+    const signOff = all.find((m) => m.messageType === "ai_confirmation");
+    expect(signOff).toBeTruthy();
+    expect(signOff!.content).toContain("Flow");
+    expect(signOff!.content).toContain("Mel");
+    expect(signOff!.content).not.toContain("?");
+    expect(all.some((m) => m.messageType === "system_message")).toBe(false);
+    expect(await t.run((ctx) => ctx.db.get(ids.requestId))).toMatchObject({ status: "completed" });
+  });
+
+  it("takes no reply once the request is declined, expired or completed", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    await t.run((ctx) => ctx.db.patch(ids.requestId, { status: "declined" }));
+    const asManager = t.withIdentity({ subject: CLERK });
+    await expect(
+      asManager.mutation(api.commentConversations.sendUserResponse, { commentRequestId: ids.requestId, content: "Actually, one more thing." })
+    ).rejects.toThrow("closed");
+    expect((await messages(t, ids.requestId)).filter((m) => m.messageType === "user_response")).toHaveLength(0);
   });
 });
 

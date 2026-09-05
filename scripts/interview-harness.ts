@@ -656,6 +656,7 @@ class DryEngine implements Engine {
     const writer = context.writerContext;
     const writerNamed = writer && writer.name.split(/\s+/).some((w) => new RegExp(`\\b${w}\\b`, "i").test(reply));
     return {
+      isDecline: decline,
       responseQuality: decline ? 10 : 60,
       completeness: decline ? 10 : 60,
       relevantTopics: decline ? [] : ["lineup decision"],
@@ -811,7 +812,7 @@ async function runInterview(input: InterviewInput & { persona: Persona }, engine
     //    production's bare-decline check (`processUserResponse` -> `looksLikeDecline`): a reply
     //    with nothing quotable that reads as "no comment" is recorded as a decline before the gate.
     const userMessages = history.filter((m) => m.role === "user").length;
-    const bareDecline = looksLikeDecline(reply1.text);
+    const bareDecline = looksLikeDecline(reply1.text) || analysis1.isDecline === true;
     const shouldContinue = !bareDecline && userMessages === 1 && analysis1.offTopicScore < 50;
     if (bareDecline) {
       note(replyTurn1.index, "flow", [

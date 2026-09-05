@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "../convex/schema";
 import { internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -348,7 +348,10 @@ describe("buildConversationContext (Sam's CONTEXT block)", () => {
 
     const block = buildInterviewFactBlock(context);
     expect(block).toContain("Week 1 result: Won 120.5-98.2 over Bruisers (margin 22.3)");
-    expect(block).toContain("Standing: #1 (1-0)");
+    // The synced record (9-5) is not this week's, so no ESPN seed is quoted.
+    expect(block).toContain("Standing: #1 by record (1-0)");
+    expect(block).not.toContain("playoff seed");
+    expect(context.playoffSeed).toBeUndefined();
     expect(block).not.toContain("Ira Injured");
   });
 
@@ -427,6 +430,52 @@ describe("buildConversationContext (Sam's CONTEXT block)", () => {
     expect(context.writerContext?.recentMentions.map((m) => m.week)).toEqual([1]);
   });
 
+  it("reports a tie as a tie, never as a loss", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("matchups", {
+        leagueId: ids.leagueId,
+        seasonId: SEASON,
+        matchupPeriod: 3,
+        scoringPeriod: 3,
+        homeTeamId: "1",
+        awayTeamId: "4",
+        homeScore: 101.5,
+        awayScore: 101.5,
+        winner: "tie",
+        createdAt: Date.now(),
+      });
+    });
+    const context = await contextFor(t, await requestFor(t, ids, "weekly_recap", 3));
+    expect(context.tie).toBe(true);
+    expect(context.teamPerformance.won).toBe(false);
+    const block = buildInterviewFactBlock(context);
+    expect(block).toContain("Week 3 result: Tied 101.5-101.5 with Drifters");
+    expect(block).not.toContain("Lost");
+    // The tie counts in the standings tally too.
+    const standing = context.leagueContext.standings.find((s) => s.teamId === context.teamPerformance.teamId);
+    expect(standing?.record).toBe("1-0-1");
+  });
+
+  it("quotes ESPN's playoff seed only when the synced record is exactly this week's", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    // Make the synced record match week 1 (1-0) and carry a seed.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ids.teamA, {
+        record: { wins: 1, losses: 0, ties: 0, pointsFor: 120.5, pointsAgainst: 98.2, playoffSeed: 2 },
+      });
+    });
+    const fresh = await contextFor(t, await requestFor(t, ids, "weekly_recap", 1));
+    expect(fresh.playoffSeed).toBe(2);
+    expect(buildInterviewFactBlock(fresh)).toContain("Standing: #1 by record (1-0), ESPN playoff seed #2");
+    // A week-2 story asked before week 2 is decided still has a 1-0 tally, so the seed
+    // stays; a story about a week the sync has not caught up to would not.
+    const later = await contextFor(t, await requestFor(t, ids, "weekly_recap", 2));
+    expect(later.playoffSeed).toBe(2);
+  });
+
   it("writes no 'Week 0' when the request has no week", async () => {
     const t = convexTest(schema, modules);
     const ids = await seed(t);
@@ -482,6 +531,15 @@ describe("buildConversationContext (Sam's CONTEXT block)", () => {
 });
 
 describe("createRequestsForScheduledContent week finality", () => {
+  // Pin the clock to a Tuesday late morning in New York so quiet hours never depend on
+  // when the suite happens to run.
+  const TUESDAY_11_ET = Date.parse("2026-09-15T15:00:00Z");
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(TUESDAY_11_ET);
+  });
+  afterEach(() => vi.useRealTimers());
+
   async function scheduled(t: ReturnType<typeof convexTest>, ids: Seeded, week: number, hoursAhead: number) {
     return await t.run(async (ctx) => {
       const now = Date.now();
@@ -510,6 +568,104 @@ describe("createRequestsForScheduledContent week finality", () => {
     });
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(1);
+  });
+
+  it("moves the print time out so managers get the full window, on the schedule's hour", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    const DAY = 24 * 3_600_000;
+    // The recap is due in 3 hours but the window is 24 hours.
+    const scheduledContentId = await scheduled(t, ids, 1, 3);
+    const before = (await t.run((ctx) => ctx.db.get(scheduledContentId)))!.scheduledFor;
+    const result = await t.mutation(internal.commentRequests.createRequestsForScheduledContent, {
+      scheduledContentId,
+      targetUserIds: [ids.userId],
+      requestTimeBeforeGeneration: DAY,
+      writerPersona: "mel-diaper",
+    });
+    expect(result).toHaveLength(1);
+    const row = (await t.run((ctx) => ctx.db.get(scheduledContentId)))!;
+    expect(row.scheduledFor).toBeGreaterThanOrEqual(Date.now() + DAY - 1000);
+    expect(row.scheduledFor).toBeGreaterThan(before);
+    // Aligned to the schedule's 09:00 New York slot.
+    const local = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(row.scheduledFor));
+    expect(local).toBe("09:00");
+    const request = (await t.run((ctx) => ctx.db.query("commentRequests").collect()))[0];
+    expect(request.articleGenerationTime).toBe(row.scheduledFor);
+  });
+
+  it("waits for 07:00 league time when the week goes final overnight, then prints a day later", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    const DAY = 24 * 3_600_000;
+    // Tuesday 01:30 ET: Monday night just settled. The recap is due at 09:00 ET today.
+    vi.setSystemTime(Date.parse("2026-09-15T05:30:00Z"));
+    const scheduledContentId = await scheduled(t, ids, 1, 7.5);
+    const deferred = await t.mutation(internal.commentRequests.createRequestsForScheduledContent, {
+      scheduledContentId,
+      targetUserIds: [ids.userId],
+      requestTimeBeforeGeneration: DAY,
+      writerPersona: "mel-diaper",
+    });
+    expect(deferred).toMatchObject({ created: false, reason: "quiet_hours_deferred", retryAt: Date.parse("2026-09-15T11:00:00Z") });
+    expect(await t.run((ctx) => ctx.db.query("commentRequests").collect())).toHaveLength(0);
+
+    // 07:00 ET: the interviews go out, and the print time moves to Wednesday 09:00 ET.
+    vi.setSystemTime(Date.parse("2026-09-15T11:00:00Z"));
+    const created = await t.mutation(internal.commentRequests.createRequestsForScheduledContent, {
+      scheduledContentId,
+      targetUserIds: [ids.userId],
+      requestTimeBeforeGeneration: DAY,
+      writerPersona: "mel-diaper",
+    });
+    expect(created).toHaveLength(1);
+    const row = (await t.run((ctx) => ctx.db.get(scheduledContentId)))!;
+    expect(row.scheduledFor).toBe(Date.parse("2026-09-16T13:00:00Z"));
+  });
+
+  it("asks every manager who played, whatever list was queued when the row was created", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    // A second manager claims the Bruisers (they played week 1 against Ava).
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("users", { clerkId: "clerk_second", name: "Ben Bruiser", hasCompletedOnboarding: true, createdAt: now, lastActiveAt: now });
+      await ctx.db.insert("teamClaims", { leagueId: ids.leagueId, teamId: ids.teamB, seasonId: SEASON, userId: "clerk_second", status: "active", credits: 0, createdAt: now });
+    });
+    const result = await t.mutation(internal.commentRequests.createRequestsForScheduledContent, {
+      scheduledContentId: await scheduled(t, ids, 1, 30),
+      targetUserIds: [ids.userId], // the stale one-manager list
+      requestTimeBeforeGeneration: 24 * 3_600_000,
+      writerPersona: "mel-diaper",
+    });
+    expect(result).toHaveLength(2);
+  });
+
+  it("does not hold a commissioner's manual trigger for quiet hours", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    vi.setSystemTime(Date.parse("2026-09-15T05:30:00Z")); // 01:30 ET
+    const result = await t.mutation(internal.commentRequests.createRequestsForScheduledContent, {
+      scheduledContentId: await scheduled(t, ids, 1, 2),
+      targetUserIds: [ids.userId],
+      requestTimeBeforeGeneration: 60 * 60 * 1000, // the 1h manual window
+      writerPersona: "mel-diaper",
+    });
+    expect(result).toHaveLength(1);
+  });
+
+  it("leaves the print time alone when the window already fits", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await seed(t);
+    const scheduledContentId = await scheduled(t, ids, 1, 30);
+    const before = (await t.run((ctx) => ctx.db.get(scheduledContentId)))!.scheduledFor;
+    await t.mutation(internal.commentRequests.createRequestsForScheduledContent, {
+      scheduledContentId,
+      targetUserIds: [ids.userId],
+      requestTimeBeforeGeneration: 24 * 3_600_000,
+      writerPersona: "mel-diaper",
+    });
+    expect((await t.run((ctx) => ctx.db.get(scheduledContentId)))!.scheduledFor).toBe(before);
   });
 
   it("defers while the week is still undecided and there is interview window left", async () => {
