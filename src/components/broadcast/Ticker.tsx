@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 
@@ -11,6 +12,8 @@ export interface TickerItem {
   v: ReactNode;
   /** Optional trailing number/stat highlighted in signal blue, e.g. "142.8". */
   n?: string;
+  /** When set, the value renders as a link to this href. */
+  href?: string;
 }
 
 export interface TickerProps {
@@ -85,10 +88,21 @@ export function Ticker({ items, label = "League feed", speed = 90, className }: 
           {i > 0 && <span className="bc-sep" aria-hidden="true" />}
           <span className="inline-flex items-baseline gap-2.5 whitespace-nowrap">
             <span className="bc-label-sm text-bc-text-3">{item.k}</span>
-            <span className="font-display text-[15px] font-semibold tracking-[0.02em] text-bc-ink">
-              {item.v}
-              {item.n !== undefined && <span className="ml-1.5 text-bc-signal">{item.n}</span>}
-            </span>
+            {item.href ? (
+              <Link
+                href={item.href}
+                tabIndex={copy > 0 ? -1 : undefined}
+                className="font-display text-[15px] font-semibold tracking-[0.02em] text-bc-ink outline-none focus-visible:ring-[3px] focus-visible:ring-bc-red/50"
+              >
+                {item.v}
+                {item.n !== undefined && <span className="ml-1.5 text-bc-signal">{item.n}</span>}
+              </Link>
+            ) : (
+              <span className="font-display text-[15px] font-semibold tracking-[0.02em] text-bc-ink">
+                {item.v}
+                {item.n !== undefined && <span className="ml-1.5 text-bc-signal">{item.n}</span>}
+              </span>
+            )}
           </span>
         </span>
       ))}

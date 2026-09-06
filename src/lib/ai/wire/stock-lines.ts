@@ -20,7 +20,7 @@
 //   low_score         team, manager, score, week, opponentTeam, margin
 //   bench_points      team, points (bench), margin, score, week, player, manager
 //   claim_settled     writer, claim, outcome ("hit"|"miss"), record, team, week
-//   article_published title, url, writer, week
+//   article_published title, writer, week (url still accepted as a slot for onArticlePublished/back-compat, but no stock line prints it — the article now renders as a linked card under the post, not inline text)
 //
 // Dex Desk (spec §18), Dex unless noted. Slot values are strings D-A formats for prose:
 //   lineup_move       team, manager, player, slot ("FLEX"), benched?, week?  — {benched} always sits in its own
@@ -169,15 +169,15 @@ const DEX_TRADE: StockLine[] = [
 ];
 
 const DEX_ARTICLE: StockLine[] = [
-  clean("New from the desk. {writer}: \"{title}\". {url}. Read it; that's the whole assignment."),
-  clean("Filed: \"{title}\", by {writer}. {url}. Stand by."),
-  clean("REPORTED: {writer} has a piece up. \"{title}\". {url}. Back to you.", REPORTED),
-  clean("Off the desk: \"{title}\" — {writer}. {url}."),
-  clean("{writer} filed. Title: \"{title}\". Link: {url}. That's the wire."),
-  clean("New piece. {writer}. \"{title}\". {url}. More when I have it."),
-  clean("One item from the newsroom: \"{title}\", {writer}. {url}. Noted. Filed."),
-  clean("Desk update: {writer} is up with \"{title}\". {url}. Read it before the next hit."),
-  clean("Story's live. {writer}, \"{title}\". {url}. Checked the link twice. Works."),
+  clean("New from the desk. {writer}: \"{title}\". Read it; that's the whole assignment."),
+  clean("Filed: \"{title}\", by {writer}. Stand by."),
+  clean("REPORTED: {writer} has a piece up. \"{title}\". Back to you.", REPORTED),
+  clean("Off the desk: \"{title}\" — {writer}."),
+  clean("{writer} filed. Title: \"{title}\". That's the wire."),
+  clean("New piece. {writer}. \"{title}\". More when I have it."),
+  clean("One item from the newsroom: \"{title}\", {writer}. Noted. Filed."),
+  clean("Desk update: {writer} is up with \"{title}\". Read it before the next hit."),
+  clean("Story's live. {writer}, \"{title}\". Checked the link twice. Works."),
 ];
 
 /* ------------------------------------------------------------------------------------------- *
@@ -490,15 +490,15 @@ const CURTIS_STREAK: StockLine[] = [
 ];
 
 const CURTIS_ARTICLE: StockLine[] = [
-  clean("New from the desk. {writer} has \"{title}\". {url}. We'll leave that there."),
-  clean("Good evening. {writer} filed \"{title}\". {url}. Read it after the break."),
-  clean("From the newsroom: \"{title}\", by {writer}. {url}. Stay with us."),
-  clean("The desk presents \"{title}\". {writer} wrote it; I'm reading the headline. {url}."),
-  clean("Coming up, in print: \"{title}\" by {writer}. {url}. This is FFSN."),
-  clean("{writer} is up with \"{title}\". {url}. Do with that what you will."),
-  clean("New piece on the board: \"{title}\" — {writer}. {url}."),
-  clean("We go now to {writer}, in writing: \"{title}\". {url}. More after the break."),
-  clean("Filed and published: \"{title}\", {writer}. {url}. That's the show."),
+  clean("New from the desk. {writer} has \"{title}\". We'll leave that there."),
+  clean("Good evening. {writer} filed \"{title}\". Read it after the break."),
+  clean("From the newsroom: \"{title}\", by {writer}. Stay with us."),
+  clean("The desk presents \"{title}\". {writer} wrote it; I'm reading the headline."),
+  clean("Coming up, in print: \"{title}\" by {writer}. This is FFSN."),
+  clean("{writer} is up with \"{title}\". Do with that what you will."),
+  clean("New piece on the board: \"{title}\" — {writer}."),
+  clean("We go now to {writer}, in writing: \"{title}\". More after the break."),
+  clean("Filed and published: \"{title}\", {writer}. That's the show."),
 ];
 
 // matchup_live (spec §19): {team} leads right now. A lead, never a result — the clock is running.
@@ -568,15 +568,15 @@ const NINA_CLAIM: StockLine[] = [
 ];
 
 const NINA_ARTICLE: StockLine[] = [
-  clean("Class. Required reading: \"{title}\", by {writer}. {url}. Show your work after."),
-  clean("New on the board: \"{title}\" — {writer}. {url}. Circle the numbers."),
-  clean("{writer} filed \"{title}\". {url}. I have not graded it yet. I will."),
-  clean("Homework: \"{title}\", {writer}. {url}. There will be a quiz."),
-  clean("Everyone look at the board. {writer}, \"{title}\". {url}. That's the segment."),
-  clean("Published: \"{title}\" by {writer}. {url}. The columns are in there. Find them."),
-  clean("New from the desk: \"{title}\". {writer} wrote it. {url}. Read it twice; I did."),
-  clean("{writer} is up: \"{title}\". {url}. Hold the narrative loosely. Hold the numbers tight."),
-  clean("Reading assignment, Week {week}: \"{title}\" ({writer}). {url}."),
+  clean("Class. Required reading: \"{title}\", by {writer}. Show your work after."),
+  clean("New on the board: \"{title}\" — {writer}. Circle the numbers."),
+  clean("{writer} filed \"{title}\". I have not graded it yet. I will."),
+  clean("Homework: \"{title}\", {writer}. There will be a quiz."),
+  clean("Everyone look at the board. {writer}, \"{title}\". That's the segment."),
+  clean("Published: \"{title}\" by {writer}. The columns are in there. Find them."),
+  clean("New from the desk: \"{title}\". {writer} wrote it. Read it twice; I did."),
+  clean("{writer} is up: \"{title}\". Hold the narrative loosely. Hold the numbers tight."),
+  clean("Reading assignment, Week {week}: \"{title}\" ({writer})."),
 ];
 
 // roster_note (Nina), bench branch: a hoard at one position.
@@ -671,15 +671,15 @@ const REGGIE_TOP: StockLine[] = [
 ];
 
 const REGGIE_ARTICLE: StockLine[] = [
-  clean("NEW from the desk! \"{title}\" by {writer}. {url}. Read it and then go set your lineup!"),
-  clean("{writer} is up: \"{title}\". {url}. Put some respect on that headline."),
-  clean("Story's LIVE: \"{title}\" — {writer}. {url}. Scoreboard talk inside!"),
-  clean("\"{title}\". {writer} wrote it, and it's about what people DID. {url}."),
-  clean("Flowers for the newsroom: \"{title}\" by {writer}. {url}. Read it!"),
-  clean("Published! \"{title}\" — {writer}. {url}. You can take that to the bank."),
-  clean("Fresh off the desk: \"{title}\", {writer}. {url}. That's a DAWG of a headline."),
-  clean("{writer} filed \"{title}\". {url}. Go read what people DID this week!"),
-  clean("New piece! \"{title}\" by {writer}. {url}. GIVE THAT WRITER THEIR FLOWERS."),
+  clean("NEW from the desk! \"{title}\" by {writer}. Read it and then go set your lineup!"),
+  clean("{writer} is up: \"{title}\". Put some respect on that headline."),
+  clean("Story's LIVE: \"{title}\" — {writer}. Scoreboard talk inside!"),
+  clean("\"{title}\". {writer} wrote it, and it's about what people DID."),
+  clean("Flowers for the newsroom: \"{title}\" by {writer}. Read it!"),
+  clean("Published! \"{title}\" — {writer}. You can take that to the bank."),
+  clean("Fresh off the desk: \"{title}\", {writer}. That's a DAWG of a headline."),
+  clean("{writer} filed \"{title}\". Go read what people DID this week!"),
+  clean("New piece! \"{title}\" by {writer}. GIVE THAT WRITER THEIR FLOWERS."),
 ];
 
 /* ------------------------------------------------------------------------------------------- *
@@ -706,15 +706,15 @@ const WALT_LOW: StockLine[] = [
 ];
 
 const WALT_ARTICLE: StockLine[] = [
-  clean("i wrote a column. it's called \"{title}\" and it's here: {url}. read it slowly; i did."),
-  clean("new from the desk: \"{title}\", by {writer}. {url}. it's longer than it needs to be and shorter than i wanted."),
-  clean("{writer} has a piece up, \"{title}\". {url}. i'd tell you what it means, but that's what the piece is for."),
-  clean("\"{title}\" — {writer}. {url}. somebody is going to learn something from it. i've done this long enough not to bet on who."),
-  clean("published: \"{title}\" by {writer}. {url}. curtis will read you the headline; i'll wait for you to read the rest."),
-  clean("a column went up. \"{title}\", {writer}. {url}. it has an argument in it, which is more than most weeks."),
-  clean("{writer}, \"{title}\". {url}. one argument, told as a story. that's the whole recipe."),
-  clean("new piece: \"{title}\". {writer} wrote it. {url}. i'm entitled to the column; you're entitled to skip it."),
-  clean("\"{title}\" is up, from {writer}. {url}. read it before sunday, or after. the league won't wait either way."),
+  clean("i wrote a column. it's called \"{title}\". read it slowly; i did."),
+  clean("new from the desk: \"{title}\", by {writer}. it's longer than it needs to be and shorter than i wanted."),
+  clean("{writer} has a piece up, \"{title}\". i'd tell you what it means, but that's what the piece is for."),
+  clean("\"{title}\" — {writer}. somebody is going to learn something from it. i've done this long enough not to bet on who."),
+  clean("published: \"{title}\" by {writer}. curtis will read you the headline; i'll wait for you to read the rest."),
+  clean("a column went up. \"{title}\", {writer}. it has an argument in it, which is more than most weeks."),
+  clean("{writer}, \"{title}\". one argument, told as a story. that's the whole recipe."),
+  clean("new piece: \"{title}\". {writer} wrote it. i'm entitled to the column; you're entitled to skip it."),
+  clean("\"{title}\" is up, from {writer}. read it before sunday, or after. the league won't wait either way."),
 ];
 
 /* ------------------------------------------------------------------------------------------- *
@@ -722,15 +722,15 @@ const WALT_ARTICLE: StockLine[] = [
  * ------------------------------------------------------------------------------------------- */
 
 const MEL_ARTICLE: StockLine[] = [
-  clean("NEW PIECE. \"{title}\". {url}. I have the receipts and I have ALL DAY. Read it."),
-  clean("\"{title}\" — {writer}. {url}. The ADP sheet is in my hand and the CAPS LOCK is on."),
-  clean("Published: \"{title}\". {url}. Somebody's draft is about to get a HEARING."),
-  clean("{writer} filed \"{title}\". {url}. Read it. THEN argue with me. You'll lose."),
-  clean("It's up. \"{title}\". {url}. Every accusation in there is pinned to a pick number. EVERY ONE."),
-  clean("\"{title}\", by {writer}. {url}. I want a hearing and I want it in writing, and this is the writing."),
-  clean("NEW from the draft desk: \"{title}\". {url}. Receipts attached. Volume attached. Read it."),
-  clean("{writer}: \"{title}\". {url}. I had him three rounds later and I have the receipts. Click."),
-  clean("\"{title}\". {url}. If your name is in there, you REACHED, and you know it."),
+  clean("NEW PIECE. \"{title}\". I have the receipts and I have ALL DAY. Read it."),
+  clean("\"{title}\" — {writer}. The ADP sheet is in my hand and the CAPS LOCK is on."),
+  clean("Published: \"{title}\". Somebody's draft is about to get a HEARING."),
+  clean("{writer} filed \"{title}\". Read it. THEN argue with me. You'll lose."),
+  clean("It's up. \"{title}\". Every accusation in there is pinned to a pick number. EVERY ONE."),
+  clean("\"{title}\", by {writer}. I want a hearing and I want it in writing, and this is the writing."),
+  clean("NEW from the draft desk: \"{title}\". Receipts attached. Volume attached. Read it."),
+  clean("{writer}: \"{title}\". I had him three rounds later and I have the receipts. Read it."),
+  clean("\"{title}\". If your name is in there, you REACHED, and you know it."),
 ];
 
 /* ------------------------------------------------------------------------------------------- *
@@ -738,15 +738,15 @@ const MEL_ARTICLE: StockLine[] = [
  * ------------------------------------------------------------------------------------------- */
 
 const SAM_ARTICLE: StockLine[] = [
-  clean("I filed. \"{title}\" is up: {url}. I asked; here's exactly what they said."),
-  clean("New from the desk: \"{title}\", by {writer}. {url}. I have the people. Nina has the rest of the numbers."),
-  clean("\"{title}\" — {writer}. {url}. Every paragraph has a quote or a note that none was given."),
-  clean("Story's live. \"{title}\". {url}. This is the part where I hold the mic and wait."),
-  clean("{writer} filed \"{title}\". {url}. Read it; the quotes are theirs, the questions are mine."),
-  clean("Published: \"{title}\" ({writer}). {url}. I ask. They answer. It's in there."),
-  clean("I walk the sideline and I write it down. \"{title}\": {url}."),
-  clean("New piece up: \"{title}\", {writer}. {url}. The follow-up questions are in there too."),
-  clean("\"{title}\" is up. {url}. I'm already asking about the next one."),
+  clean("I filed. \"{title}\" is up. I asked; here's exactly what they said."),
+  clean("New from the desk: \"{title}\", by {writer}. I have the people. Nina has the rest of the numbers."),
+  clean("\"{title}\" — {writer}. Every paragraph has a quote or a note that none was given."),
+  clean("Story's live. \"{title}\". This is the part where I hold the mic and wait."),
+  clean("{writer} filed \"{title}\". Read it; the quotes are theirs, the questions are mine."),
+  clean("Published: \"{title}\" ({writer}). I ask. They answer. It's in there."),
+  clean("I walk the sideline and I write it down. \"{title}\" is up."),
+  clean("New piece up: \"{title}\", {writer}. The follow-up questions are in there too."),
+  clean("\"{title}\" is up. I'm already asking about the next one."),
 ];
 
 /* ------------------------------------------------------------------------------------------- *

@@ -564,13 +564,14 @@ export interface WireDigestLeague {
   leagueName: string;
   teamName?: string;
   /** Owner overlays about the user's team in the window, newest first. */
-  yourTeam: Array<{ persona?: string; text: string; createdAt: number }>;
+  yourTeam: Array<{ persona?: string; text: string; createdAt: number; article?: { id: string; title: string } }>;
   /** Lineup-lock and other wire_alert notifications raised in the window. */
   alerts: Array<{ title: string; message: string; createdAt: number }>;
   /** Sam's questions to this manager still without an answer. */
   openQuestions: Array<{ text: string; createdAt: number; postId: string }>;
-  /** Top global posts by interest in the window. */
-  headlines: Array<{ persona: string; text: string; createdAt: number }>;
+  /** Top global posts by interest in the window. `article` is always absent - a global post can
+   *  never be `article_published` (a league-only event kind). */
+  headlines: Array<{ persona: string; text: string; createdAt: number; article?: { id: string; title: string } }>;
   wireUrl: string;
 }
 export interface WireDigestData {
@@ -786,6 +787,9 @@ export interface WireLeaguePostView {
     variant: OverlayVariant;
   };
   featuredTeams: WireTeamRef[];
+  /** The published article this post announces (article_published only), so the UI can render a
+   *  linked card instead of the old inline "/articles/<id>" text. */
+  article?: { id: string; title: string; persona?: string };
 }
 
 /** One global post, with this league's overlays attached when the league has a pass. */
@@ -832,4 +836,6 @@ export interface WireTickerItem {
   tags: WireTag[];
   createdAt: number;
   scope: "global" | "league";
+  /** The published article this post announces (league article_published posts only). */
+  article?: { id: string; title: string; persona?: string };
 }

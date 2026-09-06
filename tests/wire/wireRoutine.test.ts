@@ -2,7 +2,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import type { GenericActionCtx, GenericMutationCtx } from "convex/server";
 import schema from "../../convex/schema";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import type { DataModel } from "../../convex/_generated/dataModel";
 
 const modules = import.meta.glob("../../convex/**/*.*s");
@@ -284,5 +284,54 @@ describe("wireRoutine: matchups", () => {
     await t.mutation(internal.wireRoutine.onMatchupsUpdated, { leagueId, seasonId: SEASON, matchupPeriod: 1 });
     const secondCount = (await t.run((ctx) => ctx.db.query("wireLeaguePosts").collect())).length;
     expect(secondCount).toBe(firstCount);
+  });
+});
+
+describe("wireRoutine: article published", () => {
+  it("the routine post's text carries no raw path, and its `article` ref points at the published article", async () => {
+    const t = convexTest(schema, modules);
+    const { leagueId } = await t.run((ctx) => seedLeague(ctx));
+    const now = Date.now();
+    const clerkMember = "clerk_member_article_routine";
+
+    // getLeagueMembership (queried by wire.getLeaguePosts/getRecentForTicker) needs a membership
+    // row; seedLeague's own subscription is already `status: "active"`, which hasActivePass needs.
+    await t.run((ctx) =>
+      ctx.db.insert("leagueMemberships", { leagueId, userId: clerkMember, role: "member", joinedAt: now })
+    );
+
+    const title = "Ten Teams, Seven Seasons, And One Trophy Nobody Can Pry Loose";
+    const persona = "curtis-vaughn";
+    const articleId = await t.run((ctx) =>
+      ctx.db.insert("aiContent", {
+        leagueId,
+        type: "recap",
+        persona,
+        title,
+        content: "Article body.",
+        metadata: { week: 1, featured_teams: [], credits_used: 0 },
+        status: "published",
+        createdAt: now,
+      })
+    );
+
+    await t.mutation(internal.wireRoutine.onArticlePublished, { articleId });
+
+    const asMember = t.withIdentity({ subject: clerkMember });
+
+    const posts = await asMember.query(api.wire.getLeaguePosts, {
+      leagueId,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    const post = posts.page.find((p) => p.kind === "article_published");
+    expect(post).toBeDefined();
+    expect(post!.text).not.toContain("/articles/");
+    expect(post!.article).toEqual({ id: articleId, title, persona });
+
+    const ticker = await asMember.query(api.wire.getRecentForTicker, { leagueId, limit: 10 });
+    const tickerItem = ticker.find((item) => item._id === post!._id);
+    expect(tickerItem).toBeDefined();
+    expect(tickerItem!.text).not.toContain("/articles/");
+    expect(tickerItem!.article).toEqual({ id: articleId, title, persona });
   });
 });

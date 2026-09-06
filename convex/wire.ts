@@ -27,6 +27,7 @@ import { validateFactCard } from "../src/lib/ai/wire/card";
 import { moderateManagerText } from "../src/lib/ai/wire/moderate";
 import { leagueCurrentSeason } from "./lib/season";
 import { teamForUser, userByClerkId } from "./lib/teamClaims";
+import { articleRefFor } from "./lib/wireArticleRef";
 import { currentMatchupPeriod, managerNameFor, wireEnabled } from "./lib/wireLeaguePosting";
 import { resolveLeagueLanguage } from "./languageSettings";
 import { commentResponseDataValidator, languageRatingValidator } from "./validators";
@@ -89,6 +90,9 @@ const leaguePostViewValidator = v.object({
   globalPostId: v.optional(v.string()),
   impact: v.optional(v.object({ team: teamRefValidator, variant: v.string() })),
   featuredTeams: v.array(teamRefValidator),
+  /** The published article this post announces (article_published only), so the UI can render a
+   *  linked card instead of the old inline "/articles/<id>" text. */
+  article: v.optional(v.object({ id: v.string(), title: v.string(), persona: v.optional(v.string()) })),
 });
 
 const globalPostViewValidator = v.object({
@@ -227,6 +231,7 @@ async function toLeaguePostView(
   const canDelete = viewerId !== undefined && (row.authorUserId === viewerId || isCommissioner);
   const reactions = await reactionsFor(ctx, postKeyFor("league", row._id), viewerId, row.reactionCounts);
   const replies = await repliesFor(ctx, row.leagueId, row._id, viewerId, isCommissioner);
+  const article = await articleRefFor(ctx, row.dedupeKey);
 
   return {
     _id: row._id,
@@ -245,6 +250,7 @@ async function toLeaguePostView(
     globalPostId: row.globalPostId,
     impact,
     featuredTeams,
+    article,
   };
 }
 
@@ -430,6 +436,8 @@ export const getRecentForTicker = query({
       tags: v.array(v.string()),
       createdAt: v.number(),
       scope: v.union(v.literal("global"), v.literal("league")),
+      /** The published article this post announces (league article_published posts only). */
+      article: v.optional(v.object({ id: v.string(), title: v.string(), persona: v.optional(v.string()) })),
     })
   ),
   handler: async (ctx, args) => {
@@ -462,6 +470,7 @@ export const getRecentForTicker = query({
         if (row.authorUserId) {
           authorName = (await authorRefFor(ctx, row.authorUserId, row.authorTeamId)).displayName;
         }
+        const article = await articleRefFor(ctx, row.dedupeKey);
         return {
           _id: row._id as string,
           persona: row.persona,
@@ -470,11 +479,14 @@ export const getRecentForTicker = query({
           tags: row.tags,
           createdAt: row.createdAt,
           scope: "league" as const,
+          article,
         };
       })
     );
 
     const merged = [
+      // Global posts are never article_published (a league-only kind), so `article` is always
+      // absent here.
       ...globalPosts.map((p) => ({
         _id: p._id as string,
         persona: p.persona as string | undefined,
@@ -483,6 +495,7 @@ export const getRecentForTicker = query({
         tags: p.tags,
         createdAt: p.createdAt,
         scope: "global" as const,
+        article: undefined as { id: string; title: string; persona?: string } | undefined,
       })),
       ...leagueItems,
     ];
