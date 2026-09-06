@@ -173,10 +173,13 @@ function LowerThird({ ticker }: { ticker: string[] }): ReactElement {
         backgroundColor: PANEL,
       }}
     >
+      {/* The plate never gives up width to the ticker beside it: a long nowrap ticker (the article
+          card's) used to shrink it and jam "ffsn.ai" against its own edge (owner, 2026-09-06). */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
+          flexShrink: 0,
           padding: "0 34px",
           backgroundColor: RED,
           color: INK,
@@ -184,6 +187,7 @@ function LowerThird({ ticker }: { ticker: string[] }): ReactElement {
           fontWeight: 700,
           fontSize: 30,
           letterSpacing: 1,
+          whiteSpace: "nowrap",
         }}
       >
         ffsn.ai
@@ -193,6 +197,8 @@ function LowerThird({ ticker }: { ticker: string[] }): ReactElement {
           display: "flex",
           alignItems: "center",
           flexGrow: 1,
+          flexShrink: 1,
+          minWidth: 0,
           overflow: "hidden",
           padding: "0 28px",
           fontFamily: DISPLAY,
