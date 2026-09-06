@@ -63,7 +63,7 @@ export function WireFeed({
       <EmptyState
         icon={<Rss className="size-6" strokeWidth={1.8} />}
         title="The Wire is quiet"
-        description="The Wire opens with the first injury report of the year."
+        description="The desk posts here as things happen: injuries, headlines and waiver-wire runs from around the NFL, and your league's waivers, trades, lineup moves, kickoffs and finals. Global posts land within minutes of the next ESPN update; league posts start once you've drafted."
       />
     );
   }
