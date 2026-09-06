@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { useQuery, usePaginatedQuery } from "convex/react";
+import { useConvexAuth, useQuery, usePaginatedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 
 import { api } from "../../../convex/_generated/api";
@@ -72,18 +72,15 @@ export function useLeagueWire(
 ): UseLeagueWireResult {
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
 
-  const status = useQuery(api.wire.getWireStatus, { leagueId });
+  // On a hard load the Convex client can run queries before Clerk's token is attached; the server
+  // answers empty in that case, and skipping until auth is ready avoids the flash (prod, 2026-09-06).
+  const { isAuthenticated } = useConvexAuth();
+  const queryArgs = isAuthenticated ? { leagueId } : "skip";
 
-  const global = usePaginatedQuery(
-    api.wire.getGlobalPosts,
-    { leagueId },
-    { initialNumItems: pageSize }
-  );
-  const league = usePaginatedQuery(
-    api.wire.getLeaguePosts,
-    { leagueId },
-    { initialNumItems: pageSize }
-  );
+  const status = useQuery(api.wire.getWireStatus, queryArgs);
+
+  const global = usePaginatedQuery(api.wire.getGlobalPosts, queryArgs, { initialNumItems: pageSize });
+  const league = usePaginatedQuery(api.wire.getLeaguePosts, queryArgs, { initialNumItems: pageSize });
 
   const items = useMemo<WireFeedItem[]>(() => {
     const merged: WireFeedItem[] = [

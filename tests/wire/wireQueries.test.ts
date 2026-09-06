@@ -72,21 +72,22 @@ async function seedGlobalPost(ctx: TestCtx) {
 }
 
 describe("wire.ts: authorization + pass gating", () => {
-  it("refuses a non-member of the league", async () => {
+  it("a non-member (or a not-yet-authenticated client) gets empty feeds, never a throw", async () => {
+    // A hard load runs these before Clerk's token reaches the Convex client (prod, 2026-09-06);
+    // a throw here replaced the whole document with Next's error page.
     const t = convexTest(schema, modules);
     const leagueId = await t.run((ctx) => seedLeague(ctx, true));
+    await t.run((ctx) => seedGlobalPost(ctx));
 
-    await expect(
-      t
-        .withIdentity({ subject: CLERK_OUTSIDER })
-        .query(api.wire.getGlobalPosts, { leagueId, paginationOpts: { numItems: 10, cursor: null } })
-    ).rejects.toThrow();
-
-    await expect(
-      t
-        .withIdentity({ subject: CLERK_OUTSIDER })
-        .query(api.wire.getLeaguePosts, { leagueId, paginationOpts: { numItems: 10, cursor: null } })
-    ).rejects.toThrow();
+    for (const client of [t.withIdentity({ subject: CLERK_OUTSIDER }), t]) {
+      const global = await client.query(api.wire.getGlobalPosts, { leagueId, paginationOpts: { numItems: 10, cursor: null } });
+      expect(global.page).toHaveLength(0);
+      expect(global.isDone).toBe(true);
+      const league = await client.query(api.wire.getLeaguePosts, { leagueId, paginationOpts: { numItems: 10, cursor: null } });
+      expect(league.page).toHaveLength(0);
+      const ticker = await client.query(api.wire.getRecentForTicker, { leagueId, limit: 8 });
+      expect(ticker).toEqual([]);
+    }
   });
 
   it("a league without a pass sees the global wire but no league posts", async () => {
