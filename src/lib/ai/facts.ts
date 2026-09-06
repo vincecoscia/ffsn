@@ -617,6 +617,8 @@ export interface FactsBlock {
    */
   mockDraft?: {
     draftType?: string;
+    /** True when ESPN reported no draft type and "Snake" is a default (src/lib/ai/draftType.ts). */
+    draftTypeAssumed?: boolean;
     leagueType?: string;
     teamCount: number;
     rounds?: number;
@@ -1919,6 +1921,7 @@ export function buildMockDraftFacts(data: LeagueDataContext, teams: TeamIndex): 
   const resolve = (teamId: string, teamName: string) => teams.resolve(teamId, teamName) ?? teamId;
   return {
     draftType: str(data.draftType),
+    draftTypeAssumed: data.draftTypeAssumed === true ? true : undefined,
     leagueType: str(data.leagueType),
     teamCount: data.teams.length,
     rounds: num(asLoose(data.draftSettings ?? {}).rounds),
@@ -2211,6 +2214,9 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   }
   // The playoff field size drives every "who's in" claim in a playoff picture piece — the writer
   // must be told the gap explicitly rather than defaulting to a common field size like six.
+  if (req.contentType === "mock_draft" && data.draftTypeAssumed) {
+    missing.push("draft type — ESPN did not report one for this season; treated as a snake, say so once");
+  }
   if (req.contentType === "playoff_picture" && format.playoffTeamCount === undefined) {
     missing.push("playoff field size — not in the payload; do not assume a number of playoff teams");
   }

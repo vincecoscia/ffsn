@@ -1,3 +1,4 @@
+import { reversesEveryRound } from "./draftType";
 import type { AlmanacDraftReceiptPick, AlmanacGame, AlmanacManager, AlmanacRecordBook, LeagueAlmanac } from "./almanac";
 import {
   effectiveLanguageRange,
@@ -731,6 +732,8 @@ export interface LeagueDataContext {
     manager: string;
   }>;
   draftType?: string; // "Snake", "Auction", "Manual"
+  /** True when ESPN reported no draft type and "Snake" is a default the piece must own up to once. */
+  draftTypeAssumed?: boolean;
   leagueType?: string; // "Dynasty", "Keeper", "Redraft"
   /** Last year's draft per manager, the receipts behind a mock-draft take (convex/lib/mockDraftIntel.ts). */
   draftTendencies?: Array<{
@@ -3072,15 +3075,40 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
     // The format, spelled out: the draft type, the league type and the team count decide what a
     // sane pick even is (owner ask, 2026-09-05).
     out += this.formatLines(['scoring', 'roster']);
-    out += '- ' + (data.leagueType || 'Redraft') + ' league, ' + (data.draftType || 'Snake') + ' draft, ' + teamCount + ' teams, ' + rosterSize + ' roster spots (' + rounds + ' rounds, ' + teamCount * rounds + ' picks)\n';
-    if (data.draftType === 'Snake') {
-      out += '- Snake: the order reverses every round. Slot 1 picks 1 and ' + teamCount * 2 + '; slot ' + teamCount + ' picks ' + teamCount + ' and ' + (teamCount + 1) + ' back to back (the turn).\n';
+    const draftType = data.draftType || 'Snake';
+    const isAuction = draftType === 'Auction';
+    const snakes = reversesEveryRound(draftType);
+    const rawBudget = ((data.draftSettings ?? {}) as Record<string, unknown>).auctionBudget;
+    const auctionBudget = typeof rawBudget === 'number' && Number.isFinite(rawBudget) ? rawBudget : undefined;
+    out += '- ' + (data.leagueType || 'Redraft') + ' league, ' + draftType + ' draft, ' + teamCount + ' teams, ' + rosterSize + ' roster spots (' + rounds + ' rounds, ' + teamCount * rounds + ' picks)\n';
+    // The draft type decides what a "pick" even is (owner ask, 2026-09-06: not every league snakes).
+    if (draftType === 'Snake') {
+      out += '- SNAKE DRAFT: the order reverses every round. Slot 1 picks 1 and ' + teamCount * 2 + '; slot ' + teamCount + ' picks ' + teamCount + ' and ' + (teamCount + 1) + ' back to back (the turn).\n';
+    } else if (draftType === 'Offline') {
+      out += '- OFFLINE DRAFT: ESPN does not run this one, the commissioner does. Treat the order as a snake (reversing every round) unless the commissioner\'s context says otherwise, and say once that it is an offline draft.\n';
+    } else if (isAuction) {
+      out += '- AUCTION DRAFT: there is no pick order and there are no slots. Every manager has ' + (auctionBudget !== undefined ? '$' + auctionBudget : 'the same budget') + ' to spend; think in nominations, dollars and tiers, never in "1.01".\n';
+    }
+    if (data.draftTypeAssumed) {
+      out += '- ESPN did not report a draft type for this season; this mock treats it as a snake. Say so once, in one sentence, and move on.\n';
     }
     out += '\n';
 
     if (data.draftOrder && data.draftOrder.length > 0) {
-      out += 'DRAFT ORDER (round 1):\n';
-      out += data.draftOrder.map(pick => pick.position + '. ' + pick.teamName + (pick.manager ? ' (' + pick.manager + ')' : '')).join(' | ') + '\n\n';
+      const orderLine = (picks: NonNullable<LeagueDataContext['draftOrder']>) => picks.map(pick => pick.position + '. ' + pick.teamName + (pick.manager ? ' (' + pick.manager + ')' : '')).join(' | ');
+      if (isAuction) {
+        out += 'NOMINATION ORDER:\n' + orderLine(data.draftOrder) + '\n\n';
+      } else {
+        out += 'DRAFT ORDER (round 1):\n' + orderLine(data.draftOrder) + '\n';
+        if (snakes) {
+          // Spelled out so round two can never be written in round one's order.
+          const reversed = [...data.draftOrder].reverse().map((pick, i) => ({ ...pick, position: teamCount + i + 1 }));
+          out += 'DRAFT ORDER (round 2, the snake turned - pick numbers ' + (teamCount + 1) + '-' + teamCount * 2 + '):\n' + orderLine(reversed) + '\n';
+        } else {
+          out += 'Round 2 runs in the same order as round 1.\n';
+        }
+        out += '\n';
+      }
     }
 
     // Last year's draft, per manager: the receipts. A hot take about a manager should be pinned
@@ -3146,7 +3174,11 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
     }
 
     out += 'MOCK DRAFT RULES:\n';
-    out += '- You are PREDICTING what each team will draft; no picks have been made. Round one and round two are each their own section, PICK BY PICK: every one of the ' + teamCount + ' slots in each round gets its own paragraph, numbered the way a draft board reads (1.01 … 1.' + String(teamCount).padStart(2, '0') + ', then 2.01 … 2.' + String(teamCount).padStart(2, '0') + ')' + (data.draftType === 'Snake' ? ', and round two runs backwards - the team that picked last in round one picks first in round two, so the turn is one manager\'s two picks back to back' : '') + '. A round is not finished until every team has a named player with his ADP; a round that names three teams and summarises the rest is incomplete and gets sent back. Then rounds 3-8 by likely targets and position runs, then late-round sleepers and handcuffs.\n';
+    if (isAuction) {
+      out += '- You are PREDICTING an auction; nothing has been nominated. The "round one" section is the top price tier: the ' + teamCount + ' most expensive players you expect to go, each with the manager who wins him and the dollar figure, anchored to his ADP. The "round two" section is the next ' + teamCount + '. Every player named carries his ADP; no slot numbers, no "1.01". Then rounds 3-8 as the middle tiers and position runs, then the late bargains and handcuffs.\n';
+    } else {
+      out += '- You are PREDICTING what each team will draft; no picks have been made. Round one and round two are each their own section, PICK BY PICK: every one of the ' + teamCount + ' slots in each round gets its own paragraph, numbered the way a draft board reads (1.01 … 1.' + String(teamCount).padStart(2, '0') + ', then 2.01 … 2.' + String(teamCount).padStart(2, '0') + ')' + (snakes ? ', and round two runs backwards exactly as DRAFT ORDER (round 2) prints it - the team that picked last in round one picks first in round two, so the turn is one manager\'s two picks back to back' : ', in the same order both rounds') + '. A round is not finished until every team has a named player with his ADP; a round that names three teams and summarises the rest is incomplete and gets sent back. Then rounds 3-8 by likely targets and position runs, then late-round sleepers and handcuffs.\n';
+    }
     out += '- Every player you name is in the DRAFT POOL above. A player who is not in the pool does not exist for this article.\n';
     out += '- Every reach or value call quotes the ADP printed here and says how many spots early or late the pick would be. That is the receipt; a take without one is an opinion, not a take.\n';
     out += '- A player marked with a STATUS or listed under INJURY WATCH may be predicted, but say the status and what it does to his price. Never invent an injury, a return date or a depth-chart change that is not printed here.\n';
@@ -3155,7 +3187,6 @@ ${this.formatLines(['scoring', 'playoffs', 'divisions'])}`;
     out += '- The projections and outlooks are ESPN\'s; you may disagree, loudly, but the numbers you print are theirs.\n';
     if (data.leagueType === 'Dynasty') out += '- Dynasty: age and multi-year value change every price; say so when they do.\n';
     else if (data.leagueType === 'Keeper') out += '- Keeper league: kept players are off the board; predict around the keepers you can see.\n';
-    if (data.draftType === 'Auction') out += '- Auction: think in dollars and nomination strategy, not slots.\n';
 
     return out;
   }

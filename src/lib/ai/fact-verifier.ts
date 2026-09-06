@@ -1159,7 +1159,7 @@ export function verifyArticle(
 
   // 4c'''. Mock draft rounds one and two, pick by pick (2026-09-06): every slot numbered, or the
   //        section holding the round is rewritten once with the missing slots named.
-  if (options?.template?.id === "mock_draft" && facts.mockDraft) {
+  if (options?.template?.id === "mock_draft" && facts.mockDraft && facts.mockDraft.draftType !== "Auction") {
     const teamCount = facts.mockDraft.order.length > 0 ? facts.mockDraft.order.length : facts.mockDraft.teamCount;
     violations.push(...findIncompleteRounds(article.sections ?? [], teamCount));
   }
