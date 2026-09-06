@@ -2231,7 +2231,11 @@ export default defineSchema({
     .index("by_dedupe", ["dedupeKey"])
     .index("by_detected", ["detectedAt"])
     .index("by_kind_detected", ["kind", "detectedAt"])
-    .index("by_player_detected", ["primaryEspnId", "detectedAt"]),
+    .index("by_player_detected", ["primaryEspnId", "detectedAt"])
+    // A trending spike's "related event" lookup (spec update 2026-09-06): the most recent
+    // injury/news/depth-chart event for the SAME NFL team, so a take can say what plausibly
+    // explains the spike without a per-player join.
+    .index("by_team_detected", ["nflTeam", "detectedAt"]),
 
   wirePosts: defineTable({
     // Global tier (spec §3.1): one post per event, patched in place when a

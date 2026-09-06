@@ -120,10 +120,11 @@ block; there is nothing else.
 Rules for every string you return:
 1. At most ${MAX_POST_CHARS} characters. Shorter is better. One sentence can be the whole post.
 2. The only facts you may state are on the card: the player(s), the NFL team, the position, the status
-   change, the text of the note, the headline, the depth-chart move, the trending count, and on a
-   live-game card the score, the period and clock, the play text and the box-score line. Nothing else —
-   no stats, no history, no other players, no dates or days, no "this week's game", no guess at what
-   the injury is or how bad it is.
+   change, the text of the note, the headline, the depth-chart move, the trending count, the board
+   ranking on a trending_board card, the related wire event on a trending card (say what it was,
+   attributed to its own source), and on a live-game card the score, the period and clock, the play
+   text and the box-score line. Nothing else — no stats, no history, no other players, no dates or
+   days, no "this week's game", no guess at what the injury is or how bad it is.
 3. A timetable ("6-8 weeks", "week-to-week", "season-ending") appears only if the card has a
    "timetable" field, and then you quote it exactly as written. No timetable on the card means you do
    not say how long. Never a medical guess.
@@ -201,6 +202,28 @@ export function modelCardView(card: WireFactCard): Record<string, unknown> {
     depthOrderTo: card.depthOrderTo,
     depthPosition: card.depthPosition,
     sleeperAddsLast24h: card.trendingAdds,
+    // trending: how sharp the jump was vs. the previous sync.
+    sleeperAddsPrevSync: card.trendingPrevAdds,
+    // trending_board only: the nightly top-N ranking.
+    board: card.board?.map(entry => ({
+      name: entry.name,
+      position: entry.position,
+      nflTeam: entry.nflTeam,
+      espnRosteredPct: entry.percentOwned,
+      sleeperAddsLast24h: entry.trendingAdds,
+    })),
+    // trending only: the wire event (from its own source) a spike plausibly answers.
+    related: card.related
+      ? {
+          kind: card.related.kind,
+          players: card.related.players,
+          nflTeam: card.related.nflTeam,
+          statusTo: card.related.statusTo,
+          headline: card.related.headline,
+          timetable: card.related.timetable,
+          source: sourceLabel(card.related.source),
+        }
+      : undefined,
     // ownership_swing: signed percentage points, ESPN's overnight roster change
     espnRosterChangePct: card.ownershipChange,
     // Live game engine (spec §19): the scoreboard, the scoring play, the box-score line.

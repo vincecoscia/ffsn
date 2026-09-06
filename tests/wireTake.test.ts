@@ -133,6 +133,43 @@ describe("prepareWireTakeRequest", () => {
   });
 });
 
+describe("modelCardView: trending_board and a trending spike's related event", () => {
+  it("carries the board ranking, by public field names", () => {
+    const board: WireFactCard = {
+      kind: "trending_board",
+      observedAt: 0,
+      players: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", percentOwned: 40 }],
+      board: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", percentOwned: 40, trendingAdds: 58024 }],
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    const view = modelCardView(board);
+    expect(view.board).toEqual([{ name: "Tank Dell", position: "WR", nflTeam: "HOU", espnRosteredPct: 40, sleeperAddsLast24h: 58024 }]);
+  });
+
+  it("carries a spike's previous-sync count and its related event, attributed to its own source", () => {
+    const trending: WireFactCard = {
+      kind: "trending",
+      observedAt: 0,
+      players: [{ espnId: "4", name: "Jaleel McLaughlin", nflTeam: "DEN" }],
+      trendingAdds: 1240,
+      trendingPrevAdds: 400,
+      related: { kind: "injury_status", players: ["Javonte Williams"], nflTeam: "DEN", statusTo: "Out", observedAt: 0, source: "espn_injuries" },
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    const view = modelCardView(trending);
+    expect(view.sleeperAddsPrevSync).toBe(400);
+    expect(view.related).toEqual({
+      kind: "injury_status",
+      players: ["Javonte Williams"],
+      nflTeam: "DEN",
+      statusTo: "Out",
+      headline: undefined,
+      timetable: undefined,
+      source: "ESPN",
+    });
+  });
+});
+
 describe("parseWireTakes", () => {
   it("returns a full take set for a good entry and take_missing for an absent one", () => {
     const results = parseWireTakes(toolMessage({ takes: [GOOD_TAKE] }), inputs);

@@ -37,6 +37,29 @@ describe("validateFactCard", () => {
     expect(() => validateFactCard({ ...burrow, source: { type: "twitter", fetchedAt: 1 } })).toThrow(/source\.type/);
     expect(() => validateFactCard(null)).toThrow(/Invalid wire fact card/);
   });
+
+  it("requires a trending_board card to carry 1-5 board entries mirroring its players", () => {
+    const board: WireFactCard = {
+      kind: "trending_board",
+      observedAt: 0,
+      players: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU" }],
+      board: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", trendingAdds: 58024 }],
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    expect(validateFactCard(board).board).toHaveLength(1);
+    expect(() => validateFactCard({ ...board, board: undefined })).toThrow(/board/);
+    expect(() => validateFactCard({ ...board, board: Array(6).fill(board.board![0]) })).toThrow(/board/);
+    expect(() =>
+      validateFactCard({ ...board, players: [...board.players, { espnId: "2", name: "Extra" }] })
+    ).toThrow(/players.*mirror/);
+  });
+
+  it("ignores trending-only fields (related, trendingPrevAdds) on another kind instead of rejecting them", () => {
+    expect(() =>
+      validateFactCard({ ...burrow, related: { kind: "news", players: ["X"], observedAt: 0, source: "espn_news" } })
+    ).not.toThrow();
+    expect(() => validateFactCard({ ...burrow, trendingPrevAdds: 10 })).not.toThrow();
+  });
 });
 
 describe("stripReporterAttribution", () => {
@@ -119,6 +142,93 @@ describe("renderCard", () => {
       source: { type: "sleeper", fetchedAt: 0 },
     };
     expect(renderCard(trending).text).toBe("Jaleel McLaughlin added in 1,240 Sleeper leagues in the last 24 h.");
+  });
+
+  it("renders a trending spike's related context, attributed to the RELATED event's own source", () => {
+    const trending: WireFactCard = {
+      kind: "trending",
+      observedAt: 0,
+      players: [{ espnId: "4", name: "Jaleel McLaughlin", position: "RB", nflTeam: "DEN" }],
+      nflTeam: "DEN",
+      trendingAdds: 1240,
+      trendingPrevAdds: 400,
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    expect(
+      renderCard({
+        ...trending,
+        related: { kind: "injury_status", players: ["Javonte Williams"], statusTo: "Out", observedAt: 0, source: "espn_injuries" },
+      }).text
+    ).toBe("Jaleel McLaughlin added in 1,240 Sleeper leagues in the last 24 h, after ESPN listed Javonte Williams Out.");
+
+    expect(
+      renderCard({
+        ...trending,
+        related: { kind: "injury_note", players: ["Javonte Williams"], timetable: "6-8 weeks", observedAt: 0, source: "espn_injuries" },
+      }).text
+    ).toMatch(/after ESPN put Javonte Williams at 6-8 weeks\.$/);
+    expect(
+      renderCard({
+        ...trending,
+        related: { kind: "injury_note", players: ["Javonte Williams"], observedAt: 0, source: "espn_injuries" },
+      }).text
+    ).toMatch(/after an ESPN note on Javonte Williams\.$/);
+
+    expect(
+      renderCard({
+        ...trending,
+        related: { kind: "news", players: ["Javonte Williams"], headline: "Broncos to lean on committee backfield", observedAt: 0, source: "espn_news" },
+      }).text
+    ).toMatch(/after ESPN's "Broncos to lean on committee backfield"\.$/);
+
+    expect(
+      renderCard({
+        ...trending,
+        related: { kind: "depth_chart", players: ["Javonte Williams"], nflTeam: "DEN", observedAt: 0, source: "sleeper" },
+      }).text
+    ).toMatch(/after Javonte Williams moved up the DEN depth chart on Sleeper\.$/);
+  });
+
+  it("renders a trending_board ranking, dropping positions rather than a mid-word ellipsis when it would overflow", () => {
+    const board: WireFactCard = {
+      kind: "trending_board",
+      observedAt: 0,
+      players: [
+        { espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU" },
+        { espnId: "2", name: "MarShawn Lloyd", position: "RB", nflTeam: "GB" },
+      ],
+      board: [
+        { espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", trendingAdds: 58024 },
+        { espnId: "2", name: "MarShawn Lloyd", position: "RB", nflTeam: "GB", trendingAdds: 38799 },
+      ],
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    expect(renderCard(board)).toEqual({
+      text: "Most added on Sleeper, last 24 h: Tank Dell (WR) 58,024 · MarShawn Lloyd (RB) 38,799",
+      tags: ["REPORTED"],
+    });
+
+    const longBoard = [
+      { espnId: "1", name: "Christopher Wentworthington-Ashbrook", position: "WR", nflTeam: "HOU", trendingAdds: 58024 },
+      { espnId: "2", name: "Demetrius Alexander-Okafor-Whitfield", position: "RB", nflTeam: "GB", trendingAdds: 38799 },
+      { espnId: "3", name: "Jeremiah Constantinescu-Van Der Berg", position: "WR", nflTeam: "SF", trendingAdds: 21000 },
+      { espnId: "4", name: "Montgomery Fitzgibbons-Rutherford", position: "RB", nflTeam: "TB", trendingAdds: 15500 },
+      { espnId: "5", name: "Xzavier Thibodeaux-Reyes-Callaghan", position: "WR", nflTeam: "CAR", trendingAdds: 12000 },
+    ];
+    const longNames: WireFactCard = {
+      ...board,
+      players: longBoard.map(({ espnId, name, position, nflTeam }) => ({ espnId, name, position, nflTeam })),
+      board: longBoard,
+    };
+    const withPositions = longNames.board!.map(e => `${e.name} (${e.position}) ${e.trendingAdds.toLocaleString("en-US")}`).join(" · ");
+    expect(`Most added on Sleeper, last 24 h: ${withPositions}`.length).toBeGreaterThan(MAX_POST_CHARS);
+    const rendered = renderCard(longNames);
+    expect(rendered.tags).toEqual(["REPORTED"]);
+    expect(rendered.text.length).toBeLessThanOrEqual(MAX_POST_CHARS);
+    expect(rendered.text).not.toContain("(WR)");
+    expect(rendered.text).not.toContain("(RB)");
+    expect(rendered.text).toContain("Christopher Wentworthington-Ashbrook 58,024");
+    expect(rendered.text).toContain("Xzavier Thibodeaux-Reyes-Callaghan 12,000");
   });
 
   it("renders a live kind without its structured fields generically, with the right tag", () => {
@@ -286,6 +396,22 @@ describe("numbers and names", () => {
 
     const trending: WireFactCard = { ...burrow, kind: "trending", trendingAdds: 1240, note: undefined, timetable: undefined };
     expect(cardNumbers(trending)).toEqual(expect.arrayContaining(["1240", "24"]));
+
+    const withRelated: WireFactCard = {
+      ...trending,
+      trendingPrevAdds: 400,
+      related: { kind: "injury_note", players: ["Javonte Williams"], timetable: "6-8 weeks", observedAt: 0, source: "espn_injuries" },
+    };
+    expect(cardNumbers(withRelated)).toEqual(expect.arrayContaining(["1240", "400", "24", "6-8", "6", "8"]));
+
+    const board: WireFactCard = {
+      kind: "trending_board",
+      observedAt: 0,
+      players: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", percentOwned: 42 }],
+      board: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", percentOwned: 42, trendingAdds: 58024 }],
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    expect(cardNumbers(board)).toEqual(expect.arrayContaining(["58024", "42", "24"]));
   });
 
   it("cardNames holds players, teams, statuses and the note's people — but not the reporter", () => {
@@ -297,5 +423,26 @@ describe("numbers and names", () => {
     expect(names).not.toContain("Howard Balzer");
     expect(names.join(" ")).not.toContain("Cards Wire");
     expect(names.join(" ")).not.toContain("Coach Mike La ");
+  });
+
+  it("cardNames holds trending_board's ranked players and a trending spike's related players/team", () => {
+    const board: WireFactCard = {
+      kind: "trending_board",
+      observedAt: 0,
+      players: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU" }],
+      board: [{ espnId: "1", name: "Tank Dell", position: "WR", nflTeam: "HOU", trendingAdds: 58024 }],
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    expect(cardNames(board)).toEqual(expect.arrayContaining(["Tank Dell", "HOU"]));
+
+    const trending: WireFactCard = {
+      kind: "trending",
+      observedAt: 0,
+      players: [{ espnId: "4", name: "Jaleel McLaughlin", nflTeam: "DEN" }],
+      trendingAdds: 1240,
+      related: { kind: "injury_status", players: ["Javonte Williams"], nflTeam: "DEN", statusTo: "Out", observedAt: 0, source: "espn_injuries" },
+      source: { type: "sleeper", fetchedAt: 0 },
+    };
+    expect(cardNames(trending)).toEqual(expect.arrayContaining(["Javonte Williams", "DEN", "Out"]));
   });
 });

@@ -197,6 +197,9 @@ export function injuryEntryToCard(entry: EspnInjuryEntry, opts: InjuryCardOption
 
 export interface EspnNewsArticle {
   id: string;
+  /** ESPN's own article type - "Story", "HeadlineNews", "Media", … `newsRelevance` treats
+   *  "HeadlineNews" as relevant on its own (ESPN's short wire items, not features). */
+  type?: string;
   headline: string;
   description?: string;
   published?: string;
@@ -211,6 +214,7 @@ export function parseEspnNewsArticle(raw: unknown): EspnNewsArticle | undefined 
   const id = article.id !== undefined && article.id !== null ? String(article.id) : undefined;
   const headline = asString(article.headline);
   if (!id || !headline) return undefined;
+  const type = asString(article.type);
   const athletes: Array<{ espnId: string; name: string }> = [];
   for (const raw of asArray(article.categories)) {
     const category = asRecord(raw);
@@ -229,6 +233,7 @@ export function parseEspnNewsArticle(raw: unknown): EspnNewsArticle | undefined 
   const url = asString(asRecord(links?.web)?.href);
   return {
     id,
+    ...(type ? { type } : {}),
     headline: headline.trim(),
     description: asString(article.description),
     published: asString(article.published),
@@ -246,19 +251,161 @@ export function parseEspnNewsPayload(payload: unknown): EspnNewsArticle[] {
   return out;
 }
 
-/** A story is about a player when it is tagged to this many athletes or fewer (spec §5.1). */
-export const NEWS_MAX_ATHLETES = 3;
+/**
+ * A story is untagged noise past this many athletes (a fantasy rankings dump, a cheat sheet) - not
+ * the relevance bar itself. Matches `LISTICLE_ATHLETE_LIMIT` in convex/intel.ts: both exist to keep a
+ * mega-post from posing as a single-player card, not to decide whether the story is worth a card at
+ * all (that's `newsRelevance` below - spec update 2026-09-06, "athlete count is the wrong proxy").
+ */
+export const NEWS_MAX_ATHLETES = 6;
 
-/** A news article as a card, or undefined when it is untagged or a listicle (too many athletes). */
+/** How many players a news card ever carries, whatever `NEWS_MAX_ATHLETES` allows through. */
+const NEWS_CARD_MAX_PLAYERS = 3;
+
+export interface NewsRelevanceResult {
+  relevant: boolean;
+  signal?: "timetable" | "status" | "role" | "transaction" | "headline_news";
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Word-boundaried, case-insensitive. Deliberately no bare "return" (a WR "back with New York" is not
+// news; "returns to practice" is) and no bare "trade" rumor-mill words beyond the transaction list.
+const STATUS_SIGNAL_PATTERNS: ReadonlyArray<RegExp> = [
+  // "out" only in its status sense - never the idiom ("stands out", "figure out", "out of the gate").
+  /\b(?:is|are|was|were|be|been|remains?|remained|ruled|listed|declared|expected|likely|still|officially)\s+out\b/i,
+  /\bout\s+(?:for|indefinitely|until|through|at least|week|weeks|\d|the (?:season|year|game|opener|rest|remainder))\b/i,
+  /\bquestionable\b/i,
+  /\bdoubtful\b/i,
+  /\binjur(?:y|ed|ies)\b/i,
+  /\binjured reserve\b/i,
+  /\bIR\b/,
+  /\bPUP\b/,
+  /\bsurgery\b/i,
+  /\bconcussion\b/i,
+  /\bhamstring\b/i,
+  /\bankle\b/i,
+  /\bknee\b/i,
+  /\bMRI\b/,
+  /\bcarted\b/i,
+  /\bsidelined\b/i,
+  /\blimited\b/i,
+  /\bdid not practice\b/i,
+  /\bDNP\b/,
+  /\bactivated\b/i,
+  /\bcleared\b/i,
+  /\binactive\b/i,
+  /\bweek[- ]to[- ]week\b/i,
+  /\bday[- ]to[- ]day\b/i,
+  /\bgame-time decision\b/i,
+  /\bexpected to (?:play|miss|sit|start)\b/i,
+  /\bwill (?:miss|play|sit|start)\b/i,
+  /\breturn(?:s|ed|ing)? (?:from|to)\b/i,
+];
+
+const ROLE_SIGNAL_PATTERNS: ReadonlyArray<RegExp> = [
+  // "starting" only about a job - never "starting to click"; "starter" only as a role.
+  /\bstarters\b/i,
+  /\b(?:the|a|new|his|as|named|becomes?|became)\s+starter\b/i,
+  /\bstarting\s+(?:job|role|spot|nod|lineup|running back|receiver|wide receiver|quarterback|tight end|RB|WR|QB|TE|left|right|center|guard|tackle)\b/i,
+  /\bstart(?:s|ed)?\s+(?:at|in place of|over|ahead of|for the)\b/i,
+  /\bnamed the starter\b/i,
+  /\bdepth chart\b/i,
+  /\b(?:RB1|WR1|QB1|TE1)\b/i,
+  /\bbenched\b/i,
+  /\bdemoted\b/i,
+  /\bpromoted\b/i,
+  /\bsnap counts?\b/i,
+  /\bworkhorse\b/i,
+  /\bcommittee\b/i,
+  /\bfirst-team\b/i,
+];
+
+const TRANSACTION_SIGNAL_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bsigned\b/i,
+  /\bsigns\b/i,
+  /\bagrees to (?:a )?deal\b/i,
+  /\breleased\b/i,
+  /\bwaived\b/i,
+  /\btraded\b/i,
+  /\btrade\b/i,
+  /\bclaimed\b/i,
+  // "cut" only as a roster move - never "cut it close" or "cut back".
+  /\b(?:was|were|been|be|get|gets|got|being)\s+cut\b/i,
+  /\bcut\s+(?:by|from|loose|ties|(?:RB|WR|QB|TE|K|DE|LB|CB|S|OL|DL|veteran|rookie)\b)/i,
+  /\bsuspended\b/i,
+  /\bsuspension\b/i,
+  /\breinstated\b/i,
+  /\bextension\b/i,
+  /\bcontract\b/i,
+  /\brestructur\w*\b/i,
+  /\bfranchise tag\b/i,
+  /\bholdout\b/i,
+  /\bretire(?:s|d|ment)?\b/i,
+];
+
+function matchesAny(text: string, patterns: ReadonlyArray<RegExp>): boolean {
+  return patterns.some(pattern => pattern.test(text));
+}
+
+/**
+ * Is this article worth a wire card at all? Athlete count alone is the wrong relevance proxy (spec
+ * update 2026-09-06): a four-athlete "what will the Patriots do if Henderson is out" question is
+ * exactly the kind of story the Wire exists for, while a three-athlete feature ("the story behind
+ * the Steelers' field blessing") is not. Evaluated on the headline + description, case-insensitive,
+ * word-boundaried so "outlooks" never reads as the status word "out". `type === "HeadlineNews"` is
+ * relevant on its own - ESPN's own short wire items, as opposed to a longer "Story" feature.
+ */
+export function newsRelevance(article: EspnNewsArticle): NewsRelevanceResult {
+  const names = article.athletes.map(athlete => athlete.name);
+  if (timetableAbout(article.headline, names) ?? timetableAbout(article.description, names)) {
+    return { relevant: true, signal: "timetable" };
+  }
+  const text = `${article.headline} ${article.description ?? ""}`;
+  if (matchesAny(text, STATUS_SIGNAL_PATTERNS)) return { relevant: true, signal: "status" };
+  if (matchesAny(text, ROLE_SIGNAL_PATTERNS)) return { relevant: true, signal: "role" };
+  if (matchesAny(text, TRANSACTION_SIGNAL_PATTERNS)) return { relevant: true, signal: "transaction" };
+  if (article.type === "HeadlineNews") return { relevant: true, signal: "headline_news" };
+  return { relevant: false };
+}
+
+/** Does `headline` name this player, by full name or last name (reuses `nameKeys`'s matching rule)? */
+function athleteNamedInHeadline(headline: string, name: string): boolean {
+  const lower = headline.toLowerCase();
+  return nameKeys(name).some(key => new RegExp(`\\b${escapeRegExp(key)}\\b`).test(lower));
+}
+
+/** Athletes the headline names first (in their given order), then the rest - so a listicle-shaped
+ *  tag list still leads with whoever the story is actually about once capped to three. */
+function orderAthletesForCard(
+  headline: string,
+  athletes: EspnNewsArticle["athletes"]
+): EspnNewsArticle["athletes"] {
+  const named: EspnNewsArticle["athletes"] = [];
+  const rest: EspnNewsArticle["athletes"] = [];
+  for (const athlete of athletes) (athleteNamedInHeadline(headline, athlete.name) ? named : rest).push(athlete);
+  return [...named, ...rest];
+}
+
+/**
+ * A news article as a card, or undefined when it is untagged, too broadly tagged (> NEWS_MAX_ATHLETES,
+ * a rankings dump), or not relevant (`newsRelevance`). `players` is capped to NEWS_CARD_MAX_PLAYERS,
+ * headline-named athletes first, so a card never lists more people than a post can credit.
+ */
 export function newsArticleToCard(article: EspnNewsArticle, opts: { fetchedAt: number }): WireFactCard | undefined {
   if (article.athletes.length === 0 || article.athletes.length > NEWS_MAX_ATHLETES) return undefined;
+  if (!newsRelevance(article).relevant) return undefined;
+
+  const ordered = orderAthletesForCard(article.headline, article.athletes).slice(0, NEWS_CARD_MAX_PLAYERS);
   const note = trimNote(article.description);
-  const names = article.athletes.map(athlete => athlete.name);
+  const names = ordered.map(athlete => athlete.name);
   const timetable = timetableAbout(article.headline, names) ?? timetableAbout(article.description, names);
   return {
     kind: "news",
     observedAt: asTimestamp(article.published) ?? opts.fetchedAt,
-    players: article.athletes.map(athlete => ({ espnId: athlete.espnId, name: athlete.name })),
+    players: ordered.map(athlete => ({ espnId: athlete.espnId, name: athlete.name })),
     headline: article.headline,
     ...(note ? { note } : {}),
     ...(timetable ? { timetable } : {}),

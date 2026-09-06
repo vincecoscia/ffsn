@@ -13,7 +13,9 @@ import {
   GLOBAL_EVENT_KINDS,
   MAX_NOTE_CHARS,
   MAX_POST_CHARS,
+  TRENDING_BOARD_SIZE,
   type WireCardLine,
+  type WireCardRelated,
   type WireFactCard,
   type WireSourceType,
   type WireTag,
@@ -77,27 +79,77 @@ const WireCardLineSchema = z.object({
   fantasyPoints: z.number().finite().optional(),
 });
 
-/** Mirrors {@link WireFactCard}. Unknown keys are dropped, never rejected. */
-export const WireFactCardSchema = z.object({
-  kind: z.enum(GLOBAL_EVENT_KINDS),
-  observedAt: z.number(),
-  players: z.array(WireCardPlayerSchema).min(1, "a card needs at least one player"),
+// trending_board: the nightly Sleeper "most added" ranking (spec update 2026-09-06).
+const WireCardBoardEntrySchema = z.object({
+  espnId: z.string().min(1, "espnId is required"),
+  name: z.string().min(1, "name is required"),
+  position: z.string().optional(),
   nflTeam: z.string().optional(),
-  statusFrom: z.string().optional(),
+  percentOwned: z.number().min(0).max(100).optional(),
+  trendingAdds: z.number().int().nonnegative(),
+});
+
+// trending: the wire event (if any) a spike plausibly answers, from another source.
+const WireCardRelatedSchema = z.object({
+  kind: z.enum(GLOBAL_EVENT_KINDS),
+  players: z.array(z.string()),
+  nflTeam: z.string().optional(),
   statusTo: z.string().optional(),
-  note: z.string().max(MAX_NOTE_CHARS, `note must be at most ${MAX_NOTE_CHARS} characters`).optional(),
   headline: z.string().optional(),
   timetable: z.string().optional(),
-  depthOrderFrom: z.number().int().optional(),
-  depthOrderTo: z.number().int().optional(),
-  depthPosition: z.string().optional(),
-  trendingAdds: z.number().int().nonnegative().optional(),
-  ownershipChange: z.number().finite().optional(),
-  game: WireCardGameSchema.optional(),
-  play: WireCardPlaySchema.optional(),
-  line: WireCardLineSchema.optional(),
-  source: WireSourceRefSchema,
+  observedAt: z.number(),
+  source: z.enum(SOURCE_TYPES),
 });
+
+/**
+ * Mirrors {@link WireFactCard}. Unknown keys are dropped, never rejected. `related`/`trendingPrevAdds`
+ * are only meaningful on a `trending` card but are never rejected on another kind - they simply go
+ * unused (a detector building a card generically must not have to strip them per kind).
+ */
+export const WireFactCardSchema = z
+  .object({
+    kind: z.enum(GLOBAL_EVENT_KINDS),
+    observedAt: z.number(),
+    players: z.array(WireCardPlayerSchema).min(1, "a card needs at least one player"),
+    nflTeam: z.string().optional(),
+    statusFrom: z.string().optional(),
+    statusTo: z.string().optional(),
+    note: z.string().max(MAX_NOTE_CHARS, `note must be at most ${MAX_NOTE_CHARS} characters`).optional(),
+    headline: z.string().optional(),
+    timetable: z.string().optional(),
+    depthOrderFrom: z.number().int().optional(),
+    depthOrderTo: z.number().int().optional(),
+    depthPosition: z.string().optional(),
+    trendingAdds: z.number().int().nonnegative().optional(),
+    trendingPrevAdds: z.number().int().nonnegative().optional(),
+    related: WireCardRelatedSchema.optional(),
+    board: z.array(WireCardBoardEntrySchema).min(1).max(TRENDING_BOARD_SIZE).optional(),
+    ownershipChange: z.number().finite().optional(),
+    game: WireCardGameSchema.optional(),
+    play: WireCardPlaySchema.optional(),
+    line: WireCardLineSchema.optional(),
+    source: WireSourceRefSchema,
+  })
+  .superRefine((card, ctx) => {
+    // trending_board is a ranking, not a single-player story - it needs the board itself, and
+    // `players` (what the rest of the pipeline, e.g. cardNames/interest, reads) must mirror it.
+    if (card.kind !== "trending_board") return;
+    if (!card.board || card.board.length < 1 || card.board.length > TRENDING_BOARD_SIZE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["board"],
+        message: `trending_board needs 1-${TRENDING_BOARD_SIZE} board entries`,
+      });
+      return;
+    }
+    if (card.players.length !== card.board.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["players"],
+        message: "trending_board's players must mirror its board entries",
+      });
+    }
+  });
 
 /** Parses an unknown value as a fact card; throws an Error whose message names every bad field. */
 export function validateFactCard(input: unknown): WireFactCard {
@@ -228,6 +280,42 @@ export function ownershipSwingPercent(change: number): string {
   const abs = Math.abs(change);
   const rounded = Math.round(abs);
   return rounded >= 1 ? `${rounded}%` : `${abs.toFixed(1)}%`;
+}
+
+/** "Joe Burrow", "Joe Burrow and Ja'Marr Chase", "A, B and C" — a plain English name list. */
+function andJoin(names: ReadonlyArray<string>): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * trending only: one context sentence explaining a spike, attributed to the RELATED event's own
+ * source (never Sleeper's, since the related fact came from somewhere else) - `undefined` when the
+ * related event does not carry what its own sentence needs (a status, a headline, a team).
+ */
+function relatedContext(related: WireCardRelated): string | undefined {
+  const names = andJoin(related.players);
+  if (!names) return undefined;
+  const label = sourceLabel(related.source);
+  switch (related.kind) {
+    case "injury_status": {
+      const status = related.statusTo?.trim();
+      return status ? `after ${label} listed ${names} ${status}.` : undefined;
+    }
+    case "injury_note":
+      return related.timetable
+        ? `after ${label} put ${names} at ${related.timetable}.`
+        : `after an ${label} note on ${names}.`;
+    case "news": {
+      const headline = related.headline?.trim();
+      return headline ? `after ${label}'s "${headline}".` : undefined;
+    }
+    case "depth_chart":
+      return related.nflTeam ? `after ${names} moved up the ${related.nflTeam} depth chart on ${label}.` : undefined;
+    default:
+      return undefined;
+  }
 }
 
 const KIND_LABELS: Partial<Record<WireFactCard["kind"], string>> = {
@@ -368,11 +456,25 @@ export function renderCard(card: WireFactCard): { text: string; tags: WireTag[] 
     }
     case "trending": {
       const player = card.players[0];
-      const text =
+      const base =
         card.trendingAdds !== undefined
           ? `${player.name} added in ${formatCount(card.trendingAdds)} ${label} leagues in the last 24 h.`
           : `${player.name} is trending on ${label}.`;
-      return { text: clampText(text), tags: ["REPORTED"] };
+      const context = card.related ? relatedContext(card.related) : undefined;
+      // "…in the last 24 h, after ESPN listed X Out." - one sentence, so the context reads as the why.
+      return { text: clampText(context ? `${base.replace(/\.$/, ",")} ${context}` : base), tags: ["REPORTED"] };
+    }
+    case "trending_board": {
+      const board = card.board ?? [];
+      const withPositions = board
+        .map(entry => `${entry.name}${entry.position ? ` (${entry.position})` : ""} ${formatCount(entry.trendingAdds)}`)
+        .join(" · ");
+      const full = `Most added on ${label}, last 24 h: ${withPositions}`;
+      if (full.length <= MAX_POST_CHARS) return { text: full, tags: ["REPORTED"] };
+      // Drop the "(POS)" parts before falling back to a mid-word ellipsis - the ranking still reads
+      // fine without positions, and every name deserves a chance to appear.
+      const withoutPositions = board.map(entry => `${entry.name} ${formatCount(entry.trendingAdds)}`).join(" · ");
+      return { text: clampText(`Most added on ${label}, last 24 h: ${withoutPositions}`), tags: ["REPORTED"] };
     }
     case "ownership_swing": {
       const player = card.players[0];
@@ -451,6 +553,7 @@ export function cardNumbers(card: WireFactCard): string[] {
   for (const value of extractNumbers(card.note)) out.add(value);
   for (const value of extractNumbers(card.headline)) out.add(value);
   addNumber(out, card.trendingAdds);
+  addNumber(out, card.trendingPrevAdds);
   if (typeof card.ownershipChange === "number") addNumber(out, Math.abs(card.ownershipChange));
   addNumber(out, card.depthOrderFrom);
   addNumber(out, card.depthOrderTo);
@@ -458,8 +561,18 @@ export function cardNumbers(card: WireFactCard): string[] {
     addNumber(out, player.percentOwned);
     addNumber(out, player.adpPositionRank);
   }
-  // The trending window is part of the fact ("in the last 24 hours").
-  if (card.kind === "trending") out.add("24");
+  // The trending / trending_board window is part of the fact ("in the last 24 hours").
+  if (card.kind === "trending" || card.kind === "trending_board") out.add("24");
+  // trending_board: every rank's own add count and roster share.
+  for (const entry of card.board ?? []) {
+    addNumber(out, entry.trendingAdds);
+    addNumber(out, entry.percentOwned);
+  }
+  // trending: the related event's own figures (a timetable, a number inside its headline).
+  if (card.related) {
+    for (const value of extractNumbers(card.related.timetable)) out.add(value);
+    for (const value of extractNumbers(card.related.headline)) out.add(value);
+  }
   // Live game engine (spec §19): every figure the live line renders — scores, the period, the
   // clock's two halves, the play's yards and TD count, the box-score line.
   if (card.game) {
@@ -504,6 +617,18 @@ export function cardNames(card: WireFactCard): string[] {
     out.add(card.game.away);
   }
   for (const noun of properNouns(card.play ? stripReporterAttribution(card.play.text) : undefined)) out.add(noun);
+  // trending_board: every ranked player and team.
+  for (const entry of card.board ?? []) {
+    out.add(entry.name);
+    if (entry.nflTeam) out.add(entry.nflTeam);
+  }
+  // trending: the related event's own players/team/status and the proper nouns in its headline.
+  if (card.related) {
+    for (const name of card.related.players) out.add(name);
+    if (card.related.nflTeam) out.add(card.related.nflTeam);
+    if (card.related.statusTo) out.add(card.related.statusTo);
+    for (const noun of properNouns(card.related.headline)) out.add(noun);
+  }
   out.add(sourceLabel(card.source.type));
   return [...out];
 }
