@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { useLeagueSeason } from "@/hooks/use-league-season";
@@ -124,7 +124,11 @@ export function useLeagueTicker(
 
   // The last 8 Wire posts replace the single "Latest story" item when there are any; a league
   // with nothing on the Wire yet (or no pass) falls back to that story item instead.
-  const wirePosts = useQuery(api.wire.getRecentForTicker, { leagueId, limit: 8 });
+  // Wait for Clerk's token to reach the Convex client: on a hard load the first query otherwise
+  // runs unauthenticated (prod, 2026-09-06). The server also answers [] in that case; skipping just
+  // avoids the wasted round trip and a flash.
+  const { isAuthenticated } = useConvexAuth();
+  const wirePosts = useQuery(api.wire.getRecentForTicker, isAuthenticated ? { leagueId, limit: 8 } : "skip");
 
   return useMemo<LeagueTickerResult>(() => {
     const base = { season: currentSeason };

@@ -324,7 +324,13 @@ export const getGlobalPosts = query({
   args: { leagueId: v.id("leagues"), paginationOpts: paginationOptsValidator },
   returns: paginationResultValidator(globalPostViewValidator),
   handler: async (ctx, args) => {
-    const { identity, membership } = await requireLeagueMember(ctx, args.leagueId);
+    // A hard load races the Convex client ahead of Clerk's token (found on prod 2026-09-06: every
+    // league route showed Next's error page). Layout-level queries never throw for a signed-out or
+    // non-member caller - they return nothing, like leagues.getById does - so the page can hydrate
+    // and re-run once auth attaches.
+    const access = await getLeagueMembership(ctx, args.leagueId);
+    if (!access) return { page: [], isDone: true, continueCursor: "" };
+    const { identity, membership } = access;
     const league = await ctx.db.get(args.leagueId);
     const passActive = hasActivePass(league);
     const isCommissioner = membership.role === "commissioner";
@@ -347,7 +353,13 @@ export const getLeaguePosts = query({
   args: { leagueId: v.id("leagues"), paginationOpts: paginationOptsValidator },
   returns: paginationResultValidator(leaguePostViewValidator),
   handler: async (ctx, args) => {
-    const { identity, membership } = await requireLeagueMember(ctx, args.leagueId);
+    // A hard load races the Convex client ahead of Clerk's token (found on prod 2026-09-06: every
+    // league route showed Next's error page). Layout-level queries never throw for a signed-out or
+    // non-member caller - they return nothing, like leagues.getById does - so the page can hydrate
+    // and re-run once auth attaches.
+    const access = await getLeagueMembership(ctx, args.leagueId);
+    if (!access) return { page: [], isDone: true, continueCursor: "" };
+    const { identity, membership } = access;
     const league = await ctx.db.get(args.leagueId);
     if (!hasActivePass(league)) {
       return { page: [], isDone: true, continueCursor: args.paginationOpts.cursor ?? "" };
@@ -421,7 +433,8 @@ export const getRecentForTicker = query({
     })
   ),
   handler: async (ctx, args) => {
-    await requireLeagueMember(ctx, args.leagueId);
+    // Same rule as the feeds above: nothing for a signed-out / non-member caller, never a throw.
+    if (!(await getLeagueMembership(ctx, args.leagueId))) return [];
     const league = await ctx.db.get(args.leagueId);
     const passActive = hasActivePass(league);
     const cap = Math.min(Math.max(Math.trunc(args.limit) || 1, 1), 50);
