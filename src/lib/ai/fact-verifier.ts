@@ -42,6 +42,8 @@ export type ViolationKind =
   | "eliminated_as_contender"
   /** A weekly_preview or a season_welcome written before kickoff cites a record beside a team, or "points for": nobody has played yet (a kickoff's past record is fine when its sentence names the season or says all-time). */
   | "records_before_kickoff"
+  /** A mock draft round (1 or 2) that does not give every slot its own numbered pick (2026-09-06). Blocks the section that holds the round, once. */
+  | "round_incomplete"
   /**
    * The same number (a margin, a points total, a score) cited in more than two sections, or more
    * than three times inside one (Season Kickoff rebuild, 2026-09-06: the prod piece cited "42.7"
@@ -461,6 +463,56 @@ export function findRecordsBeforeKickoff(
  * record is history rather than a standing nobody has earned yet.
  */
 const PAST_SEASON_CONTEXT = /\b(?:19|20)\d{2}\b|\ball[- ]time\b|\bcareer\b|\bseasons\b/i;
+
+/**
+ * Mock draft rounds one and two are pick by pick (owner ask, 2026-09-06: the first mock spent its
+ * rounds section on round one and waved at round two). The prompt numbers picks the way a board
+ * reads - "1.01" … "1.10", "2.01" … "2.10" - so the check is deterministic: every slot label of the
+ * round appears somewhere in the article, or the section holding most of that round is blocked
+ * with the missing slots named, and the one-shot rewrite fills them in. Two-digit slots only, so an
+ * ADP like "2.4" never reads as a pick.
+ */
+export function findIncompleteRounds(
+  sections: Array<{ name: string; content?: string }>,
+  teamCount: number,
+  rounds: number = 2
+): Violation[] {
+  if (!Number.isFinite(teamCount) || teamCount < 2 || sections.length === 0) return [];
+  const violations: Violation[] = [];
+  for (let round = 1; round <= rounds; round++) {
+    const labels = Array.from({ length: teamCount }, (_, i) => `${round}.${String(i + 1).padStart(2, "0")}`);
+    const seen = new Set<string>();
+    let home = sections[0];
+    let homeHits = -1;
+    for (const section of sections) {
+      const text = section.content ?? "";
+      let hits = 0;
+      for (const label of labels) {
+        const re = new RegExp(`(?<![\\d.])${label.replace(".", "\\.")}(?![\\d])`);
+        if (re.test(text)) {
+          seen.add(label);
+          hits++;
+        }
+      }
+      if (hits > homeHits) {
+        home = section;
+        homeHits = hits;
+      }
+    }
+    const missing = labels.filter(label => !seen.has(label));
+    if (missing.length === 0) continue;
+    // A round with no labels at all goes to the section that holds the previous round (the model
+    // folded round two into it); the first round with nothing goes to the first section after the intro.
+    if (homeHits <= 0) home = round > 1 ? sections.find(s => new RegExp(`(?<![\\d.])${round - 1}\\.01(?![\\d])`).test(s.content ?? "")) ?? sections[Math.min(1, sections.length - 1)] : sections[Math.min(1, sections.length - 1)];
+    violations.push({
+      kind: "round_incomplete",
+      detail: `round ${round}: ${teamCount - missing.length} of ${teamCount} picks are numbered; missing ${missing.join(", ")} - every slot gets its own pick, with the player and his ADP`,
+      section: home.name,
+      severity: "block",
+    });
+  }
+  return violations;
+}
 
 /** Every W-L(-T) string the almanac carries, plus each rivalry's head-to-head both ways round. */
 export function almanacRecordStrings(almanac: unknown): Set<string> {
@@ -1103,6 +1155,13 @@ export function verifyArticle(
         });
       }
     }
+  }
+
+  // 4c'''. Mock draft rounds one and two, pick by pick (2026-09-06): every slot numbered, or the
+  //        section holding the round is rewritten once with the missing slots named.
+  if (options?.template?.id === "mock_draft" && facts.mockDraft) {
+    const teamCount = facts.mockDraft.order.length > 0 ? facts.mockDraft.order.length : facts.mockDraft.teamCount;
+    violations.push(...findIncompleteRounds(article.sections ?? [], teamCount));
   }
 
   // 4c''. Repeated receipts (2026-09-06), every content type: the same number in more than two

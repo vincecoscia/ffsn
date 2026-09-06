@@ -1569,9 +1569,10 @@ export async function completeArticleFromMessage(
   // Repetition never holds an article (2026-09-06): the one rewrite above is the remedy, and a
   // receipt that survives it is a warning on the row, not a reason to regenerate in full or to
   // stop in review. (The first kickoff eval escalated to a $0.63 full regeneration over "42.7".)
+  // Same for an incomplete mock-draft round (2026-09-06): one rewrite, then a warning on the row.
   deterministic = deterministic.map(v =>
-    v.kind === 'repeated_receipt' && v.severity === 'block'
-      ? { ...v, severity: 'warn' as const, detail: `${v.detail} (still repeated after one rewrite)` }
+    (v.kind === 'repeated_receipt' || v.kind === 'round_incomplete') && v.severity === 'block'
+      ? { ...v, severity: 'warn' as const, detail: `${v.detail} (still after one rewrite)` }
       : v
   );
 
