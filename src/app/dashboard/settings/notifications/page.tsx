@@ -7,7 +7,9 @@ import { api } from "../../../../../convex/_generated/api";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Bell, Mail, Shield, VolumeX } from "lucide-react";
+import { Bell, Mail, Radio, Shield, VolumeX } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import type { WireAlertPref } from "@/lib/ai/wire/types";
 import { PageHeader, Panel, SectionHeader } from "@/components/broadcast";
 
 const EMAIL_TOPICS = [
@@ -37,14 +39,40 @@ export default function NotificationSettingsPage() {
 
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [cleanLanguage, setCleanLanguage] = useState(false);
+  // The Wire's alerts (spec §10/§19): lineup-lock warnings and high-interest posts about your team,
+  // in-app, plus the Sunday-night digest email when email notifications are on.
+  const [wireAlerts, setWireAlerts] = useState<WireAlertPref>("my_roster");
 
   // Sync with fetched preferences
   useEffect(() => {
     if (userPreferences?.preferences) {
       setEmailNotifications(userPreferences.preferences.emailNotifications ?? true);
       setCleanLanguage(userPreferences.preferences.cleanLanguage ?? false);
+      setWireAlerts(userPreferences.preferences.wireAlerts ?? "my_roster");
     }
   }, [userPreferences]);
+
+  const handleWireAlertsChange = async (value: string) => {
+    if (!user) return;
+    const next = value as WireAlertPref;
+    setIsLoading(true);
+    try {
+      await updatePreferences({ preferences: { wireAlerts: next } });
+      setWireAlerts(next);
+      toast.success(
+        next === "off"
+          ? "Wire alerts are off"
+          : next === "all"
+            ? "You'll get Wire alerts for every team in your leagues"
+            : "You'll get Wire alerts about your own team"
+      );
+    } catch (error) {
+      console.error("Failed to update Wire alerts:", error);
+      toast.error("Failed to update Wire alerts. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleEmailNotificationChange = async (enabled: boolean) => {
     if (!user) return;
@@ -177,6 +205,41 @@ export default function NotificationSettingsPage() {
                 </p>
               </div>
             </div>
+          </Panel>
+
+          <Panel padding="md" className="flex flex-col gap-5">
+            <SectionHeader
+              title="The Wire alerts"
+              actions={<Radio className="size-5 text-bc-text-3" strokeWidth={1.8} />}
+            />
+            <p className="text-sm text-bc-text-2">
+              Lineup-lock warnings an hour before kickoff and the desk&apos;s biggest posts about your
+              team, in-app. With email notifications on, you also get the Sunday-night Wire digest.
+            </p>
+            <RadioGroup
+              value={wireAlerts}
+              onValueChange={handleWireAlertsChange}
+              disabled={isLoading}
+              className="flex flex-col gap-3 border-t border-bc-hairline pt-4"
+            >
+              {(
+                [
+                  ["my_roster", "My team", "Only posts and warnings about the team you claimed."],
+                  ["all", "Every team", "Everything the desk flags in your leagues."],
+                  ["off", "Off", "No Wire alerts and no digest. The Wire itself stays on."],
+                ] as const
+              ).map(([value, label, help]) => (
+                <div key={value} className="flex items-start gap-3">
+                  <RadioGroupItem id={`wire-alerts-${value}`} value={value} className="mt-0.5" />
+                  <div className="flex flex-col gap-0.5">
+                    <Label htmlFor={`wire-alerts-${value}`} className="font-display text-base font-semibold text-bc-ink">
+                      {label}
+                    </Label>
+                    <p className="max-w-md text-sm text-bc-text-2">{help}</p>
+                  </div>
+                </div>
+              ))}
+            </RadioGroup>
           </Panel>
 
           <Panel padding="md" className="flex flex-col gap-5">

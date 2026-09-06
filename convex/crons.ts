@@ -243,4 +243,27 @@ crons.interval(
   {},
 );
 
+// --- Live game engine (ffsn-the-wire-spec.md §19) ------------------------------
+
+// `wireLive.tick` is a self-rescheduling action (60s while any game is live, else at the next
+// kickoff minus 5 minutes, else it stops) - this daily check re-arms it if its scheduled run died
+// (a deploy, an uncaught throw). `pollNflSchedule` also calls `ensureWireClock` directly right
+// after it stores new kickoffs, so a freshly-discovered game week wakes the clock immediately.
+crons.cron(
+  "ensure Wire clock (The Wire)",
+  "0 6 * * *",
+  internal.wireLive.ensureWireClock,
+  {},
+);
+
+// The Sunday-night digest (spec §19.3): Monday 04:00 UTC - midnight ET, right after Sunday night
+// football - one email per opted-in manager with a claimed team in a pass-holding, wire-enabled
+// league and something to say from the last 24 hours.
+crons.cron(
+  "wire Sunday digest",
+  "0 4 * * 1",
+  internal.wireDigest.sendDigestForAllUsers,
+  {},
+);
+
 export default crons;

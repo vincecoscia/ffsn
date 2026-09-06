@@ -390,9 +390,69 @@ describe("Dex Desk (spec §18)", () => {
     for (const text of picks("nina-sharpe", "faab_watch", faab, "unfiltered")) expect(text).toContain("$7");
   });
 
+  describe("live desk (spec §19)", () => {
+    it("meets the minimums: 15 matchup_live lines for Curtis, 12 monday_needs lines for Nina, all tagged LIVE", () => {
+      const matchup = STOCK_LINES["curtis-vaughn"].matchup_live ?? [];
+      const monday = STOCK_LINES["nina-sharpe"].monday_needs ?? [];
+      expect(matchup.length).toBeGreaterThanOrEqual(15);
+      expect(monday.length).toBeGreaterThanOrEqual(12);
+      for (const line of [...matchup, ...monday]) expect(line.tags, line.text).toEqual(["LIVE"]);
+      expect(count("curtis-vaughn", "matchup_live")).toBe(matchup.length);
+      expect(count("nina-sharpe", "monday_needs")).toBe(monday.length);
+    });
+
+    it("matchup_live reads from the leader and the two scores alone, and never calls a result", () => {
+      const lead = { team: "Kittle Me This", opponentTeam: "Sable Ridge Sentinels", score: "98.4", opponentScore: "71.0" };
+      for (const text of picks("curtis-vaughn", "matchup_live", lead, "unfiltered")) {
+        expect(text).toContain("Kittle Me This");
+        expect(text).toContain("Sable Ridge Sentinels");
+        expect(text).not.toMatch(/\bw(?:in|on)s?\b|\bwinner\b|\bloser\b|\bfinal score\b/i);
+      }
+      for (const line of STOCK_LINES["curtis-vaughn"].matchup_live ?? []) {
+        expect(line.text, line.text).not.toMatch(/\bw(?:in|on)s?\b|\bwinner\b|\bloser\b/i);
+        expect(templateTokens(line.text), line.text).toContain("team");
+      }
+      const full = picks("curtis-vaughn", "matchup_live", sampleSlotsFor("matchup_live"));
+      expect(full.some(text => text.includes("27.4"))).toBe(true);
+      expect(full.some(text => text.includes("Week 4"))).toBe(true);
+    });
+
+    it("monday_needs carries the deficit and the Monday names, and never grades the lineup", () => {
+      const need = { team: "Kittle Me This", points: "22.6", players: "Joe Burrow and Chase Brown" };
+      for (const text of picks("nina-sharpe", "monday_needs", need, "unfiltered")) {
+        expect(text).toContain("Kittle Me This");
+        expect(text).toContain("22.6");
+        expect(text).toContain("Joe Burrow and Chase Brown");
+      }
+      const cruel = /mismanag|blunder|mistake|should have|idiot|dumb|panic|stupid|fault/i;
+      for (const line of STOCK_LINES["nina-sharpe"].monday_needs ?? []) {
+        expect(line.text, line.text).not.toMatch(cruel);
+        for (const token of ["team", "points", "players"]) expect(templateTokens(line.text), line.text).toContain(token);
+      }
+      const withOpponent = picks("nina-sharpe", "monday_needs", sampleSlotsFor("monday_needs"));
+      expect(withOpponent.some(text => text.includes("Sable Ridge Sentinels"))).toBe(true);
+    });
+  });
+
   it("never opens a sentence with a word-valued slot (count, heat, hoursAgo, direction), which would print lowercase", () => {
     const opener = /(?:^|[.!?]["”’)]*\s+)\{(?:count|heat|hoursAgo|direction)\}/;
     for (const { persona, kind, line } of everyLine()) expect(line.text, `${persona}/${kind}: ${line.text}`).not.toMatch(opener);
+  });
+
+  it("keeps every live-desk line under the limit with long team names", () => {
+    const long = "The Extraordinarily Long Fantasy Football Team Name Society";
+    for (const [persona, kind] of [
+      ["curtis-vaughn", "matchup_live"],
+      ["nina-sharpe", "monday_needs"],
+    ] as const) {
+      const slots = { ...sampleSlotsFor(kind), team: long, opponentTeam: long };
+      for (let seq = 0; seq < 20; seq++) {
+        const pick = pickStockLine(persona, kind, slots, `long:${seq}:${kind}`, "clean");
+        expect(pick, `${kind} seed ${seq}`).not.toBeNull();
+        expect(pick?.text.length ?? 0).toBeLessThanOrEqual(MAX_POST_CHARS);
+        expect(pick?.text).not.toMatch(/\{[A-Za-z]+\}/);
+      }
+    }
   });
 
   it("keeps every Dex Desk line under the limit with long league names", () => {

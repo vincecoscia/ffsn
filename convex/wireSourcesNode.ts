@@ -276,6 +276,14 @@ export const pollNflSchedule = internalAction({
       const scheduleResult: { scheduled: number } = await ctx.runMutation(internal.wireDesk.scheduleLineupLockChecks, { kickoffs });
       const scheduled = scheduleResult.scheduled;
 
+      // The live game engine (spec §19.1): a freshly-discovered game week's kickoffs should wake a
+      // dead clock immediately rather than waiting for the next daily `ensureWireClock` cron.
+      try {
+        await ctx.runMutation(internal.wireLive.ensureWireClock, {});
+      } catch (clockError) {
+        console.error("pollNflSchedule: ensureWireClock failed:", clockError);
+      }
+
       return { success: true, rows: upserted, scheduled };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to poll NFL schedule";

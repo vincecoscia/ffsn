@@ -15,7 +15,10 @@ export type FeedName =
   // Dex Desk (spec §18): the transaction-log poll, every 15 min in season.
   | "espn_transactions"
   // Dex Desk (spec §18): the NFL schedule/kickoffs poll, every 6 hours.
-  | "nfl_kickoffs";
+  | "nfl_kickoffs"
+  // Live game engine (spec §19): the game clock's own scoreboard fetch, every tick while any game
+  // is live, else once at each kickoff wake-up.
+  | "espn_scoreboard";
 
 export interface FeedRun {
   source: FeedName;
@@ -34,6 +37,7 @@ const LABELS: Record<FeedName, string> = {
   espn_injuries: "ESPN injuries",
   espn_transactions: "ESPN transactions",
   nfl_kickoffs: "NFL kickoffs",
+  espn_scoreboard: "ESPN scoreboard (live)",
 };
 
 /** How old the last successful run may be before the feed counts as stale (ms). */
@@ -46,6 +50,7 @@ export const STALE_AFTER_MS: Record<FeedName, number> = {
   espn_injuries: 2 * 60 * 60 * 1000, // polled every 5 min in season, 30 min otherwise (Wire spec §5.1/§6)
   espn_transactions: 1 * 60 * 60 * 1000, // polled every 15 min in season (Dex Desk spec §18)
   nfl_kickoffs: 8 * 60 * 60 * 1000, // polled every 6h (Dex Desk spec §18)
+  espn_scoreboard: 2 * 60 * 60 * 1000, // stale after 2h in season (spec §19: the clock sleeps between game windows)
 };
 
 const ORDER: FeedName[] = [
@@ -57,6 +62,7 @@ const ORDER: FeedName[] = [
   "espn_injuries",
   "espn_transactions",
   "nfl_kickoffs",
+  "espn_scoreboard",
 ];
 
 export function ago(ms: number): string {

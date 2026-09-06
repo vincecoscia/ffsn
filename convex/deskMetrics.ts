@@ -1007,6 +1007,17 @@ export const sendOperatorDigest = internalAction({
         error: nflKickoffsHealth.error,
       });
     }
+    // Live game engine (spec §19/§11): the game clock's own scoreboard poll, same treatment.
+    const scoreboardHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "espn_scoreboard" });
+    if (scoreboardHealth) {
+      feedRuns.push({
+        source: "espn_scoreboard",
+        ranAt: scoreboardHealth.lastRunAt,
+        ok: scoreboardHealth.ok,
+        summary: scoreboardHealth.summary,
+        error: scoreboardHealth.error,
+      });
+    }
     const stale = staleFeeds(feedRuns, now);
 
     const lines: string[] = [];

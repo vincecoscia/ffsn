@@ -13,6 +13,7 @@ const runs: FeedRun[] = [
   { source: "espn_injuries", ranAt: NOW - 10 * 60 * 1000, ok: true, summary: "3 changed" },
   { source: "espn_transactions", ranAt: NOW - 5 * 60 * 1000, ok: true, summary: "2 league(s) polled" },
   { source: "nfl_kickoffs", ranAt: NOW - 4 * H, ok: true, summary: "3 new kickoff(s) scheduled, 0 bye check(s) scheduled" },
+  { source: "espn_scoreboard", ranAt: NOW - 2 * 60 * 1000, ok: true, summary: "16 games, 3 live" },
 ];
 
 describe("feed freshness", () => {
@@ -30,6 +31,7 @@ describe("feed freshness", () => {
     expect(line).toContain("ESPN injuries: 10m ago, 3 changed");
     expect(line).toContain("ESPN transactions: 5m ago, 2 league(s) polled");
     expect(line).toContain("NFL kickoffs: 4h ago, 3 new kickoff(s) scheduled, 0 bye check(s) scheduled");
+    expect(line).toContain("ESPN scoreboard (live): 2m ago, 16 games, 3 live");
     expect(formatFeedFreshness([], NOW)).toContain("Sleeper injuries/depth: never");
   });
 });

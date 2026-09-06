@@ -216,6 +216,85 @@ describe("defaultVariants", () => {
     expect(fillVariant(variants.owner, SLOTS)).toEqual({ ok: false, unresolved: ["direction", "pct"] });
   });
 
+  describe("live variants (spec §19)", () => {
+    const game = { eventId: "401671", home: "CIN", away: "KC", homeScore: 14, awayScore: 10, period: 2, clock: "4:12" };
+    const live = (overrides: Partial<WireFactCard>): WireFactCard => ({
+      kind: "scoring_play",
+      observedAt: 0,
+      players: [{ espnId: "4362628", name: "Ja'Marr Chase", position: "WR", nflTeam: "CIN" }],
+      nflTeam: "CIN",
+      game,
+      source: { type: "espn_summary", fetchedAt: 0 },
+      ...overrides,
+    });
+    const owner = (card: WireFactCard, slots: WireSlots) => fillVariant(defaultVariants(card).owner, slots);
+    const core: WireSlots = { team: "Kittle Me This", player: "Ja'Marr Chase" };
+
+    it("scoring_play: the owner just got six (or whatever the play was worth)", () => {
+      expect(owner(live({ play: { text: "Ja'Marr Chase 12 Yd pass", scoreValue: 6 } }), core)).toEqual({ ok: true, text: "Kittle Me This just got six from Ja'Marr Chase." });
+      expect(owner(live({ play: { text: "Ja'Marr Chase 12 Yd pass" } }), core)).toEqual({ ok: true, text: "Kittle Me This just got six from Ja'Marr Chase." });
+      expect(owner(live({ play: { text: "Evan McPherson 44 Yd Field Goal", scoreValue: 3 } }), core)).toEqual({ ok: true, text: "Kittle Me This just got three from Ja'Marr Chase." });
+      expect(owner(live({ play: { text: "Two-point conversion", scoreValue: 2 } }), core)).toEqual({ ok: true, text: "Kittle Me This just got two from Ja'Marr Chase." });
+    });
+
+    it("big_line: the card's fantasy points are baked in; without them the {points} sentence fills or drops", () => {
+      expect(owner(live({ kind: "big_line", line: { recYds: 131, fantasyPoints: 24.7 } }), core)).toEqual({
+        ok: true,
+        text: "Ja'Marr Chase is having a day for Kittle Me This. 24.7 fantasy points and counting.",
+      });
+      expect(owner(live({ kind: "big_line", line: { recYds: 131 } }), { ...core, points: "18.2" })).toEqual({
+        ok: true,
+        text: "Ja'Marr Chase is having a day for Kittle Me This. 18.2 fantasy points and counting.",
+      });
+      expect(owner(live({ kind: "big_line", line: { recYds: 131 } }), core)).toEqual({ ok: true, text: "Ja'Marr Chase is having a day for Kittle Me This.", dropped: ["points"] });
+    });
+
+    it("game_started / game_final: the owner line is the kickoff or the final for that team's player, plus an optional points tail", () => {
+      expect(owner(live({ kind: "game_started" }), core)).toEqual({ ok: true, text: "Kickoff: Kittle Me This has Ja'Marr Chase on the field in this one." });
+      expect(owner(live({ kind: "game_final" }), core)).toEqual({ ok: true, text: "Final for Kittle Me This: Ja'Marr Chase's game is done.", dropped: ["points"] });
+      expect(owner(live({ kind: "game_final" }), { ...core, points: "16.4" })).toEqual({
+        ok: true,
+        text: "Final for Kittle Me This: Ja'Marr Chase's game is done. 16.4 fantasy points from him on the day.",
+      });
+      expect(owner(live({ kind: "game_final", line: { fantasyPoints: 16.4 } }), core)).toEqual({
+        ok: true,
+        text: "Final for Kittle Me This: Ja'Marr Chase's game is done. 16.4 fantasy points from him on the day.",
+      });
+    });
+
+    it("bust_watch: the final points, and never a grade on the start (spec §16)", () => {
+      expect(owner(live({ kind: "bust_watch", line: { fantasyPoints: 3.4 } }), core)).toEqual({
+        ok: true,
+        text: "Kittle Me This rosters Ja'Marr Chase: 3.4 fantasy points at the final. A bad day, not a lineup call.",
+      });
+      expect(owner(live({ kind: "bust_watch" }), core)).toEqual({
+        ok: true,
+        text: "Kittle Me This rosters Ja'Marr Chase: under 5 fantasy points at the final. A bad day, not a lineup call.",
+      });
+      for (const template of Object.values(defaultVariants(live({ kind: "bust_watch", line: { fantasyPoints: 3.4 } })))) {
+        expect(template).not.toMatch(/mismanag|blunder|mistake|should have|idiot|dumb|panic|stupid|started/i);
+      }
+    });
+
+    it("every live owner lead resolves from {team} and {player} alone, and the other variants read", () => {
+      for (const kind of ["game_started", "game_final", "scoring_play", "big_line", "bust_watch"] as const) {
+        const variants = defaultVariants(live({ kind, play: kind === "scoring_play" ? { text: "x" } : undefined }));
+        const lead = owner(live({ kind }), core);
+        expect(lead.ok, kind).toBe(true);
+        if (lead.ok) {
+          expect(lead.text, kind).toContain("Kittle Me This");
+          expect(lead.text, kind).toContain("Ja'Marr Chase");
+        }
+        const opponent = fillVariant(variants.opponent, { team: "Sable Ridge Sentinels", ownerTeam: "Kittle Me This", player: "Ja'Marr Chase" });
+        expect(opponent.ok, `${kind}/opponent`).toBe(true);
+        if (opponent.ok) expect(opponent.text).toContain("Sable Ridge Sentinels draws Kittle Me This");
+        const freeAgent = fillVariant(variants.freeAgent, { player: "Ja'Marr Chase" });
+        expect(freeAgent.ok, `${kind}/freeAgent`).toBe(true);
+        if (freeAgent.ok) expect(freeAgent.text).toContain("on your wire");
+      }
+    });
+  });
+
   it("phrases the opponent line for the spec example", () => {
     expect(fillVariant(defaultVariants({ ...base, timetable: undefined }).opponent, SLOTS)).toEqual({
       ok: true,

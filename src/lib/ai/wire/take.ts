@@ -120,7 +120,8 @@ block; there is nothing else.
 Rules for every string you return:
 1. At most ${MAX_POST_CHARS} characters. Shorter is better. One sentence can be the whole post.
 2. The only facts you may state are on the card: the player(s), the NFL team, the position, the status
-   change, the text of the note, the headline, the depth-chart move, the trending count. Nothing else —
+   change, the text of the note, the headline, the depth-chart move, the trending count, and on a
+   live-game card the score, the period and clock, the play text and the box-score line. Nothing else —
    no stats, no history, no other players, no dates or days, no "this week's game", no guess at what
    the injury is or how bad it is.
 3. A timetable ("6-8 weeks", "week-to-week", "season-ending") appears only if the card has a
@@ -148,7 +149,8 @@ Rules for every string you return:
 8. Tags come from ${WIRE_TAGS.join(", ")}. REPORTED: the fact is in the source's report (a status
    change, a note, a headline). STATED: the note quotes someone on the record (a coach, the player)
    and you are relaying what they said. OPINION: your own read, flagged as yours. LIVE, FINAL and
-   UPDATE belong to the live game desk; do not use them here. Most posts carry one tag; REPORTED
+   UPDATE belong to the live game desk: LIVE on a game_started, scoring_play or big_line card, FINAL
+   on a game_final or bust_watch card, and never on anything else. Most posts carry one tag; REPORTED
    plus OPINION when you add a read.
 9. Broadcast register, as always: no field names, no ids, no timestamps, no JSON in the prose.
 10. Sources by name: "espnRosteredPct" is the share of ESPN leagues that roster the player and
@@ -201,6 +203,10 @@ export function modelCardView(card: WireFactCard): Record<string, unknown> {
     sleeperAddsLast24h: card.trendingAdds,
     // ownership_swing: signed percentage points, ESPN's overnight roster change
     espnRosterChangePct: card.ownershipChange,
+    // Live game engine (spec §19): the scoreboard, the scoring play, the box-score line.
+    game: card.game,
+    play: card.play,
+    line: card.line,
     source: sourceLabel(card.source.type),
   };
 }

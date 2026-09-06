@@ -22,7 +22,9 @@ import {
   CARD_MIN_INTEREST,
   FREE_AGENT_MIN_PERCENT_OWNED,
   FREE_AGENT_MIN_TRENDING_ADDS,
+  LIVE_OWNER_ONLY_KINDS,
   STARTER_OVERLAY_BONUS,
+  WIRE_ALERT_MIN_INTEREST,
 } from "../src/lib/ai/wire/types";
 import type { OverlayVariant, WireCardPlayer, WireFactCard, WireSlots } from "../src/lib/ai/wire/types";
 import { validateFactCard } from "../src/lib/ai/wire/card";
@@ -298,7 +300,7 @@ export const fanOutGlobalPostForLeague = internalMutation({
         faab: preDraft ? undefined : faabSlot(league, ownership.team),
         bestFA,
       };
-      await tryInsertVariant(ctx, {
+      const ownerResult = await tryInsertVariant(ctx, {
         leagueId,
         seasonId,
         week,
@@ -312,6 +314,20 @@ export const fanOutGlobalPostForLeague = internalMutation({
         language,
         now,
       });
+      if (ownerResult.inserted && ownerResult.id && ownerResult.text) {
+        await raiseWireAlertIfNeeded(ctx, {
+          leagueId,
+          teamId: ownership.team._id,
+          seasonId,
+          postId: ownerResult.id,
+          text: ownerResult.text,
+          effectiveInterest,
+        });
+      }
+
+      // During games, an owner overlay is the only variant produced (spec §19.1
+      // LIVE_OWNER_ONLY_KINDS): no opponent read on someone else's scoring play or box line.
+      if (LIVE_OWNER_ONLY_KINDS.has(post.kind)) return null;
 
       // Opponent variant: this week's matchup for the owner's team (none before the draft).
       const opponentTeam = preDraft
@@ -342,6 +358,10 @@ export const fanOutGlobalPostForLeague = internalMutation({
       }
       return null;
     }
+
+    // During games, an unrostered player gets no overlay at all in this league (owner-only, spec
+    // §19.1) - never a free-agent read on somebody else's scoring play.
+    if (LIVE_OWNER_ONLY_KINDS.has(post.kind)) return null;
 
     // Unrostered here: free-agent variant, gated on wide-enough relevance (spec §3.2 point 5).
     if (post.interest < CARD_MIN_INTEREST) return null;
@@ -420,8 +440,14 @@ interface VariantInsertArgs {
   now: number;
 }
 
+interface VariantInsertResult {
+  inserted: boolean;
+  id?: Id<"wireLeaguePosts">;
+  text?: string;
+}
+
 /** Fill the variant's template, verify it, and insert (or silently drop it - spec §3.2 point 4/6). */
-async function tryInsertVariant(ctx: MutationCtx, args: VariantInsertArgs): Promise<void> {
+async function tryInsertVariant(ctx: MutationCtx, args: VariantInsertArgs): Promise<VariantInsertResult> {
   const { leagueId, seasonId, week, post, card, variant, slots, teamId, featuredTeams, featuredTeamNames, language, now } = args;
 
   // The model writes owner/opponent/freeAgent; draftBoard (and any variant it skipped) falls back
@@ -429,18 +455,18 @@ async function tryInsertVariant(ctx: MutationCtx, args: VariantInsertArgs): Prom
   const modelVariants = post.variants as Partial<Record<OverlayVariant, string>> | undefined;
   const template = modelVariants?.[variant] ?? defaultVariants(card)[variant];
   const filled = fillVariant(template, slots);
-  if (!filled.ok) return;
+  if (!filled.ok) return { inserted: false };
 
   const isCleanTeam = featuredTeamNames.some((name) => language.cleanTeamNames.includes(name));
   const rating = isCleanTeam ? "clean" : language.languageRating;
   const verified = verifyLeagueText(filled.text, rating, language.cleanTeamNames);
-  if (!verified.ok) return;
+  if (!verified.ok) return { inserted: false };
 
   const dedupeKey = teamId
     ? `overlay:${post._id}:${teamId}:${variant}`
     : `overlay:${post._id}:league:${variant}`;
 
-  await insertLeaguePostIfNew(ctx, now, {
+  const result = await insertLeaguePostIfNew(ctx, now, {
     leagueId,
     seasonId,
     week,
@@ -453,6 +479,7 @@ async function tryInsertVariant(ctx: MutationCtx, args: VariantInsertArgs): Prom
     featuredTeams,
     dedupeKey,
   });
+  return { inserted: result.inserted, id: result.id, text: filled.text };
 }
 
 /** Drop `undefined`-valued slot entries before storing - `impact.slots` validates as
@@ -463,4 +490,53 @@ function cleanSlots(slots: WireSlots): Record<string, string> {
     if (value !== undefined) out[key] = value;
   }
   return out;
+}
+
+/**
+ * Live game engine notifications (spec §19.1, §10): an owner-variant overlay at or above
+ * WIRE_ALERT_MIN_INTEREST raises an in-app `wire_alert` for every manager who has claimed the
+ * featured team, unless that manager has opted out (`users.preferences.wireAlerts === "off"`;
+ * absent = "my_roster", which this - an overlay about the manager's OWN roster - always qualifies
+ * for). Every claimed manager gets one, not just the first, in case a team is ever co-claimed.
+ */
+async function raiseWireAlertIfNeeded(
+  ctx: MutationCtx,
+  args: {
+    leagueId: Id<"leagues">;
+    teamId: Id<"teams">;
+    seasonId: number;
+    postId: Id<"wireLeaguePosts">;
+    text: string;
+    effectiveInterest: number;
+  }
+): Promise<void> {
+  if (args.effectiveInterest < WIRE_ALERT_MIN_INTEREST) return;
+
+  const claims = await ctx.db
+    .query("teamClaims")
+    .withIndex("by_team_season", (q) => q.eq("teamId", args.teamId).eq("seasonId", args.seasonId))
+    .take(10);
+
+  for (const claim of claims) {
+    if (claim.status !== "active") continue;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", claim.userId))
+      .first();
+    if (!user) continue;
+    if (user.preferences?.wireAlerts === "off") continue;
+
+    await ctx.runMutation(internal.notifications.createNotification, {
+      userId: user._id,
+      leagueId: args.leagueId,
+      type: "wire_alert",
+      title: args.text.slice(0, 80),
+      message: args.text,
+      actionUrl: `/leagues/${args.leagueId}/wire`,
+      relatedEntityType: "wire_post",
+      priority: "high",
+      deliveryChannels: ["in_app"],
+      dedupeKey: `wire:${args.postId}:${args.teamId}`,
+    });
+  }
 }

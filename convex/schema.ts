@@ -70,6 +70,9 @@ export default defineSchema({
       // manager's team reads as clean whatever the league's languageRating is. Absent means
       // this manager has not opted down.
       cleanLanguage: v.optional(v.boolean()),
+      // The Wire (ffsn-the-wire-spec.md §10, §19): who gets a `wire_alert` in-app notification
+      // (an owner-variant overlay at interest >= WIRE_ALERT_MIN_INTEREST). Absent = "my_roster".
+      wireAlerts: v.optional(v.union(v.literal("off"), v.literal("my_roster"), v.literal("all"))),
     })),
     createdAt: v.number(),
     lastActiveAt: v.number(),
@@ -2388,5 +2391,40 @@ export default defineSchema({
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
   }).index("by_league_kind_key", ["leagueId", "kind", "key"]),
+
+  // Live game engine (ffsn-the-wire-spec.md §19): one row per league/scoring-period, patched (not
+  // appended) on every `pullLeagueLive` pull - the "last snapshot" `matchup_live`/`monday_needs`
+  // diff against. Mirrors the shape `updateMatchups` already writes to `matchups.homeRoster`/
+  // `awayRoster`, trimmed to just what the diff and the Monday-needs check read.
+  wireLiveSnapshots: defineTable({
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    scoringPeriod: v.number(),
+    takenAt: v.number(),
+    matchups: v.array(
+      v.object({
+        homeTeamId: v.string(),
+        awayTeamId: v.string(),
+        homeScore: v.number(),
+        awayScore: v.number(),
+        homePlayers: v.array(
+          v.object({
+            espnId: v.string(),
+            points: v.number(),
+            lineupSlotId: v.number(),
+            proTeam: v.optional(v.string()),
+          })
+        ),
+        awayPlayers: v.array(
+          v.object({
+            espnId: v.string(),
+            points: v.number(),
+            lineupSlotId: v.number(),
+            proTeam: v.optional(v.string()),
+          })
+        ),
+      })
+    ),
+  }).index("by_league_period", ["leagueId", "seasonId", "scoringPeriod"]),
 
 });

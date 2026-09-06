@@ -3,8 +3,16 @@
 // A variant is a template with `{token}` slots. A sentence whose tokens do not all resolve is
 // dropped; if nothing is left the variant is skipped. Never a blank, never a raw token.
 
-import { ownershipSwingDirection, ownershipSwingPercent } from "./card";
-import { MAX_POST_CHARS, SLOT_TOKENS, type OverlayVariant, type SlotToken, type WireFactCard, type WireSlots } from "./types";
+import { formatPoints, ownershipSwingDirection, ownershipSwingPercent } from "./card";
+import {
+  BUST_WATCH_MAX_POINTS,
+  MAX_POST_CHARS,
+  SLOT_TOKENS,
+  type OverlayVariant,
+  type SlotToken,
+  type WireFactCard,
+  type WireSlots,
+} from "./types";
 
 const TOKEN_PATTERN = /\{([A-Za-z]+)\}/g;
 const SLOT_TOKEN_SET: ReadonlySet<string> = new Set(SLOT_TOKENS);
@@ -167,6 +175,87 @@ export function defaultVariants(card: WireFactCard): Record<OverlayVariant, stri
   return { ...baseVariants(card), draftBoard: draftBoardTemplate(card) };
 }
 
+/* ------------------------------------------------------------------------------------------- *
+ * Live game engine (spec §19)
+ *
+ * During games only the owner variant posts (LIVE_OWNER_ONLY_KINDS); the others are here so a
+ * late overlay still reads. Two conventions:
+ *   - A figure that is on the CARD (the bust's fantasy points, a big line's points) is baked into
+ *     the template as text, because it is a global fact, not a league-specific slot. When the card
+ *     lacks it, the same sentence carries `{points}` instead, so it fills if the overlay hook
+ *     passes the player's fantasy points as `points` and drops cleanly if it does not.
+ *   - The lead sentence uses only {team} / {player} / {ownerTeam}, so the post never opens on a
+ *     leftover fragment. game_started / game_final carry no league-specific figure at all: their
+ *     owner line is the kickoff / final for that team's player, and an optional {points} tail.
+ *   - bust_watch never grades the start (spec §16): a bad day is a bad day, not a lineup call.
+ * ------------------------------------------------------------------------------------------- */
+
+/** "six", "three", "two", "one" — what a scoring play was worth, from the card; "points" when unknown. */
+function scoreWord(card: WireFactCard): string {
+  switch (card.play?.scoreValue) {
+    case undefined:
+    case 6:
+      return "six";
+    case 3:
+      return "three";
+    case 2:
+      return "two";
+    case 1:
+      return "one";
+    default:
+      return "points";
+  }
+}
+
+/** The card's fantasy points as a template fragment, or the `{points}` slot when the card has none. */
+function pointsFragment(card: WireFactCard): string {
+  const points = card.line?.fantasyPoints;
+  return typeof points === "number" && Number.isFinite(points) ? formatPoints(points) : "{points}";
+}
+
+function liveVariants(card: WireFactCard): Record<Exclude<OverlayVariant, "draftBoard">, string> | undefined {
+  switch (card.kind) {
+    case "game_started":
+      return {
+        owner: "Kickoff: {team} has {player} on the field in this one.",
+        opponent: "{team} draws {ownerTeam} this week, and their {player} just kicked off.",
+        freeAgent: "{player} just kicked off and he is on your wire in this league.",
+      };
+    case "game_final":
+      return {
+        owner: `Final for {team}: {player}'s game is done. ${pointsFragment(card)} fantasy points from him on the day.`,
+        opponent: "{team} draws {ownerTeam} this week, and {player}'s game is final.",
+        freeAgent: "{player}'s game is final and he is on your wire in this league.",
+      };
+    case "scoring_play":
+      return {
+        owner: `{team} just got ${scoreWord(card)} from {player}.`,
+        opponent: "{team} draws {ownerTeam} this week, and {player} just scored for them.",
+        freeAgent: "{player} just scored and he is on your wire in this league.",
+      };
+    case "big_line":
+      return {
+        owner: `{player} is having a day for {team}. ${pointsFragment(card)} fantasy points and counting.`,
+        opponent: "{team} draws {ownerTeam} this week, and {player} is having a day for them.",
+        freeAgent: "{player} is having a day and he is on your wire in this league.",
+      };
+    case "bust_watch": {
+      const points = card.line?.fantasyPoints;
+      const finish =
+        typeof points === "number" && Number.isFinite(points)
+          ? `${formatPoints(points)} fantasy points at the final`
+          : `under ${BUST_WATCH_MAX_POINTS} fantasy points at the final`;
+      return {
+        owner: `{team} rosters {player}: ${finish}. A bad day, not a lineup call.`,
+        opponent: `{team} draws {ownerTeam} this week, and their {player} finished with ${finish}.`,
+        freeAgent: `{player} is on your wire in this league and finished with ${finish}.`,
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
 /**
  * The two slots an ownership_swing overlay needs (spec §18): `{pct}` ("12%") and `{direction}`
  * ("dropped" | "added") from the card's signed ESPN percentChange. Empty when the card has none, so
@@ -179,6 +268,8 @@ export function ownershipSwingSlots(card: WireFactCard): Pick<WireSlots, "pct" |
 }
 
 function baseVariants(card: WireFactCard): Record<Exclude<OverlayVariant, "draftBoard">, string> {
+  const live = liveVariants(card);
+  if (live) return live;
   switch (card.kind) {
     case "injury_status": {
       const tier = statusTier(card);

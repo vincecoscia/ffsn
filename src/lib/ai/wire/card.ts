@@ -6,9 +6,14 @@
 
 import { z } from "zod";
 import {
+  BIG_LINE_PASS_YARDS,
+  BIG_LINE_RUSH_REC_YARDS,
+  BIG_LINE_TD,
+  BUST_WATCH_MAX_POINTS,
   GLOBAL_EVENT_KINDS,
   MAX_NOTE_CHARS,
   MAX_POST_CHARS,
+  type WireCardLine,
   type WireFactCard,
   type WireSourceType,
   type WireTag,
@@ -45,6 +50,33 @@ const WireSourceRefSchema = z.object({
   fetchedAt: z.number(),
 });
 
+// Live game engine (spec §19)
+const WireCardGameSchema = z.object({
+  eventId: z.string().min(1, "eventId is required"),
+  home: z.string().min(1, "home is required"),
+  away: z.string().min(1, "away is required"),
+  homeScore: z.number().int().nonnegative(),
+  awayScore: z.number().int().nonnegative(),
+  period: z.number().int().positive().optional(),
+  clock: z.string().optional(),
+  kickoffAt: z.number().optional(),
+});
+
+const WireCardPlaySchema = z.object({
+  text: z.string().min(1, "play text is required"),
+  yards: z.number().finite().optional(),
+  tdCountToday: z.number().int().nonnegative().optional(),
+  scoreValue: z.number().int().nonnegative().optional(),
+});
+
+const WireCardLineSchema = z.object({
+  rushYds: z.number().finite().optional(),
+  recYds: z.number().finite().optional(),
+  passYds: z.number().finite().optional(),
+  td: z.number().int().nonnegative().optional(),
+  fantasyPoints: z.number().finite().optional(),
+});
+
 /** Mirrors {@link WireFactCard}. Unknown keys are dropped, never rejected. */
 export const WireFactCardSchema = z.object({
   kind: z.enum(GLOBAL_EVENT_KINDS),
@@ -61,6 +93,9 @@ export const WireFactCardSchema = z.object({
   depthPosition: z.string().optional(),
   trendingAdds: z.number().int().nonnegative().optional(),
   ownershipChange: z.number().finite().optional(),
+  game: WireCardGameSchema.optional(),
+  play: WireCardPlaySchema.optional(),
+  line: WireCardLineSchema.optional(),
   source: WireSourceRefSchema,
 });
 
@@ -150,6 +185,27 @@ function withQuote(prefix: string, quote: string, suffix = ""): string {
   return `${prefix}"${cut.trimEnd()}${ELLIPSIS}"${suffix}`;
 }
 
+/**
+ * `prefix` + `body` (+ `suffix`), with the body cut on a word and ellipsised so the whole line fits
+ * MAX_POST_CHARS. The frame (prefix and suffix) is never cut: it carries the score and the clock.
+ */
+function withBody(prefix: string, body: string, suffix = ""): string {
+  const clean = body.replace(/\s+/g, " ").trim();
+  const frame = prefix.length + suffix.length;
+  if (frame + clean.length <= MAX_POST_CHARS) return `${prefix}${clean}${suffix}`;
+  const room = MAX_POST_CHARS - frame - ELLIPSIS.length;
+  if (room <= 0) return clampText(`${prefix}${suffix}`);
+  let cut = clean.slice(0, room);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace > room * 0.6) cut = cut.slice(0, lastSpace);
+  return `${prefix}${cut.trimEnd()}${ELLIPSIS}${suffix}`;
+}
+
+/** A fantasy-point or yardage figure as the reader sees it: "112", "3.4" (one decimal when not whole). */
+export function formatPoints(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 /** "Joe Burrow (CIN · QB)", degrading gracefully when team or position is unknown. */
 export function playerTag(card: WireFactCard, index = 0): string {
   const player = card.players[index] ?? card.players[0];
@@ -182,6 +238,94 @@ const KIND_LABELS: Partial<Record<WireFactCard["kind"], string>> = {
   bust_watch: "bust watch",
   weather: "weather",
 };
+
+/* ------------------------------------------------------------------------------------------- *
+ * Live game engine (spec §19): the pieces the five live kinds render from
+ * ------------------------------------------------------------------------------------------- */
+
+/** "KC 10, CIN 14" — away first, as a scoreboard reads. */
+function scoreLine(game: NonNullable<WireFactCard["game"]>): string {
+  return `${game.away} ${game.awayScore}, ${game.home} ${game.homeScore}`;
+}
+
+/** "Q2 4:12", "Q3", or "" when the card carries no period. */
+function clockLine(game: NonNullable<WireFactCard["game"]>): string {
+  if (typeof game.period !== "number") return "";
+  const clock = game.clock?.trim();
+  return clock ? `Q${game.period} ${clock}` : `Q${game.period}`;
+}
+
+/** "Ja'Marr Chase (CIN)" — the scoring player with his NFL team, or the bare name. */
+function playerWithTeam(card: WireFactCard): string {
+  const player = card.players[0];
+  const team = player.nflTeam ?? card.nflTeam;
+  return team ? `${player.name} (${team})` : player.name;
+}
+
+/** Whether ESPN's play text already names the scoring player, so the card need not repeat him. */
+function playTextNamesPlayer(text: string, name: string): boolean {
+  const needle = name.trim().toLowerCase();
+  return needle.length > 0 && text.toLowerCase().includes(needle);
+}
+
+/** "112 rushing yards, 3 TD" — only the metrics that crossed a big_line threshold (spec §19.1). */
+export function bigLineMetrics(line: WireCardLine | undefined): string[] {
+  if (!line) return [];
+  const out: string[] = [];
+  if (typeof line.rushYds === "number" && line.rushYds >= BIG_LINE_RUSH_REC_YARDS) out.push(`${formatPoints(line.rushYds)} rushing yards`);
+  if (typeof line.recYds === "number" && line.recYds >= BIG_LINE_RUSH_REC_YARDS) out.push(`${formatPoints(line.recYds)} receiving yards`);
+  if (typeof line.passYds === "number" && line.passYds >= BIG_LINE_PASS_YARDS) out.push(`${formatPoints(line.passYds)} passing yards`);
+  if (typeof line.td === "number" && line.td >= BIG_LINE_TD) out.push(`${line.td} TD`);
+  return out;
+}
+
+/**
+ * The five live kinds (spec §19), rendered from their structured fields. No source label in the
+ * line — the chip says ESPN — and nothing attributed to a reporter. `undefined` when the card lacks
+ * the fields the kind needs, so the caller can fall back to the generic line.
+ */
+function renderLiveCard(card: WireFactCard): { text: string; tags: WireTag[] } | undefined {
+  const game = card.game;
+  switch (card.kind) {
+    case "game_started": {
+      if (!game) return undefined;
+      return { text: clampText(`Kickoff: ${game.away} at ${game.home}. Let's go to the board.`), tags: ["LIVE"] };
+    }
+    case "game_final": {
+      if (!game) return undefined;
+      return { text: clampText(`Final: ${game.home} ${game.homeScore}, ${game.away} ${game.awayScore}.`), tags: ["FINAL"] };
+    }
+    case "scoring_play": {
+      const play = card.play;
+      if (!play) return undefined;
+      const player = card.players[0];
+      // ESPN's play text carries no reporter credit; stripping is the same defence every card gets.
+      const playText = stripReporterAttribution(play.text).replace(/[.\s]+$/, "");
+      const prefix = playTextNamesPlayer(playText, player.name) ? "" : `${playerWithTeam(card)}: `;
+      const situation = game ? [scoreLine(game), clockLine(game)].filter(part => part.length > 0).join(", ") : "";
+      const suffix = situation ? ` — ${situation}.` : ".";
+      return { text: withBody(prefix, playText, suffix), tags: ["LIVE"] };
+    }
+    case "big_line": {
+      const metrics = bigLineMetrics(card.line);
+      if (metrics.length === 0) return undefined;
+      return { text: clampText(`${playerTag(card)}: ${metrics.join(", ")} and counting.`), tags: ["LIVE"] };
+    }
+    case "bust_watch": {
+      const player = card.players[0];
+      const rank =
+        typeof player.adpPositionRank === "number" ? ` (ADP ${player.position ?? ""}${player.adpPositionRank})` : "";
+      const points = card.line?.fantasyPoints;
+      const finish =
+        typeof points === "number" && Number.isFinite(points)
+          ? `finished with ${formatPoints(points)} fantasy points`
+          : `finished under ${BUST_WATCH_MAX_POINTS} fantasy points`;
+      return { text: clampText(`${player.name}${rank} ${finish}.`), tags: ["FINAL"] };
+    }
+    default:
+      return undefined;
+  }
+}
 
 /**
  * The plain wire line for a card, deterministic per kind, ≤ MAX_POST_CHARS. This is what the reader
@@ -240,6 +384,10 @@ export function renderCard(card: WireFactCard): { text: string; tags: WireTag[] 
       return { text: clampText(text), tags: ["REPORTED"] };
     }
     default: {
+      // Live kinds render from their structured fields; a live card without them (an early
+      // detector, a hand-built card) falls through to the generic line below.
+      const live = renderLiveCard(card);
+      if (live) return live;
       const body = card.headline?.trim() || note || KIND_LABELS[card.kind] || card.kind.replace(/_/g, " ");
       const tags: WireTag[] = card.kind === "game_final" ? ["FINAL"] : card.kind === "game_started" ? ["LIVE"] : ["REPORTED"];
       return { text: clampText(`${playerNames(card)}: ${body} (${label})`), tags };
@@ -312,6 +460,28 @@ export function cardNumbers(card: WireFactCard): string[] {
   }
   // The trending window is part of the fact ("in the last 24 hours").
   if (card.kind === "trending") out.add("24");
+  // Live game engine (spec §19): every figure the live line renders — scores, the period, the
+  // clock's two halves, the play's yards and TD count, the box-score line.
+  if (card.game) {
+    addNumber(out, card.game.homeScore);
+    addNumber(out, card.game.awayScore);
+    addNumber(out, card.game.period);
+    for (const value of extractNumbers(card.game.clock)) out.add(value);
+  }
+  if (card.play) {
+    for (const value of extractNumbers(card.play.text)) out.add(value);
+    addNumber(out, card.play.yards);
+    addNumber(out, card.play.tdCountToday);
+    addNumber(out, card.play.scoreValue);
+  }
+  if (card.line) {
+    addNumber(out, card.line.rushYds);
+    addNumber(out, card.line.recYds);
+    addNumber(out, card.line.passYds);
+    addNumber(out, card.line.td);
+    addNumber(out, card.line.fantasyPoints);
+  }
+  if (card.kind === "bust_watch") addNumber(out, BUST_WATCH_MAX_POINTS);
   return [...out];
 }
 
@@ -327,6 +497,13 @@ export function cardNames(card: WireFactCard): string[] {
   // The reporter credit is stripped first so the reporter's name is never an allowed name.
   for (const noun of properNouns(card.note ? stripReporterAttribution(card.note) : undefined)) out.add(noun);
   for (const noun of properNouns(card.headline)) out.add(noun);
+  // Live game engine (spec §19): both teams on the scoreboard, and the people ESPN's play text
+  // names (the passer, the kicker) so a take may credit the throw.
+  if (card.game) {
+    out.add(card.game.home);
+    out.add(card.game.away);
+  }
+  for (const noun of properNouns(card.play ? stripReporterAttribution(card.play.text) : undefined)) out.add(noun);
   out.add(sourceLabel(card.source.type));
   return [...out];
 }

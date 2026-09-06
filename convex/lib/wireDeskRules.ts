@@ -296,6 +296,7 @@ export function localWeekdayAndHour(utcMs: number, timeZone: string): { weekday:
 }
 
 export const SUNDAY = 0;
+export const MONDAY = 1;
 export const TUESDAY = 2;
 export const WEDNESDAY = 3;
 

@@ -145,8 +145,10 @@ export function buildSeasonSettings(
   return { seasonSettings, parsed };
 }
 
-// Transform ESPN roster data to clean format
-const transformRosterData = (rosterData: any) => {
+// Transform ESPN roster data to clean format. Exported so `wireLive.ts` (the live game engine,
+// spec §19) can reuse this exact transform for its per-league live pull, rather than re-deriving
+// the same appliedStats/projectedStats shape a second time.
+export const transformRosterData = (rosterData: any) => {
   if (!rosterData || !rosterData.entries) {
     return undefined;
   }

@@ -1395,7 +1395,9 @@ export const getPrefsInternal = internalQuery({
   },
 });
 
-async function inSeasonNow(ctx: ActionCtx, now: number): Promise<boolean> {
+/** Exported so `wireLive.ts` (the live game engine, spec §19) can gate `pullLeagueLive` the same
+ *  way `pollTransactionLogs` gates itself - drafts and the first lineup moves happen before Week 1. */
+export async function inSeasonNow(ctx: ActionCtx, now: number): Promise<boolean> {
   try {
     const phase: { phase: string } | null = await ctx.runQuery(internal.nflSeasonBoundaries.getNFLSeasonPhase, { date: now });
     // Preseason counts: drafts and the first lineup moves happen before Week 1 (owner's league

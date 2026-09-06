@@ -202,8 +202,12 @@ async function countRecentTakePosts(ctx: MutationCtx, now: number): Promise<numb
  * take budget is spent, in which case it's downgraded to a card with a `rate_limited` flag (spec
  * §11). A card is fanned out to leagues immediately; a `take_pending` post is fanned out later,
  * when its take lands or fails.
+ *
+ * Exported so `wireLiveData.ts` (the live game engine, spec §19) can post its five live kinds
+ * through this exact same path, per the spec: "every event goes through the existing global
+ * posting path".
  */
-async function createPostForEvent(
+export async function createPostForEvent(
   ctx: MutationCtx,
   now: number,
   eventId: Id<"wireEvents">,

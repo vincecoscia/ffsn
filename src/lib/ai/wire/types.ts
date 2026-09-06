@@ -244,7 +244,45 @@ export interface WireFactCard {
   // ownership_swing (spec §18): ESPN `ownership.percentChange`, signed, in percentage points
   // (-12 = dropped in 12% of ESPN leagues overnight, +9 = added in 9%).
   ownershipChange?: number;
+  // Live game engine (spec §19). `game` on every live kind (the scoreboard event); `play` on
+  // scoring_play; `line` on big_line (the crossed box-score metrics) and bust_watch (fantasyPoints).
+  game?: WireCardGame;
+  play?: WireCardPlay;
+  line?: WireCardLine;
   source: WireSourceRef;
+}
+
+/** The ESPN scoreboard event behind a live card. `home`/`away` are team abbreviations ("KC"). */
+export interface WireCardGame {
+  eventId: string;
+  home: string;
+  away: string;
+  homeScore: number;
+  awayScore: number;
+  period?: number;
+  /** Game clock as ESPN prints it, "4:12". */
+  clock?: string;
+  kickoffAt?: number;
+}
+
+/** One ESPN `scoringPlays[]` entry, reduced to what the card states. */
+export interface WireCardPlay {
+  /** ESPN's play text, verbatim ("Ja'Marr Chase 12 Yd pass from Joe Burrow (Evan McPherson Kick)"). */
+  text: string;
+  yards?: number;
+  /** The player's touchdowns so far today, this one included. */
+  tdCountToday?: number;
+  /** Points the play was worth (6, 3, 2, 1). */
+  scoreValue?: number;
+}
+
+/** The player's box-score line at the time of the card. */
+export interface WireCardLine {
+  rushYds?: number;
+  recYds?: number;
+  passYds?: number;
+  td?: number;
+  fantasyPoints?: number;
 }
 
 /* ------------------------------------------------------------------------------------------- *
@@ -413,6 +451,77 @@ export const SAM_QUESTIONS_PER_MANAGER_PER_DAY = 1;
 export const SAM_QUESTIONS_PER_LEAGUE_PER_DAY = 10;
 /** A lineup move is "notable" (worth Sam's question) when the moved player is rostered this widely. */
 export const SAM_NOTABLE_MIN_PERCENT_OWNED = 80;
+
+/* ------------------------------------------------------------------------------------------- *
+ * Live game engine (spec §19): the game clock, live cards, live overlays
+ * ------------------------------------------------------------------------------------------- */
+
+/** Global kinds the game clock emits. They post as cards (renderCard) and take the take bar as usual. */
+export const LIVE_GLOBAL_KINDS = ["game_started", "game_final", "scoring_play", "big_line", "bust_watch"] as const;
+/** League kinds the live fantasy pull emits (stock lines). */
+export const LIVE_LEAGUE_KINDS = ["matchup_live", "monday_needs"] as const;
+/** During games an overlay is owner-only: no opponent / free-agent / draft-board variants. */
+export const LIVE_OWNER_ONLY_KINDS: ReadonlySet<string> = new Set(["scoring_play", "big_line", "bust_watch"]);
+
+export const GAME_CLOCK_TICK_MS = 60 * 1000;
+/** Per-league fantasy pulls happen every Nth tick while any game is live (spec §9.1 step 3). */
+export const LEAGUE_LIVE_PULL_EVERY_TICKS = 5;
+/** The clock wakes this long before the next kickoff when nothing is live. */
+export const CLOCK_PRE_KICKOFF_MS = 5 * 60 * 1000;
+/** A game "in" state older than this with no scoreboard update is treated as over. */
+export const GAME_MAX_DURATION_MS = 4.5 * 60 * 60 * 1000;
+/** scoring_play earns a take when the TD covers this many yards or is the player's Nth of the day. */
+export const SCORING_PLAY_TAKE_MIN_YARDS = 40;
+export const SCORING_PLAY_TAKE_MIN_TD_COUNT = 3;
+/** scoring_play posts (card or take) only for players rostered this widely on ESPN. */
+export const SCORING_PLAY_MIN_PERCENT_OWNED = 50;
+/** big_line thresholds (NFL box score). */
+export const BIG_LINE_RUSH_REC_YARDS = 100;
+export const BIG_LINE_PASS_YARDS = 300;
+export const BIG_LINE_TD = 3;
+/** bust_watch: a player inside this positional ADP rank who finishes under this many fantasy points. */
+export const BUST_WATCH_MAX_ADP_RANK = 24;
+export const BUST_WATCH_MAX_POINTS = 5;
+export const BUST_WATCH_PER_DAY = 3;
+/** matchup_live triggers. */
+export const MATCHUP_LIVE_BLOWOUT_MARGIN = 40;
+export const MATCHUP_LIVE_COMEBACK_FROM = 25;
+/** An owner overlay at or above this interest also raises a wire_alert notification (spec §10). */
+export const WIRE_ALERT_MIN_INTEREST = 70;
+
+/** users.preferences.wireAlerts (spec §10). Absent = "my_roster". */
+export const WIRE_ALERT_PREFS = ["off", "my_roster", "all"] as const;
+export type WireAlertPref = (typeof WIRE_ALERT_PREFS)[number];
+
+/** What the Sunday-night digest email carries for one user (spec §19.3). Rendered by src/lib/email. */
+export interface WireDigestLeague {
+  leagueId: string;
+  leagueName: string;
+  teamName?: string;
+  /** Owner overlays about the user's team in the window, newest first. */
+  yourTeam: Array<{ persona?: string; text: string; createdAt: number }>;
+  /** Lineup-lock and other wire_alert notifications raised in the window. */
+  alerts: Array<{ title: string; message: string; createdAt: number }>;
+  /** Sam's questions to this manager still without an answer. */
+  openQuestions: Array<{ text: string; createdAt: number; postId: string }>;
+  /** Top global posts by interest in the window. */
+  headlines: Array<{ persona: string; text: string; createdAt: number }>;
+  wireUrl: string;
+}
+export interface WireDigestData {
+  recipientName?: string;
+  /** Start and end of the window, ms. */
+  windowStart: number;
+  windowEnd: number;
+  leagues: WireDigestLeague[];
+  settingsUrl: string;
+  /** Site origin for the masthead and footer links; derived from `settingsUrl` when absent. */
+  siteUrl?: string;
+  /** IANA zone for item times; defaults to Eastern. */
+  timeZone?: string;
+}
+export const DIGEST_MAX_YOUR_TEAM = 8;
+export const DIGEST_MAX_HEADLINES = 5;
 
 /* ------------------------------------------------------------------------------------------- *
  * Stock lines (spec §3.3)

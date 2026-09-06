@@ -684,6 +684,41 @@ lineup-lock checks scheduled per distinct kickoff time inside the next 7 days.
 Built 2026-09-05 (D-A/D-B). Not built: the on-bye trigger for `lineup_lock` (a bye has no kickoff to
 anchor to), the IR-parked-Active branch of `roster_note`, a digest line for the desk.
 
+## 19. Live game engine and the Sunday digest (owner-approved 2026-09-05: "let's get those done")
+
+### 19.1 The game clock (`convex/wireLive.ts`)
+A self-rescheduling action, not a cron. Each tick: (1) fetch ESPN's public scoreboard (web-host
+fallback on 403); emit `game_started` / `game_final` cards (Curtis copy from `renderCard`); (2) for
+every game in state "in", fetch `summary?event=` and diff `scoringPlays[]` (cursor per game in
+`wireSourceState`) → `scoring_play` (only players rostered ≥ 50% on ESPN; a take when the TD is ≥ 40
+yards or the player's 3rd of the day, else a card) and the box score → `big_line` (100 rush/rec, 300
+pass, 3 TD) and, at final, `bust_watch` (positional ADP rank ≤ 24 under 5 fantasy points; Mel; max 3
+a day); (3) every 5th tick while anything is live, one ESPN fantasy pull per pass-holding league
+(`mMatchupScore` + `mBoxscore`, current scoring period) that writes the same `updateMatchups` rows the
+4-hourly sync writes (so the scores page goes live too) and diffs against `wireLiveSnapshots` →
+`matchup_live` (lead change, margin > 40, comeback from −25) and, after the last Sunday game,
+`monday_needs` (trailing teams with Monday players vs the deficit). Reschedule: 60 s while any game
+is live, else next kickoff − 5 min (from `nflSchedules`), else stop. A singleton lock in
+`wireSourceState` ("clock", scheduled function id) prevents two clocks; a daily cron re-arms a dead
+one; env `WIRE_LIVE=0` stops it at the next tick. Game-window cadence for the injuries poll stays 5 min.
+
+Overlays during games are owner-only (`LIVE_OWNER_ONLY_KINDS`): "{team} just got six from {player}."
+An owner overlay at interest ≥ 70 also raises a `wire_alert` in-app notification for that team's
+claimed manager, subject to `users.preferences.wireAlerts` ("off" | "my_roster" | "all", default
+my_roster).
+
+### 19.2 Not built here
+Play-by-play (non-scoring plays), weather, the paid push adapter.
+
+### 19.3 The Sunday digest (email, opt-in)
+Monday 04:00 UTC in season (midnight ET after Sunday night football), one email per user who has
+`emailNotifications` on and `wireAlerts !== "off"` and at least one claimed team in a pass-holding,
+wire-enabled league: per league, the owner overlays about their team from the last 24 h (max 8),
+the wire_alert notifications raised, Sam's unanswered questions to them, and the top 5 global posts
+by interest. Broadcast email shell (`src/lib/email/templates.ts#renderWireDigestEmail`), plain-text
+twin, unsubscribe tag, a "Manage alerts" link to /dashboard/settings/notifications. Nothing to say →
+no email. Sent through `emailService.sendPlainEmail`, logged like every other email.
+
 ## Appendix A — sources consulted (2026-09-05)
 
 - ESPN endpoint shapes: live probes recorded above; community docs

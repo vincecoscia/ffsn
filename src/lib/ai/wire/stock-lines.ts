@@ -52,6 +52,15 @@
 //   faab_watch (Nina)  team, faabLeft ("$7"), weeksLeft ("7")
 //   sam_question, manager_post, manager_reply, writer_reply: no stock lines — pickStockLine returns null.
 //
+// Live game engine (spec §19), from the per-league fantasy pull while games are on:
+//   matchup_live (Curtis) team (the LEADER right now), opponentTeam, score, opponentScore, margin?, week?
+//                     One library reads for a lead change, a blowout and a comeback alike: every lead
+//                     sentence says who leads and by what score, never who won — nothing is final.
+//                     {margin} and {week} sit in their own sentences and drop when absent.
+//   monday_needs (Nina) team (the trailing team), points (the DEFICIT), players (the Monday-night
+//                     players, "A and B"), opponentTeam?, week?  — the gap and the names, factual;
+//                     never a grade on the lineup (§16).
+//
 // Pure: imports the contract, fill.ts, language.ts and persona-prompts.ts only.
 
 import { countProfanity, type LanguageRating } from "../language";
@@ -61,6 +70,8 @@ import type { LeagueEventKind, SlotToken, StockLine, WireEventKind, WirePersona,
 
 const REPORTED: WireTag[] = ["REPORTED"];
 const FINAL: WireTag[] = ["FINAL"];
+/** The live desk (spec §19): the matchup is still being played. */
+const LIVE: WireTag[] = ["LIVE"];
 /** A manager said it on the wire (STATED) and the log answered (REPORTED): rumor_check. */
 const STATED_REPORTED: WireTag[] = ["STATED", "REPORTED"];
 
@@ -490,6 +501,30 @@ const CURTIS_ARTICLE: StockLine[] = [
   clean("Filed and published: \"{title}\", {writer}. {url}. That's the show."),
 ];
 
+// matchup_live (spec §19): {team} leads right now. A lead, never a result — the clock is running.
+const CURTIS_MATCHUP_LIVE: StockLine[] = [
+  clean("{team} has the lead on {opponentTeam}, {score} to {opponentScore}. Let's go to the board.", LIVE),
+  clean("Good evening. Live board: {team} {score}, {opponentTeam} {opponentScore}. Margin, {margin}. Stay with us.", LIVE),
+  clean("For those keeping score at home, and it is still being kept: {team} {score}, {opponentTeam} {opponentScore}. Not a final.", LIVE),
+  clean("{team} leads {opponentTeam} by {margin}. The board is live, and so is everybody's phone. We'll leave that there.", LIVE),
+  clean("Live from the desk: {team} {score}, {opponentTeam} {opponentScore}. Week {week}, still in progress. Nina is watching the bench math.", LIVE),
+  clean("The board has moved. {team} now leads {opponentTeam}, {score} to {opponentScore}. Do with that what you will.", LIVE),
+  clean("{team} on top of {opponentTeam}, {score} to {opponentScore}, with football still being played. That is an update, not a result.", LIVE),
+  clean("In a development this desk will read once, flat: {team} {score}, {opponentTeam} {opponentScore}. Live. Stay with us.", LIVE),
+  clean("Scoreboard, live: {team} ahead of {opponentTeam} by {margin}. Reggie is standing. Reggie is always standing.", LIVE),
+  clean("{team} {score}. {opponentTeam} {opponentScore}. Margin {margin}. Players still on the field. We'll have more on that after the break.", LIVE),
+  clean("Update from the board: {team} leads {opponentTeam}, {score} to {opponentScore}. Week {week} is not done with either of them.", LIVE),
+  clean("{team} has pulled ahead of {opponentTeam}. Score {score} to {opponentScore}. Dex is working the phones on who is still to play.", LIVE),
+  clean("Live look-in, Week {week}: {team} {score}, {opponentTeam} {opponentScore}. That's the weather. Now the board.", LIVE),
+  clean("The desk can confirm a lead, not a result: {team} over {opponentTeam}, {score} to {opponentScore}. Stay with us.", LIVE),
+  clean("{team} by {margin} over {opponentTeam}, and the clock is still running. Read once, flat. This is FFSN.", LIVE),
+  clean("Top of the hour: {team} leads {opponentTeam}, {score} to {opponentScore}. Walt has a metaphor ready. Walt is on hold.", LIVE),
+  clean("{team} {score}, {opponentTeam} {opponentScore}, live. The margin is {margin}. The board does not editorialise; neither do I.", LIVE),
+  clean("The lead belongs to {team}: {score} to {opponentScore} over {opponentTeam}. Belongs, present tense. Stay with us.", LIVE),
+  salty("{team} leads {opponentTeam}, {score} to {opponentScore}, and it is not over. Well, hell. Let's go to the board.", LIVE),
+  unfiltered("{team} {score}, {opponentTeam} {opponentScore}. Live, not final, and somebody on this set already said bullshit. We'll be right back.", LIVE),
+];
+
 /* ------------------------------------------------------------------------------------------- *
  * Nina Sharpe — The Numbers Desk. Lecture register, the number, the grade, "That's the segment."
  * ------------------------------------------------------------------------------------------- */
@@ -589,6 +624,27 @@ const NINA_FAAB_WATCH: StockLine[] = [
   clean("Circle the FAAB column. {team}, {faabLeft}, with {weeksLeft} weeks to go. Not supported: \"we'll be fine.\" The column doesn't do fine. That's the segment."),
   salty("{team} has {faabLeft} of FAAB and {weeksLeft} weeks left. Hell of a column. Circle it, then hold it loosely."),
   unfiltered("{faabLeft} of FAAB, {weeksLeft} weeks to go. {team}. That is, and I am using the technical term, a fucking budget problem. Moving on."),
+];
+
+// monday_needs (spec §19): {team} trails by {points} with {players} still to play. The gap and the
+// names. Never a grade on the lineup that got them here (§16).
+const NINA_MONDAY_NEEDS: StockLine[] = [
+  clean("Class. {team} needs {points} from {players} on Monday night. Show your work.", LIVE),
+  clean("Monday math. {team} trails {opponentTeam} by {points}. Left to play: {players}. Circle that column.", LIVE),
+  clean("Pop quiz: can {players} produce {points}? {team} needs the answer by Monday night. That's the segment.", LIVE),
+  clean("{team}: down {points} to {opponentTeam}, with {players} still to play. Two numbers, one caveat. The caveat is Monday.", LIVE),
+  clean("Everyone look at the board. {team} needs {points}. The only names left on it: {players}. That's the segment.", LIVE),
+  clean("Week {week}, Monday night. {team} needs {points} from {players}. Sample size: one game. I'm holding it loosely.", LIVE),
+  clean("Circle this column: {points}. That is the gap between {team} and {opponentTeam}, and {players} are the only ones who can close it.", LIVE),
+  clean("{team} still has {players} to play and needs {points} out of them. Not supported: \"it's over.\" Also not supported: \"it's fine.\"", LIVE),
+  clean("The deficit is {points}. The Monday players are {players}. {team} does the rest of the math tomorrow. That's the segment.", LIVE),
+  clean("Class, a Monday problem. {team} needs {points}. {players} on the board. Show your work; the board will.", LIVE),
+  clean("{team} trails {opponentTeam} by {points}. Monday night: {players}. I am not projecting; I am reading a column.", LIVE),
+  clean("Homework for Monday. {team}, down {points}. Left to play: {players}. Grade posted Tuesday morning.", LIVE),
+  clean("Numbers desk, Sunday night: {team} needs {points} from {players}. One game left. Hold it loosely; that number does not.", LIVE),
+  clean("{points}. That is what {team} needs on Monday night, and {players} are the ones who have to find it. Circle it.", LIVE),
+  salty("{team} needs {points} from {players} on Monday night. Hell of a column to sleep on. That's the segment.", LIVE),
+  unfiltered("{team}, down {points} to {opponentTeam}, with {players} left. That is, and I am using the technical term, a fucking Monday. Moving on.", LIVE),
 ];
 
 /* ------------------------------------------------------------------------------------------- *
@@ -721,6 +777,8 @@ export const STOCK_LINES: Record<WirePersona, Partial<Record<LeagueEventKind, Re
     game_of_week: CURTIS_GAME_OF_WEEK,
     streak: CURTIS_STREAK,
     article_published: CURTIS_ARTICLE,
+    // Live game engine (spec §19)
+    matchup_live: CURTIS_MATCHUP_LIVE,
   },
   "nina-sharpe": {
     bench_points: NINA_BENCH,
@@ -729,6 +787,8 @@ export const STOCK_LINES: Record<WirePersona, Partial<Record<LeagueEventKind, Re
     // Dex Desk (spec §18), Nina's two
     roster_note: NINA_ROSTER_NOTE,
     faab_watch: NINA_FAAB_WATCH,
+    // Live game engine (spec §19)
+    monday_needs: NINA_MONDAY_NEEDS,
   },
   "reggie-banks": {
     top_score: REGGIE_TOP,
@@ -838,6 +898,11 @@ export function sampleSlotsFor(kind: WireEventKind): WireSlots {
       return { ...base, status: "Active" };
     case "faab_watch":
       return { ...base, faabLeft: "$7" };
+    // Live game engine (spec §19)
+    case "matchup_live":
+      return { ...base, score: "98.4", opponentScore: "71.0", margin: "27.4" };
+    case "monday_needs":
+      return { ...base, points: "22.6", players: "Joe Burrow and Chase Brown" };
     default:
       return base;
   }
