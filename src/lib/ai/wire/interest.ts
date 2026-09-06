@@ -11,6 +11,7 @@ import {
   SAME_PLAYER_PENALTY_WINDOW_MS,
   SCORING_PLAY_TAKE_MIN_TD_COUNT,
   SCORING_PLAY_TAKE_MIN_YARDS,
+  TRENDING_BOARD_INTEREST,
   type WireCardPlayer,
   type WireFactCard,
 } from "./types";
@@ -39,11 +40,16 @@ export function interestBase(card: WireFactCard): number {
     case "injury_note":
       return card.timetable ? 40 : DEFAULT_BASE;
     case "news":
-      return 20;
+      // A timetable on a news story ("out 4-6 weeks") carries the same weight as one on a note.
+      return card.timetable ? 40 : 20;
     case "depth_chart":
       return card.depthOrderTo === 1 ? 30 : DEFAULT_BASE;
     case "trending":
-      return 20;
+      // A spike that plausibly answers a known event (an injury, a depth-chart move) reads as news;
+      // a bare spike is still just a waiver signal.
+      return card.related ? 45 : 20;
+    case "trending_board":
+      return TRENDING_BOARD_INTEREST;
     case "ownership_swing":
       return 20;
     // Live game engine (spec §19)
@@ -100,6 +106,9 @@ export interface ScoreInterestOptions {
 
 /** Spec §7, clamped to 0–100 and rounded to an integer. */
 export function scoreInterest(card: WireFactCard, opts: ScoreInterestOptions = {}): number {
+  // A board is a ranking, not a story about one player - no ownership term, no bonuses, no penalty.
+  // A 93%-rostered name in the top 5 must never push this into take territory (spec update 2026-09-06).
+  if (card.kind === "trending_board") return TRENDING_BOARD_INTEREST;
   let interest = interestBase(card);
   interest += Math.min(50, maxPercentOwned(card.players) / 2);
   if (isMultiWeekTimetable(card.timetable)) interest += 15;

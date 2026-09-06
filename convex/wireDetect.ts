@@ -20,7 +20,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
 import {
   CARD_MIN_INTEREST,
@@ -31,10 +31,25 @@ import {
   SAME_PLAYER_PENALTY_WINDOW_MS,
   STATUS_DEDUPE_WINDOW_MS,
   TAKE_MIN_INTEREST,
+  TRENDING_BOARD_MIN_GAP_MS,
+  TRENDING_BOARD_SIZE,
+  TRENDING_DEDUPE_WINDOW_MS,
+  TRENDING_RELATED_WINDOW_MS,
+  TRENDING_SPIKE_MAX_PERCENT_OWNED,
+  TRENDING_SPIKE_MIN_ADDS,
+  TRENDING_SPIKE_MIN_RATIO,
+  TRENDING_SPIKES_PER_SYNC,
   WIRE_DEFAULT_ROUTE,
   WIRE_PERSONA_FOR_KIND,
 } from "../src/lib/ai/wire/types";
-import type { GlobalEventKind, InjuryStatus, WireCardPlayer, WireFactCard } from "../src/lib/ai/wire/types";
+import type {
+  GlobalEventKind,
+  InjuryStatus,
+  WireCardBoardEntry,
+  WireCardPlayer,
+  WireCardRelated,
+  WireFactCard,
+} from "../src/lib/ai/wire/types";
 import { extractTimetable } from "../src/lib/ai/wire/timetable";
 import { scoreInterest } from "../src/lib/ai/wire/interest";
 import { validateFactCard, renderCard } from "../src/lib/ai/wire/card";
@@ -271,6 +286,28 @@ export const getSourceCursor = internalQuery({
   },
 });
 
+/**
+ * Upsert one source's cursor + health row. Shared by `recordSourceRun` (every poller's own health
+ * check-in) and `ingestTrendingRows` (which writes the trending cursor inline, since it needs to
+ * read it back in the same mutation rather than round-tripping through a query + a second mutation).
+ */
+async function writeSourceState(
+  ctx: MutationCtx,
+  args: { source: string; cursor?: unknown; ok: boolean; summary: string; error?: string }
+): Promise<void> {
+  const now = Date.now();
+  const existing = await ctx.db
+    .query("wireSourceState")
+    .withIndex("by_source", (q) => q.eq("source", args.source))
+    .first();
+  const patch = { cursor: args.cursor, lastRunAt: now, ok: args.ok, summary: args.summary, error: args.error };
+  if (existing) {
+    await ctx.db.patch(existing._id, patch);
+  } else {
+    await ctx.db.insert("wireSourceState", { source: args.source, ...patch });
+  }
+}
+
 export const recordSourceRun = internalMutation({
   args: {
     source: v.string(),
@@ -281,17 +318,7 @@ export const recordSourceRun = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("wireSourceState")
-      .withIndex("by_source", (q) => q.eq("source", args.source))
-      .first();
-    const patch = { cursor: args.cursor, lastRunAt: now, ok: args.ok, summary: args.summary, error: args.error };
-    if (existing) {
-      await ctx.db.patch(existing._id, patch);
-    } else {
-      await ctx.db.insert("wireSourceState", { source: args.source, ...patch });
-    }
+    await writeSourceState(ctx, args);
     return null;
   },
 });
@@ -432,9 +459,10 @@ export const ingestInjuryEntries = internalMutation({
 
 export const ingestNews = internalMutation({
   args: { espnIds: v.array(v.string()) },
-  returns: v.object({ posted: v.number(), skipped: v.number() }),
+  returns: v.object({ posted: v.number(), stored: v.number(), skipped: v.number() }),
   handler: async (ctx, { espnIds }) => {
     let posted = 0;
+    let stored = 0;
     let skipped = 0;
     const now = Date.now();
 
@@ -449,10 +477,11 @@ export const ingestNews = internalMutation({
       }
 
       // Adapt the already-parsed, already-stored row (convex/espnNews.ts's own transform) into the
-      // shape src/lib/ai/wire/espn.ts expects, so the listicle filter, note-trimming and
+      // shape src/lib/ai/wire/espn.ts expects, so the relevance check, note-trimming and
       // player-scoped timetable extraction are the same logic the poller/eval script use.
       const espnArticle: EspnNewsArticle = {
         id: article.espnId,
+        type: article.type,
         headline: article.headline,
         description: article.description,
         published: article.published,
@@ -461,7 +490,7 @@ export const ingestNews = internalMutation({
       };
       const rawCard = newsArticleToCard(espnArticle, { fetchedAt: now });
       if (!rawCard) {
-        skipped++; // 0 or > NEWS_MAX_ATHLETES athletes (spec §5.1's listicle filter)
+        skipped++; // untagged, too broadly tagged, or not relevant (src/lib/ai/wire/espn.ts#newsRelevance)
         continue;
       }
 
@@ -486,6 +515,12 @@ export const ingestNews = internalMutation({
       const recentAt = card.players[0] ? await recentSamePlayerPostAt(ctx, card.players[0].espnId, now) : undefined;
       const interest = clampInterest(scoreInterest(card, { recentSamePlayerPostAt: recentAt, now }));
 
+      // The event is stored either way (spec update 2026-09-06) - article writers and the intel
+      // pipeline still want a relevant story even when it isn't wire-worthy on its own. Only a
+      // take-worthy story, or one with a concrete timetable, earns an actual post: the two ESPN
+      // "Story" features that prompted this change (a field-blessing piece, a Daniel Jones return
+      // piece) were relevant enough to keep as events but never should have posted as a bare
+      // headline below the take bar.
       const eventId = await ctx.db.insert("wireEvents", {
         kind: "news",
         dedupeKey,
@@ -498,10 +533,15 @@ export const ingestNews = internalMutation({
         interest,
         source: card.source,
       });
-      if (await createPostForEvent(ctx, now, eventId, "news", card, interest)) posted++;
+      const worthPosting = interest >= TAKE_MIN_INTEREST || card.timetable !== undefined;
+      if (worthPosting && (await createPostForEvent(ctx, now, eventId, "news", card, interest))) {
+        posted++;
+      } else {
+        stored++;
+      }
     }
 
-    return { posted, skipped };
+    return { posted, stored, skipped };
   },
 });
 
@@ -649,49 +689,235 @@ export const ingestDepthChart = internalMutation({
   },
 });
 
-/** How many of one Sleeper trending sync's rows may become takes (the rest are cards). */
-const TRENDING_TAKES_PER_SYNC = 3;
+/**
+ * Sleeper trending (rewritten owner request, 2026-09-06): a full 50-row nightly board was reposting
+ * itself every night — 32 of 34 posts on prod were the same board, all from one preseason draft-week
+ * sync. `syncSleeperTrending` now forwards every mapped row; this detector owns the rules for what,
+ * if anything, is worth posting:
+ *   - A nightly "most added" BOARD card (top TRENDING_BOARD_SIZE by adds), reposted only after
+ *     TRENDING_BOARD_MIN_GAP_MS and only when its top-N set actually changed. Fixed interest
+ *     (TRENDING_BOARD_INTEREST) — a ranking is never a take, however widely rostered its names are.
+ *   - Up to TRENDING_SPIKES_PER_SYNC genuine SPIKES: a player's adds at least doubled since the
+ *     PREVIOUS sync (not a fixed rank in tonight's board), cleared TRENDING_SPIKE_MIN_ADDS outright,
+ *     and is still lightly rostered (below TRENDING_SPIKE_MAX_PERCENT_OWNED — a 93%-owned name isn't
+ *     news). Preseason is exempt entirely (`seasonHasKickedOff`): draft-week adds are noise.
+ * A season with no week-1 schedule rows yet fails the gate quietly (trending is the lowest-value
+ * kind here), storing nothing rather than guessing.
+ */
+
+interface TrendingCursor {
+  /** Every mapped player's add count as of the last sync — the spike math's "previous" value. */
+  counts: Record<string, number>;
+  /** The lowest count seen last sync — what a player NOT in `counts` (a first sighting) compares
+   *  against, so a brand-new riser can still spike on his first appearance. */
+  floor: number;
+  /** The espnIds on the last posted board, so an unchanged top-N never reposts. */
+  top: string[];
+  /** When the board last posted (not merely last checked) — the repost gate's own clock. */
+  lastBoardAt?: number;
+  syncedAt: number;
+}
 
 const trendingRowValidator = v.object({
   espnId: v.string(),
   trendingAdds: v.number(),
   team: v.optional(v.string()),
   position: v.optional(v.string()),
+  rank: v.number(),
 });
 
-export const ingestTrending = internalMutation({
-  args: { rows: v.array(trendingRowValidator) },
-  returns: v.object({ posted: v.number(), skipped: v.number() }),
-  handler: async (ctx, { rows }) => {
-    let posted = 0;
-    let skipped = 0;
-    const now = Date.now();
-    const dateKey = new Date(now).toISOString().slice(0, 10);
+type TrendingRow = { espnId: string; trendingAdds: number; team?: string; position?: string; rank: number };
 
-    // One sync's trending board is a ranking, not eight separate stories (beta, 2026-09-05: eight
-    // Nina takes from one preseason waiver frenzy). Only the top three by adds may earn a take; the
-    // rest post as plain cards.
-    const takeEligible = new Set(
-      [...rows]
-        .sort((a, b) => b.trendingAdds - a.trendingAdds)
-        .slice(0, TRENDING_TAKES_PER_SYNC)
-        .map((row) => row.espnId)
-    );
+const TRENDING_SOURCE = "sleeper_trending";
+const RELATED_EVENT_KINDS: ReadonlySet<string> = new Set(["injury_status", "injury_note", "news", "depth_chart"]);
 
-    for (const row of rows) {
-      const dedupeKey = `trending:${row.espnId}:${dateKey}`;
-      if (await existsExact(ctx, dedupeKey)) {
+/** Is week 1 of the current NFL season already underway? Fails quiet (false) with no schedule rows -
+ *  trending is the lowest-value kind here, not worth guessing about. Bounded: 32 teams x home/away
+ *  rows for one week is well under 64. */
+async function seasonHasKickedOff(ctx: Pick<MutationCtx, "db">, now: number): Promise<boolean> {
+  const rows = await ctx.db
+    .query("nflSchedules")
+    .withIndex("by_week", (q) => q.eq("season", nflSeasonYearFor()).eq("week", 1))
+    .take(64);
+  return rows.some((row) => row.gameTime <= now);
+}
+
+/** Same members, order ignored - the board's "did the top-N actually change" check. */
+function sameIdSet(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  if (a.length !== b.length) return false;
+  const bSet = new Set(b);
+  return a.every((id) => bSet.has(id));
+}
+
+/**
+ * The most recent wire event on the SAME nfl team that plausibly explains a trending spike (an
+ * injury, a depth-chart move, a news story) within TRENDING_RELATED_WINDOW_MS - preferring one
+ * about a player at the same position, then higher interest, then newer. Bounded: `by_team_detected`
+ * range capped at 20, a generous width for two days of one team's wire activity.
+ */
+async function findRelatedEvent(
+  ctx: MutationCtx,
+  player: WireCardPlayer,
+  now: number
+): Promise<WireCardRelated | undefined> {
+  if (!player.nflTeam) return undefined;
+  const events = await ctx.db
+    .query("wireEvents")
+    .withIndex("by_team_detected", (q) => q.eq("nflTeam", player.nflTeam).gt("detectedAt", now - TRENDING_RELATED_WINDOW_MS))
+    .order("desc")
+    .take(20);
+
+  const parsed: Array<{ event: Doc<"wireEvents">; card: WireFactCard; samePosition: boolean }> = [];
+  for (const event of events) {
+    if (!RELATED_EVENT_KINDS.has(event.kind)) continue;
+    let card: WireFactCard;
+    try {
+      card = validateFactCard(event.facts);
+    } catch {
+      continue; // A malformed stored card must never break the spike it's related to.
+    }
+    parsed.push({ event, card, samePosition: card.players.some((p) => !!p.position && p.position === player.position) });
+  }
+  if (parsed.length === 0) return undefined;
+
+  // (a) same position first, (b) higher interest, (c) newer - `events` already came back newest
+  // first, and Array#sort is stable, so an interest tie keeps that order.
+  parsed.sort((a, b) => (a.samePosition !== b.samePosition ? (a.samePosition ? -1 : 1) : b.event.interest - a.event.interest));
+
+  const { event: best, card } = parsed[0];
+  return {
+    kind: best.kind as GlobalEventKind,
+    players: card.players.map((p) => p.name),
+    nflTeam: card.nflTeam,
+    statusTo: card.statusTo,
+    headline: card.headline,
+    timetable: card.timetable,
+    observedAt: card.observedAt,
+    source: card.source.type,
+  };
+}
+
+/**
+ * The actual detector body, factored out so `devTools.runTrendingNow` and tests can drive it
+ * directly with an injectable `now` and a gate bypass, without going through the internalMutation
+ * wrapper. `opts.now` defaults to `Date.now()`; `opts.bypassGate` skips `seasonHasKickedOff` (dev/
+ * test only - the real sync never bypasses it).
+ */
+export async function ingestTrendingRows(
+  ctx: MutationCtx,
+  rows: TrendingRow[],
+  opts: { now?: number; bypassGate?: boolean } = {}
+): Promise<{ posted: number; skipped: number; gated: boolean; seeded: boolean; board: boolean }> {
+  const now = opts.now ?? Date.now();
+
+  if (!opts.bypassGate && !(await seasonHasKickedOff(ctx, now))) {
+    // Store nothing: no event, no post, no cursor - preseason draft-week adds are noise, and a
+    // cursor written now would only make the first real spike look artificially small later.
+    return { posted: 0, skipped: 0, gated: true, seeded: false, board: false };
+  }
+
+  const existing = await ctx.db
+    .query("wireSourceState")
+    .withIndex("by_source", (q) => q.eq("source", TRENDING_SOURCE))
+    .first();
+  const cursor = existing?.cursor as TrendingCursor | undefined;
+  const seeded = cursor === undefined;
+
+  const enriched: Array<{ row: TrendingRow; player: WireCardPlayer }> = [];
+  for (const row of rows) {
+    enriched.push({
+      row,
+      player: await enrichOnePlayer(ctx, { espnId: row.espnId, name: row.espnId, position: row.position, nflTeam: row.team }),
+    });
+  }
+
+  let boardPosted = false;
+  let nextTop = cursor?.top ?? [];
+  let nextBoardAt = cursor?.lastBoardAt;
+
+  const dueForBoardCheck = cursor?.lastBoardAt === undefined || now - cursor.lastBoardAt >= TRENDING_BOARD_MIN_GAP_MS;
+  if (dueForBoardCheck) {
+    const top = [...enriched].sort((a, b) => b.row.trendingAdds - a.row.trendingAdds).slice(0, TRENDING_BOARD_SIZE);
+    const topIds = top.map(({ row }) => row.espnId);
+    const changed = top.length > 0 && (!cursor || cursor.top.length === 0 || !sameIdSet(topIds, cursor.top));
+    if (changed) {
+      const dedupeKey = `trending_board:${new Date(now).toISOString().slice(0, 10)}`;
+      if (!(await existsExact(ctx, dedupeKey))) {
+        const board: WireCardBoardEntry[] = top.map(({ row, player }) => ({
+          espnId: row.espnId,
+          name: player.name,
+          position: player.position,
+          nflTeam: player.nflTeam,
+          percentOwned: player.percentOwned,
+          trendingAdds: row.trendingAdds,
+        }));
+        const players = top.map(({ player }) => player);
+        try {
+          const card = validateFactCard({
+            kind: "trending_board" as const,
+            observedAt: now,
+            players,
+            board,
+            source: { type: "sleeper" as const, fetchedAt: now },
+          });
+          const interest = clampInterest(scoreInterest(card));
+          const eventId = await ctx.db.insert("wireEvents", {
+            kind: "trending_board",
+            dedupeKey,
+            observedAt: now,
+            detectedAt: now,
+            players,
+            facts: card,
+            interest,
+            source: card.source,
+          });
+          if (await createPostForEvent(ctx, now, eventId, "trending_board", card, interest)) boardPosted = true;
+        } catch (err) {
+          console.warn("wireDetect.ingestTrendingRows: invalid trending_board card", err);
+        }
+      }
+      nextTop = topIds;
+      nextBoardAt = now;
+    }
+    // An unchanged top-N is not an error, just nothing to say - `nextBoardAt` stays at its previous
+    // value so the NEXT sync re-checks immediately rather than waiting out another full gap.
+  }
+
+  let posted = 0;
+  let skipped = 0;
+
+  // Spikes are skipped entirely on the seed run: with no previous counts, every row would look like
+  // an infinite-ratio "spike" against a floor of 0.
+  if (!seeded) {
+    const counts = cursor!.counts;
+    const floor = cursor!.floor;
+    const candidates = enriched
+      .map(({ row, player }) => ({ row, player, prev: counts[row.espnId] ?? floor }))
+      .filter(
+        ({ row, player, prev }) =>
+          row.trendingAdds >= TRENDING_SPIKE_MIN_RATIO * prev &&
+          row.trendingAdds >= TRENDING_SPIKE_MIN_ADDS &&
+          (player.percentOwned ?? 0) < TRENDING_SPIKE_MAX_PERCENT_OWNED
+      )
+      .sort((a, b) => b.row.trendingAdds - a.row.trendingAdds)
+      .slice(0, TRENDING_SPIKES_PER_SYNC);
+
+    for (const { row, player, prev } of candidates) {
+      const dedupeKey = `trending:${row.espnId}`;
+      if (await dedupeWithinWindow(ctx, dedupeKey, TRENDING_DEDUPE_WINDOW_MS, now)) {
         skipped++;
         continue;
       }
 
-      const enriched = await enrichOnePlayer(ctx, { espnId: row.espnId, name: row.espnId, position: row.position, nflTeam: row.team });
+      const related = await findRelatedEvent(ctx, player, now);
       const cardInput = {
         kind: "trending" as const,
         observedAt: now,
-        players: [enriched],
-        nflTeam: enriched.nflTeam,
+        players: [player],
+        nflTeam: player.nflTeam,
         trendingAdds: row.trendingAdds,
+        trendingPrevAdds: prev,
+        ...(related ? { related } : {}),
         source: { type: "sleeper" as const, fetchedAt: now },
       };
 
@@ -699,32 +925,64 @@ export const ingestTrending = internalMutation({
       try {
         card = validateFactCard(cardInput);
       } catch (err) {
-        console.warn(`wireDetect.ingestTrending: invalid card for espnId ${row.espnId}`, err);
+        console.warn(`wireDetect.ingestTrendingRows: invalid card for espnId ${row.espnId}`, err);
         skipped++;
         continue;
       }
 
       const recentAt = await recentSamePlayerPostAt(ctx, row.espnId, now);
-      const rawInterest = clampInterest(scoreInterest(card, { recentSamePlayerPostAt: recentAt, now }));
-      const interest = takeEligible.has(row.espnId) ? rawInterest : Math.min(rawInterest, TAKE_MIN_INTEREST - 1);
+      const interest = clampInterest(scoreInterest(card, { recentSamePlayerPostAt: recentAt, now }));
 
       const eventId = await ctx.db.insert("wireEvents", {
         kind: "trending",
         dedupeKey,
         observedAt: now,
         detectedAt: now,
-        players: [enriched],
-        primaryEspnId: ([enriched])[0]?.espnId,
-        nflTeam: enriched.nflTeam,
+        players: [player],
+        primaryEspnId: player.espnId,
+        nflTeam: player.nflTeam,
         facts: card,
         interest,
         source: cardInput.source,
       });
       if (await createPostForEvent(ctx, now, eventId, "trending", card, interest)) posted++;
     }
+  }
 
-    return { posted, skipped };
-  },
+  // Always write the cursor when not gated, so tonight's counts become tomorrow's "previous".
+  const counts: Record<string, number> = {};
+  let floor = Number.POSITIVE_INFINITY;
+  for (const { row } of enriched) {
+    counts[row.espnId] = row.trendingAdds;
+    if (row.trendingAdds < floor) floor = row.trendingAdds;
+  }
+  const nextCursor: TrendingCursor = {
+    counts,
+    floor: Number.isFinite(floor) ? floor : 0,
+    top: nextTop,
+    ...(nextBoardAt !== undefined ? { lastBoardAt: nextBoardAt } : {}),
+    syncedAt: now,
+  };
+  await writeSourceState(ctx, {
+    source: TRENDING_SOURCE,
+    cursor: nextCursor,
+    ok: true,
+    summary: `${rows.length} rows, ${posted} spike(s), board ${boardPosted ? "posted" : "unchanged"}`,
+  });
+
+  return { posted, skipped, gated: false, seeded, board: boardPosted };
+}
+
+export const ingestTrending = internalMutation({
+  args: { rows: v.array(trendingRowValidator) },
+  returns: v.object({
+    posted: v.number(),
+    skipped: v.number(),
+    gated: v.boolean(),
+    seeded: v.boolean(),
+    board: v.boolean(),
+  }),
+  handler: async (ctx, { rows }) => ingestTrendingRows(ctx, rows),
 });
 
 /* -------------------------------------------------------------------------- *
@@ -916,5 +1174,58 @@ export const getGlobalSpendToday = internalQuery({
       .withIndex("by_created", (q) => q.gt("createdAt", midnightUtc.getTime()))
       .take(2000);
     return rows.reduce((sum, row) => sum + (row.generationStats?.costUsd ?? 0), 0);
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * One-time cleanup (spec update 2026-09-06): the old `ingestTrending` reposted the same full
+ * board every night as separate `trending` cards - prod carries 32 of them from a single preseason
+ * sync - and the old `ingestNews` posted bare feature headlines as `news` cards. This retracts every
+ * post of the given kinds (and their per-league overlays/reactions) without touching the underlying
+ * `wireEvents` history. Not dev-guarded (it must run once on prod too), so it is internal-only and
+ * never wired to a public mutation or a cron - an operator runs it by hand, once:
+ *   npx convex run wireDetect:retractWireCards '{"kinds":["trending","news"],"dryRun":true}' --prod
+ * -------------------------------------------------------------------------- */
+export const retractWireCards = internalMutation({
+  args: { kinds: v.array(v.string()), dryRun: v.boolean() },
+  returns: v.object({ posts: v.number(), overlays: v.number(), reactions: v.number(), dryRun: v.boolean() }),
+  handler: async (ctx, { kinds, dryRun }) => {
+    if (kinds.length === 0) return { posts: 0, overlays: 0, reactions: 0, dryRun };
+    // No index on `kind` alone for wirePosts (a handful of hundred rows deployment-wide today) - a
+    // bounded scan, capped and self-rescheduling, same shape as intelSync.ts#deleteStaleTrending.
+    const rows = await ctx.db
+      .query("wirePosts")
+      .filter((q) => q.or(...kinds.map((kind) => q.eq(q.field("kind"), kind))))
+      .take(500);
+
+    let overlays = 0;
+    let reactions = 0;
+    for (const post of rows) {
+      const leaguePosts = await ctx.db
+        .query("wireLeaguePosts")
+        .withIndex("by_global_post_league", (q) => q.eq("globalPostId", post._id))
+        .take(500);
+      for (const overlay of leaguePosts) {
+        overlays++;
+        if (!dryRun) await ctx.db.delete(overlay._id);
+      }
+
+      const reactionRows = await ctx.db
+        .query("wireReactions")
+        .withIndex("by_post", (q) => q.eq("postKey", `global:${post._id}`))
+        .take(500);
+      for (const reaction of reactionRows) {
+        reactions++;
+        if (!dryRun) await ctx.db.delete(reaction._id);
+      }
+
+      if (!dryRun) await ctx.db.delete(post._id);
+    }
+
+    if (!dryRun && rows.length === 500) {
+      await ctx.scheduler.runAfter(0, internal.wireDetect.retractWireCards, { kinds, dryRun });
+    }
+
+    return { posts: rows.length, overlays, reactions, dryRun };
   },
 });

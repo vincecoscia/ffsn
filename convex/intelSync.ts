@@ -538,10 +538,11 @@ export const syncSleeperTrending = internalAction({
       let mapped = 0;
       let unmapped = 0;
       const intelRows: IntelUpsertRow[] = [];
-      // The Wire (ffsn-the-wire-spec.md §5.1/§8.2): the top 5 movers, or anything crossing 1,000
-      // adds, are worth a wire event - Sleeper's response is already ordered by adds descending, so
-      // `index < 5` is "top 5" without re-sorting.
-      const wireRows: Array<{ espnId: string; trendingAdds: number; team?: string; position?: string }> = [];
+      // The Wire (spec update 2026-09-06): every mapped row is forwarded - the detector
+      // (wireDetect.ingestTrendingRows) owns the rules for what becomes a board post, a genuine
+      // spike, or nothing at all. Forwarding a fixed "top 5" here duplicated that decision and
+      // reposted the whole board nightly (a preseason draft-week sync ingesting all 50 rows).
+      const wireRows: Array<{ espnId: string; trendingAdds: number; team?: string; position?: string; rank: number }> = [];
       for (const [index, entry] of entries.entries()) {
         const mapping: IdMapBySleeperLookup = await ctx.runQuery(internal.intelSync.lookupIdMapBySleeperId, {
           sleeperId: entry.player_id,
@@ -560,9 +561,7 @@ export const syncSleeperTrending = internalAction({
           position: mapping.position,
           trendingAdds: entry.count,
         });
-        if (index < 5 || entry.count >= 1000) {
-          wireRows.push({ espnId: mapping.espnId, trendingAdds: entry.count, team: mapping.team, position: mapping.position });
-        }
+        wireRows.push({ espnId: mapping.espnId, trendingAdds: entry.count, team: mapping.team, position: mapping.position, rank: index });
       }
 
       let inserted = 0;

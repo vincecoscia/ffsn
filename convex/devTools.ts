@@ -24,6 +24,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { defaultPersonaFor } from "./contentScheduling";
 import { contentTemplates } from "../src/lib/ai/content-templates";
+import { ingestTrendingRows } from "./wireDetect";
 
 /**
  * `contentSchedules.contentType` is a union of the known types, but this tool
@@ -579,5 +580,69 @@ export const runWireEventNow = internalAction({
     }
 
     return { event, globalPost, leaguePosts };
+  },
+});
+
+/* ============================================================================ *
+ * Sleeper trending (spec update 2026-09-06) - drive `ingestTrendingRows` directly with hand-built
+ * rows, and seed a previous sync's cursor, so a spike/board/gate scenario can be exercised without
+ * waiting on the real 6-hourly cron. Same guard as everything else in this file.
+ * ============================================================================ */
+
+const trendingDevRowValidator = v.object({
+  espnId: v.string(),
+  trendingAdds: v.number(),
+  team: v.optional(v.string()),
+  position: v.optional(v.string()),
+  rank: v.number(),
+});
+
+export const runTrendingNow = internalMutation({
+  args: { rows: v.array(trendingDevRowValidator), bypassGate: v.optional(v.boolean()) },
+  returns: v.object({
+    posted: v.number(),
+    skipped: v.number(),
+    gated: v.boolean(),
+    seeded: v.boolean(),
+    board: v.boolean(),
+    cursor: v.union(v.any(), v.null()),
+  }),
+  handler: async (ctx, { rows, bypassGate }) => {
+    const guard = devToolsGuard();
+    if (!guard.allowed) throw new Error(`devTools.runTrendingNow ${guard.reason}`);
+
+    const result = await ingestTrendingRows(ctx, rows, { bypassGate });
+    const state = await ctx.db
+      .query("wireSourceState")
+      .withIndex("by_source", (q) => q.eq("source", "sleeper_trending"))
+      .first();
+    return { ...result, cursor: state?.cursor ?? null };
+  },
+});
+
+export const setTrendingCursor = internalMutation({
+  args: {
+    counts: v.any(),
+    floor: v.number(),
+    top: v.optional(v.array(v.string())),
+    lastBoardAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { counts, floor, top, lastBoardAt }) => {
+    const guard = devToolsGuard();
+    if (!guard.allowed) throw new Error(`devTools.setTrendingCursor ${guard.reason}`);
+
+    const now = Date.now();
+    const cursor = { counts, floor, top: top ?? [], ...(lastBoardAt !== undefined ? { lastBoardAt } : {}), syncedAt: now };
+    const existing = await ctx.db
+      .query("wireSourceState")
+      .withIndex("by_source", (q) => q.eq("source", "sleeper_trending"))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { cursor, lastRunAt: now, ok: true, summary: "dev seed" });
+    } else {
+      await ctx.db.insert("wireSourceState", { source: "sleeper_trending", cursor, lastRunAt: now, ok: true, summary: "dev seed" });
+    }
+    return null;
   },
 });

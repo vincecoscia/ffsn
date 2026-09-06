@@ -23,6 +23,7 @@ import {
   FREE_AGENT_MIN_PERCENT_OWNED,
   FREE_AGENT_MIN_TRENDING_ADDS,
   LIVE_OWNER_ONLY_KINDS,
+  OVERLAY_EXEMPT_KINDS,
   STARTER_OVERLAY_BONUS,
   WIRE_ALERT_MIN_INTEREST,
 } from "../src/lib/ai/wire/types";
@@ -186,6 +187,9 @@ export const fanOutGlobalPost = internalMutation({
   handler: async (ctx, { postId }) => {
     const post = await ctx.db.get(postId);
     if (!post || post.status === "take_pending" || post.status === "held") return null;
+    // A nightly ranking (trending_board) is global-only by design - it names five different
+    // players with no single "owner", so there is no meaningful per-league overlay to build.
+    if (OVERLAY_EXEMPT_KINDS.has(post.kind)) return null;
 
     const event = await ctx.db.get(post.eventId);
     if (!event) return null;

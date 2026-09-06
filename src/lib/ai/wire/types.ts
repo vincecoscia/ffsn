@@ -34,6 +34,9 @@ export const GLOBAL_EVENT_KINDS = [
   "news",
   "depth_chart",
   "trending",
+  // The nightly Sleeper "most added" board (owner, 2026-09-06): a top-N ranking, never a take, never
+  // fanned out to leagues (see TRENDING_BOARD_INTEREST, OVERLAY_EXEMPT_KINDS below).
+  "trending_board",
   // Dex Desk (spec §18): ESPN roster-percentage swings, no model
   "ownership_swing",
   // P2 (reserved; no detector in P1)
@@ -124,6 +127,7 @@ export const WIRE_PERSONA_FOR_KIND: Record<WireEventKind, WirePersona> = {
   news: "dex-alvarez",
   depth_chart: "dex-alvarez",
   trending: "nina-sharpe",
+  trending_board: "nina-sharpe",
   game_started: "curtis-vaughn",
   game_final: "curtis-vaughn",
   scoring_play: "reggie-banks",
@@ -208,6 +212,32 @@ export interface WireCardPlayer {
   adpPositionRank?: number;
 }
 
+/** One row of a `trending_board` card — a nightly Sleeper "most added" ranking entry. */
+export interface WireCardBoardEntry {
+  espnId: string;
+  name: string;
+  position?: string;
+  nflTeam?: string;
+  percentOwned?: number;
+  trendingAdds: number;
+}
+
+/**
+ * What a `trending` spike is plausibly a reaction to — the wire event from the last 48h that names
+ * the same NFL team (an injury, a depth-chart move, a news story), attributed to its own source so
+ * a take can say "after ESPN listed him Out" without borrowing Sleeper's byline for an ESPN fact.
+ */
+export interface WireCardRelated {
+  kind: GlobalEventKind;
+  players: string[];
+  nflTeam?: string;
+  statusTo?: InjuryStatus;
+  headline?: string;
+  timetable?: string;
+  observedAt: number;
+  source: WireSourceType;
+}
+
 /** Injury designations as ESPN spells them in `status`. Anything else passes through verbatim. */
 export type InjuryStatus =
   | "Active"
@@ -241,6 +271,13 @@ export interface WireFactCard {
   depthPosition?: string;
   // trending
   trendingAdds?: number;
+  /** trending only: the previous sync's add count for this player — how sharp the jump was. */
+  trendingPrevAdds?: number;
+  /** trending only: the wire event that plausibly explains the spike, if one was found within
+   *  TRENDING_RELATED_WINDOW_MS on the same NFL team. */
+  related?: WireCardRelated;
+  // trending_board only: the nightly top-N "most added" ranking (see WireCardBoardEntry).
+  board?: WireCardBoardEntry[];
   // ownership_swing (spec §18): ESPN `ownership.percentChange`, signed, in percentage points
   // (-12 = dropped in 12% of ESPN leagues overnight, +9 = added in 9%).
   ownershipChange?: number;
@@ -384,6 +421,34 @@ export const STARTER_OVERLAY_BONUS = 20;
 /** Free-agent overlay only if the player is this widely rostered or trending this hard. */
 export const FREE_AGENT_MIN_PERCENT_OWNED = 30;
 export const FREE_AGENT_MIN_TRENDING_ADDS = 500;
+
+/**
+ * Trending spikes vs. the nightly board (owner, 2026-09-06): a full 50-row Sleeper sync reposting
+ * every night was noise, especially in preseason draft week. A `trending` event is now a genuine
+ * spike against the player's OWN previous sync, not a fixed rank in that night's board.
+ */
+/** A spike needs at least this multiple of the player's previous sync count. */
+export const TRENDING_SPIKE_MIN_RATIO = 2;
+/** ...and at least this many adds outright, so 2 -> 5 adds never spikes. */
+export const TRENDING_SPIKE_MIN_ADDS = 1000;
+/** A spike never fires above this ESPN roster percentage — a 93%-owned name isn't news. */
+export const TRENDING_SPIKE_MAX_PERCENT_OWNED = 50;
+/** At most this many spikes earn a `trending` event per sync; the rest simply don't spike this run. */
+export const TRENDING_SPIKES_PER_SYNC = 3;
+/** Rows on the nightly "most added" board card. */
+export const TRENDING_BOARD_SIZE = 5;
+/** The board reposts only after this long since its last post, and only if its top-N set changed. */
+export const TRENDING_BOARD_MIN_GAP_MS = 20 * 60 * 60 * 1000;
+/** Fixed interest for a trending_board card (see scoreInterest) — a board never crosses the take bar. */
+export const TRENDING_BOARD_INTEREST = 40;
+/** A second spike for the same player inside this window is the same story, not a new one. */
+export const TRENDING_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** How far back a trending spike looks for the wire event that plausibly explains it. */
+export const TRENDING_RELATED_WINDOW_MS = 48 * 60 * 60 * 1000;
+/** Kinds that never fan out to leagues — a nightly ranking is global-only, not per-league news.
+ *  Typed as ReadonlySet<string> (like LIVE_OWNER_ONLY_KINDS) so it can test a stored `kind: string`
+ *  field directly, with no cast at the call site. */
+export const OVERLAY_EXEMPT_KINDS: ReadonlySet<string> = new Set(["trending_board"] satisfies GlobalEventKind[]);
 
 export const GLOBAL_TAKES_PER_HOUR = 40;
 export const LEAGUE_POSTS_PER_HOUR = 15;

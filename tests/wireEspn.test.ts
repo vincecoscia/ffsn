@@ -6,10 +6,13 @@ import {
   espnAthleteIdFromLinks,
   injuryEntryToCard,
   newsArticleToCard,
+  newsRelevance,
   parseEspnInjuriesPayload,
   parseEspnInjuryEntry,
+  parseEspnNewsArticle,
   parseEspnNewsPayload,
   timetableAbout,
+  type EspnNewsArticle,
 } from "../src/lib/ai/wire/espn";
 import { MAX_NOTE_CHARS } from "../src/lib/ai/wire/types";
 
@@ -109,10 +112,12 @@ describe("news fixture", () => {
     for (const article of tagged) for (const athlete of article.athletes) expect(athlete.espnId).toMatch(/^\d+$/);
   });
 
-  it("builds a news card for stories about up to three players and skips listicles and untagged pieces", () => {
+  it("builds a news card for relevant, up-to-three-player stories and skips listicles, untagged and irrelevant pieces", () => {
     const cards = articles.map(article => newsArticleToCard(article, { fetchedAt: FETCHED_AT }));
     const kept = cards.filter((card): card is NonNullable<typeof card> => card !== undefined);
-    expect(kept.length).toBeGreaterThan(3);
+    // Most of this fixture is exactly the kind of tagged-but-not-newsworthy feature copy the
+    // relevance gate exists for (spec update 2026-09-06) - only the two HeadlineNews items survive.
+    expect(kept.length).toBeGreaterThanOrEqual(2);
     for (const card of kept) {
       validateFactCard(card);
       expect(card.kind).toBe("news");
@@ -121,9 +126,116 @@ describe("news fixture", () => {
       expect(card.source.type).toBe("espn_news");
       expect(card.source.url).toMatch(/^https?:\/\//);
     }
-    const listicle = articles.find(article => article.athletes.length > 3);
-    if (listicle) expect(newsArticleToCard(listicle, { fetchedAt: FETCHED_AT })).toBeUndefined();
+    // Athlete count alone is no longer the relevance bar (spec update 2026-09-06) - this 5-athlete
+    // rankings-style piece stays out because it isn't RELEVANT, not because of its athlete count.
+    const broadlyTagged = articles.find(article => article.athletes.length > 3);
+    if (broadlyTagged) expect(newsArticleToCard(broadlyTagged, { fetchedAt: FETCHED_AT })).toBeUndefined();
     const untagged = articles.find(article => article.athletes.length === 0)!;
     expect(newsArticleToCard(untagged, { fetchedAt: FETCHED_AT })).toBeUndefined();
+  });
+
+  it("preserves the article's type (HeadlineNews vs. Story) through parsing", () => {
+    const headlineNews = articles.find(article => article.type === "HeadlineNews");
+    expect(headlineNews).toBeDefined();
+    expect(articles.some(article => article.type === "Story")).toBe(true);
+    expect(parseEspnNewsArticle({ id: 1, headline: "X" })?.type).toBeUndefined();
+  });
+});
+
+describe("newsRelevance (spec update 2026-09-06: athlete count is the wrong relevance proxy)", () => {
+  const byHeadline = (headline: string): EspnNewsArticle =>
+    parseEspnNewsPayload(newsFixture).find(article => article.headline === headline)!;
+
+  const henderson: EspnNewsArticle = {
+    id: "dev-henderson",
+    type: "Story",
+    headline: "What will Patriots do if RB TreVeyon Henderson is out Week 1?",
+    description: "New England may lean on a committee if Henderson can't go, with three other backs in the mix.",
+    athletes: [
+      { espnId: "1", name: "Rhamondre Stevenson" },
+      { espnId: "2", name: "Antonio Gibson" },
+      { espnId: "3", name: "TreVeyon Henderson" },
+      { espnId: "4", name: "Terrell Jennings" },
+    ],
+  };
+
+  const smithDeal: EspnNewsArticle = {
+    id: "dev-smith",
+    type: "Story",
+    headline: "Vikings safety Smith agrees to deal, back for 15th season",
+    description: "The two sides finalized a new one-year contract that keeps Smith with Minnesota.",
+    athletes: [{ espnId: "5", name: "Harrison Smith" }],
+  };
+
+  const fieldBlessing: EspnNewsArticle = {
+    id: "dev-blessing",
+    type: "Story",
+    headline: "The story behind Steelers' viral field blessing: 'God doesn't pick sides'",
+    description: "Before every home game, a local pastor blesses the Acrisure Stadium turf, a ritual players on both sidelines have come to expect.",
+    athletes: [{ espnId: "6", name: "Aaron Rodgers" }],
+  };
+
+  it("treats a question about a player's status as relevant, even tagged to four athletes", () => {
+    expect(newsRelevance(henderson)).toEqual({ relevant: true, signal: "status" });
+  });
+
+  it("treats ESPN's own HeadlineNews wire items as relevant on their own", () => {
+    const jacobs = byHeadline("Josh Jacobs' court appearance moved up to Sept. 10");
+    expect(jacobs.type).toBe("HeadlineNews");
+    expect(newsRelevance(jacobs)).toEqual({ relevant: true, signal: "headline_news" });
+  });
+
+  it("treats a transaction headline as relevant", () => {
+    expect(newsRelevance(smithDeal)).toEqual({ relevant: true, signal: "transaction" });
+  });
+
+  it("treats a personality/feature story with no injury, role or transaction signal as not relevant", () => {
+    for (const article of [
+      fieldBlessing,
+      byHeadline("Will Kyler Murray end the Vikings' tragicomic QB history?"),
+      byHeadline("Chase Brown won't be overlooked in Bengals' offense"),
+      byHeadline("Does OBJ still got it? Fans and teammates seem to think so"),
+      byHeadline("Panthers' Tetairoa McMillan says he's stronger, but is he more versatile, too?"),
+    ]) {
+      expect(newsRelevance(article), article.headline).toEqual({ relevant: false });
+      expect(newsArticleToCard(article, { fetchedAt: FETCHED_AT })).toBeUndefined();
+    }
+  });
+
+  it("never reads a word inside a longer word as a signal (outlooks, is not 'out')", () => {
+    expect(newsRelevance({ id: "x", type: "Story", headline: "Prop bets, outlooks and projections for 2026", athletes: [] })).toEqual({
+      relevant: false,
+    });
+  });
+
+  it("builds a card for the 4-athlete Henderson story, capped at 3 players with Henderson first", () => {
+    const card = newsArticleToCard(henderson, { fetchedAt: FETCHED_AT });
+    expect(card).toBeDefined();
+    expect(card!.players).toHaveLength(3);
+    expect(card!.players[0].name).toBe("TreVeyon Henderson");
+    expect(card!.players.map(p => p.name)).not.toContain("Terrell Jennings");
+  });
+});
+
+describe("newsRelevance: signal words only in their roster sense, never the idiom", () => {
+  const story = (headline: string, description?: string) => ({ id: "x", type: "Story", headline, description, athletes: [] });
+
+  it("ignores 'out', 'starting' and 'cut' used as idioms", () => {
+    for (const article of [
+      story("Rookie WR stands out in camp", "He figured out the playbook and came out of the gate fast."),
+      story("Bengals offense is starting to click", "The unit is starting to look like last year's."),
+      story("Chiefs cut it close in preseason finale", "Kansas City cut back on reps for the veterans."),
+    ]) {
+      expect(newsRelevance(article), article.headline).toEqual({ relevant: false });
+    }
+  });
+
+  it("still reads the same words as a status, a role or a transaction", () => {
+    expect(newsRelevance(story("Henderson is out Week 1, coach confirms"))).toEqual({ relevant: true, signal: "status" });
+    expect(newsRelevance(story("Rookie RB out for the season after knee surgery"))).toEqual({ relevant: true, signal: "status" });
+    expect(newsRelevance(story("Rodriguez named the starter in Jacksonville"))).toEqual({ relevant: true, signal: "role" });
+    expect(newsRelevance(story("Douglas takes the starting job at WR"))).toEqual({ relevant: true, signal: "role" });
+    expect(newsRelevance(story("Veteran RB was cut by the Jaguars on Tuesday"))).toEqual({ relevant: true, signal: "transaction" });
+    expect(newsRelevance(story("Jaguars cut RB after one season"))).toEqual({ relevant: true, signal: "transaction" });
   });
 });

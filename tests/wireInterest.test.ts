@@ -49,6 +49,24 @@ describe("interestBase (spec §7 table)", () => {
     expect(interestBase(card({ kind: "trending", trendingAdds: 1240 }))).toBe(20);
   });
 
+  it("gives news a note's timetable base (spec update 2026-09-06, mirrors injury_note)", () => {
+    expect(interestBase(card({ kind: "news", headline: "X out 4-6 weeks", timetable: "4-6 weeks" }))).toBe(40);
+    expect(interestBase(card({ kind: "news" }))).toBe(20);
+  });
+
+  it("gives a trending spike +25 base when it carries a related event, and a board a fixed base", () => {
+    expect(
+      interestBase(
+        card({
+          kind: "trending",
+          trendingAdds: 1240,
+          related: { kind: "injury_status", players: ["X"], statusTo: "Out", observedAt: 0, source: "espn_injuries" },
+        })
+      )
+    ).toBe(45);
+    expect(interestBase(card({ kind: "trending_board" }))).toBe(40);
+  });
+
   it("scores an ownership swing (spec §18) at 20, plus the usual roster term", () => {
     expect(interestBase(card({ kind: "ownership_swing", ownershipChange: -12 }))).toBe(20);
     expect(scoreInterest(card({ kind: "ownership_swing", ownershipChange: -12, players: [player({ percentOwned: 60 })] }), { now: NOW })).toBe(50);
@@ -142,6 +160,12 @@ describe("scoreInterest", () => {
     const max = card({ statusTo: "Out", timetable: "6-8 weeks", players: [player({ position: "QB", percentOwned: 100 })] });
     expect(scoreInterest(max, { now: NOW })).toBe(100);
     expect(scoreInterest(card({ kind: "news", players: [player({ percentOwned: 61 })] }), { now: NOW })).toBe(51);
+  });
+
+  it("never turns a trending_board into a take, however widely rostered its names are", () => {
+    const board = card({ kind: "trending_board", players: [player({ percentOwned: 93 })] });
+    expect(scoreInterest(board, { now: NOW })).toBe(40);
+    expect(scoreInterest(board, { now: NOW, recentSamePlayerPostAt: NOW })).toBe(40);
   });
 
   it("matches the spec's Burrow example: QB, OUT, multi-week, widely rostered → tier-1 take", () => {
