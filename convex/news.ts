@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireIdentity } from "./lib/auth";
 
 // Store news articles (upsert based on espnId)
@@ -52,6 +53,9 @@ export const storeNewsArticles = internalMutation({
     const now = Date.now();
     let inserted = 0;
     let updated = 0;
+    // The Wire (ffsn-the-wire-spec.md §5.1/§8.2): only brand-new articles are worth a wire event -
+    // an updated one is (per the sync's own "modified" check) a correction, not news.
+    const insertedEspnIds: string[] = [];
 
     for (const article of args.articles) {
       // Check if article already exists
@@ -77,7 +81,12 @@ export const storeNewsArticles = internalMutation({
           updatedAt: now,
         });
         inserted++;
+        insertedEspnIds.push(article.espnId);
       }
+    }
+
+    if (insertedEspnIds.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.wireDetect.ingestNews, { espnIds: insertedEspnIds });
     }
 
     return { inserted, updated, total: inserted + updated };

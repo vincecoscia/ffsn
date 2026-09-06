@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { computeCostUsd } from './content-generation-service';
 import type { RelationshipTier } from './persona-prompts';
+import type { InGameInjury } from './prompt-builder';
 
 /** Sam asks; Opus writes the questions. Reply analysis is a classification job (spec §10.3.2). */
 const QUESTION_MODELS = ['claude-opus-5', 'claude-sonnet-5'] as const;
@@ -89,6 +90,13 @@ export interface ConversationContext {
     position: string;
     pointGain: number;
   }>;
+  /**
+   * This manager's players who left their game hurt this week (The Wire spec §16.1). Never a
+   * lineup decision: the CONTEXT block drops the lineup line and the under-projection line for
+   * such a player, and Sam is told to ask how the team replaces the production, never why he
+   * was started.
+   */
+  inGameInjuries?: InGameInjury[];
 
   /* --- League activity (spec §5) -------------------------------------------- */
   transactionsThisWeek?: Array<{
@@ -517,6 +525,32 @@ export function buildInterviewFactBlock(context: ConversationContext): string {
   return conversationService.factBlock(context);
 }
 
+/** Lower-cased names of this manager's players who left their game hurt (spec §16.1). */
+function injuredPlayerNames(context: ConversationContext): Set<string> {
+  return new Set((context.inGameInjuries ?? []).map((entry) => entry.name.trim().toLowerCase()));
+}
+
+/** How long after kickoff the injury tag landed, in plain English. */
+function minutesAfterKickoffLabel(entry: InGameInjury): string {
+  const minutes = Math.round((entry.observedAt - entry.kickoffAt) / 60_000);
+  return Number.isFinite(minutes) && minutes > 0 ? `${minutes} minutes after kickoff` : 'at kickoff';
+}
+
+/**
+ * The rule Sam is handed when one of this manager's players left his game hurt (spec §16.1):
+ * the injury is never the lineup call, so the question is the replacement, not the regret.
+ * `null` when nobody did. Pure and exported so the checks and the harness see the same text.
+ */
+export function buildInGameInjuryRule(context: ConversationContext): string | null {
+  const injuries = context.inGameInjuries ?? [];
+  if (injuries.length === 0) return null;
+  const names = injuries.map((entry) => entry.name);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  const each = names.length === 1 ? names[0] : 'any of them';
+  return `IN-GAME INJURY RULE
+${list} left the game hurt. That is never the manager's decision: never ask why they started ${each} or whether they regret it; ask how they replace the production (bench cover, the waiver wire, the next man up), one question.`;
+}
+
 export class ConversationService {
   /** The templated close, shaped as a normal interviewer turn. No model call, no cost. */
   private templatedClose(context: ConversationContext): AIConversationResult {
@@ -800,6 +834,7 @@ HARD RULES
 8. If they decline, say "no comment," or go silent on substance, thank them once and end. Never push twice. Set intent to "closing" and shouldRecordDecline to true. An answer that ends with "that's all" or "no further comment" is an answer, not a decline: close with intent "closing" and shouldRecordDecline false.
 9. If they go off-topic or ask about you, one light redirect, then end.
 10. You may use a writer's recent line about this manager from CONTEXT and offer them the reply: "Mel called your Hurts pick 'nineteen picks of air.' Anything you want to say to him?" Only when that line is in CONTEXT, and quote it exactly as CONTEXT has it.
+11. A player CONTEXT lists under "In-game injury" left his game hurt. That is never the manager's decision: never ask why they started him or whether they regret it; ask how they replace the production - bench cover, the waiver wire, the next man up.
 
 VOICE: brisk, warm, curious. Two sentences maximum. Contractions. No emoji, no exclamation points, no jokes at their expense - the columnists do that part. You are on their sideline, not in their face.
 
@@ -858,13 +893,25 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
       );
     }
 
+    // A starter who left his game hurt is not a lineup decision and not an under-projection
+    // (spec §16.1): those lines would hand Sam the "why did you start him" question.
+    const injured = injuredPlayerNames(context);
     for (const decision of context.lineupDecisions ?? []) {
+      if (injured.has(decision.startedPlayer.trim().toLowerCase())) continue;
       lines.push(
         `Lineup: ${decision.benchedPlayer} (${decision.position}) scored ${fmt(decision.benchedPoints)} on the bench; started ${decision.startedPlayer} scored ${fmt(decision.startedPoints)} (difference ${fmt(decision.pointGain)})`
       );
     }
 
-    for (const player of tp.underperformers.slice(0, 2)) {
+    for (const entry of context.inGameInjuries ?? []) {
+      const position = entry.position ? ` (${entry.position})` : '';
+      const points = entry.points !== undefined ? `, ${fmt(entry.points)} points` : '';
+      lines.push(
+        `In-game injury: ${entry.name}${position} left hurt - ${entry.status}, ${minutesAfterKickoffLabel(entry)}, ${entry.started ? 'started' : 'on the bench'}${points}`
+      );
+    }
+
+    for (const player of tp.underperformers.filter((p) => !injured.has(p.player.trim().toLowerCase())).slice(0, 2)) {
       lines.push(`Under projection: ${player.player} (${player.position}) ${fmt(player.actualPts)} vs ${fmt(player.expectedPts)} projected`);
     }
     for (const player of tp.overperformers.slice(0, 2)) {
@@ -964,6 +1011,15 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
   private openingAngle(context: ConversationContext): string {
     const { teamPerformance: tp, leagueContext, week } = context;
     const standing = leagueContext.standings.find((s) => s.teamId === tp.teamId);
+    // The injured starter is nobody's lineup call and nobody's under-projection (spec §16.1).
+    const injured = injuredPlayerNames(context);
+    const lineupDecisions = (context.lineupDecisions ?? []).filter((d) => !injured.has(d.startedPlayer.trim().toLowerCase()));
+    const underperformers = tp.underperformers.filter((p) => !injured.has(p.player.trim().toLowerCase()));
+    const firstInjury = context.inGameInjuries?.[0];
+    const injuryPhrase = firstInjury
+      ? `${firstInjury.name} leaving the game hurt (${firstInjury.status}, ${minutesAfterKickoffLabel(firstInjury)})` +
+        (firstInjury.points !== undefined ? ` with ${fmt(firstInjury.points)} points` : '')
+      : null;
     const marginPhrase =
       context.tie && context.opponentName && context.opponentScore !== undefined
         ? `the ${fmt(tp.score)}-${fmt(context.opponentScore)} tie with ${context.opponentName}`
@@ -976,8 +1032,8 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
       context.topBenchPlayer && context.benchPoints !== undefined && context.benchPoints > 0
         ? `${fmt(context.topBenchPlayer.points)} from ${context.topBenchPlayer.player} on the bench`
         : null;
-    const lineupPhrase = context.lineupDecisions?.[0]
-      ? `starting ${context.lineupDecisions[0].startedPlayer} (${fmt(context.lineupDecisions[0].startedPoints)}) over ${context.lineupDecisions[0].benchedPlayer} (${fmt(context.lineupDecisions[0].benchedPoints)})`
+    const lineupPhrase = lineupDecisions[0]
+      ? `starting ${lineupDecisions[0].startedPlayer} (${fmt(lineupDecisions[0].startedPoints)}) over ${lineupDecisions[0].benchedPlayer} (${fmt(lineupDecisions[0].benchedPoints)})`
       : null;
     // Prefer the ledger (wins, losses and the budget left) over the raw transaction feed.
     const wonClaim = (context.waiverClaimsThisRun ?? []).find((c) => c.result === 'won');
@@ -1019,8 +1075,8 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     const topPerformer = tp.overperformers[0]
       ? `${fmt(tp.overperformers[0].actualPts)} from ${tp.overperformers[0].player}`
       : null;
-    const worstPerformer = tp.underperformers[0]
-      ? `${tp.underperformers[0].player}'s ${fmt(tp.underperformers[0].actualPts)} against a ${fmt(tp.underperformers[0].expectedPts)} projection`
+    const worstPerformer = underperformers[0]
+      ? `${underperformers[0].player}'s ${fmt(underperformers[0].actualPts)} against a ${fmt(underperformers[0].expectedPts)} projection`
       : null;
 
     const firstOf = (...candidates: Array<string | null>) =>
@@ -1031,6 +1087,9 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
         return tp.won
           ? firstOf(marginPhrase && topPerformer ? `${marginPhrase} and ${topPerformer}` : marginPhrase, topPerformer, rankPhrase)
           : firstOf(
+              // A starter who left hurt leads over the bench points behind him: the story is the
+              // replacement, not the slot (spec §16.1).
+              marginPhrase && injuryPhrase ? `${marginPhrase} and ${injuryPhrase}` : injuryPhrase,
               marginPhrase && benchPhrase ? `${marginPhrase} and ${benchPhrase}` : marginPhrase,
               benchPhrase,
               lineupPhrase,
@@ -1072,11 +1131,13 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
 
   private buildUserPrompt(context: ConversationContext, isInitial: boolean): string {
     const facts = this.buildFactBlock(context);
+    const injuryRule = buildInGameInjuryRule(context);
+    const rules = injuryRule ? `\n${injuryRule}\n` : '';
 
     if (isInitial) {
       return `CONTEXT (the only facts you may state)
 ${facts}
-
+${rules}
 TASK
 Ask your opening question. Lead with ${this.openingAngle(context)}, stated as one clause with the number in it, then one open question they cannot answer with "yeah." Introduce yourself by name on first contact and make clear this is on the record. Set intent to "initial".`;
     }
@@ -1089,7 +1150,7 @@ Ask your opening question. Lead with ${this.openingAngle(context)}, stated as on
 
     return `CONTEXT (the only facts you may state)
 ${facts}
-
+${rules}
 QUESTIONS YOU HAVE ALREADY ASKED (never repeat one)
 ${aiMessages.map((m) => `- ${m.content}`).join('\n') || '- none'}
 

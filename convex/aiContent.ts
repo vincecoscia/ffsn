@@ -9,6 +9,10 @@ import { contentTemplates } from "../src/lib/ai/content-templates";
 // layer, so Convex and the generator apply the same rule rather than two copies
 // of it.
 import { shouldPublish, type EditorPassResult } from "../src/lib/ai/publish-gate";
+import {
+  WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES,
+  WIRE_STATEMENT_QUOTABLE_MS,
+} from "../src/lib/ai/wire/types";
 
 /** The editor pass exactly as it is stored on `aiContent.generationStats.editor`. */
 export type StoredEditorReview = Infer<typeof editorReviewValidator>;
@@ -867,6 +871,20 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
         );
       }
 
+      // The Wire (ffsn-the-wire-spec.md §17.5): same statement pull as the prepared path in
+      // aiContentHelpers.generateAIContentWithData - a manager's Wire post/reply is quotable
+      // alongside (never merged into) an interview entry.
+      if (!WIRE_STATEMENT_EXCLUDED_CONTENT_TYPES.has(args.contentType)) {
+        const wireStatements = await ctx.runQuery(internal.wire.getManagerStatementsForArticle, {
+          leagueId: args.leagueId,
+          since: Date.now() - WIRE_STATEMENT_QUOTABLE_MS,
+        });
+        if (wireStatements.length > 0) {
+          commentResponses = [...(commentResponses ?? []), ...wireStatements];
+          console.log(`Added ${wireStatements.length} manager statement(s) from The Wire`);
+        }
+      }
+
       // The writer's standing with each manager in this league (spec section 6).
       // Drives relationshipPosture and lets the writer answer a manager's jab.
       const relationships = await ctx.runQuery(
@@ -1152,6 +1170,9 @@ async function getLeagueDataForGenerationHandler(
 
       // Matchup data
       recentMatchups: enrichedData.recentMatchups,
+      // In-game injuries (spec §16, owner ask 2026-09-05) - src/lib/ai/facts.ts turns this into
+      // the per-player `leftGameInjured` FACTS entry and the HOUSE STYLE line.
+      inGameInjuries: enrichedData.inGameInjuries,
       // The look-ahead slate (spec 4.3). This reshape is a whitelist, so a field left out here
       // never reaches the prompt layer - weekly_preview had no upcoming games for exactly that
       // reason.
@@ -1462,6 +1483,12 @@ async function updateContentStatusHandler(
   // inline so a notification/email failure can never block publishing.
   if (args.status === "published" && !args.silent) {
     await ctx.scheduler.runAfter(0, internal.notifications.notifyArticlePublished, {
+      articleId: args.articleId,
+    });
+    // The Wire (ffsn-the-wire-spec.md §5.2/§8.2): a routine "new article" post, same silent-backfill
+    // exemption as the reader notification above - a quiet catch-up publish should not surface on
+    // the live feed either.
+    await ctx.scheduler.runAfter(0, internal.wireRoutine.onArticlePublished, {
       articleId: args.articleId,
     });
   }

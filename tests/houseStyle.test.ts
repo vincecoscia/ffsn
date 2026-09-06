@@ -18,6 +18,17 @@ describe("buildHouseStyleBlock — HOUSE STYLE (team-first rules)", () => {
       "Headlines, titles, summaries and the first sentence name the team, not the manager."
     );
   });
+
+  it("says an in-game injury is never the manager's decision (The Wire spec §16.1)", () => {
+    const block = buildHouseStyleBlock();
+    expect(block).toContain(
+      "- An in-game injury is never the manager's decision. A player in facts.inGameInjuries left his game hurt: never call starting him a mistake, never count his slot as points left on the bench, never ask or wonder why he was started, never grade the lineup call. Report it as part of the game (status, when) and turn to how the team replaces the production — the bench, the waiver wire, the next man up."
+    );
+    // The show surface carries the same rule; it is a house rule, not an article rule.
+    expect(buildHouseStyleBlock({ surface: "show" })).toContain("An in-game injury is never the manager's decision.");
+    // And the grounding contract's numbered list names the fact it hangs on.
+    expect(GROUNDING_CONTRACT).toContain("6. facts.inGameInjuries lists players who left their game hurt.");
+  });
 });
 
 describe("buildHouseStyleBlock — LANGUAGE tier text", () => {

@@ -64,11 +64,19 @@ export interface VocabularyAudit {
   inBlock: boolean;
 }
 
+/** A question that names a player who left his game hurt with start/regret/why wording (spec §16.1). */
+export interface InjuryBlameAudit {
+  player: string;
+  /** The wording that makes it the manager's call: "why did you start", "regret", "walk me through starting". */
+  phrase: string;
+}
+
 /** Everything `checkQuestionGrounding` looked at, for a reviewer's fact audit. */
 export interface QuestionAudit {
   numbers: NumberAudit[];
   names: NameAudit[];
   vocabulary: VocabularyAudit[];
+  injuryBlame: InjuryBlameAudit[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -272,6 +280,7 @@ export function knownNamesFor(context: ConversationContext): { players: string[]
     add(players, d.startedPlayer);
   }
   for (const p of [...tp.underperformers, ...tp.overperformers]) add(players, p.player);
+  for (const entry of context.inGameInjuries ?? []) add(players, entry.name);
   for (const tx of context.transactionsThisWeek ?? []) {
     tx.playersAdded.forEach((p) => add(players, p));
     tx.playersDropped.forEach((p) => add(players, p));
@@ -517,6 +526,47 @@ function groundingText(context: ConversationContext, options?: GroundingOptions)
   return replies.length ? `${factBlockFor(context)}\nMANAGER SAID:\n${replies.join('\n')}` : factBlockFor(context);
 }
 
+/**
+ * The wording that makes starting a player the manager's call (spec §16.1): a why-did-you-start,
+ * a regret, a should-have, a mistake, points left on the bench behind him, "walk me through
+ * starting", the decision to start. "Who covers the slot now" and "how do you replace him" are
+ * the sanctioned questions and match none of these.
+ */
+const INJURY_BLAME_QUESTION_RE =
+  /\b(why\b[^?]{0,40}\b(?:start|play|went with|go with|roll(?:ed)? with|in (?:your|the) lineup)|regret|second[- ]guess|should(?:n't| not)?(?: you)? have\b|mistake|blunder|indefensible|inexcusable|left [^?]{0,30}\bon the bench|lineup (?:call|decision|error|mistake)|(?:walk|talk|take) me through (?:starting|the (?:call|decision) to start)|the (?:call|decision) to start|start(?:ing|ed)? (?:him|her) over|(?:his|your|her) fault)\b/i;
+
+function auditInjuryBlame(question: string, context: ConversationContext): InjuryBlameAudit[] {
+  const audits: InjuryBlameAudit[] = [];
+  const injuries = context.inGameInjuries ?? [];
+  if (injuries.length === 0) return audits;
+  for (const sentence of splitSentences(question)) {
+    const blame = INJURY_BLAME_QUESTION_RE.exec(sentence);
+    if (!blame) continue;
+    for (const entry of injuries) {
+      if (!mentionsName(sentence, entry.name)) continue;
+      if (audits.some((a) => a.player === entry.name)) continue;
+      audits.push({ player: entry.name, phrase: blame[1] });
+    }
+  }
+  return audits;
+}
+
+/**
+ * A question that asks why the manager started a player who left his game hurt, or whether
+ * they regret it, is the one question no reporter would ask (owner, 2026-09-05). Blocks.
+ */
+export function checkInjuryBlameQuestion(question: string, context: ConversationContext): Finding[] {
+  return auditInjuryBlame(question, context).map((audit) => {
+    const entry = (context.inGameInjuries ?? []).find((e) => e.name === audit.player);
+    const status = entry ? ` (${entry.status})` : '';
+    return {
+      code: 'injury_blame_question',
+      severity: 'block' as const,
+      detail: `${audit.player} left his game hurt${status}; "${audit.phrase}" asks about the lineup call, not the replacement`,
+    };
+  });
+}
+
 /** Everything the grounding check looked at, for a reviewer to verify by hand. */
 export function auditQuestion(question: string, context: ConversationContext, options?: GroundingOptions): QuestionAudit {
   const block = groundingText(context, options);
@@ -524,6 +574,7 @@ export function auditQuestion(question: string, context: ConversationContext, op
     numbers: auditNumbers(question, block),
     names: auditNames(question, context, block),
     vocabulary: auditVocabulary(question, block),
+    injuryBlame: auditInjuryBlame(question, context),
   };
 }
 
@@ -591,6 +642,8 @@ export function checkQuestionGrounding(question: string, context: ConversationCo
       detail: `"${entry.word}" implies a ${entry.category.replace(/_/g, ' ')} fact that is not in CONTEXT`,
     });
   }
+
+  findings.push(...checkInjuryBlameQuestion(question, context));
 
   return findings;
 }

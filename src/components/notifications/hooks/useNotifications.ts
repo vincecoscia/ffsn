@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 export interface NotificationFilters {
   leagueId?: Id<"leagues">;
-  type?: "comment_request" | "comment_reminder" | "comment_follow_up" | "comment_thank_you" | "article_published" | "article_generated" | "system_announcement" | "league_invitation" | "account_update";
+  type?: "comment_request" | "comment_reminder" | "comment_follow_up" | "comment_thank_you" | "article_published" | "article_generated" | "system_announcement" | "league_invitation" | "account_update" | "wire_alert";
   isRead?: boolean;
   limit?: number;
 }
@@ -102,6 +102,7 @@ export function useNotifications(filters: NotificationFilters = {}) {
         case "system_announcement": return "📢";
         case "league_invitation": return "🏆";
         case "account_update": return "⚙️";
+        case "wire_alert": return "📡";
         default: return "🔔";
       }
     },

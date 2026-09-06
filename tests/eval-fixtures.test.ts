@@ -23,12 +23,13 @@ const ACTIVE_WRITERS = Object.values(personaPrompts)
   .map((persona) => persona.slug);
 
 describe("eval fixtures", () => {
-  it("ships the four fixtures the harness sweeps, each with an expectation file", () => {
+  it("ships the five fixtures the harness sweeps, each with an expectation file", () => {
     expect(fixtures.map((fixture) => fixture.name)).toEqual([
       "rich-week",
       "sparse-week",
       "draft-day",
       "empty-league",
+      "in-game-injury",
     ]);
     for (const fixture of fixtures) {
       expect(expectations[fixture.name], `${fixture.name} expectation`).toBeDefined();
@@ -56,6 +57,7 @@ describe("eval fixtures", () => {
         nonRespondents: facts.nonRespondents.length,
         relationships: facts.relationships.length,
         priorClaims: facts.priorClaims.length,
+        inGameInjuries: facts.inGameInjuries.length,
       }).toEqual(expected.facts);
 
       const refs = [
@@ -71,6 +73,7 @@ describe("eval fixtures", () => {
         ...facts.quotes.map((quote) => quote.teamId),
         ...facts.nonRespondents.map((entry) => entry.teamId),
         ...facts.relationships.map((entry) => entry.teamId),
+        ...facts.inGameInjuries.map((entry) => entry.teamId),
       ];
       expect(refs.filter((id) => id === "T?")).toEqual([]);
     }
@@ -204,12 +207,13 @@ describe("eval sweep: every fixture x writer x content type", () => {
 });
 
 describe("recorded sample articles", () => {
-  it("covers a clean article, a fabricated quote, a wrong fantasy team and a ghost speaker", () => {
+  it("covers a clean article, a fabricated quote, a wrong fantasy team, a ghost speaker and a blamed injury", () => {
     expect(samples.map((sample) => sample.name)).toEqual([
       "clean-weekly-recap",
       "fabricated-quote",
       "wrong-fantasy-team",
       "ghost-speaker",
+      "injury-blame",
     ]);
   });
 

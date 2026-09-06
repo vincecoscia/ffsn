@@ -8,7 +8,8 @@
  * starts with `ffsn:`.
  */
 
-import { firstName, personaInitials, shortName, type EmailPersona } from "./labels";
+import { DIGEST_MAX_HEADLINES, DIGEST_MAX_YOUR_TEAM, type WireDigestData, type WireDigestLeague } from "../ai/wire/types";
+import { firstName, personaInitials, shortName, writerDisplay, type EmailPersona } from "./labels";
 import {
   button,
   callout,
@@ -20,6 +21,7 @@ import {
   paragraph,
   quoteBlock,
   renderShell,
+  rule,
   slate,
   statsRow,
   textDocument,
@@ -27,6 +29,7 @@ import {
   trimTrailingSlash,
   TEXT_RULE,
 } from "./shell";
+import { FONT_DISPLAY, FONT_TEXT, LIGHT_PALETTE } from "./theme";
 
 export type { EmailPersona } from "./labels";
 
@@ -578,6 +581,195 @@ export function renderEspnConnectionRestoredEmail(data: EspnConnectionRestoredEm
 }
 
 /* -------------------------------------------------------------------------- */
+/* The Wire — Sunday digest (spec §19.3)                                      */
+/*                                                                             */
+/* One email per opted-in manager, Monday 04:00 UTC in season: per league,    */
+/* the owner overlays about their team, the wire_alert notifications, Sam's   */
+/* unanswered questions and the top global headlines from the last 24 h. The  */
+/* Convex sender (convex/wireDigest*) decides who gets one and skips anyone   */
+/* with nothing to say; this renders whatever it is handed.                    */
+/* -------------------------------------------------------------------------- */
+
+/** "Sun 4:12 PM EDT" in the recipient's zone (falls back to Eastern, then UTC). */
+export function formatWireTime(timestamp: number, timeZone: string = DEFAULT_TIME_ZONE): string {
+  const date = new Date(timestamp);
+  for (const zone of [timeZone, DEFAULT_TIME_ZONE, "UTC"]) {
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: zone,
+        weekday: "short",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      }).format(date);
+    } catch {
+      // invalid zone id; try the next one
+    }
+  }
+  return date.toUTCString();
+}
+
+/** "Sunday, Sep 13" — the night the digest covers, from the end of its window. */
+function digestDateLabel(windowEnd: number, timeZone: string = DEFAULT_TIME_ZONE): string {
+  // The window closes at midnight Eastern; a minute earlier is still the Sunday it reports on.
+  const date = new Date(windowEnd - 60 * 1000);
+  for (const zone of [timeZone, DEFAULT_TIME_ZONE, "UTC"]) {
+    try {
+      return new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long", month: "short", day: "numeric" }).format(date);
+    } catch {
+      // invalid zone id; try the next one
+    }
+  }
+  return date.toUTCString();
+}
+
+function originOf(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The byline on a digest item: the writer's short name, or "The Wire" for a desk post with none. */
+function wireByline(persona: string | undefined): string {
+  return persona && persona.trim().length > 0 ? shortName(writerDisplay(persona).name) : "The Wire";
+}
+
+interface DigestItem {
+  label: string;
+  time: string;
+  text: string;
+}
+
+/** A hairline-separated list: label · time above, the post text below. Everything escaped here. */
+function digestItems(items: DigestItem[]): string {
+  const L = LIGHT_PALETTE;
+  const rows = items
+    .map(
+      (item) => `<tr><td class="em-hairline" style="padding:10px 0 12px;border-top:1px solid ${L.hairline};">
+<div class="em-text3" style="font-family:${FONT_DISPLAY};font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;line-height:1;color:${L.text3};">${escapeHtml(item.label)}<span style="padding:0 8px;">&middot;</span>${escapeHtml(item.time)}</div>
+<div class="em-body" style="margin-top:6px;font-family:${FONT_TEXT};font-size:15px;line-height:1.55;color:${L.body};">${escapeHtml(item.text)}</div>
+</td></tr>`,
+    )
+    .join("\n");
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px;">
+${rows}
+</table>`;
+}
+
+function digestTextItems(items: DigestItem[]): string {
+  return items.map((item) => `- ${item.label} (${item.time}): ${item.text.trim()}`).join("\n");
+}
+
+/** The digest's view of one league: the capped lists, with times already formatted. */
+function digestLeagueView(league: WireDigestLeague, timeZone?: string) {
+  const time = (at: number) => formatWireTime(at, timeZone);
+  return {
+    yourTeam: league.yourTeam.slice(0, DIGEST_MAX_YOUR_TEAM).map((item) => ({ label: wireByline(item.persona), time: time(item.createdAt), text: item.text })),
+    alerts: league.alerts.map((alert) => ({ label: alert.title, time: time(alert.createdAt), text: alert.message })),
+    openQuestions: league.openQuestions.map((question) => ({ ...question, time: time(question.createdAt) })),
+    headlines: league.headlines.slice(0, DIGEST_MAX_HEADLINES).map((item) => ({ label: wireByline(item.persona), time: time(item.createdAt), text: item.text })),
+  };
+}
+
+function digestLeagueHtml(league: WireDigestLeague, timeZone?: string): string {
+  const view = digestLeagueView(league, timeZone);
+  const parts = [rule(), headline(league.leagueName, { size: 26 }), league.teamName ? kicker(league.teamName) : ""];
+  if (view.yourTeam.length > 0) parts.push(kicker("Your team"), digestItems(view.yourTeam));
+  if (view.alerts.length > 0) parts.push(kicker("Alerts"), digestItems(view.alerts));
+  if (view.openQuestions.length > 0) {
+    parts.push(kicker("Sam is waiting on you"), ...view.openQuestions.map((question) => quoteBlock(question.text)), button("Answer on the Wire", league.wireUrl));
+  }
+  if (view.headlines.length > 0) parts.push(kicker("Around the league"), digestItems(view.headlines));
+  parts.push(
+    finePrint(
+      `<a href="${escapeHtml(league.wireUrl)}" class="em-text2" style="color:${LIGHT_PALETTE.text2};text-decoration:underline;">Open the Wire for ${escapeHtml(league.leagueName)}</a>`,
+    ),
+  );
+  return parts.filter(Boolean).join("\n");
+}
+
+function digestLeagueText(league: WireDigestLeague, timeZone?: string): string {
+  const view = digestLeagueView(league, timeZone);
+  return textDocument([
+    TEXT_RULE,
+    `${league.leagueName.toUpperCase()}${league.teamName ? ` · ${league.teamName}` : ""}`,
+    view.yourTeam.length > 0 ? `Your team:\n${digestTextItems(view.yourTeam)}` : undefined,
+    view.alerts.length > 0 ? `Alerts:\n${digestTextItems(view.alerts)}` : undefined,
+    view.openQuestions.length > 0
+      ? `Sam is waiting on you:\n${view.openQuestions.map((question) => `"${question.text.trim()}" (${question.time})`).join("\n")}\nAnswer on the Wire: ${league.wireUrl}`
+      : undefined,
+    view.headlines.length > 0 ? `Around the league:\n${digestTextItems(view.headlines)}` : undefined,
+    `Open the Wire: ${league.wireUrl}`,
+  ]);
+}
+
+/** The inbox preview: the first thing the desk said about the reader's team, else the first alert or headline. */
+function digestPreheader(data: WireDigestData): string {
+  for (const league of data.leagues) {
+    const first = league.yourTeam[0]?.text ?? league.alerts[0]?.message ?? league.headlines[0]?.text;
+    if (first) {
+      const clean = first.trim();
+      return clean.length > 140 ? `${clean.slice(0, 137).trimEnd()}…` : clean;
+    }
+  }
+  return "Your Sunday on the Wire.";
+}
+
+export function renderWireDigestEmail(data: WireDigestData): RenderedEmail {
+  const siteUrl = trimTrailingSlash(data.siteUrl ?? originOf(data.settingsUrl) ?? originOf(data.leagues[0]?.wireUrl) ?? "https://ffsn.ai");
+  const leagues = data.leagues;
+  const subject =
+    leagues.length === 1 ? `Your Wire · ${leagues[0].leagueName}` : leagues.length > 1 ? `Your Wire · ${leagues.length} leagues` : "Your Wire";
+  const dateLabel = digestDateLabel(data.windowEnd, data.timeZone);
+  const preheader = digestPreheader(data);
+  const intro =
+    leagues.length > 0
+      ? `${greeting(data.recipientName)} Here is what the desk had on your ${leagues.length === 1 ? "team" : "teams"} since Sunday morning, in one place.`
+      : `${greeting(data.recipientName)} The desk had nothing on your teams today.`;
+  const manageAlerts = `<a href="${escapeHtml(data.settingsUrl)}" class="em-text2" style="color:${LIGHT_PALETTE.text2};text-decoration:underline;">Manage alerts</a>`;
+
+  const content = [
+    slate("The Wire", `Sunday night · ${dateLabel}`),
+    headline("Your Wire"),
+    paragraph(escapeHtml(intro)),
+    ...leagues.map((league) => digestLeagueHtml(league, data.timeZone)),
+    rule(),
+    finePrint(`${manageAlerts} &middot; Sent once, Sunday night, and only when the desk had something for you.`, { last: true }),
+  ].join("\n");
+
+  const leagueNames = leagues.map((league) => league.leagueName);
+  const reason =
+    leagueNames.length > 0
+      ? `You're getting this because your Wire alerts are on for ${leagueNames.join(", ")} on FFSN.`
+      : "You're getting this because your Wire alerts are on at FFSN.";
+
+  const html = renderShell({
+    title: subject,
+    preheader,
+    siteUrl,
+    preferencesUrl: data.settingsUrl,
+    mastheadLabel: "The Wire",
+    reason,
+    content,
+  });
+
+  const text = textDocument([
+    `FFSN · THE WIRE · SUNDAY NIGHT · ${dateLabel.toUpperCase()}`,
+    "Your Wire",
+    intro,
+    ...leagues.map((league) => digestLeagueText(league, data.timeZone)),
+    TEXT_RULE,
+    `Manage alerts: ${data.settingsUrl}\nSent once, Sunday night, and only when the desk had something for you.`,
+    textFooter({ siteUrl, preferencesUrl: data.settingsUrl, reason }),
+  ]);
+
+  return { subject, preheader, html, text, fromName: "The Wire · FFSN" };
+}
+
+/* -------------------------------------------------------------------------- */
 /* System notice (test sends, announcements)                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -639,7 +831,8 @@ export type EmailTemplateKey =
   | "team_invitation"
   | "espn_connection_broken"
   | "espn_connection_expiring"
-  | "espn_connection_restored";
+  | "espn_connection_restored"
+  | "wire_digest";
 
 export interface EmailTemplateDataMap {
   comment_request: CommentRequestEmailData;
@@ -650,6 +843,7 @@ export interface EmailTemplateDataMap {
   espn_connection_broken: EspnConnectionBrokenEmailData;
   espn_connection_expiring: EspnConnectionExpiringEmailData;
   espn_connection_restored: EspnConnectionRestoredEmailData;
+  wire_digest: WireDigestData;
 }
 
 export function localTemplateId(key: EmailTemplateKey): string {
@@ -680,6 +874,8 @@ export function renderEmail<K extends EmailTemplateKey>(key: K, data: EmailTempl
       return renderEspnConnectionExpiringEmail(data as EspnConnectionExpiringEmailData);
     case "espn_connection_restored":
       return renderEspnConnectionRestoredEmail(data as EspnConnectionRestoredEmailData);
+    case "wire_digest":
+      return renderWireDigestEmail(data as WireDigestData);
     default: {
       const never: never = key;
       throw new Error(`Unknown email template: ${String(never)}`);
@@ -705,6 +901,7 @@ export function renderLocalTemplate(templateId: string, data: unknown): Rendered
       "espn_connection_broken",
       "espn_connection_expiring",
       "espn_connection_restored",
+      "wire_digest",
     ].includes(key)
   ) {
     throw new Error(`Unknown local email template: ${templateId}`);

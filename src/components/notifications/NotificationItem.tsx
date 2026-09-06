@@ -11,8 +11,7 @@ import {
   Trophy,
   Settings,
   Bell,
-  type LucideIcon,
-} from "lucide-react";
+  type LucideIcon, Radio } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useNotifications } from "./hooks/useNotifications";
 import { Doc } from "../../../convex/_generated/dataModel";
@@ -37,6 +36,7 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
   system_announcement: Megaphone,
   league_invitation: Trophy,
   account_update: Settings,
+  wire_alert: Radio,
 };
 
 function typeLabel(type: string): string {

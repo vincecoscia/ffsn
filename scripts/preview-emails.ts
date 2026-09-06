@@ -23,6 +23,7 @@ import {
   renderArticlePublishedEmail,
   renderCommentRequestEmail,
   renderSystemNoticeEmail,
+  renderWireDigestEmail,
   writerDisplay,
   type RenderedEmail,
 } from "../src/lib/email";
@@ -36,6 +37,10 @@ const articleUrl = `${siteUrl}/articles/sample-article`;
 
 // Thu, Sep 3 2026, 7:30 PM EDT
 const deadline = Date.UTC(2026, 8, 3, 23, 30);
+// The Wire digest window: Sunday Sep 13 2026, midnight to midnight Eastern.
+const sundayAt = (hourEt: number, minute = 0) => Date.UTC(2026, 8, 13, hourEt + 4, minute);
+const wireWindowStart = sundayAt(0);
+const wireWindowEnd = sundayAt(24);
 
 const samples: Array<{ key: string; label: string; email: RenderedEmail }> = [
   {
@@ -126,6 +131,71 @@ const samples: Array<{ key: string; label: string; email: RenderedEmail }> = [
       quoted: true,
       preferencesUrl,
       siteUrl,
+    }),
+  },
+  {
+    key: "wire-digest",
+    label: "The Wire, Sunday digest (two leagues)",
+    email: renderWireDigestEmail({
+      recipientName: "Dana Whitlock",
+      windowStart: wireWindowStart,
+      windowEnd: wireWindowEnd,
+      siteUrl,
+      settingsUrl: preferencesUrl,
+      leagues: [
+        {
+          leagueId: "sample-league",
+          leagueName,
+          teamName: "Kittle Me This",
+          wireUrl: `${siteUrl}/leagues/sample-league/wire`,
+          yourTeam: [
+            { persona: "reggie-banks", text: "Kittle Me This just got six from Ja'Marr Chase.", createdAt: sundayAt(16, 12) },
+            { persona: "reggie-banks", text: "Derrick Henry is having a day for Kittle Me This. 24.7 fantasy points and counting.", createdAt: sundayAt(15, 48) },
+            {
+              persona: "mel-diaper",
+              text: "Kittle Me This rosters Jaylen Waddle: 3.4 fantasy points at the final. A bad day, not a lineup call.",
+              createdAt: sundayAt(16, 20),
+            },
+            { persona: "curtis-vaughn", text: "Kickoff: Kittle Me This has Joe Burrow on the field in this one.", createdAt: sundayAt(13, 1) },
+          ],
+          alerts: [
+            {
+              title: "Lineup lock",
+              message: "Joe Burrow (Questionable) is in your starting lineup with 60 minutes to kickoff.",
+              createdAt: sundayAt(12, 0),
+            },
+          ],
+          openQuestions: [
+            {
+              text: "Kittle Me This left 31 points on the bench in a game you lost by 4. Walk me through the Sunday-morning call on Jaylen Waddle.",
+              createdAt: sundayAt(20, 30),
+              postId: "sample-post",
+            },
+          ],
+          headlines: [
+            {
+              persona: "dex-alvarez",
+              text: 'Joe Burrow (CIN · QB): Questionable → Out. ESPN: "Burrow (toe) will miss 6–8 weeks after surgery."',
+              createdAt: sundayAt(11, 40),
+            },
+            { persona: "curtis-vaughn", text: "Final: CIN 27, CLE 20.", createdAt: sundayAt(16, 22) },
+            { persona: "reggie-banks", text: "Derrick Henry (BAL · RB): 112 rushing yards, 3 TD and counting.", createdAt: sundayAt(15, 45) },
+          ],
+        },
+        {
+          leagueId: "sample-league-2",
+          leagueName: "Moisty Loins Memorial",
+          teamName: "Sable Ridge Sentinels",
+          wireUrl: `${siteUrl}/leagues/sample-league-2/wire`,
+          yourTeam: [],
+          alerts: [],
+          openQuestions: [],
+          headlines: [
+            { persona: "nina-sharpe", text: "Class. Sable Ridge Sentinels needs 22.6 from Joe Burrow and Chase Brown on Monday night. Show your work.", createdAt: sundayAt(23, 35) },
+            { persona: "curtis-vaughn", text: "Sable Ridge Sentinels has the lead on Moisty Loins, 98.4 to 71.0. Let's go to the board.", createdAt: sundayAt(19, 10) },
+          ],
+        },
+      ],
     }),
   },
   {

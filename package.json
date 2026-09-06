@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval:articles": "vite-node scripts/eval-articles.ts",
+    "eval:wire": "vite-node scripts/eval-wire.ts",
     "disputed:pilot": "vite-node scripts/disputed-pilot.ts",
     "disputed:edit": "vite-node scripts/disputed-edit.ts"
   },

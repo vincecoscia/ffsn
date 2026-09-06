@@ -30,6 +30,7 @@ import type {
   RelationshipEventSummary,
   WriterRelationshipContext,
 } from "./content-generation-service";
+import type { WireQuoteSource } from "./wire/types";
 
 export interface FactsTeam {
   /** `"T" + externalId` — the id the model must cite. */
@@ -150,6 +151,26 @@ export interface FactsPlayer {
   projected?: number;
   lineup: "starter" | "bench";
   benchImpact?: { wouldHaveReplaced: string; pointGain: number };
+  /** He left this game hurt (`facts.inGameInjuries`): his score is the injury's, never the lineup call's. */
+  leftGameInjured?: true;
+}
+
+/**
+ * One player who left his game hurt this week (spec §16.1, owner 2026-09-05). The box score
+ * cannot tell a bad start from a second-quarter knee, so the writer is told which it was.
+ * `minutesAfterKickoff` is when the tag landed; `started` whether he was in the lineup.
+ */
+export interface FactsInGameInjury {
+  playerId: string;
+  name: string;
+  position?: string;
+  teamId: string;
+  teamName: string;
+  week: number;
+  status: string;
+  minutesAfterKickoff: number;
+  started: boolean;
+  points?: number;
 }
 
 /**
@@ -386,6 +407,12 @@ export interface FactsBlock {
   rosters?: FactsRoster[];
   /** Fresh feed intel for rostered / pool players (see FactsIntel). Absent when no feed has anything today. */
   intel?: FactsIntel[];
+  /**
+   * Players who left their game hurt this week (see FactsInGameInjury). Always present; empty
+   * when nobody did. An in-game injury is never the manager's decision (HOUSE STYLE), and the
+   * verifier strips any sentence that grades the lineup call on one of these players.
+   */
+  inGameInjuries: FactsInGameInjury[];
   /** Games that have NOT been played, for `weekly_preview`. Empty for every other type. */
   upcoming: FactsUpcoming[];
   /** The playoff picture and bracket (see FactsPlayoffs); absent when the payload carries none. */
@@ -492,7 +519,8 @@ export interface FactsBlock {
       published?: string;
     }>;
   };
-  quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string }>;
+  /** `source` (spec §17.4): "interview" for a Sam interview, "wire" for a manager's public post on The Wire. */
+  quotes: Array<{ id: string; speaker: string; teamId: string; questionTopic: string; text: string; source: WireQuoteSource }>;
   nonRespondents: Array<{ speaker: string; teamId: string; status: "no_response" | "declined" }>;
   relationships: Array<{
     teamId: string;
@@ -1064,7 +1092,69 @@ function collectMatchupSources(data: LeagueDataContext): Loose[] {
   return (data.recentMatchups ?? []).map(asLoose);
 }
 
-function buildMatchupPlayers(matchup: Loose, matchupId: string, teams: TeamIndex, homeId: string, awayId: string): FactsPlayer[] {
+/** The in-game injuries as lookup keys: ESPN ids and lower-cased names (spec §16.1). */
+interface InGameInjuryIndex {
+  ids: Set<string>;
+  names: Set<string>;
+}
+
+function inGameInjuryIndex(data: LeagueDataContext): InGameInjuryIndex {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const raw of Array.isArray(data.inGameInjuries) ? data.inGameInjuries : []) {
+    const entry = asLoose(raw);
+    const id = str(entry.espnId);
+    const name = str(entry.name);
+    if (id) ids.add(id.toLowerCase());
+    if (name) names.add(name.toLowerCase());
+  }
+  return { ids, names };
+}
+
+/**
+ * `facts.inGameInjuries` from the payload's `inGameInjuries` (spec §16.1). The team resolves
+ * through the same index as every performer; the FACTS id is the roster form (`P` + ESPN id),
+ * which the verifier already maps to the matchup line. Empty when the payload carries none.
+ */
+function buildInGameInjuries(data: LeagueDataContext, teams: TeamIndex): FactsInGameInjury[] {
+  const rows = Array.isArray(data.inGameInjuries) ? data.inGameInjuries : [];
+  const entries: FactsInGameInjury[] = [];
+  for (const raw of rows) {
+    const entry = asLoose(raw);
+    const name = str(entry.name);
+    const espnId = str(entry.espnId);
+    if (!name || !espnId) continue;
+    const teamId = teams.resolve(entry.fantasyTeamId, entry.fantasyTeamName);
+    const teamName = teams.teams.find(team => team.id === teamId)?.name ?? str(entry.fantasyTeamName) ?? teamId;
+    const observedAt = num(entry.observedAt);
+    const kickoffAt = num(entry.kickoffAt);
+    const minutesAfterKickoff =
+      observedAt !== undefined && kickoffAt !== undefined ? Math.max(0, Math.round((observedAt - kickoffAt) / 60_000)) : 0;
+    const points = num(entry.points);
+    entries.push({
+      playerId: `P${espnId}`,
+      name,
+      position: str(entry.position),
+      teamId,
+      teamName,
+      week: num(entry.week) ?? data.currentWeek,
+      status: str(entry.status) ?? "OUT",
+      minutesAfterKickoff,
+      started: entry.started !== false,
+      points: points === undefined ? undefined : round1(points),
+    });
+  }
+  return entries;
+}
+
+function buildMatchupPlayers(
+  matchup: Loose,
+  matchupId: string,
+  teams: TeamIndex,
+  homeId: string,
+  awayId: string,
+  injured: InGameInjuryIndex
+): FactsPlayer[] {
   const performers = Array.isArray(matchup.topPerformers) ? matchup.topPerformers : [];
   const players: FactsPlayer[] = [];
 
@@ -1081,8 +1171,16 @@ function buildMatchupPlayers(matchup: Loose, matchupId: string, teams: TeamIndex
     const gain = num(p.pointImprovementIfStarted);
     const replaced = str(p.wouldHaveReplacedPlayer);
 
+    // An in-game injury is never a lineup call (spec §16.1): the player who left hurt is tagged,
+    // and a bench swap that would have replaced him — or that he carries himself — is retired.
+    // Belt and braces with the data layer, which should already have dropped the swap.
+    const playerId = str(p.playerId);
+    const leftGameInjured =
+      (playerId !== undefined && injured.ids.has(playerId.toLowerCase())) || injured.names.has(name.toLowerCase());
+    const wouldHaveReplacedInjured = replaced !== undefined && injured.names.has(replaced.toLowerCase());
+
     players.push({
-      id: `${matchupId}P${str(p.playerId) ?? index + 1}`,
+      id: `${matchupId}P${playerId ?? index + 1}`,
       name,
       pos: str(p.position) ?? "FLEX",
       nflTeam,
@@ -1091,9 +1189,10 @@ function buildMatchupPlayers(matchup: Loose, matchupId: string, teams: TeamIndex
       projected: num(p.projectedPoints) ?? num(p.projected),
       lineup: p.isStarter === false ? "bench" : "starter",
       benchImpact:
-        p.benchImpact && replaced && gain !== undefined
+        p.benchImpact && replaced && gain !== undefined && !leftGameInjured && !wouldHaveReplacedInjured
           ? { wouldHaveReplaced: replaced, pointGain: gain }
           : undefined,
+      leftGameInjured: leftGameInjured ? true : undefined,
     });
   });
 
@@ -1127,6 +1226,7 @@ export function isRestRow(raw: unknown, knowsByes: boolean): boolean {
 
 function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[] {
   const knowsByes = payloadKnowsByes(data);
+  const injured = inGameInjuryIndex(data);
   const sources = collectMatchupSources(data).filter(matchup => !isRestRow(matchup, knowsByes));
   return sources.map((matchup, index) => {
     const id = `M${index + 1}`;
@@ -1161,7 +1261,7 @@ function buildMatchups(data: LeagueDataContext, teams: TeamIndex): FactsMatchup[
       margin: round1(Math.abs(scoreA - scoreB)),
       closeness: str(matchup.closeness)?.toLowerCase(),
       isUpset: matchup.isUpset === true ? true : undefined,
-      players: buildMatchupPlayers(matchup, id, teams, homeId, awayId),
+      players: buildMatchupPlayers(matchup, id, teams, homeId, awayId, injured),
     };
   });
 }
@@ -1646,6 +1746,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const matchups = buildMatchups(data, teams);
   const upcoming = buildUpcoming(data, teams);
   const rosters = buildRosters(data, teams);
+  const inGameInjuries = buildInGameInjuries(data, teams);
 
   const standings = (data.standings ?? []).map(row => ({
     rank: row.rank,
@@ -1718,6 +1819,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
         teamId,
         questionTopic: response.questionTopic,
         text: trimmed,
+        source: response.source ?? "interview",
       });
     });
   });
@@ -1841,6 +1943,7 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     draftPool,
     mockDraft: buildMockDraftFacts(data, teams),
     intel: buildIntelFacts(data, rosters, draftPool),
+    inGameInjuries,
     quotes,
     nonRespondents,
     relationships,

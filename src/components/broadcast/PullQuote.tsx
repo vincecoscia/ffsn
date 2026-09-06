@@ -16,6 +16,9 @@ export interface PullQuoteProps {
   writerResponse?: string;
   /** Writer slug for the reply byline, e.g. "mel-diaper". */
   writerPersona?: string;
+  /** Where the quote came from (spec §17.4): the default sideline interview, or a manager's public
+   *  post on The Wire — changes the red strip's label to "Said on The Wire". */
+  source?: "interview" | "wire";
   className?: string;
 }
 
@@ -31,10 +34,11 @@ export function PullQuote({
   week,
   writerResponse,
   writerPersona,
+  source = "interview",
   className,
 }: PullQuoteProps) {
-  const tag =
-    typeof week === "number" ? `Told FFSN Sideline · Week ${week}` : "Told FFSN Sideline";
+  const base = source === "wire" ? "Said on The Wire" : "Told FFSN Sideline";
+  const tag = typeof week === "number" ? `${base} · Week ${week}` : base;
 
   return (
     <figure className={cn("flex flex-col gap-3.5", className)}>

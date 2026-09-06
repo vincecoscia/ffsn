@@ -70,6 +70,9 @@ export default defineSchema({
       // manager's team reads as clean whatever the league's languageRating is. Absent means
       // this manager has not opted down.
       cleanLanguage: v.optional(v.boolean()),
+      // The Wire (ffsn-the-wire-spec.md §10, §19): who gets a `wire_alert` in-app notification
+      // (an owner-variant overlay at interest >= WIRE_ALERT_MIN_INTEREST). Absent = "my_roster".
+      wireAlerts: v.optional(v.union(v.literal("off"), v.literal("my_roster"), v.literal("all"))),
     })),
     createdAt: v.number(),
     lastActiveAt: v.number(),
@@ -1145,12 +1148,15 @@ export default defineSchema({
     })),
     
     isByeWeek: v.boolean(),
-    
+
     createdAt: v.number(),
   })
     .index("by_team_season", ["teamId", "season"])
     .index("by_week", ["season", "week"])
-    .index("by_team_week", ["teamId", "season", "week"]),
+    .index("by_team_week", ["teamId", "season", "week"])
+    // Dex Desk (ffsn-the-wire-spec.md §18): `pollNflSchedule` upserts by team ABBREVIATION (the
+    // scoreboard payload's own key), not the numeric ESPN team id `by_team_week` is keyed on.
+    .index("by_season_week_team", ["season", "week", "teamAbbrev"]),
 
   // Content schedule configurations for leagues
   contentSchedules: defineTable({
@@ -1372,6 +1378,13 @@ export default defineSchema({
     // "never touched", which is what the automatic-defaults migration keys on
     // (spec section 9.1) so a commissioner's own choices are never overwritten.
     preferencesTouchedAt: v.optional(v.number()),
+
+    // The Wire (ffsn-the-wire-spec.md §11 kill switches): commissioner toggle on the settings
+    // page. Absent means on - most leagues never touch this.
+    wireEnabled: v.optional(v.boolean()),
+    // Dex Desk leak policy (spec §18, owner): silences `claims_in`, `trade_proposal`,
+    // `trade_declined` and the confirm branch of `rumor_check`. Absent means on.
+    wireLeaks: v.optional(v.boolean()),
 
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1713,23 +1726,27 @@ export default defineSchema({
       v.literal("article_generated"),     // Scheduled article completed
       v.literal("system_announcement"),   // System-wide announcements
       v.literal("league_invitation"),     // League-related invites
-      v.literal("account_update")         // Account/subscription changes
+      v.literal("account_update"),        // Account/subscription changes
+      // Dex Desk (ffsn-the-wire-spec.md §18/§10): a starter is OUT/IR/on bye ~60 min before
+      // kickoff. In-app only by default (spec §10); never emailed per-post.
+      v.literal("wire_alert")
     ),
-    
+
     title: v.string(),
     message: v.string(),
-    
+
     // Action/navigation
     actionUrl: v.optional(v.string()),    // Where to navigate when clicked
     actionText: v.optional(v.string()),   // Button text ("View Comment Request")
-    
+
     // Related entities (for deep linking and context)
     relatedEntityType: v.optional(v.union(
       v.literal("comment_request"),
       v.literal("scheduled_content"),
       v.literal("ai_content"),
       v.literal("league"),
-      v.literal("user")
+      v.literal("user"),
+      v.literal("wire_post")
     )),
     relatedEntityId: v.optional(v.string()), // ID of related entity
     
@@ -2039,6 +2056,10 @@ export default defineSchema({
     week: v.optional(v.number()),
     evidence: v.string(), // <= 280 chars: the sentence or quote that caused it
     createdAt: v.number(),
+    // The Wire (spec §17): set on a "reaction" event synced from a wire post reaction, or a
+    // "wire_jab"/"wire_praise" event recorded from a writer-reply's read of a manager's post - the
+    // key `syncWireReaction` reconciles against, same convention as `articleId` for article reactions.
+    wirePostKey: v.optional(v.string()),
   })
     .index("by_league_user_persona", ["leagueId", "userId", "persona"])
     .index("by_article", ["articleId"])
@@ -2162,5 +2183,248 @@ export default defineSchema({
     .index("by_espn", ["espnId"])
     .index("by_sleeper", ["sleeperId"])
     .index("by_gsis", ["gsisId"]),
+
+  /* ------------------------------------------------------------------------ *
+   * The Wire (ffsn-the-wire-spec.md §4). A live, league-scoped feed of short
+   * posts reacting to NFL injuries, news, transactions and league events.
+   * `wireEvents` is the global, deduped fact log (one row per real-world
+   * event); `wirePosts` is the global tier-1 take/card; `wireLeaguePosts` is
+   * the per-league tier-2 overlay + tier-3 routine post; `wireSourceState` is
+   * the cursor + health row every poller keeps (mirrors `intelSyncRuns`, with
+   * a cursor). The fact card itself (`facts`) is validated by
+   * `src/lib/ai/wire/card.ts#validateFactCard`, not by this schema - it is
+   * `v.any()` here for the same reason `playerIntel`-adjacent blobs are: the
+   * card's shape is the pure prompt layer's contract, not the database's.
+   * ------------------------------------------------------------------------ */
+  wireEvents: defineTable({
+    kind: v.string(), // GlobalEventKind (src/lib/ai/wire/types.ts) - see that file for the full P1/P2 list
+    dedupeKey: v.string(), // e.g. "injury_status:3116389:Out"
+    observedAt: v.number(), // the source's own timestamp when it has one
+    detectedAt: v.number(),
+    players: v.array(
+      v.object({
+        espnId: v.string(),
+        name: v.string(),
+        position: v.optional(v.string()),
+        nflTeam: v.optional(v.string()),
+        percentOwned: v.optional(v.number()),
+        adpPositionRank: v.optional(v.number()),
+      })
+    ),
+    nflTeam: v.optional(v.string()),
+    facts: v.any(), // WireFactCard - validated by src/lib/ai/wire/card.ts#validateFactCard
+    interest: v.number(), // 0-100, spec §7
+    source: v.object({
+      type: v.string(), // WireSourceType (src/lib/ai/wire/types.ts)
+      id: v.optional(v.string()),
+      url: v.optional(v.string()),
+      fetchedAt: v.number(),
+    }),
+    // Set when a later event for the same player coalesces into an earlier
+    // one's post instead of creating a new one (spec §6 "Coalesce").
+    coalescedInto: v.optional(v.id("wireEvents")),
+    // The first card player's espnId, copied out of `players` so the per-player lookups
+    // (same-player penalty, coalesce target) are an indexed range instead of a window scan -
+    // the first dev poll read past Convex's 16 MB limit doing 100 such scans (2026-09-05).
+    primaryEspnId: v.optional(v.string()),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_detected", ["detectedAt"])
+    .index("by_kind_detected", ["kind", "detectedAt"])
+    .index("by_player_detected", ["primaryEspnId", "detectedAt"]),
+
+  wirePosts: defineTable({
+    // Global tier (spec §3.1): one post per event, patched in place when a
+    // pending take lands or a later event coalesces into this one.
+    eventId: v.id("wireEvents"),
+    kind: v.string(), // GlobalEventKind - carried here too so readers/digest never re-join wireEvents just for it
+    persona: v.string(), // WirePersona
+    text: v.string(), // the global take, or the plain card rendering while a take is pending/failed
+    tags: v.array(v.string()), // WireTag[]
+    variants: v.optional(
+      v.object({
+        owner: v.optional(v.string()),
+        opponent: v.optional(v.string()),
+        freeAgent: v.optional(v.string()),
+      })
+    ),
+    status: v.union(v.literal("card"), v.literal("take_pending"), v.literal("take"), v.literal("held")),
+    interest: v.number(),
+    generationStats: v.optional(
+      v.object({
+        costUsd: v.number(),
+        model: v.string(),
+        effort: v.string(),
+        batchId: v.optional(v.string()),
+        flags: v.array(v.string()),
+      })
+    ),
+    // Denormalized reaction tally (spec §17), patched by wire.react - the same "count on the post,
+    // never .collect() the reactions table" pattern as articleReactions would use if it kept one.
+    reactionCounts: v.optional(
+      v.object({ fire: v.number(), lol: v.number(), salty: v.number(), respect: v.number() })
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_created", ["createdAt"])
+    .index("by_event", ["eventId"])
+    .index("by_status_created", ["status", "createdAt"]),
+
+  wireLeaguePosts: defineTable({
+    // League tier (spec §3.2/§3.3): overlays (globalPostId set) and routine
+    // posts (globalPostId absent), both filled with no model call. Also the social layer (spec §17):
+    // a manager_post/manager_reply has an author instead of a persona, and a writer_reply answers one.
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    week: v.optional(v.number()),
+    kind: v.string(), // WireEventKind
+    // Absent on a manager post/reply - see `authorUserId` below instead.
+    persona: v.optional(v.string()),
+    text: v.string(),
+    tags: v.array(v.string()),
+    globalPostId: v.optional(v.id("wirePosts")), // set for overlays; the UI nests this under the global post
+    impact: v.optional(
+      v.object({
+        teamId: v.id("teams"),
+        variant: v.string(), // OverlayVariant ("owner" | "opponent" | "freeAgent")
+        slots: v.record(v.string(), v.string()),
+      })
+    ),
+    featuredTeams: v.array(v.id("teams")),
+    dedupeKey: v.string(),
+    generationStats: v.optional(
+      v.object({ costUsd: v.number(), model: v.string(), effort: v.string() })
+    ),
+    // Social layer (spec §17). A manager_post/manager_reply carries the author instead of a
+    // persona; `replyTo` is what it answers (a global writer post or a league post); `rootScope`/
+    // `rootId` is the THREAD ROOT - a reply to a reply still points at the original root so the
+    // whole thread can be fetched with one `by_root` range instead of walking `replyTo` chains.
+    authorUserId: v.optional(v.string()), // Clerk subject
+    authorTeamId: v.optional(v.id("teams")),
+    replyTo: v.optional(
+      v.object({ scope: v.union(v.literal("global"), v.literal("league")), id: v.string() })
+    ),
+    rootScope: v.optional(v.union(v.literal("global"), v.literal("league"))),
+    rootId: v.optional(v.string()),
+    // Soft delete (author or commissioner): replies and reactions on the post stay, the UI shows a
+    // placeholder in their place.
+    deletedAt: v.optional(v.number()),
+    deletedBy: v.optional(v.union(v.literal("author"), v.literal("commissioner"))),
+    // How the WRITER read the manager's text, set by the writer-reply call on a manager_post/
+    // manager_reply (never on the writer_reply itself) - drives the relationship move (spec §17.3).
+    sentiment: v.optional(v.union(v.literal("jab"), v.literal("thanks"), v.literal("neutral"))),
+    reactionCounts: v.optional(
+      v.object({ fire: v.number(), lol: v.number(), salty: v.number(), respect: v.number() })
+    ),
+    // Dex Desk (spec §18): a post that evolves in place instead of reposting - a `lineup_move`
+    // family post coalescing further moves for the same team within LINEUP_MOVE_COALESCE_MS, or a
+    // `claims_in` post whose team count grows within the same period. `evolvingBaseText` is the
+    // FIRST version of `text`, kept so a later patch can append "UPDATE: ..." without stacking
+    // duplicate suffixes across repeated patches; `evolvingCount` is the count last rendered
+    // (moves folded in, or teams targeting the claim).
+    evolvingCount: v.optional(v.number()),
+    evolvingBaseText: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_league_created", ["leagueId", "createdAt"])
+    .index("by_league_dedupe", ["leagueId", "dedupeKey"])
+    .index("by_global_post", ["globalPostId"])
+    .index("by_global_post_league", ["globalPostId", "leagueId"])
+    // Every reply on one target (global or league post id), oldest first (spec §17: getGlobalPosts/
+    // getLeaguePosts thread the replies onto their target).
+    .index("by_league_reply", ["leagueId", "replyTo.id", "createdAt"])
+    // One manager's own posts in a league, newest first - the per-manager rate limit and
+    // `getManagerStatementsForArticle`'s per-author grouping.
+    .index("by_league_author_created", ["leagueId", "authorUserId", "createdAt"])
+    // Every reply in one thread (never the root itself - see wireSocialData.ts's header comment),
+    // oldest first. Scoped by leagueId first: a GLOBAL post's thread can have replies from many
+    // different leagues, each of which must only ever see its own league's replies.
+    .index("by_root", ["leagueId", "rootId", "createdAt"])
+    // Season roll-up for deskMetrics.getLeagueSeasonSpend: writer_reply generation cost counts
+    // toward the league's automation cap just like an article does.
+    .index("by_league_season", ["leagueId", "seasonId"])
+    // Deployment-wide count of one Dex Desk `kind` in a time window (spec §18 digest line) -
+    // `by_league_created` can't answer this without scanning every league, since it always keys on
+    // `leagueId` first.
+    .index("by_kind_created", ["kind", "createdAt"]),
+
+  // Reactions on a wire post (spec §17), mirroring `articleReactions`. `postKey` is
+  // `"global:<wirePosts id>"` or `"league:<wireLeaguePosts id>"` - a single string key lets one
+  // table and one pair of indexes cover both post tables without a union id column.
+  wireReactions: defineTable({
+    postKey: v.string(),
+    scope: v.union(v.literal("global"), v.literal("league")),
+    leagueId: v.id("leagues"),
+    userId: v.string(), // Clerk subject, same convention as articleReactions.userId
+    reaction: v.union(
+      v.literal("fire"),
+      v.literal("lol"),
+      v.literal("salty"),
+      v.literal("respect")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_post_user", ["postKey", "userId"])
+    .index("by_post", ["postKey"]),
+
+  // One row per source: cursor + health, so a poll diffs instead of
+  // re-reading and a broken source shows up in the operator digest (spec §11).
+  wireSourceState: defineTable({
+    source: v.string(), // "espn_injuries" | "espn_news" | ...
+    cursor: v.optional(v.any()),
+    lastRunAt: v.number(),
+    ok: v.boolean(),
+    summary: v.string(),
+    error: v.optional(v.string()),
+  }).index("by_source", ["source"]),
+
+  // Small per-league tracking state for Dex Desk detectors that need to remember something across
+  // polls (spec §18). Currently one `kind`: "ir_active" - a player parked in an IR slot (21) while
+  // `playersEnhanced.injuryStatus` still reads Active, tracked from `onRosterSynced` so the
+  // roster_note IR branch can fire once he's been sitting there 14+ days, and so the row can be
+  // cleared the moment he leaves IR or his status changes.
+  wireDeskState: defineTable({
+    leagueId: v.id("leagues"),
+    kind: v.string(),
+    key: v.string(), // e.g. the player's espnId for "ir_active"
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  }).index("by_league_kind_key", ["leagueId", "kind", "key"]),
+
+  // Live game engine (ffsn-the-wire-spec.md §19): one row per league/scoring-period, patched (not
+  // appended) on every `pullLeagueLive` pull - the "last snapshot" `matchup_live`/`monday_needs`
+  // diff against. Mirrors the shape `updateMatchups` already writes to `matchups.homeRoster`/
+  // `awayRoster`, trimmed to just what the diff and the Monday-needs check read.
+  wireLiveSnapshots: defineTable({
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    scoringPeriod: v.number(),
+    takenAt: v.number(),
+    matchups: v.array(
+      v.object({
+        homeTeamId: v.string(),
+        awayTeamId: v.string(),
+        homeScore: v.number(),
+        awayScore: v.number(),
+        homePlayers: v.array(
+          v.object({
+            espnId: v.string(),
+            points: v.number(),
+            lineupSlotId: v.number(),
+            proTeam: v.optional(v.string()),
+          })
+        ),
+        awayPlayers: v.array(
+          v.object({
+            espnId: v.string(),
+            points: v.number(),
+            lineupSlotId: v.number(),
+            proTeam: v.optional(v.string()),
+          })
+        ),
+      })
+    ),
+  }).index("by_league_period", ["leagueId", "seasonId", "scoringPeriod"]),
 
 });

@@ -48,6 +48,10 @@ const MAX_FLAGS = 20;
 /** How many articles / comment requests one season spend roll-up may scan. */
 const MAX_SPEND_ROWS = 1000;
 
+/** How many `wireLeaguePosts` rows one season spend roll-up may scan (spec ffsn-the-wire-spec.md
+ *  §17.4) - generously above what a league's own per-day post rate limit could produce in a season. */
+const MAX_WIRE_SPEND_ROWS = 2000;
+
 /** Regular season + playoffs. Used only to project a season from a run rate. */
 const SEASON_WEEKS = 18;
 
@@ -169,6 +173,20 @@ async function seasonSpend(
     interviews++;
   }
 
+  // The Wire (ffsn-the-wire-spec.md §17.4): a writer_reply's generation cost counts toward the
+  // same automation cap an article's would - it's one Sonnet call same as any other, just billed
+  // to the league instead of a manager. Overlay/routine posts never carry `generationStats` (no
+  // model call), so this naturally only ever picks up writer replies without a `kind` filter.
+  const wirePosts = await ctx.db
+    .query("wireLeaguePosts")
+    .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
+    .take(MAX_WIRE_SPEND_ROWS);
+  for (const post of wirePosts) {
+    const cost = post.generationStats?.costUsd;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) continue;
+    automatedUsd += cost;
+  }
+
   const totalUsd = automatedUsd + manualUsd + interviewUsd;
 
   return {
@@ -179,7 +197,10 @@ async function seasonSpend(
     totalUsd: round4(totalUsd),
     articles: counted,
     interviews,
-    truncated: articles.length === MAX_SPEND_ROWS || requests.length === MAX_SPEND_ROWS,
+    truncated:
+      articles.length === MAX_SPEND_ROWS ||
+      requests.length === MAX_SPEND_ROWS ||
+      wirePosts.length === MAX_WIRE_SPEND_ROWS,
     firstArticleAt,
   };
 }
@@ -951,6 +972,52 @@ export const sendOperatorDigest = internalAction({
     const feedRuns: FeedRun[] = await ctx.runQuery(internal.intelSync.latestSyncRuns, {});
     const latestNews = await ctx.runQuery(internal.espnNews.latestPublishedAt, {});
     if (latestNews !== null) feedRuns.push({ source: "espn_news", ranAt: latestNews, ok: true });
+
+    // The Wire (ffsn-the-wire-spec.md §11): the injuries poller's own health row, same treatment
+    // as every other feed above.
+    const wireInjuryHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "espn_injuries" });
+    if (wireInjuryHealth) {
+      feedRuns.push({
+        source: "espn_injuries",
+        ranAt: wireInjuryHealth.lastRunAt,
+        ok: wireInjuryHealth.ok,
+        summary: wireInjuryHealth.summary,
+        error: wireInjuryHealth.error,
+      });
+    }
+    // Dex Desk (spec §18 "Not built": "a digest line for the desk"): the transaction-log poll and
+    // the NFL schedule/kickoffs poll, both `wireSourceState` rows already, same treatment.
+    const wireTransactionsHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "espn_transactions" });
+    if (wireTransactionsHealth) {
+      feedRuns.push({
+        source: "espn_transactions",
+        ranAt: wireTransactionsHealth.lastRunAt,
+        ok: wireTransactionsHealth.ok,
+        summary: wireTransactionsHealth.summary,
+        error: wireTransactionsHealth.error,
+      });
+    }
+    const nflKickoffsHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "nfl_kickoffs" });
+    if (nflKickoffsHealth) {
+      feedRuns.push({
+        source: "nfl_kickoffs",
+        ranAt: nflKickoffsHealth.lastRunAt,
+        ok: nflKickoffsHealth.ok,
+        summary: nflKickoffsHealth.summary,
+        error: nflKickoffsHealth.error,
+      });
+    }
+    // Live game engine (spec §19/§11): the game clock's own scoreboard poll, same treatment.
+    const scoreboardHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "espn_scoreboard" });
+    if (scoreboardHealth) {
+      feedRuns.push({
+        source: "espn_scoreboard",
+        ranAt: scoreboardHealth.lastRunAt,
+        ok: scoreboardHealth.ok,
+        summary: scoreboardHealth.summary,
+        error: scoreboardHealth.error,
+      });
+    }
     const stale = staleFeeds(feedRuns, now);
 
     const lines: string[] = [];
@@ -988,12 +1055,26 @@ export const sendOperatorDigest = internalAction({
       `${totals.failed} failed, ${totals.deferred} deferred` +
       (stale.length > 0 ? ` - ${stale.length} feed(s) stale` : "");
 
+    // The Wire (ffsn-the-wire-spec.md §11): events / posts / takes / card fallbacks / global cost,
+    // same 24h window as the rest of the digest.
+    const wireStats = await ctx.runQuery(internal.wireDetect.getDigestStats, { since });
+    const wireLine =
+      `Wire: ${wireStats.events} events / ${wireStats.posts} posts / ${wireStats.takes} takes / ` +
+      `${wireStats.cardFallbacks} card fallback(s) / $${wireStats.costUsd.toFixed(2)} global cost`;
+    // Dex Desk (spec §18 "Not built": "a digest line for the desk").
+    const deskLine =
+      `Desk: ${wireStats.desk.lineupMoves} lineup move(s) / ${wireStats.desk.lateSwaps} late swap(s) / ` +
+      `${wireStats.desk.proposals} proposal(s) / ${wireStats.desk.claimsIn} claims_in / ` +
+      `${wireStats.desk.lockWarnings} lock warning(s) / ${wireStats.desk.samQuestions} Sam question(s)`;
+
     const body = [
       `Window: ${window}`,
       `Leagues: ${leagues.length} (${activeLeagues} with activity)`,
       `Automated + interview spend across all leagues this season: ${totals.coveredUsd.toFixed(2)}`,
       `Season run-rate horizon: ${DIGEST_RUN_RATE_WEEKS} weeks`,
       formatFeedFreshness(feedRuns, now),
+      wireLine,
+      deskLine,
       "",
       lines.length > 0 ? lines.join("\n\n") : "Nothing to report.",
     ].join("\n");

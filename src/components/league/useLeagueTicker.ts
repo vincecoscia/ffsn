@@ -6,7 +6,7 @@ import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { useDraftStatus } from "@/hooks/use-draft-status";
-import type { TickerItem } from "@/components/broadcast";
+import { personaName, type TickerItem } from "@/components/broadcast";
 
 export type LeaguePhase =
   | "loading"
@@ -122,12 +122,23 @@ export function useLeagueTicker(
     paginationOpts: { numItems: 1, cursor: null },
   });
 
+  // The last 8 Wire posts replace the single "Latest story" item when there are any; a league
+  // with nothing on the Wire yet (or no pass) falls back to that story item instead.
+  const wirePosts = useQuery(api.wire.getRecentForTicker, { leagueId, limit: 8 });
+
   return useMemo<LeagueTickerResult>(() => {
     const base = { season: currentSeason };
+    const wireItems: TickerItem[] = (wirePosts ?? []).map((post) => ({
+      // A manager post carries `authorName` instead of `persona` (see `wire.getRecentForTicker`).
+      k: post.persona ? personaName(post.persona).split(" ")[0] : (post.authorName?.split(" ")[0] ?? "Manager"),
+      v: post.text.length > 90 ? `${post.text.slice(0, 89)}…` : post.text,
+    }));
     const storyItem: TickerItem[] =
-      latestStory && latestStory.page.length > 0
-        ? [{ k: "Latest story", v: latestStory.page[0].title }]
-        : [];
+      wireItems.length > 0
+        ? wireItems
+        : latestStory && latestStory.page.length > 0
+          ? [{ k: "Latest story", v: latestStory.page[0].title }]
+          : [];
 
     if (draftLoading || teams === undefined) {
       return { ...base, phase: "loading", label: "League feed", items: [] };
@@ -242,5 +253,5 @@ export function useLeagueTicker(
       items: [...items, ...storyItem],
       week,
     };
-  }, [currentSeason, draftLoading, teams, isDraftComplete, draftData, matchupData, previousWeek, leagueSeason, latestStory, settings]);
+  }, [currentSeason, draftLoading, teams, isDraftComplete, draftData, matchupData, previousWeek, leagueSeason, latestStory, wirePosts, settings]);
 }

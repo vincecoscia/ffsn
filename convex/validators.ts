@@ -43,6 +43,9 @@ export const relationshipEventTypeValidator = v.union(
   v.literal("reaction"),
   v.literal("decay"),
   v.literal("manual"),
+  // The Wire (spec §17): how the writer read a manager's reply to them.
+  v.literal("wire_jab"),
+  v.literal("wire_praise"),
 );
 
 /** `RelationshipEventSummary` (spec §4.2). */
@@ -68,6 +71,9 @@ export const writerRelationshipContextValidator = v.object({
 /* Comment flow                                                                */
 /* -------------------------------------------------------------------------- */
 
+/** Where a quotable manager statement came from - the interview flow, or a wire post (spec §17.5). */
+export const commentSourceValidator = v.union(v.literal("interview"), v.literal("wire"));
+
 /** `CommentResponseData` (spec §4.2). */
 export const commentResponseDataValidator = v.object({
   userId: v.string(),
@@ -77,6 +83,10 @@ export const commentResponseDataValidator = v.object({
   questionTopic: v.string(),
   quotes: v.array(v.string()),
   rawResponse: v.string(),
+  // The Wire (spec §17.5): absent (or "interview") is the existing comment-request path; "wire"
+  // marks an entry built from `wire.getManagerStatementsForArticle` so the prompt layer can label
+  // it "said on The Wire" instead of treating it as an interview answer.
+  source: v.optional(commentSourceValidator),
 });
 
 /** `NonRespondent` (spec §4.2). */
@@ -204,6 +214,8 @@ export const articleQuoteValidator = v.object({
   questionTopic: v.string(),
   sectionName: v.string(),
   writerResponse: v.optional(v.string()),
+  // The Wire (spec §17.5): see `commentResponseDataValidator.source` above.
+  source: v.optional(commentSourceValidator),
 });
 
 /**

@@ -63,6 +63,10 @@ import {
 import { getIntelForPlayersImpl, intelHasContent, type PlayerIntelEntry } from "./intel";
 import { getSimplifiedDraftDataImpl } from "./draftRankingsHelpers";
 import type { PlayerBoardMatchupInput, PlayerBoardTeamInput } from "./lib/playerBoard";
+// Type-only: `convex/inGameInjuries.ts` (the query) is called through `internal.inGameInjuries.*`
+// below, never imported as a value - see the repo-wide gotcha about `internal` recursion.
+// `convex/lib/inGameInjuries.ts` itself is pure, so its `InGameInjury` type carries no such risk.
+import type { InGameInjury } from "./lib/inGameInjuries";
 
 /**
  * Enhanced query functions for AI content generation
@@ -1285,6 +1289,33 @@ export const getLeagueDataForAI = internalQuery({
     const playedRecentMatchups = recentMatchups.filter(
       matchup => matchup.winner !== undefined || matchup.homeScore > 0 || matchup.awayScore > 0
     );
+
+    /**
+     * In-game injuries (spec §16, owner ask 2026-09-05): a player hurt DURING his game scores
+     * like a bad start in the box score, so a recap/preview must never call starting him
+     * mismanagement, and `topPerformersFor` below must never crown a healthy bench player as
+     * having "replaced" him. Covers every week this payload's recent matchups span; a preview
+     * (no played game yet in the lookback window) still checks the most recently completed week,
+     * since a preview can reference "he left banged up last week" without a played game of its own.
+     */
+    const inGameInjuryWeeks = playedRecentMatchups.length > 0
+      ? [...new Set(playedRecentMatchups.map(m => m.matchupPeriod))]
+      : [Math.max(1, currentWeek - 1)];
+    const inGameInjuriesByWeek = new Map<number, InGameInjury[]>();
+    for (const w of inGameInjuryWeeks) {
+      const hits: InGameInjury[] = await ctx.runQuery(internal.inGameInjuries.getInGameInjuriesForWeek, {
+        leagueId: args.leagueId,
+        seasonId: currentSeason,
+        week: w,
+      });
+      inGameInjuriesByWeek.set(w, hits);
+    }
+    const inGameInjuries: InGameInjury[] = [...inGameInjuriesByWeek.values()].flat();
+    const injuredEspnIdsByWeek = new Map<number, Set<string>>();
+    for (const [w, hits] of inGameInjuriesByWeek) {
+      injuredEspnIdsByWeek.set(w, new Set(hits.map(h => h.espnId)));
+    }
+
     /**
      * Per-matchup top performers for the generic path (power rankings, previews, awards, playoff
      * picture, season recap). The weekly-recap query has always built these; this path never did,
@@ -1308,6 +1339,10 @@ export const getLeagueDataForAI = internalQuery({
       side: { players: LineupPlayer[] } | undefined,
       team: Doc<"teams"> | undefined,
       externalId: string,
+      // In-game-injured starters' espnIds for this matchup's week (spec §16) - excluded from the
+      // "worst starter at the position" comparison below, so a healthy bench player is never
+      // credited with "replacing" a man who left the game hurt.
+      injuredEspnIds: ReadonlySet<string> | undefined,
     ) => {
       const players = side?.players ?? [];
       const asPerformer = (p: LineupPlayer, isStarter: boolean) => ({
@@ -1330,10 +1365,12 @@ export const getLeagueDataForAI = internalQuery({
         .sort((a, b) => b.points - a.points)
         .slice(0, 3)
         .map(p => asPerformer(p, true));
+      const healthyStartersAt = (position: string) =>
+        starters.filter(s => s.position === position && !injuredEspnIds?.has(String(s.espnId)));
       const impactfulBench = bench
         .filter(b => {
           if (b.points < 15) return false;
-          const samePosition = starters.filter(s => s.position === b.position);
+          const samePosition = healthyStartersAt(b.position);
           if (samePosition.length === 0) return false;
           const worst = [...samePosition].sort((a, c) => a.points - c.points)[0];
           return b.points - worst.points >= 10;
@@ -1341,7 +1378,7 @@ export const getLeagueDataForAI = internalQuery({
         .sort((a, b) => b.points - a.points)
         .slice(0, 1)
         .map(b => {
-          const worst = [...starters.filter(s => s.position === b.position)].sort((a, c) => a.points - c.points)[0];
+          const worst = [...healthyStartersAt(b.position)].sort((a, c) => a.points - c.points)[0];
           return {
             ...asPerformer(b, false),
             benchImpact: true,
@@ -1356,8 +1393,9 @@ export const getLeagueDataForAI = internalQuery({
     const enrichedMatchups = playedRecentMatchups.map(matchup => {
       const homeTeam = teams.find(t => t.externalId === matchup.homeTeamId);
       const awayTeam = teams.find(t => t.externalId === matchup.awayTeamId);
-      const homeSide = topPerformersFor(matchup.homeRoster, homeTeam, matchup.homeTeamId);
-      const awaySide = topPerformersFor(matchup.awayRoster, awayTeam, matchup.awayTeamId);
+      const injuredEspnIds = injuredEspnIdsByWeek.get(matchup.matchupPeriod);
+      const homeSide = topPerformersFor(matchup.homeRoster, homeTeam, matchup.homeTeamId, injuredEspnIds);
+      const awaySide = topPerformersFor(matchup.awayRoster, awayTeam, matchup.awayTeamId, injuredEspnIds);
       
       const matchupData = {
         teamA: matchup.homeTeamId,
@@ -1682,6 +1720,10 @@ export const getLeagueDataForAI = internalQuery({
       // stay for back-compat with prompt code that reads the flat fields.
       leagueFormat,
       recentMatchups: enrichedMatchups,
+      // Every in-game injury covering this payload's recent-matchups weeks (spec §16). Carried
+      // through `aiContent.ts`'s reshape so `src/lib/ai/facts.ts` can build the per-player
+      // `leftGameInjured` FACTS entry and the HOUSE STYLE line.
+      inGameInjuries,
       // Unplayed games for the look-ahead week (spec 4.3), plus any byes that week (spec: playoffs
       // round - "seed 1 rests"). Empty once the schedule runs out, which is what makes
       // weekly_preview refuse.
@@ -3405,7 +3447,17 @@ export const getWeeklyRecapDataForAI = internalQuery({
       }
       const managerFor = (externalId: string | undefined) =>
         (externalId ? managerByExternalId.get(String(externalId)) : undefined) ?? UNKNOWN_MANAGER;
-      
+
+      // In-game injuries for this exact week (spec §16, owner ask 2026-09-05): excluded from the
+      // "worst starter at the position" comparison below, same rule `getLeagueDataForAI`'s
+      // `topPerformersFor` applies to the generic path.
+      const inGameInjuries: InGameInjury[] = await ctx.runQuery(internal.inGameInjuries.getInGameInjuriesForWeek, {
+        leagueId: args.leagueId,
+        seasonId: args.seasonId,
+        week: args.week,
+      });
+      const inGameInjuredEspnIds = new Set(inGameInjuries.map(h => h.espnId));
+
       // Categorize matchups by playoff tier
       const playoffMatchups = weekMatchups.filter(m => m.playoffTier === "WINNERS_BRACKET");
       const consolationMatchups = weekMatchups.filter(m => 
@@ -3481,9 +3533,13 @@ export const getWeeklyRecapDataForAI = internalQuery({
             
             // Find the worst starter at the same position ON THE SAME TEAM. `starters` holds both
             // sides of the matchup; comparing across them named the opponent's starter as the man
-            // "left on the bench" behind, which put players on the wrong team in recaps.
+            // "left on the bench" behind, which put players on the wrong team in recaps. A starter
+            // who left THIS game injured (spec §16) is excluded too - a low score from him is
+            // never a lineup decision, so he can never be "replaced" by a bench player either.
             const samePositionStarters = starters.filter(
-              s => s.position === benchPlayer.position && s.fantasyTeamId === benchPlayer.fantasyTeamId
+              s => s.position === benchPlayer.position &&
+                s.fantasyTeamId === benchPlayer.fantasyTeamId &&
+                !inGameInjuredEspnIds.has(String(s.espnId))
             );
             if (samePositionStarters.length === 0) return false;
             
@@ -3499,7 +3555,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
           .map(player => {
             // Calculate the actual impact - against the SAME team's starters (see the filter above).
             const samePositionStarters = starters.filter(
-              s => s.position === player.position && s.fantasyTeamId === player.fantasyTeamId
+              s => s.position === player.position &&
+                s.fantasyTeamId === player.fantasyTeamId &&
+                !inGameInjuredEspnIds.has(String(s.espnId))
             );
             const worstStarter = samePositionStarters.sort((a, b) => a.points - b.points)[0];
             const pointDifference = player.points - worstStarter.points;
@@ -3691,6 +3749,9 @@ export const getWeeklyRecapDataForAI = internalQuery({
         
         // Week-specific data with playoff prioritization
         recentMatchups: enrichedMatchups,
+        // Every in-game injury for this exact week (spec §16) - see this handler's
+        // `inGameInjuries` build above.
+        inGameInjuries,
         standingsAtWeek,
         
         // NEW: Playoff-specific categorization for AI prioritization

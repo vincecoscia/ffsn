@@ -1,5 +1,6 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
+import { TRANSACTION_LOG_POLL_MINUTES } from "../src/lib/ai/wire/types";
 
 const crons = cronJobs();
 
@@ -12,12 +13,11 @@ crons.daily(
   internal.nflSeasonSetup.ensureCurrentSeason,
 );
 
-// Sync ESPN news every hour
-crons.hourly(
+// Sync ESPN news every 5 minutes in season (The Wire, spec §5.1/§12.1: news moves from hourly to
+// every 5 min so a headline can clear the wire's interest bar within minutes, not up to an hour).
+crons.interval(
   "sync ESPN news",
-  { 
-    minuteUTC: 0, // Run at the top of every hour
-  },
+  { minutes: 5 },
   internal.espnNews.scheduledNewsSync,
 );
 
@@ -191,6 +191,79 @@ crons.cron(
   "0 12 * * *",
   internal.intelSync.runIntelSync,
   { source: "ffc_adp" },
+);
+
+// --- The Wire (ffsn-the-wire-spec.md §11) ------------------------------
+//
+// ESPN's injuries feed, polled every 5 minutes in season (the poller itself throttles to 30 min
+// off-season, §5.1) - the primary global detector for injury_status/injury_note events.
+crons.interval(
+  "poll ESPN injuries (The Wire)",
+  { minutes: 5 },
+  internal.wireSourcesNode.pollEspnInjuries,
+  {},
+);
+
+// One Sonnet call per persona covers every pending take_pending post in the window (spec §3.1) -
+// paid once per 10 minutes rather than once per event.
+crons.interval(
+  "flush Wire take batch",
+  { minutes: 10 },
+  internal.wireGenerate.flushTakeBatch,
+  {},
+);
+
+// --- Dex Desk (ffsn-the-wire-spec.md §18) ------------------------------
+
+// ESPN's transaction log, polled every 15 min in season for the current scoring period of every
+// pass-holding, wire-enabled league with valid credentials - the primary source for lineup moves,
+// trade proposals/declines, pending claims and streaming churn.
+crons.interval(
+  "poll transaction logs (The Wire)",
+  { minutes: TRANSACTION_LOG_POLL_MINUTES },
+  internal.wireDesk.pollTransactionLogs,
+  {},
+);
+
+// The current + next NFL week's kickoffs from ESPN's public scoreboard, every 6 hours in season -
+// upserts `nflSchedules` and schedules a private lineup-lock warning + public post per kickoff.
+crons.interval(
+  "sync NFL kickoffs (The Wire)",
+  { hours: 6 },
+  internal.wireSourcesNode.pollNflSchedule,
+  {},
+);
+
+// weekly_rundown (Wednesday 07:00 league-local) and quiet_desk (Tuesdays inside the trade-deadline
+// window) both fire on a wall-clock condition the cron checks hourly, per league.
+crons.interval(
+  "Dex Desk hourly checks (The Wire)",
+  { hours: 1 },
+  internal.wireDesk.hourlyDeskCron,
+  {},
+);
+
+// --- Live game engine (ffsn-the-wire-spec.md §19) ------------------------------
+
+// `wireLive.tick` is a self-rescheduling action (60s while any game is live, else at the next
+// kickoff minus 5 minutes, else it stops) - this daily check re-arms it if its scheduled run died
+// (a deploy, an uncaught throw). `pollNflSchedule` also calls `ensureWireClock` directly right
+// after it stores new kickoffs, so a freshly-discovered game week wakes the clock immediately.
+crons.cron(
+  "ensure Wire clock (The Wire)",
+  "0 6 * * *",
+  internal.wireLive.ensureWireClock,
+  {},
+);
+
+// The Sunday-night digest (spec §19.3): Monday 04:00 UTC - midnight ET, right after Sunday night
+// football - one email per opted-in manager with a claimed team in a pass-holding, wire-enabled
+// league and something to say from the last 24 hours.
+crons.cron(
+  "wire Sunday digest",
+  "0 4 * * 1",
+  internal.wireDigest.sendDigestForAllUsers,
+  {},
 );
 
 export default crons;

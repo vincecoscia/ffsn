@@ -1,0 +1,59 @@
+{
+  "fixture": "in-game-injury",
+  "note": "rich-week's payload with Cole Vandermeer's in-game injury attached. Every count and every gap is rich-week's; the one addition is facts.inGameInjuries, and Duke Ellery's bench swap (which would have replaced the injured starter) is retired, so matchupPlayers stays at 12 with one fewer benchImpact.",
+  "facts": {
+    "teams": 10,
+    "matchups": 5,
+    "matchupPlayers": 12,
+    "standings": 10,
+    "transactions": 4,
+    "trades": 1,
+    "draftPicks": 0,
+    "quotes": 4,
+    "nonRespondents": 2,
+    "relationships": 3,
+    "priorClaims": 2,
+    "inGameInjuries": 1
+  },
+  "unresolvedTeamRefs": 0,
+  "byType": {
+    "weekly_recap": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
+      ],
+      "throws": null
+    },
+    "weekly_preview": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
+      ],
+      "throws": null
+    },
+    "draft_rankings": {
+      "missing": [
+        "draft_results (draftPicks) — not available",
+        "player_projections — not available",
+        "draft_order — not available",
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
+      ],
+      "throws": null
+    },
+    "power_rankings": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
+      ],
+      "throws": null
+    },
+    "trade_analysis": {
+      "missing": [
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request",
+        "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
+      ],
+      "throws": null
+    }
+  }
+}

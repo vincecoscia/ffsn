@@ -120,6 +120,8 @@ export const updatePreferences = mutation({
       // "Keep it clean about my team" (owner ask, Sept 2026): generated content about this
       // manager's team reads as clean whatever the league's languageRating is.
       cleanLanguage: v.optional(v.boolean()),
+      // The Wire (spec §10, §19): who gets a wire_alert in-app notification. Absent = "my_roster".
+      wireAlerts: v.optional(v.union(v.literal("off"), v.literal("my_roster"), v.literal("all"))),
     }),
   },
   handler: async (ctx, args) => {
@@ -180,6 +182,8 @@ export const updateUserPreferences = mutation({
       emailNotifications: v.optional(v.boolean()),
       favoriteTeam: v.optional(v.string()),
       timezone: v.optional(v.string()),
+      // The Wire (spec §10, §19): who gets a wire_alert in-app notification. Absent = "my_roster".
+      wireAlerts: v.optional(v.union(v.literal("off"), v.literal("my_roster"), v.literal("all"))),
     }),
   },
   handler: async (ctx, args) => {

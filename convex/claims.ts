@@ -399,6 +399,19 @@ export const resolveOpenClaims = internalMutation({
         if (outcome === "hit") hits++;
         else misses++;
         next.push({ ...claim, outcome, resolvedAt: now });
+
+        // The Wire (ffsn-the-wire-spec.md §5.2/§8.2): "Nina called it" routine post. `next.length -
+        // 1` is this claim's stable index within the article's own `claims` array (one push per
+        // iterated claim, in order), used as the dedupe key since a stored claim carries no id of
+        // its own.
+        await ctx.scheduler.runAfter(0, internal.wireRoutine.onClaimSettled, {
+          leagueId: article.leagueId,
+          articleId: article._id,
+          claimIndex: next.length - 1,
+          persona: claim.persona,
+          text: claim.text,
+          outcome,
+        });
       }
 
       if (changed) {

@@ -151,6 +151,26 @@ export const upsertPlayerIntelBatch = internalMutation({
     let inserted = 0;
     let updated = 0;
     let touched = 0;
+    // The Wire (ffsn-the-wire-spec.md §5.1/§8.2): Sleeper-sourced status changes and depth-chart
+    // moves into slot 1, batched and scheduled once at the end of this mutation (not per row) so a
+    // busy sync doesn't schedule hundreds of individual functions.
+    const statusChangeRows: Array<{
+      espnId: string;
+      statusFrom?: string;
+      statusTo: string;
+      team?: string;
+      position?: string;
+      notes?: string;
+      observedAt?: number;
+    }> = [];
+    const depthChartRows: Array<{
+      espnId: string;
+      depthOrderFrom?: number;
+      depthOrderTo: number;
+      team?: string;
+      position?: string;
+      observedAt?: number;
+    }> = [];
 
     for (const row of rows) {
       const candidates = await ctx.db
@@ -177,9 +197,37 @@ export const upsertPlayerIntelBatch = internalMutation({
       if (row.kind === "injury" && existing.injuryStatus !== row.injuryStatus) {
         patch.previousInjuryStatus = existing.injuryStatus;
         patch.statusChangedAt = now;
+        if (row.injuryStatus) {
+          statusChangeRows.push({
+            espnId: row.espnId,
+            statusFrom: existing.injuryStatus,
+            statusTo: row.injuryStatus,
+            team: row.team ?? existing.team,
+            position: row.position ?? existing.position,
+            notes: row.injuryNotes ?? existing.injuryNotes,
+            observedAt: row.observedAt ?? now,
+          });
+        }
+      }
+      if (row.kind === "depth_chart" && existing.depthOrder !== 1 && row.depthOrder === 1) {
+        depthChartRows.push({
+          espnId: row.espnId,
+          depthOrderFrom: existing.depthOrder,
+          depthOrderTo: 1,
+          team: row.team ?? existing.team,
+          position: row.position ?? existing.position,
+          observedAt: now,
+        });
       }
       await ctx.db.patch(existing._id, patch);
       updated++;
+    }
+
+    if (statusChangeRows.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.wireDetect.ingestStatusChange, { rows: statusChangeRows });
+    }
+    if (depthChartRows.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.wireDetect.ingestDepthChart, { rows: depthChartRows });
     }
 
     return { inserted, updated, touched };
@@ -490,7 +538,11 @@ export const syncSleeperTrending = internalAction({
       let mapped = 0;
       let unmapped = 0;
       const intelRows: IntelUpsertRow[] = [];
-      for (const entry of entries) {
+      // The Wire (ffsn-the-wire-spec.md §5.1/§8.2): the top 5 movers, or anything crossing 1,000
+      // adds, are worth a wire event - Sleeper's response is already ordered by adds descending, so
+      // `index < 5` is "top 5" without re-sorting.
+      const wireRows: Array<{ espnId: string; trendingAdds: number; team?: string; position?: string }> = [];
+      for (const [index, entry] of entries.entries()) {
         const mapping: IdMapBySleeperLookup = await ctx.runQuery(internal.intelSync.lookupIdMapBySleeperId, {
           sleeperId: entry.player_id,
         });
@@ -508,6 +560,9 @@ export const syncSleeperTrending = internalAction({
           position: mapping.position,
           trendingAdds: entry.count,
         });
+        if (index < 5 || entry.count >= 1000) {
+          wireRows.push({ espnId: mapping.espnId, trendingAdds: entry.count, team: mapping.team, position: mapping.position });
+        }
       }
 
       let inserted = 0;
@@ -518,6 +573,12 @@ export const syncSleeperTrending = internalAction({
         inserted += result.inserted;
         updated += result.updated;
         touched += result.touched;
+      }
+
+      if (wireRows.length > 0) {
+        // Scheduled (not awaited inline): a Wire-side failure must never surface as "Sleeper
+        // trending sync failed" - this whole action is wrapped in the try/catch below.
+        await ctx.scheduler.runAfter(0, internal.wireDetect.ingestTrending, { rows: wireRows });
       }
 
       const deletedStale: number = await ctx.runMutation(internal.intelSync.deleteStaleTrending, {

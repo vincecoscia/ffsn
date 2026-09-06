@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conversationService, type ConversationContext } from "../src/lib/ai/conversation-service";
+import { buildInGameInjuryRule, conversationService, type ConversationContext } from "../src/lib/ai/conversation-service";
 import {
   auditQuestion,
   checkDecline,
@@ -425,5 +425,74 @@ describe("what the first live run taught the checks (Sept 2026)", () => {
   it("does not read days, months, contractions or fantasy shorthand as invented names", () => {
     const question = "You're 4-3 heading into Sunday with $17 FAAB on Tyjae Spears; I'll ask once, walk me through it.";
     expect(codes(checkQuestionGrounding(question, context()))).not.toContain("unknown_proper_noun");
+  });
+});
+
+describe("in-game injuries are not lineup mistakes (The Wire spec §16.1)", () => {
+  const kickoffAt = 1760893200000;
+  const injured = () =>
+    context({
+      inGameInjuries: [
+        {
+          espnId: "4567",
+          name: "Rome Odunze",
+          position: "WR",
+          nflTeam: "CHI",
+          fantasyTeamId: "2",
+          fantasyTeamName: "Sunday Scaries",
+          week: 7,
+          status: "OUT",
+          observedAt: kickoffAt + 41 * 60_000,
+          kickoffAt,
+          started: true,
+          points: 6.4,
+        },
+      ],
+    });
+
+  it("puts the injury on the CONTEXT block and takes the lineup line and the under-projection off it", () => {
+    const block = factBlockFor(injured());
+    expect(block).toContain("In-game injury: Rome Odunze (WR) left hurt - OUT, 41 minutes after kickoff, started, 6.4 points");
+    expect(block).not.toContain("Lineup: Jaylen Waddle");
+    expect(block).not.toContain("Under projection: Rome Odunze");
+    // The bench total is still a fact; the swap it implies is not a question.
+    expect(block).toContain("Bench points: 31.2 (most: Jaylen Waddle, WR, 22.6)");
+    // Without an injury the block is what it always was.
+    expect(factBlockFor(context())).toContain("Lineup: Jaylen Waddle (WR) scored 22.6 on the bench; started Rome Odunze scored 6.4");
+  });
+
+  it("hands Sam the replacement rule, naming the player, and nothing when nobody left hurt", () => {
+    expect(buildInGameInjuryRule(injured())).toBe(
+      "IN-GAME INJURY RULE\nRome Odunze left the game hurt. That is never the manager's decision: never ask why they started Rome Odunze or whether they regret it; ask how they replace the production (bench cover, the waiver wire, the next man up), one question."
+    );
+    expect(buildInGameInjuryRule(context())).toBeNull();
+  });
+
+  it("blocks the question no reporter would ask: why they started him, or whether they regret it", () => {
+    // The sanctioned lineup opener becomes the wrong question once the started player left hurt.
+    const opener = checkQuestionGrounding(GOOD_OPENER, injured());
+    expect(codes(opener)).toEqual(["injury_blame_question"]);
+    expect(bySeverity(opener, "block")).toHaveLength(1);
+    expect(opener[0].detail).toContain("Rome Odunze left his game hurt (OUT)");
+
+    for (const question of [
+      "Why did you start Odunze with the injury report the way it was?",
+      "Any regret on Rome Odunze in that slot?",
+      "Should you have had Jaylen Waddle in over Rome Odunze?",
+    ]) {
+      expect(codes(checkQuestionGrounding(question, injured())), question).toContain("injury_blame_question");
+    }
+  });
+
+  it("passes the replacement question, and the same opener when nobody left hurt", () => {
+    const replacement = "Sam Ortega with FFSN, on the record. With Rome Odunze out after 41 minutes, who covers WR for Sunday Scaries this week - the bench or the wire?";
+    expect(codes(checkQuestionGrounding(replacement, injured()))).not.toContain("injury_blame_question");
+    expect(checkQuestionGrounding(GOOD_OPENER, context())).toEqual([]);
+    expect(auditQuestion(GOOD_OPENER, context()).injuryBlame).toEqual([]);
+  });
+
+  it("records what it saw in the audit", () => {
+    expect(auditQuestion(GOOD_OPENER, injured()).injuryBlame).toEqual([{ player: "Rome Odunze", phrase: "walk me through starting" }]);
+    expect(knownNamesFor(injured()).players).toContain("Rome Odunze");
   });
 });

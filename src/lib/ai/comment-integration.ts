@@ -34,7 +34,11 @@ export function formatCommentsForPrompt(context: CommentIntegrationContext): str
 
     commentResponses.forEach(response => {
       lines.push(`## ${response.userName} — ${response.teamName}`);
-      lines.push(`Asked about: ${response.questionTopic}`);
+      lines.push(
+        response.source === "wire"
+          ? `Posted on The Wire, the league's live feed — not an interview. About: ${response.questionTopic}`
+          : `Asked about: ${response.questionTopic}`
+      );
       response.quotes.forEach(quote => lines.push(`> "${quote}"`));
       lines.push("");
     });
@@ -62,6 +66,8 @@ USING THE LEDGER
 - Respond to every quote you use, in your own voice, in the same section.
 - A manager who did not respond may be described only with the sanctioned phrasing in your persona's
   quote style. Do not infer a reason for the silence.
+- A quote marked as posted on The Wire is attributed as said on The Wire ("{Manager Name} said on The
+  Wire"), never as told to Sam and never as an interview.
 `;
 
   const perType: Record<string, string> = {

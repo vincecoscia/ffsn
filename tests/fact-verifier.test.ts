@@ -1173,3 +1173,88 @@ describe("eliminated as contender", () => {
     expect(resolvePath(decided, "playoffs.bracket.B9.homeScore")).toBeUndefined();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* In-game injuries are not lineup mistakes (owner, 2026-09-05; Wire §16.1).  */
+/* The recorded fixture is exercised in tests/inGameInjury.test.ts; this pins */
+/* the kind on the small fixture above.                                       */
+/* -------------------------------------------------------------------------- */
+
+describe("injury blame", () => {
+  const kickoffAt = 1760893200000;
+  const injuredData = {
+    ...genericLeagueData,
+    recentMatchups: [
+      {
+        ...(genericLeagueData.recentMatchups ?? [])[0],
+        topPerformers: [
+          ...topPerformers,
+          {
+            playerId: "p2",
+            playerName: "RB Two",
+            position: "RB",
+            points: 3.1,
+            projectedPoints: 14,
+            fantasyTeamName: "Alpha",
+            nflTeam: "BUF",
+            isStarter: true,
+          },
+        ],
+      },
+    ],
+    inGameInjuries: [
+      {
+        espnId: "p1",
+        name: "QB One",
+        position: "QB",
+        nflTeam: "BUF",
+        fantasyTeamId: "3",
+        fantasyTeamName: "Alpha",
+        week: 4,
+        status: "OUT",
+        observedAt: kickoffAt + 38 * 60_000,
+        kickoffAt,
+        started: true,
+        points: 40.8,
+      },
+    ],
+  } as unknown as LeagueDataContext;
+  const injured = buildFactsBlock({ ...request, leagueData: injuredData });
+
+  it("carries the injury in FACTS and tags the performer", () => {
+    expect(injured.inGameInjuries).toEqual([
+      expect.objectContaining({ playerId: "Pp1", name: "QB One", teamId: "T3", minutesAfterKickoff: 38, started: true, points: 40.8 }),
+    ]);
+    expect(injured.matchups[0].players[0]).toMatchObject({ id: "M1Pp1", leftGameInjured: true });
+    expect(injured.matchups[0].players[1].leftGameInjured).toBeUndefined();
+    expect(facts.inGameInjuries).toEqual([]);
+  });
+
+  it("strips a sentence that blames the GM for starting a player who left hurt", () => {
+    const body = "Ann should have benched QB One; starting him was the mistake of the week.";
+    const violations = verifyArticle({ ...cleanArticle, ...prose(body) }, injured);
+    expect(violations).toContainEqual(
+      expect.objectContaining({ kind: "injury_blame", severity: "strip", section: "introduction" })
+    );
+    expect(violations.find((violation) => violation.kind === "injury_blame")?.detail).toContain(`"${body}"`);
+  });
+
+  it("leaves the same sentence about a healthy starter alone", () => {
+    const body = "Ann should have benched RB Two; starting him was the mistake of the week.";
+    const violations = verifyArticle({ ...cleanArticle, ...prose(body) }, injured);
+    expect(violations.filter((violation) => violation.kind === "injury_blame")).toEqual([]);
+  });
+
+  it("leaves a neutral injury sentence alone", () => {
+    const body = "QB One left in the second quarter with a knee injury and finished with 40.8.";
+    const violations = verifyArticle({ ...cleanArticle, ...prose(body) }, injured);
+    expect(violations.filter((violation) => violation.kind === "injury_blame")).toEqual([]);
+    expect(violations.filter((violation) => violation.kind === "unsupported_injury")).toEqual([]);
+  });
+
+  it("says nothing when FACTS carries no injury", () => {
+    const body = "Ann should have benched QB One; starting him was the mistake of the week.";
+    const violations = verifyArticle({ ...cleanArticle, ...prose(body) }, facts);
+    expect(violations.filter((violation) => violation.kind === "injury_blame")).toEqual([]);
+  });
+});

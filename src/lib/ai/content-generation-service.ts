@@ -5,6 +5,7 @@ import { generatePrompt, PromptBuilderOptions, LeagueDataContext, InsufficientDa
 import type { CleanTeam, LanguageRating } from './language';
 import { cleanTeamViolations, countProfanity, MILD_PROFANITY, PROFANITY_WORDS, STRONG_PROFANITY, stripExemptPhrases } from './language';
 import { enhancePromptWithComments } from './comment-integration';
+import type { WireQuoteSource } from './wire/types';
 import { contentTemplates } from './content-templates';
 import { serializeFacts, type FactsBlock } from './facts';
 import {
@@ -247,6 +248,11 @@ export interface CommentResponseData {
   /** Verbatim, post-approval. At least one. */
   quotes: string[];
   rawResponse: string;
+  /**
+   * Where the quotes came from (spec §17.4): a Sam interview (absent = "interview") or the manager's
+   * own post on The Wire. A "wire" quote is attributed as said on The Wire, never as told to Sam.
+   */
+  source?: WireQuoteSource;
 }
 
 export interface NonRespondent {
@@ -369,6 +375,10 @@ const ArticleQuote = z.object({
   writerResponse: z
     .string()
     .describe("Your in-voice reply to this quote as it appears in the article, 1-3 sentences"),
+  source: z
+    .enum(["interview", "wire"])
+    .optional()
+    .describe('Copy facts.quotes[].source when it is "wire" (the manager said it on The Wire); omit otherwise.'),
 });
 
 /**
@@ -594,8 +604,8 @@ export function languageArticleViolations(
   return out;
 }
 
-/** Applies every `strip` (and every unfixable `block`) to a copy of the article. */
-function applyStrips(article: GeneratedArticleT, violations: Violation[]): GeneratedArticleT {
+/** Applies every `strip` (and every unfixable `block`) to a copy of the article. Exported for tests. */
+export function applyStrips(article: GeneratedArticleT, violations: Violation[]): GeneratedArticleT {
   const next: GeneratedArticleT = JSON.parse(JSON.stringify(article));
   const actionable = violations.filter(v => v.severity === 'strip' || v.severity === 'block');
   if (actionable.length === 0) return next;
@@ -662,7 +672,8 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
       }
       case 'llm_contradicted':
       case 'clean_team_language':
-      case 'language_over_rating': {
+      case 'language_over_rating':
+      case 'injury_blame': {
         const sentence = violation.detail.match(/"([^"]+)"/)?.[1];
         if (sentence) {
           for (const section of next.sections) {
@@ -696,6 +707,24 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
  * delete quote Q1 from the article.
  */
 const QUOTE_BEARING_KINDS = new Set(['bad_quote', 'ghost_speaker', 'unknown_quote_directive']);
+/**
+ * The article's quotes with `source` carried from the FACTS ledger by quoteId (spec §17.4). The
+ * ledger is authoritative — whatever the model wrote in `source` is replaced — and the field is set
+ * only for a "wire" quote, so an interview quote is stored exactly as it always was (the stored
+ * shape's validator, `articleQuoteValidator`, is strict).
+ */
+export function withQuoteSources(
+  quotes: GeneratedArticleT["quotes"],
+  facts: Pick<FactsBlock, "quotes">
+): GeneratedArticleT["quotes"] {
+  const sourceById = new Map(facts.quotes.map(quote => [quote.id, quote.source]));
+  return quotes.map(quote => {
+    const stored: GeneratedArticleT["quotes"][number] = { ...quote };
+    delete stored.source;
+    return sourceById.get(quote.quoteId) === "wire" ? { ...stored, source: "wire" } : stored;
+  });
+}
+
 function quoteIdsIn(violations: Violation[]): Set<string> {
   const ids = new Set<string>();
   for (const violation of violations) {
@@ -731,7 +760,8 @@ function countFacts(facts: FactsBlock): number {
     players +
     facts.transactions.length +
     facts.trades.length +
-    facts.quotes.length
+    facts.quotes.length +
+    (facts.inGameInjuries ?? []).length
   );
 }
 
@@ -814,7 +844,11 @@ Opinions, predictions, jokes and stated uncertainty are not factual claims — s
 on two <FACTS> numbers is supported. When <FACTS> carries a playoffs block (seeds, bracket, byes,
 alive, eliminated, champion, runnerUp), it supports claims about titles, eliminations, byes and who
 is still in contention; a team's record is its regular-season record, so a playoff win never
-changes it and a sentence that adds one to the record is a contradiction. Copy each claim verbatim from the body. Report nothing you are
+changes it and a sentence that adds one to the record is a contradiction. When <FACTS> carries
+inGameInjuries, every player listed there left his game hurt, and that is never the manager's
+decision: any sentence blaming the manager for starting him — a lineup mistake, points left on the
+bench behind him, why he was started, a grade on the call — is a contradiction; cite inGameInjuries
+as the factPath. Copy each claim verbatim from the body. Report nothing you are
 not sure about; a short list of real findings is the goal.`;
 
 /** §11.2.7: on for every type unless the deployment turns it off with `FACT_CHECK_LLM="0"`. */
@@ -1622,7 +1656,7 @@ export async function completeArticleFromMessage(
     costUsd: ledger.usd,
     route,
     cacheReadTokens: ledger.cacheReadTokens,
-    quotes: article.quotes ?? [],
+    quotes: withQuoteSources(article.quotes ?? [], facts),
     managerMentions: article.managerMentions ?? [],
     claims: article.claims ?? [],
     reviewFlags: violations,
