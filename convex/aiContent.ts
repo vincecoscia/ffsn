@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { purgeArticle } from "./lib/articlePurge";
 import { query, mutation, action, internalQuery, internalMutation, internalAction, MutationCtx } from "./_generated/server";
 import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
@@ -2105,7 +2106,9 @@ export const deleteContent = mutation({
       throw new Error("Not authorized to delete this article");
     }
 
-    // Delete the article
-    await ctx.db.delete(args.articleId);
+    // The article and everything that points at it - reactions, relationship-ledger rows, the
+    // Wire post that links it (convex/lib/articlePurge.ts, 2026-09-06). Deleting the row alone
+    // left a "NEW PIECE" post on The Wire whose link went nowhere.
+    await purgeArticle(ctx, args.articleId, { dryRun: false });
   },
 });

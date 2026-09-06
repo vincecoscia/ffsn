@@ -7,6 +7,7 @@ import { v } from "convex/values";
 import { internalAction, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { leagueCurrentSeason } from "./lib/season";
+import { purgeArticle as purgeArticleRows } from "./lib/articlePurge";
 
 // Mirrors `credits.INCLUDED_MANAGERS_DEFAULT`. Declared locally on purpose: a value import between
 // two Convex modules that both reference `internal` makes the generated api type mutually
@@ -127,4 +128,24 @@ export const compLeaguePass = internalAction({
       welcome,
     };
   },
+});
+
+/**
+ * Delete one article and everything that points at it (convex/lib/articlePurge.ts). Operator
+ * path, run by hand from the CLI - dry-run first:
+ *   npx convex run adminTools:purgeArticle '{"articleId":"<id>","dryRun":true}' --prod
+ * Internal only and never wired to a cron; `aiContent.deleteContent` is the member-facing twin.
+ */
+export const purgeArticle = internalMutation({
+  args: { articleId: v.id("aiContent"), dryRun: v.boolean() },
+  returns: v.object({
+    found: v.boolean(),
+    dryRun: v.boolean(),
+    reactions: v.number(),
+    relationshipEvents: v.number(),
+    wirePosts: v.number(),
+    wireReplies: v.number(),
+    wireReactions: v.number(),
+  }),
+  handler: async (ctx, { articleId, dryRun }) => purgeArticleRows(ctx, articleId, { dryRun }),
 });
