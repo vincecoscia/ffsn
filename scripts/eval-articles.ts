@@ -120,6 +120,7 @@ function parseArgs(argv: string[]): Options {
         options.dump = value();
         break;
       case "--fixture-file":
+      case "--fixtureFile":
         options.fixtureFile = value();
         break;
       case "--route":
@@ -150,10 +151,13 @@ function printUsage(): void {
 
   --live               Generate real articles (requires ANTHROPIC_API_KEY). Costs money.
   --persona <slug>     Writer to use in live mode (default: the type's preferred writer).
-  --type <content>     Content type (default: weekly_recap). One of:
-                       ${EVAL_CONTENT_TYPES.join(", ")}
+  --type <content>     Content type (default: weekly_recap). Any template id, e.g.
+                       ${Object.keys(contentTemplates).sort().join(", ")}.
+                       The offline sweep covers ${EVAL_CONTENT_TYPES.join(", ")}.
   --fixture <name>     Fixture to use (default: rich-week + sparse-week, for the restraint ratio).
                        One of: ${fixtures.map(f => f.name).join(", ")}
+  --fixture-file <p>   Load an extra EvalFixture from a JSON file (name + leagueData; the kickoff
+                       almanac and seasonKickoff go inside leagueData) and select it. Also --fixtureFile.
   --quiet              Only print the summary lines.
   --matrix             Live: every content type with its preferred writer (draft types on draft-day,
                        the rest on rich-week) plus every writer on weekly_recap. Costs real money.
@@ -243,12 +247,12 @@ async function loadFixtureFile(path: string): Promise<string> {
 
 async function dumpBody(
   dir: string,
-  result: { fixture: string; contentType: string; persona: string; body: string; violations: unknown[] }
+  result: { fixture: string; contentType: string; persona: string; body: string; violations: unknown[]; claims?: unknown[] }
 ): Promise<void> {
   const { mkdirSync, writeFileSync } = await import("node:fs");
   mkdirSync(dir, { recursive: true });
   const name = `${result.contentType}--${result.persona}--${result.fixture}.md`;
-  writeFileSync(`${dir}/${name}`, `${result.body}\n\n<!-- flags: ${JSON.stringify(result.violations)} -->\n`);
+  writeFileSync(`${dir}/${name}`, `${result.body}\n\n<!-- flags: ${JSON.stringify(result.violations)} -->\n<!-- claims: ${JSON.stringify(result.claims ?? [])} -->\n`);
 }
 
 function check(condition: boolean, message: string): boolean {
@@ -479,6 +483,8 @@ interface LiveResult {
   contentType: string;
   words: number;
   violations: Violation[];
+  /** The predictions the service stored on the article (spec §8.4), for the dump trailer. */
+  claims: unknown[];
   /** The verified quotes the service actually stored on the article. */
   quotes: GeneratedArticleT["quotes"];
   /** As stored: a Convex team id when the id resolved, otherwise the team name. */
@@ -644,6 +650,7 @@ async function generateOne(
     contentType,
     words: wordCount(generated.content),
     violations: generated.metadata.reviewFlags ?? [],
+    claims: ((generated.metadata as { claims?: unknown[] }).claims ?? []),
     quotes: generated.metadata.quotes ?? [],
     featuredTeams: generated.metadata.featuredTeams ?? [],
     featuredPlayers: generated.metadata.featuredPlayers ?? [],
@@ -726,7 +733,10 @@ function matrixPlan(): Array<{ fixture: string; persona: string; contentType: st
   const plan: Array<{ fixture: string; persona: string; contentType: string }> = [];
   for (const contentType of Object.keys(contentTemplates)) {
     const persona = contentTypePersonaMap[contentType]?.[0] ?? "curtis-vaughn";
-    plan.push({ fixture: DRAFT_TYPES.has(contentType) ? "draft-day" : "rich-week", persona, contentType });
+    // The kickoff runs on the one fixture that carries a League Almanac; on rich-week it would
+    // only exercise the pre-almanac fallback.
+    const fixture = DRAFT_TYPES.has(contentType) ? "draft-day" : contentType === "season_welcome" ? "season-kickoff" : "rich-week";
+    plan.push({ fixture, persona, contentType });
   }
   for (const persona of Object.keys(personaPrompts)) {
     if (!personaPrompts[persona].isWriter) continue;
@@ -1021,6 +1031,10 @@ async function runLive(options: Options): Promise<void> {
   }
 
   const contentType = options.type ?? "weekly_recap";
+  if (!contentTemplates[contentType]) {
+    failures.push(`--type ${contentType} is not a content type (one of: ${Object.keys(contentTemplates).sort().join(", ")})`);
+    return;
+  }
   const persona = options.persona ?? "curtis-vaughn";
   const names = options.fixture ? [options.fixture] : ["rich-week", "sparse-week"];
 

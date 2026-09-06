@@ -23,6 +23,11 @@ export const COMMENT_WINDOWS_MS: Record<string, number> = {
   weekly_recap: 24 * 60 * 60 * 1000, // a full day
   trade_analysis: 6 * 60 * 60 * 1000, // at least a few hours
   draft_rankings: 6 * 60 * 60 * 1000, // at least a few hours
+  // The kickoff piece (owner ask, 2026-09-06): an event story (the season starting, or the
+  // League Pass activating), not a lookback - see LOOKBACK_INTERVIEW_TYPES below, which
+  // deliberately does NOT include this type. Requests go out immediately; the article prints a
+  // full day later so every manager gets the same window a recap gets.
+  season_welcome: 24 * 60 * 60 * 1000,
 };
 
 /**
@@ -34,6 +39,8 @@ export const MAX_REQUESTS: Record<string, number> = {
   weekly_recap: Number.POSITIVE_INFINITY,
   trade_analysis: 4,
   draft_rankings: Number.POSITIVE_INFINITY,
+  // Everyone claimed gets asked for the kickoff piece (owner ask, 2026-09-06).
+  season_welcome: Number.POSITIVE_INFINITY,
 };
 
 /**

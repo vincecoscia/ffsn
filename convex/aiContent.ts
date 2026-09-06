@@ -966,6 +966,7 @@ Rumor Type: ${args.tradeRumorData.rumorType === 'my_trade' ? 'Manager looking to
           // half of the publish gate. `null` means the pass did not run.
           editor: generatedContent.metadata.editor ?? undefined,
           generatedByUserId: args.userId,
+          billing,
         });
         console.log("Article finalized:", finalized);
       } catch (e) {
@@ -1626,6 +1627,13 @@ export const finalizeGeneratedArticle = internalMutation({
     // that does not carry it still gets the right decision.
     editor: v.optional(editorReviewValidator),
     generatedByUserId: v.optional(v.string()),
+    // Who paid for this run (spec §10.1) - threaded through explicitly rather than re-read from
+    // `article.generationStats.billing`: that field is only ever written when the row also has
+    // verifier stats or an editor verdict (see `updateGeneratedContent`'s conditional
+    // `generationStats` write), so a run with neither would otherwise lose its billing entirely
+    // by the time it reaches here. Falls back to whatever is already stored for a caller that
+    // does not pass it (aiBatch.ts's poll, which is always automated).
+    billing: v.optional(v.union(v.literal("pass"), v.literal("credits"))),
   },
   returns: v.object({
     published: v.boolean(),
@@ -1716,7 +1724,14 @@ export const finalizeGeneratedArticle = internalMutation({
 
     const preferences = await leaguePreferencesFor(ctx, args.leagueId);
     const prefs = contentPreferenceDefaults(preferences);
-    const publish = prefs.autoPublish && !prefs.requireApproval && gate.ok;
+
+    // Manual generation (owner ask, 2026-09-06): a real person requested and paid credits for
+    // this specific run - it must land in review, never auto-publish, whatever the league's
+    // autoPublish preference says. Automated/backfill content (billed to the League Pass, or a
+    // legacy row with no billing stamped at all) is unaffected.
+    const billing = args.billing ?? article.generationStats?.billing;
+    const manual = billing === "credits";
+    const publish = prefs.autoPublish && !prefs.requireApproval && gate.ok && !manual;
 
     // Read once, reused for the backfill gate below AND to close the row further down - a season
     // backfill row (convex/seasonBackfill.ts) publishes quietly and backdated, and triggers no
@@ -1741,6 +1756,13 @@ export const finalizeGeneratedArticle = internalMutation({
         );
       }
     } else {
+      if (manual && gate.ok) {
+        // Nothing is broken - the gate would have published this. It is held because a person
+        // asked for it directly and spent their own credits on it (spec §10.1): no operator
+        // alert (that path only fires when the gate itself failed, below), just the
+        // commissioner's ordinary review notice with a detail that says exactly that.
+        console.log(`manual run: held for review (article ${args.articleId})`);
+      }
       if (!gate.ok && prefs.autoPublish) {
         console.log(
           `Auto-publish suppressed on article ${args.articleId}: ${gate.reasons.join("; ")}`
@@ -1763,7 +1785,12 @@ export const finalizeGeneratedArticle = internalMutation({
       // The commissioner's "ready for your review" notice never fires for a backfill row - a held
       // backfill article is already visible in Review, and the whole run must stay quiet.
       if (prefs.notifyCommissioner && !isBackfill) {
-        const detail = gate.ok ? undefined : `Needs your review: ${gate.reasons.join("; ")}.`;
+        const detail =
+          manual && gate.ok
+            ? "Generated on request; review and publish when ready."
+            : gate.ok
+              ? undefined
+              : `Needs your review: ${gate.reasons.join("; ")}.`;
         const notificationId: Id<"userNotifications"> | null = await ctx.runMutation(
           internal.notifications.notifyCommissionerOfContent,
           {

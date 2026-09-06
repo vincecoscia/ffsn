@@ -23,13 +23,14 @@ const ACTIVE_WRITERS = Object.values(personaPrompts)
   .map((persona) => persona.slug);
 
 describe("eval fixtures", () => {
-  it("ships the five fixtures the harness sweeps, each with an expectation file", () => {
+  it("ships the six fixtures the harness sweeps, each with an expectation file", () => {
     expect(fixtures.map((fixture) => fixture.name)).toEqual([
       "rich-week",
       "sparse-week",
       "draft-day",
       "empty-league",
       "in-game-injury",
+      "season-kickoff",
     ]);
     for (const fixture of fixtures) {
       expect(expectations[fixture.name], `${fixture.name} expectation`).toBeDefined();

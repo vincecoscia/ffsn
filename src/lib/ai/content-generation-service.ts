@@ -813,8 +813,12 @@ const EditorReport = z.object({
   // "4/5" gives NaN and the whole report was thrown away (live mock draft, 2026-09-05), so the
   // first number in the value is the score and anything unreadable becomes 3 in clampScore.
   // Whatever arrives is read by clampScore; a report is never discarded over a score's shape.
-  factsScore: z.unknown().describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
-  voiceScore: z.unknown().describe("1-5. How much this reads like the writer described above."),
+  // `z.unknown()` here serialised to a property with no `type`, which the API rejects outright
+  // ("Schema type is missing") - so the editor pass had been failing on every article and each
+  // piece shipped on the deterministic checks alone (found 2026-09-06 on the kickoff eval). A
+  // number-or-string union keeps the lenient read (clampScore parses "4/5") with a real type.
+  factsScore: z.union([z.number(), z.string()]).describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
+  voiceScore: z.union([z.number(), z.string()]).describe("1-5. How much this reads like the writer described above."),
   incompleteSections: z
     .array(z.string())
     .default([])
@@ -924,7 +928,7 @@ async function runEditorPass(
     try {
       message = await anthropic.messages.create(params);
     } catch (error) {
-      if (error instanceof Anthropic.BadRequestError && /strict/i.test(error.message)) {
+      if (error instanceof Anthropic.BadRequestError && /strict|schema/i.test(error.message)) {
         message = await anthropic.messages.create(withoutStrictTools(params));
       } else {
         throw error;
@@ -1561,6 +1565,15 @@ export async function completeArticleFromMessage(
       console.warn('Section regeneration failed; falling through to strip', regenerationError);
     }
   }
+
+  // Repetition never holds an article (2026-09-06): the one rewrite above is the remedy, and a
+  // receipt that survives it is a warning on the row, not a reason to regenerate in full or to
+  // stop in review. (The first kickoff eval escalated to a $0.63 full regeneration over "42.7".)
+  deterministic = deterministic.map(v =>
+    v.kind === 'repeated_receipt' && v.severity === 'block'
+      ? { ...v, severity: 'warn' as const, detail: `${v.detail} (still repeated after one rewrite)` }
+      : v
+  );
 
   // The manager opt-down ("keep it clean about my team"), enforced (owner ask, 2026-09-03): a
   // sentence that names an opted-down team, or its GM, and swears is stripped. Prompt-only until

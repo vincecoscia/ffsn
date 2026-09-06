@@ -67,6 +67,13 @@ import type { PlayerBoardMatchupInput, PlayerBoardTeamInput } from "./lib/player
 // below, never imported as a value - see the repo-wide gotcha about `internal` recursion.
 // `convex/lib/inGameInjuries.ts` itself is pure, so its `InGameInjury` type carries no such risk.
 import type { InGameInjury } from "./lib/inGameInjuries";
+// `convex/lib/almanacData.ts` is likewise deliberately pure (no `internal`/`api` imports of its
+// own - see its file header) - the League Almanac gatherer (owner ask, 2026-09-06).
+import { gatherAlmanacInput } from "./lib/almanacData";
+// `src/lib/ai/almanac.ts` has no imports at all, so it carries none of the "never a value import
+// from src/lib/ai in a non-Node Convex file" risk that applies to the heavier prompt-layer
+// modules - see that file's own header.
+import { buildAlmanac } from "../src/lib/ai/almanac";
 
 /**
  * Enhanced query functions for AI content generation
@@ -2761,11 +2768,46 @@ export const getSeasonWelcomeDataForAI = internalQuery({
         }
       }
 
+      // The League Almanac (owner ask, 2026-09-06): the deterministic, all-seasons history block
+      // this piece is actually written from - see src/lib/ai/almanac.ts's header for why the
+      // memorable-moments/championshipHistory data above (kept for now, unused by the almanac
+      // path) was not enough. Never allowed to fail the whole payload: a gatherer or builder
+      // error degrades to an empty almanac, exactly like a league with no completed seasons.
+      let almanac;
+      try {
+        const almanacInput = await gatherAlmanacInput(ctx, args.leagueId, currentSeason);
+        almanac = buildAlmanac(almanacInput);
+      } catch (e) {
+        console.error("Failed to build the League Almanac for season_welcome", e);
+      }
+
+      // Season kickoff facts (owner ask, 2026-09-06): where THIS season's draft and kickoff
+      // stand, for the writer and for Sam's preseason interviews (src/lib/ai/conversation-service.ts).
+      const currentLeagueSeason = leagueSeasons.find((s) => s.seasonId === currentSeason);
+      const draftInfo = currentLeagueSeason?.draftInfo as
+        | { drafted?: boolean; inProgress?: boolean; draftDate?: number }
+        | undefined;
+      const week1Games = await ctx.db
+        .query("nflSchedules")
+        .withIndex("by_week", (q) => q.eq("season", currentSeason).eq("week", 1))
+        .collect();
+      const weekOneKickoffAt = week1Games.length > 0 ? Math.min(...week1Games.map((g) => g.gameTime)) : undefined;
+      const seasonKickoff = {
+        draftDone: draftInfo?.drafted === true,
+        draftDate: typeof draftInfo?.draftDate === "number" ? draftInfo.draftDate : undefined,
+        weekOneKickoffAt,
+      };
+
       const result: any = {
         // Basic league info
         leagueName: league.name,
         currentWeek: basicLeagueData.currentWeek,
         currentSeason,
+        // League Almanac + kickoff facts (owner ask, 2026-09-06). `almanac` mirrors
+        // `LeagueDataContext.almanac` in src/lib/ai/prompt-builder.ts; `seasonKickoff` is new and
+        // additive - the prompt layer picks it up on its own schedule.
+        almanac,
+        seasonKickoff,
         teams: currentTeams.map(team => ({
           id: team._id,
           externalId: team.externalId,
@@ -2833,6 +2875,222 @@ export const getSeasonWelcomeDataForAI = internalQuery({
       console.error("Error:", error);
       throw error;
     }
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * League Almanac (owner ask, 2026-09-06) - read-only introspection.
+ *
+ * Mirrors `LeagueAlmanac` (src/lib/ai/almanac.ts) field-for-field so the CLI can inspect exactly
+ * what the kickoff piece was written from. Not dev-guarded: the owner runs this against prod
+ * directly, e.g. `npx convex run --prod aiQueries:getLeagueAlmanac '{"leagueId":"..."}'`.
+ * -------------------------------------------------------------------------- */
+
+const almanacTeamRefValidator = v.object({
+  teamId: v.string(),
+  team: v.string(),
+  managerKey: v.string(),
+  manager: v.string(),
+  record: v.optional(v.string()),
+  pointsFor: v.optional(v.number()),
+  seed: v.optional(v.number()),
+});
+
+const almanacSeasonLineValidator = v.object({
+  season: v.number(),
+  team: v.string(),
+  record: v.string(),
+  pointsFor: v.number(),
+  finish: v.number(),
+  madePlayoffs: v.boolean(),
+  champion: v.boolean(),
+  runnerUp: v.boolean(),
+});
+
+const almanacGameValidator = v.object({
+  season: v.number(),
+  week: v.number(),
+  playoffTier: v.optional(v.string()),
+  winner: v.object({ team: v.string(), manager: v.string(), score: v.number() }),
+  loser: v.object({ team: v.string(), manager: v.string(), score: v.number() }),
+  margin: v.number(),
+});
+
+const almanacScoreEntryValidator = v.object({
+  season: v.number(),
+  week: v.number(),
+  team: v.string(),
+  manager: v.string(),
+  score: v.number(),
+});
+
+const almanacDraftReceiptPickValidator = v.object({
+  pick: v.number(),
+  round: v.number(),
+  teamId: v.string(),
+  team: v.string(),
+  manager: v.string(),
+  player: v.string(),
+  pos: v.optional(v.string()),
+  seasonPoints: v.optional(v.number()),
+  firstRoundRank: v.optional(v.number()),
+  teamFinish: v.optional(
+    v.object({ record: v.string(), madePlayoffs: v.boolean(), champion: v.boolean() })
+  ),
+});
+
+const almanacCurseEntryValidator = v.object({
+  manager: v.string(),
+  currentTeamId: v.optional(v.string()),
+  seasons: v.number(),
+  playoffAppearances: v.number(),
+  runnerUps: v.number(),
+});
+
+const almanacSeasonLineWithManagerValidator = almanacSeasonLineValidator.extend({
+  manager: v.string(),
+});
+
+const almanacValidator = v.object({
+  schema: v.literal("ffsn.almanac.v1"),
+  currentSeason: v.number(),
+  foundedSeason: v.optional(v.number()),
+  seasonsCovered: v.array(v.number()),
+  seasons: v.array(
+    v.object({
+      season: v.number(),
+      teamCount: v.number(),
+      champion: v.optional(almanacTeamRefValidator),
+      runnerUp: v.optional(almanacTeamRefValidator),
+      regularSeasonChampion: v.optional(almanacTeamRefValidator),
+      lastPlace: v.optional(almanacTeamRefValidator),
+      topScorer: v.optional(almanacTeamRefValidator),
+      final: v.optional(
+        v.object({
+          winner: almanacTeamRefValidator,
+          loser: almanacTeamRefValidator,
+          winnerScore: v.number(),
+          loserScore: v.number(),
+          margin: v.number(),
+          week: v.number(),
+        })
+      ),
+      unlikelyChampion: v.optional(v.object({ reason: v.string() })),
+    })
+  ),
+  managers: v.array(
+    v.object({
+      key: v.string(),
+      manager: v.string(),
+      currentTeamId: v.optional(v.string()),
+      currentTeam: v.optional(v.string()),
+      seasons: v.number(),
+      firstSeason: v.number(),
+      lastSeason: v.number(),
+      wins: v.number(),
+      losses: v.number(),
+      ties: v.number(),
+      record: v.string(),
+      winPct: v.number(),
+      pointsFor: v.number(),
+      pointsAgainst: v.optional(v.number()),
+      pointsPerGame: v.number(),
+      titles: v.array(v.number()),
+      runnerUps: v.array(v.number()),
+      regularSeasonTitles: v.array(v.number()),
+      playoffAppearances: v.number(),
+      playoffStreak: v.number(),
+      lastPlaceFinishes: v.array(v.number()),
+      bestSeason: v.optional(almanacSeasonLineValidator),
+      worstSeason: v.optional(almanacSeasonLineValidator),
+      yearsSinceTitle: v.optional(v.number()),
+      teamNames: v.array(v.string()),
+      lines: v.array(almanacSeasonLineValidator),
+    })
+  ),
+  curseBoard: v.object({
+    mostPointsNoTitle: v.optional(
+      v.object({
+        manager: v.string(),
+        currentTeamId: v.optional(v.string()),
+        pointsFor: v.number(),
+        seasons: v.number(),
+        playoffAppearances: v.number(),
+      })
+    ),
+    longestDrought: v.optional(
+      v.object({
+        manager: v.string(),
+        currentTeamId: v.optional(v.string()),
+        yearsSinceTitle: v.number(),
+        lastTitle: v.number(),
+      })
+    ),
+    neverWon: v.array(almanacCurseEntryValidator),
+    alwaysTheBridesmaid: v.optional(
+      v.object({ manager: v.string(), currentTeamId: v.optional(v.string()), runnerUps: v.number() })
+    ),
+    neverMadePlayoffs: v.array(
+      v.object({ manager: v.string(), currentTeamId: v.optional(v.string()), seasons: v.number() })
+    ),
+    mostLastPlaces: v.optional(
+      v.object({
+        manager: v.string(),
+        currentTeamId: v.optional(v.string()),
+        count: v.number(),
+        seasons: v.array(v.number()),
+      })
+    ),
+  }),
+  records: v.object({
+    biggestBlowout: v.optional(almanacGameValidator),
+    closestGame: v.optional(almanacGameValidator),
+    highestScore: v.optional(almanacScoreEntryValidator),
+    lowestScore: v.optional(almanacScoreEntryValidator),
+    bestRegularSeason: v.optional(almanacSeasonLineWithManagerValidator),
+    worstRegularSeason: v.optional(almanacSeasonLineWithManagerValidator),
+    mostPointsInASeason: v.optional(almanacSeasonLineWithManagerValidator),
+    mostTitles: v.optional(v.object({ manager: v.string(), count: v.number(), seasons: v.array(v.number()) })),
+    backToBack: v.array(v.object({ manager: v.string(), seasons: v.array(v.number()) })),
+  }),
+  rivalries: v.array(
+    v.object({
+      a: v.object({ managerKey: v.string(), manager: v.string(), currentTeamId: v.optional(v.string()) }),
+      b: v.object({ managerKey: v.string(), manager: v.string(), currentTeamId: v.optional(v.string()) }),
+      games: v.number(),
+      aWins: v.number(),
+      bWins: v.number(),
+      ties: v.number(),
+      lastMeeting: v.optional(
+        v.object({ season: v.number(), week: v.number(), winnerManager: v.string(), margin: v.number() })
+      ),
+      currentStreak: v.optional(v.object({ manager: v.string(), wins: v.number() })),
+    })
+  ),
+  drafts: v.array(
+    v.object({
+      season: v.number(),
+      firstRound: v.array(almanacDraftReceiptPickValidator),
+      titlePick: v.optional(almanacDraftReceiptPickValidator),
+      best: v.optional(almanacDraftReceiptPickValidator),
+      worst: v.optional(almanacDraftReceiptPickValidator),
+    })
+  ),
+  notes: v.array(v.string()),
+});
+
+export const getLeagueAlmanac = internalQuery({
+  args: {
+    leagueId: v.id("leagues"),
+    seasonId: v.optional(v.number()),
+  },
+  returns: almanacValidator,
+  handler: async (ctx, args) => {
+    const league = await ctx.db.get(args.leagueId);
+    if (!league) throw new Error("League not found");
+    const currentSeason = args.seasonId ?? league.espnData?.seasonId ?? new Date().getFullYear();
+    const input = await gatherAlmanacInput(ctx, args.leagueId, currentSeason);
+    return buildAlmanac(input);
   },
 });
 

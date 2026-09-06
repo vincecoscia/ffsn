@@ -1,18 +1,18 @@
 {
-  "fixture": "empty-league",
-  "note": "Nothing has ever synced. weekly_recap, weekly_preview and trade_analysis must throw InsufficientDataError rather than invent a game, a slate or a trade.",
+  "fixture": "season-kickoff",
+  "note": "Preseason: nothing played, so every game-based type refuses or builds on the blank table, and none of them sees the almanac. season_welcome carries the almanac, empties the standings, marks every record preseason and emits no intel line, so it has no gaps at all here; its priorClaims line is absent because the writer has one claim on record. What FACTS and the prompt make of the almanac is pinned in tests/seasonKickoff.test.ts.",
   "facts": {
-    "teams": 0,
+    "teams": 4,
     "matchups": 0,
     "matchupPlayers": 0,
-    "standings": 0,
+    "standings": 4,
     "transactions": 0,
     "trades": 0,
     "draftPicks": 0,
     "quotes": 0,
     "nonRespondents": 0,
-    "relationships": 0,
-    "priorClaims": 0,
+    "relationships": 1,
+    "priorClaims": 1,
     "inGameInjuries": 0
   },
   "unresolvedTeamRefs": 0,
@@ -21,8 +21,6 @@
       "missing": [
         "matchup_results — no matchups in the payload",
         "player_scores (rosters) — not available",
-        "standings — not available",
-        "priorClaims — none. You have no prediction history in this league; do not claim one.",
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
@@ -30,7 +28,6 @@
     "weekly_preview": {
       "missing": [
         "upcoming matchups — not available",
-        "priorClaims — none. You have no prediction history in this league; do not claim one.",
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
@@ -38,19 +35,14 @@
     "draft_rankings": {
       "missing": [
         "draft_results (draftPicks) — not available",
-        "team_rosters (teams) — not available",
         "player_projections — not available",
         "draft_order — not available",
-        "league_settings — not available",
-        "priorClaims — none. You have no prediction history in this league; do not claim one.",
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
     },
     "power_rankings": {
       "missing": [
-        "standings — not available",
-        "priorClaims — none. You have no prediction history in this league; do not claim one.",
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
@@ -58,17 +50,12 @@
     "trade_analysis": {
       "missing": [
         "trade_details — no trades in the payload",
-        "team_rosters (teams) — not available",
-        "priorClaims — none. You have no prediction history in this league; do not claim one.",
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
     },
     "season_welcome": {
-      "missing": [
-        "almanac — no completed seasons on record; this is the league's first season: write the kickoff from the teams, the managers and the draft, not from history",
-        "priorClaims — none. You have no prediction history in this league; do not claim one."
-      ],
+      "missing": [],
       "throws": null
     }
   }

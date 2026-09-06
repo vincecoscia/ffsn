@@ -40,8 +40,15 @@ export type ViolationKind =
   | "data_speak"
   /** Playoffs under way or decided, and a sentence calls a team the bracket has knocked out a contender. */
   | "eliminated_as_contender"
-  /** A weekly_preview written before kickoff cites a record beside a team, or "points for": nobody has played yet. */
+  /** A weekly_preview or a season_welcome written before kickoff cites a record beside a team, or "points for": nobody has played yet (a kickoff's past record is fine when its sentence names the season or says all-time). */
   | "records_before_kickoff"
+  /**
+   * The same number (a margin, a points total, a score) cited in more than two sections, or more
+   * than three times inside one (Season Kickoff rebuild, 2026-09-06: the prod piece cited "42.7"
+   * eight times). A receipt is used once. The third section on and beyond blocks, so the one-shot
+   * regeneration rewrites those sections; a pile-up inside one section warns.
+   */
+  | "repeated_receipt"
   | "unsupported_injury"
   /** A sentence that grades the lineup call on a player who left his game hurt (`facts.inGameInjuries`, spec §16.1). Stripped. */
   | "injury_blame"
@@ -449,6 +456,111 @@ export function findRecordsBeforeKickoff(
 }
 
 /**
+ * A past record in a kickoff piece (2026-09-06): "53-30 all-time", "went 12-2 in 2022", "eight
+ * seasons of 4-10". The sentence names a season year, or says all-time / career / seasons, and the
+ * record is history rather than a standing nobody has earned yet.
+ */
+const PAST_SEASON_CONTEXT = /\b(?:19|20)\d{2}\b|\ball[- ]time\b|\bcareer\b|\bseasons\b/i;
+
+/** Every W-L(-T) string the almanac carries, plus each rivalry's head-to-head both ways round. */
+export function almanacRecordStrings(almanac: unknown): Set<string> {
+  const out = new Set<string>();
+  const RECORD = /^\d+-\d+(?:-\d+)?$/;
+  const walk = (value: unknown): void => {
+    if (typeof value === "string") {
+      if (RECORD.test(value)) out.add(value);
+    } else if (Array.isArray(value)) {
+      value.forEach(walk);
+    } else if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (typeof record.aWins === "number" && typeof record.bWins === "number") {
+        out.add(`${record.aWins}-${record.bWins}`);
+        out.add(`${record.bWins}-${record.aWins}`);
+      }
+      Object.values(record).forEach(walk);
+    }
+  };
+  walk(almanac);
+  return out;
+}
+
+/** Sentences of a kickoff piece that put a THIS-season record beside a team: the preview check, minus every past-season sentence. */
+export function findRecordsInKickoff(text: string, teamNames: string[]): Array<{ phrase: string; sentence: string }> {
+  return findRecordsBeforeKickoff(text, teamNames).filter(hit => !PAST_SEASON_CONTEXT.test(hit.sentence));
+}
+
+/**
+ * Receipts (Season Kickoff rebuild, 2026-09-06): the numbers a writer cites as evidence. Integers
+ * of three or more digits (thousands separators allowed: "1,612"), or decimals ("42.7"). A record
+ * ("12-2"), a week, a pick number and a seed are too short to count; a 4-digit year and the season
+ * are excluded by the caller. Never a digit run inside a longer token ("139" in "139.4").
+ */
+const RECEIPT_TOKEN = /(?<![\w.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d{3,})(?![\w.]?\d)/g;
+const YEAR_TOKEN = /^(?:19|20)\d{2}$/;
+
+/** The receipt tokens in one piece of text, normalised (no thousands separators), with how often each appears. */
+export function countReceipts(text: string, exclude: Set<string> = new Set()): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (!text) return counts;
+  for (const match of text.matchAll(RECEIPT_TOKEN)) {
+    const token = match[0].replace(/,/g, "");
+    if (YEAR_TOKEN.test(token) || exclude.has(token)) continue;
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * `repeated_receipt` violations for an article's sections: a token in more than two distinct
+ * sections blocks every section after the second (in article order); more than three mentions
+ * inside one section warns. `exclude` carries the season number and anything else that is not a
+ * receipt.
+ */
+export function findRepeatedReceipts(
+  sections: Array<{ name: string; content?: string }>,
+  exclude: Set<string> = new Set()
+): Violation[] {
+  const uses = new Map<string, Array<{ section: string; count: number }>>();
+  sections.forEach(section => {
+    for (const [token, count] of countReceipts(section.content ?? "", exclude)) {
+      const list = uses.get(token) ?? [];
+      list.push({ section: section.name, count });
+      uses.set(token, list);
+    }
+  });
+  const violations: Violation[] = [];
+  for (const [token, list] of uses) {
+    if (list.length > 2) {
+      // The receipt's home is the section that leans on it most (ties go to the LATER section -
+      // the climax keeps the number); every other section is rewritten without it. Blocking in
+      // article order instead put the block on the kickoff's grudge section, the one place last
+      // season's margin belongs, and the rewrite could never satisfy it (eval, 2026-09-06).
+      const home = list.reduce((best, use) => (use.count >= best.count ? use : best), list[0]);
+      for (const use of list) {
+        if (use === home) continue;
+        violations.push({
+          kind: "repeated_receipt",
+          detail: `${token} is cited in ${list.length} sections; it belongs in "${home.section}" - drop it here and keep this section's own receipts`,
+          section: use.section,
+          severity: "block",
+        });
+      }
+    }
+    for (const use of list) {
+      if (use.count > 3) {
+        violations.push({
+          kind: "repeated_receipt",
+          detail: `${token} is cited ${use.count} times in one section; a receipt is used once`,
+          section: use.section,
+          severity: "warn",
+        });
+      }
+    }
+  }
+  return violations;
+}
+
+/**
  * In-game injuries are not lineup mistakes (owner, 2026-09-05; The Wire spec §16.1). A player who
  * left his game hurt scores like a bad start, and a recap working from points-per-slot invents a
  * blunder out of it. The wording that makes starting him the manager's fault: a should-have, a
@@ -499,6 +611,67 @@ export function findInjuryBlame(
     for (const { player } of named) hits.push({ player: player.name, phrase: blame[1], sentence: sentence.trim() });
   }
   return hits;
+}
+
+/** Every name the almanac carries, into the verifier's known-name sets (lower-cased, whitespace collapsed). */
+function addAlmanacNames(
+  almanac: NonNullable<FactsBlock["almanac"]>,
+  sets: { teamNames: Set<string>; managers: Set<string>; playerNames: Set<string> }
+): void {
+  const norm = (name: string | undefined) => (name ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const team = (name: string | undefined) => {
+    const key = norm(name);
+    if (key) sets.teamNames.add(key);
+  };
+  const manager = (name: string | undefined) => {
+    const key = norm(name);
+    if (key) sets.managers.add(key);
+  };
+  const player = (name: string | undefined) => {
+    const key = norm(name);
+    if (key) sets.playerNames.add(key);
+  };
+  const side = (ref: { team?: string; manager?: string } | undefined) => {
+    team(ref?.team);
+    manager(ref?.manager);
+  };
+
+  for (const entry of almanac.managers) {
+    manager(entry.manager);
+    team(entry.currentTeam);
+    entry.teamNames.forEach(team);
+    team(entry.bestSeason?.team);
+    team(entry.worstSeason?.team);
+    for (const line of entry.lines ?? []) team(line.team);
+  }
+  for (const season of almanac.seasons) {
+    // The final's sides are the champion and the runner-up; it carries only their ids.
+    [season.champion, season.runnerUp, season.regularSeasonChampion, season.lastPlace, season.topScorer].forEach(side);
+  }
+  const records = almanac.records;
+  for (const game of [records.biggestBlowout, records.closestGame]) {
+    side(game?.winner);
+    side(game?.loser);
+  }
+  [records.highestScore, records.lowestScore, records.bestRegularSeason, records.worstRegularSeason, records.mostPointsInASeason].forEach(side);
+  manager(records.mostTitles?.manager);
+  records.backToBack.forEach(entry => manager(entry.manager));
+  const board = almanac.curseBoard;
+  [board.mostPointsNoTitle, board.longestDrought, board.alwaysTheBridesmaid, board.mostLastPlaces, ...board.neverWon, ...board.neverMadePlayoffs].forEach(entry => manager(entry?.manager));
+  for (const rivalry of almanac.rivalries) {
+    manager(rivalry.a.manager);
+    manager(rivalry.b.manager);
+    manager(rivalry.lastMeeting?.winnerManager);
+    manager(rivalry.currentStreak?.manager);
+  }
+  for (const draft of almanac.drafts) {
+    for (const pick of [...draft.firstRound, draft.titlePick, draft.best, draft.worst]) {
+      if (!pick) continue;
+      player(pick.player);
+      team(pick.team);
+      manager(pick.manager);
+    }
+  }
 }
 
 export interface VerifyOptions {
@@ -615,6 +788,10 @@ export function verifyArticle(
   // The mock-draft pool (owner ask, 2026-09-05): every player in it is a real, citable name.
   for (const player of facts.draftPool ?? []) playerNames.add(player.name.toLowerCase());
   for (const entry of facts.intel ?? []) playerNames.add(entry.name.toLowerCase());
+  // The League Almanac (season_welcome, 2026-09-06): every team name a manager has ever used, every
+  // manager who ever played (departed ones included) and every first-round pick in the draft
+  // receipts is a real name the writer may print, not an unknown proper noun.
+  if (facts.almanac) addAlmanacNames(facts.almanac, { teamNames, managers, playerNames });
   const injuredNames = injurySupportedNames(facts);
   const quoteById = new Map(facts.quotes.map(quote => [quote.id, quote]));
   const ledgerTexts = facts.quotes.map(quote => normalizeQuote(quote.text));
@@ -785,9 +962,12 @@ export function verifyArticle(
   for (const section of article.sections ?? []) {
     const content = section.content ?? "";
 
-    for (const decimal of content.match(/\b\d+\.\d\b/g) ?? []) {
+    // A decimal in the prose, thousands separators allowed: "1,612.3" is the FACTS number 1612.3
+    // (an almanac points total), not an unverified "612.3".
+    for (const match of content.match(/(?<![\w.,])\d+(?:,\d{3})*\.\d(?!\d)/g) ?? []) {
+      const decimal = match.replace(/,/g, "");
       if (!numberStrings.has(decimal) && !isDerivable(Number(decimal), numberValues)) {
-        violations.push({ kind: "unverified_number", detail: decimal, section: section.name, severity: "warn" });
+        violations.push({ kind: "unverified_number", detail: match, section: section.name, severity: "warn" });
       }
     }
 
@@ -898,6 +1078,37 @@ export function verifyArticle(
       }
     }
   }
+
+  // 4c'. Records in a Season Kickoff (2026-09-06). Nobody has played a snap, so a record beside a
+  //      team is either "0-0" or a past one; the past one names its season or says all-time, and
+  //      is left alone. Same severity as the preview: the piece publishes, flagged.
+  if (options?.template?.id === "season_welcome" || facts.almanac !== undefined) {
+    const names = facts.teams.map(team => team.name).filter(name => name.length > 0);
+    const texts: Array<[string, string]> = [
+      [TITLE_SECTION, article.title ?? ""],
+      ...(article.sections ?? []).map((section): [string, string] => [section.name, section.content ?? ""]),
+    ];
+    // An all-time or past-season record the almanac itself carries ("53-30", a 12-2 season, a
+    // 3-10 head-to-head) is a receipt, whatever the sentence around it says; only a record the
+    // ledger does not know - "0-0-0", or a made-up one - is worth a flag.
+    const almanacRecords = almanacRecordStrings(facts.almanac);
+    for (const [section, text] of texts) {
+      for (const hit of findRecordsInKickoff(text, names)) {
+        if (almanacRecords.has(hit.phrase)) continue;
+        violations.push({
+          kind: "records_before_kickoff",
+          detail: `"${hit.phrase}" beside a team in a kickoff piece; nobody has played a snap this season, and a past record names its season or says all-time: "${hit.sentence.slice(0, 80)}"`,
+          section,
+          severity: "warn",
+        });
+      }
+    }
+  }
+
+  // 4c''. Repeated receipts (2026-09-06), every content type: the same number in more than two
+  //       sections blocks the extra sections; a pile-up inside one section warns. The season is
+  //       not a receipt (years are excluded by the token rule; the season is excluded by name).
+  violations.push(...findRepeatedReceipts(article.sections ?? [], new Set([String(facts.league.season)])));
 
   // 4d. In-game injuries are not lineup mistakes (owner, 2026-09-05; The Wire §16.1). A sentence
   //     that names a player who left his game hurt and grades the lineup call on him is stripped

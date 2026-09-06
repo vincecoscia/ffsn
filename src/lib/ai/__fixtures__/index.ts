@@ -26,6 +26,8 @@ import inGameInjury from "./in-game-injury.json";
 import inGameInjuryExpected from "./in-game-injury.expected.json";
 import richWeek from "./rich-week.json";
 import richWeekExpected from "./rich-week.expected.json";
+import seasonKickoff from "./season-kickoff.json";
+import seasonKickoffExpected from "./season-kickoff.expected.json";
 import sparseWeek from "./sparse-week.json";
 import sparseWeekExpected from "./sparse-week.expected.json";
 
@@ -38,7 +40,9 @@ import wrongFantasyTeam from "./samples/wrong-fantasy-team.json";
 /**
  * The highest-volume content types the offline harness sweeps. `weekly_preview` is here because it
  * is the one look-ahead type: it must build from `upcomingMatchups` and refuse without them, and
- * only a sweep catches the regression where it quietly recaps last week instead.
+ * only a sweep catches the regression where it quietly recaps last week instead. `season_welcome`
+ * (2026-09-06) is here because it is the one type written from the League Almanac: on every
+ * fixture but `season-kickoff` it must name the missing almanac and still build, never refuse.
  */
 export const EVAL_CONTENT_TYPES = [
   "weekly_recap",
@@ -46,6 +50,7 @@ export const EVAL_CONTENT_TYPES = [
   "draft_rankings",
   "power_rankings",
   "trade_analysis",
+  "season_welcome",
 ] as const;
 
 export type EvalContentType = (typeof EVAL_CONTENT_TYPES)[number];
@@ -122,12 +127,19 @@ const inGameInjuryWeek: EvalFixture = {
   },
 };
 
+/**
+ * The Season Kickoff case (2026-09-06): a preseason payload with a three-season League Almanac and
+ * a `seasonKickoff` line inside `leagueData`. Generated from `almanac-sample.ts` (`sampleAlmanac({
+ * seasons: 3, teams: 4 })`) and recorded as JSON so the harness can load it like any fixture:
+ * `npm run eval:articles -- --live --type season_welcome --persona mel-diaper --fixture season-kickoff`.
+ */
 export const fixtures: EvalFixture[] = [
   asFixture(richWeek),
   asFixture(sparseWeek),
   asFixture(draftDay),
   asFixture(emptyLeague),
   inGameInjuryWeek,
+  asFixture(seasonKickoff),
 ];
 
 export const fixturesByName: Record<string, EvalFixture> = Object.fromEntries(
@@ -140,6 +152,7 @@ export const expectations: Record<string, FixtureExpectation> = {
   "draft-day": asExpectation(draftDayExpected),
   "empty-league": asExpectation(emptyLeagueExpected),
   "in-game-injury": asExpectation(inGameInjuryExpected),
+  "season-kickoff": asExpectation(seasonKickoffExpected),
 };
 
 export const samples: EvalSample[] = [

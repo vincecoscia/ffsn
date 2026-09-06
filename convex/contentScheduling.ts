@@ -35,6 +35,10 @@ import { isByeMatchup } from "./lib/playoffs";
 // `./lib/weekOneGate` is likewise deliberately pure (see its file header) - the week-1 preview
 // scheduling gate (owner directive, 2026-09-03).
 import { weekOnePreviewDecision } from "./lib/weekOneGate";
+// `./lib/interviewees` is likewise deliberately pure/DB-only (no `internal`/`api` imports of its
+// own) - reused here so `kickOffSeasonWelcome` can check for claimed managers with the exact
+// rule `contentSchedulingIntegration.onContentScheduled` uses (owner ask, 2026-09-06).
+import { resolveInterviewees } from "./lib/interviewees";
 
 /** The roster default writer for a content type (spec section 9.2.3). */
 export function defaultPersonaFor(contentType: string): string {
@@ -441,9 +445,9 @@ export const applyAutomaticDefaults = internalMutation({
  * Fire the season kickoff article (owner directive, Sept 2026: "season
  * welcome" is repurposed to ring in every season, not just a league's first
  * one - "this can probably be repurposed... and should be included in the
- * subscription"). Creates the article and schedules generation with
- * `userId: "system"`, so `aiContent.generateContentAction` bills it to the
- * League Pass and nothing is deducted from anyone's credits.
+ * subscription"). Billed with `userId: "system"` throughout, so
+ * `aiContent.generateContentAction` charges the League Pass and nothing is
+ * deducted from anyone's credits.
  *
  * Called directly from two fulfillment paths that activate the pass for a
  * season - `payments.processLeaguePayment` (a real purchase) and
@@ -454,6 +458,17 @@ export const applyAutomaticDefaults = internalMutation({
  * article every subsequent season without either of those callers ever
  * running again; `checkExistingContent` is what keeps the two paths from
  * ever double-firing for the same season.
+ *
+ * Interviews (owner ask, 2026-09-06): this is an event story, not a lookback
+ * one - Sam reaches out the moment the row exists, same as a trade or the
+ * draft (`COMMENT_WINDOWS_MS.season_welcome`, `convex/lib/interviewees.ts`).
+ * When the league has a claimed manager, this goes through the same
+ * scheduled-row path the calendar's own "season_start" trigger uses
+ * (`scheduleContentGeneration`, which also queues the interview requests via
+ * `contentSchedulingIntegration.onContentScheduled`), printing at now plus
+ * the interview window instead of five seconds from now. A league with
+ * nobody claimed yet has no one to ask, so it prints immediately - exactly
+ * the fast path this function used before interviews existed.
  */
 export const kickOffSeasonWelcome = internalMutation({
   args: {
@@ -473,20 +488,65 @@ export const kickOffSeasonWelcome = internalMutation({
     // the retired "analyst" placeholder.
     const persona = defaultPersonaFor("season_welcome");
 
-    const articleId: Id<"aiContent"> = await ctx.runMutation(internal.aiContent.createScheduledArticle, {
-      leagueId: args.leagueId,
-      type: "season_welcome",
-      persona,
-      userId: "system", // Billed to the League Pass (spec §10.1); never a manager's credits.
-    });
+    const printImmediately = async (): Promise<{ started: boolean; reason?: string }> => {
+      const articleId: Id<"aiContent"> = await ctx.runMutation(internal.aiContent.createScheduledArticle, {
+        leagueId: args.leagueId,
+        type: "season_welcome",
+        persona,
+        userId: "system", // Billed to the League Pass (spec §10.1); never a manager's credits.
+      });
 
-    await ctx.scheduler.runAfter(5000, internal.aiContent.generateContentAction, {
-      articleId,
+      await ctx.scheduler.runAfter(5000, internal.aiContent.generateContentAction, {
+        articleId,
+        leagueId: args.leagueId,
+        contentType: "season_welcome",
+        persona,
+        userId: "system",
+        seasonId: args.seasonId,
+      });
+
+      return { started: true };
+    };
+
+    // Who is around to interview, same rule `onContentScheduled` re-checks at send time
+    // (convex/lib/interviewees.ts): every claimed manager, whatever the league size.
+    const { targetUserIds } = await resolveInterviewees(ctx, {
+      leagueId: args.leagueId,
+      season: args.seasonId,
+      contentType: "season_welcome",
+    });
+    if (targetUserIds.length === 0) {
+      return await printImmediately();
+    }
+
+    const schedule = await ctx.runQuery(internal.contentScheduling.getContentScheduleByType, {
       leagueId: args.leagueId,
       contentType: "season_welcome",
-      persona,
-      userId: "system",
+    });
+    if (!schedule || !schedule.enabled) {
+      // No `contentSchedules` row for this league yet (an older import that predates the
+      // automatic-by-default calendar), or the commissioner has switched season_welcome off on
+      // the calendar - either way, `processScheduledContent` would silently cancel a row on a
+      // disabled schedule (`cancelReason: "schedule_disabled"`, no notification at all), and
+      // this kickoff piece has always printed unconditionally on pass activation. Fall back to
+      // the immediate path rather than letting the League Pass go live with no kickoff article.
+      return await printImmediately();
+    }
+
+    // The scheduled-row + interview path: `scheduleContentGeneration` inserts the
+    // `scheduledContent` row and calls `contentSchedulingIntegration.onContentScheduled`, which
+    // queues Sam's requests right away (season_welcome is not a lookback type - see
+    // COMMENT_WINDOWS_MS's doc comment) and pushes `scheduledFor` out to now + the interview
+    // window. `processScheduledContentCron`'s ordinary sweep generates the article at that time
+    // with whatever comment responses came in, exactly like every other interviewed type.
+    await ctx.runMutation(internal.contentScheduling.scheduleContentGeneration, {
+      leagueId: args.leagueId,
+      contentScheduleId: schedule._id,
+      contentType: "season_welcome",
+      scheduledFor: Date.now(),
       seasonId: args.seasonId,
+      writerPersona: schedule.preferredPersona || persona,
+      contextData: { seasonId: args.seasonId },
     });
 
     return { started: true };
@@ -2422,14 +2482,16 @@ export const updateMonthlySpending = internalMutation({
 });
 
 /**
- * A league's `weekly_preview` `contentSchedules` row, if it has one. `scheduleWeeklyContentCron`
- * already has this (it iterates `getWeeklySchedules`); `triggerEventBasedContent`'s
- * `draft_completed` branch needs it to find the row's `_id`/`preferredPersona` when scheduling
- * the week-1 preview. Narrowed to this one literal type (rather than `v.string()`) so the
- * `.eq("contentType", ...)` index call below stays typed against the schema's own union.
+ * A league's `contentSchedules` row for one type, if it has one. `scheduleWeeklyContentCron`
+ * already has an equivalent for weekly types (it iterates `getWeeklySchedules`);
+ * `triggerEventBasedContent`'s `draft_completed` branch uses this to find the `weekly_preview`
+ * row's `_id`/`preferredPersona` when scheduling the week-1 preview, and `kickOffSeasonWelcome`
+ * uses it to find the `season_welcome` row so an on-demand kickoff still carries the league's
+ * own preferred persona/timezone. Narrowed to these two literal types (rather than `v.string()`)
+ * so the `.eq("contentType", ...)` index call below stays typed against the schema's own union.
  */
 export const getContentScheduleByType = internalQuery({
-  args: { leagueId: v.id("leagues"), contentType: v.literal("weekly_preview") },
+  args: { leagueId: v.id("leagues"), contentType: v.union(v.literal("weekly_preview"), v.literal("season_welcome")) },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("contentSchedules")

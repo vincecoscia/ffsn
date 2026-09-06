@@ -626,50 +626,48 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     ]
   },
 
+  // Banner Night (owner ask, 2026-09-06): written from the League Almanac (src/lib/ai/almanac.ts),
+  // every receipt used once, a verdict and a numeric claim for every team. The old six overlapping
+  // history sections (dynasty / hall of fame / hall of shame / moments) had the prod piece citing
+  // "42.7" eight times and skipping four of ten managers.
   "season_welcome": {
     id: "season_welcome",
     name: "Season Kickoff",
-    description: "Kickoff piece for the new season: the league's history, last season's story, and what to expect this year",
+    description: "Banner Night: the league's all-time ledger, the curse board, a verdict for every team, and the one number the writer will be held to",
     creditCost: 25,
-    estimatedWords: 2000,
-    requiredData: ["historical_data", "all_time_records", "championship_history"],
-    optionalData: ["memorable_trades", "biggest_upsets", "rivalry_data"],
+    estimatedWords: 2300,
+    requiredData: ["almanac"],
+    optionalData: ["draft_receipts", "quotes"],
     sections: [
       {
-        name: "league_introduction",
-        description: "Welcome and league overview",
+        name: "banner_night",
+        description: "Opening night. The all-time ledger in one breath: every champion by season, who has the most titles, the back-to-back, the unlikely champion, the drought. Every number from the ALMANAC, each used once.",
         required: true,
-        wordCount: 300
+        wordCount: 450
       },
       {
-        name: "dynasty_teams",
-        description: "Most successful franchises",
+        name: "curse_board",
+        description: "Points and no ring: the most career points without a title, the longest drought, the bridesmaid, the never-made-the-playoffs. Name them with the receipt.",
         required: true,
-        wordCount: 400
+        wordCount: 350
       },
       {
-        name: "hall_of_fame",
-        description: "Best performances and decisions",
+        name: "ten_verdicts",
+        description: "One paragraph per team — every team in THIS SEASON'S TEAMS, in the order listed, headed by the team name. Each paragraph: one all-time receipt from that manager's ledger line, one absurd demand, one numeric prediction for this season (these are the claims).",
         required: true,
-        wordCount: 400
+        wordCount: 1100
       },
       {
-        name: "hall_of_shame",
-        description: "Worst performances and decisions",
+        name: "carryover_grudge",
+        description: "Last season's final and the grudge it left: the margin, the loser, what the writer said then (priorClaims / relationships). Said once, here, and nowhere else.",
         required: true,
-        wordCount: 400
+        wordCount: 250
       },
       {
-        name: "memorable_moments",
-        description: "Biggest upsets and comebacks",
+        name: "the_number",
+        description: "Close on one prediction with a number, then one absurd demand. The demand is the last line.",
         required: true,
-        wordCount: 300
-      },
-      {
-        name: "looking_forward",
-        description: "What to expect this season",
-        required: true,
-        wordCount: 200
+        wordCount: 150
       }
     ]
   },

@@ -926,6 +926,68 @@ describe("kickOffSeasonWelcome (spec: season kickoff every season, covered by th
     );
     expect(articlesAfter).toHaveLength(1);
   });
+
+  it("goes through the scheduled-row + interview path when a manager has claimed a team, instead of printing five seconds later", async () => {
+    const t = makeTest();
+    const { leagueId } = await seedLeague(t);
+    await seedAutomation(t, leagueId); // seeds the DEFAULT_SCHEDULES rows, including season_welcome's
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const team = await ctx.db
+        .query("teams")
+        .withIndex("by_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", SEASON))
+        .first();
+      await ctx.db.insert("users", {
+        clerkId: "clerk_kickoff_claimed_manager",
+        name: "Claimed Manager",
+        hasCompletedOnboarding: true,
+        createdAt: now,
+        lastActiveAt: now,
+      });
+      await ctx.db.insert("teamClaims", {
+        leagueId,
+        teamId: team!._id,
+        seasonId: SEASON,
+        userId: "clerk_kickoff_claimed_manager",
+        status: "active",
+        credits: 0,
+        createdAt: now,
+      });
+    });
+
+    const before = Date.now();
+    const result = await t.mutation(internal.contentScheduling.kickOffSeasonWelcome, {
+      leagueId,
+      seasonId: SEASON,
+    });
+    expect(result.started).toBe(true);
+
+    // No article yet - it only prints once the interview window has run.
+    const articles = await t.run((ctx) =>
+      ctx.db.query("aiContent").withIndex("by_league", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(articles).toHaveLength(0);
+
+    const scheduledRows = await t.run((ctx) =>
+      ctx.db.query("scheduledContent").withIndex("by_league", (q) => q.eq("leagueId", leagueId)).collect()
+    );
+    expect(scheduledRows).toHaveLength(1);
+    expect(scheduledRows[0]).toMatchObject({ contentType: "season_welcome", status: "pending" });
+    // Created for "now" - `createRequestsForScheduledContent` (queued below, not run here) is
+    // what pushes `scheduledFor` out to now + the 24h interview window once it actually sends
+    // the requests (convex/lib/interviewees.ts / commentRequests.ts's print-time alignment).
+    expect(scheduledRows[0].scheduledFor).toBeGreaterThanOrEqual(before);
+    expect(scheduledRows[0].scheduledFor).toBeLessThan(before + 60 * 1000);
+
+    // `onContentScheduled` queues the interview request synchronously (it's a nested mutation,
+    // not itself scheduled); only the resulting `createRequestsForScheduledContent` call is on
+    // the scheduler. Inspecting the queue rather than running it keeps this test from cascading
+    // into `sendInitialRequests`' real AI call.
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const queuedInterview = jobs.find((j: { name: string }) => j.name.includes("createRequestsForScheduledContent"));
+    expect(queuedInterview).toBeDefined();
+  });
 });
 
 describe("reconcileDefaultContentSchedules (spec: audit finding - stale calendars)", () => {

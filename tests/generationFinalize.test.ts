@@ -373,6 +373,83 @@ describe("finalizeGeneratedArticle", () => {
   });
 });
 
+describe("manual runs always land in review (owner ask, 2026-09-06)", () => {
+  it("keeps a credits-billed article in draft even though the gate passes, and tells the commissioner it's ready to publish", async () => {
+    const { t, leagueId, commissionerId } = await setup({
+      autoPublish: true,
+      requireApproval: false,
+      notifyCommissioner: true,
+    });
+    const articleId = await insertArticle(t, leagueId);
+
+    const result = await t.mutation(internal.aiContent.finalizeGeneratedArticle, {
+      articleId,
+      leagueId,
+      generatedByUserId: "clerk_manual_requester",
+      billing: "credits",
+    });
+
+    expect(result).toMatchObject({ published: false, blockingFlags: 0, notifiedCommissioner: true });
+    expect((await t.run((ctx) => ctx.db.get(articleId)))?.status).toBe("draft");
+
+    const notifications = await notificationsFor(t, commissionerId);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].title).toContain("ready for your review");
+    expect(notifications[0].message).toBe("Generated on request; review and publish when ready.");
+  });
+
+  it("publishes a pass-billed article under the exact same preferences", async () => {
+    const { t, leagueId } = await setup({ autoPublish: true, requireApproval: false });
+    const articleId = await insertArticle(t, leagueId);
+
+    const result = await t.mutation(internal.aiContent.finalizeGeneratedArticle, {
+      articleId,
+      leagueId,
+      generatedByUserId: "system",
+      billing: "pass",
+    });
+
+    expect(result.published).toBe(true);
+    expect((await t.run((ctx) => ctx.db.get(articleId)))?.status).toBe("published");
+  });
+
+  it("falls back to the row's own stored billing when the caller does not pass it", async () => {
+    const { t, leagueId } = await setup({ autoPublish: true, requireApproval: false });
+    // updateGeneratedContent only persists `generationStats` (and the `billing` inside it) when
+    // the run also reported verifier stats or an editor verdict - exercised here directly so the
+    // fallback path is covered independently of that conditional write.
+    const articleId = await t.run(async (ctx) =>
+      ctx.db.insert("aiContent", {
+        leagueId,
+        type: "weekly_recap",
+        persona: "curtis-vaughn",
+        title: "A manual recap",
+        content: Array.from({ length: 900 }, (_, i) => `word${i}`).join(" "),
+        metadata: { week: 6, featured_teams: [], credits_used: 10 },
+        status: "draft",
+        createdAt: Date.now(),
+        generationStats: {
+          blocks: 0,
+          strips: 0,
+          warns: 0,
+          sectionsRegenerated: 0,
+          wordCount: 900,
+          billing: "credits",
+        },
+      })
+    );
+
+    const result = await t.mutation(internal.aiContent.finalizeGeneratedArticle, {
+      articleId,
+      leagueId,
+      generatedByUserId: "clerk_manual_requester",
+    });
+
+    expect(result.published).toBe(false);
+    expect((await t.run((ctx) => ctx.db.get(articleId)))?.status).toBe("draft");
+  });
+});
+
 describe("League Pass coverage (spec §10.1)", () => {
   it("charges nothing for a system generation, however empty the commissioner's balance", async () => {
     // Zero credits, and a scheduled row: exactly the shape that used to fail

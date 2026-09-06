@@ -1,3 +1,4 @@
+import type { AlmanacDraftReceiptPick, AlmanacGame, AlmanacManager, AlmanacRecordBook, LeagueAlmanac } from "./almanac";
 import {
   effectiveLanguageRange,
   fnv1a,
@@ -18,6 +19,9 @@ import {
   payloadKnowsByes,
   playoffTierLabel,
   serializeFacts,
+  type FactsAlmanac,
+  type FactsAlmanacManager,
+  type FactsAlmanacTeamRef,
   type FactsBlock,
   type FactsBoard,
   type FactsBracketGame,
@@ -368,6 +372,45 @@ function feedStatusLabel(status: string): string {
   return (tokens[upper] ?? upper).replace(/_/g, ' ');
 }
 
+/** A points total or a score exactly as FACTS prints it: one decimal, no thousands separator. */
+function pts(value: number): string {
+  return value.toFixed(1);
+}
+
+/** ".639" for a fraction, "63.9%" when the almanac already carries a percentage. */
+function winPctLabel(winPct: number): string {
+  if (winPct <= 1) return winPct.toFixed(3).replace(/^0/, '');
+  return `${winPct.toFixed(1)}%`;
+}
+
+/** "2022", "2022 and 2023", "2019, 2022 and 2023". */
+function yearsLabel(years: number[]): string {
+  if (years.length === 0) return 'none';
+  if (years.length === 1) return String(years[0]);
+  return `${years.slice(0, -1).join(', ')} and ${years[years.length - 1]}`;
+}
+
+/** "Sat, Aug 30" (or with the time, "Thu, Sep 10, 8:20 PM ET"). Never an ISO timestamp. */
+function kickoffDateLabel(ms: number, withTime = false): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric',
+      ...(withTime ? { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' } : {}),
+      timeZone: 'America/New_York',
+    }).format(new Date(ms));
+  } catch {
+    return 'a date not on file';
+  }
+}
+
+/** "The draft is 9 days away." / "The draft is tomorrow." / "The draft is today." */
+function daysAwayLabel(subject: string, ms: number, now = Date.now()): string {
+  const days = Math.max(0, Math.ceil((ms - now) / 86_400_000));
+  if (days === 0) return `${subject} is today (${kickoffDateLabel(ms)}).`;
+  if (days === 1) return `${subject} is tomorrow (${kickoffDateLabel(ms)}).`;
+  return `${subject} is ${days} days away (${kickoffDateLabel(ms)}).`;
+}
+
 function ordinal(n: number): string {
   const mod100 = n % 100;
   if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
@@ -611,6 +654,8 @@ export interface LeagueDataContext {
    * inside the prompt builder; this raw field exists so `buildBoard` in `facts.ts` has something
    * to read. */
   playerBoard?: PlayerBoard;
+  /** The League Almanac (src/lib/ai/almanac.ts): all-seasons history for the kickoff piece. Absent for every other type. */
+  almanac?: LeagueAlmanac;
   leagueHistory?: {
     foundedYear: number;
     totalSeasons: number;
@@ -1408,6 +1453,8 @@ where the two ever disagree, <FACTS> wins.
   private buildInGameInjuriesBlock(): string | null {
     const injuries = this.facts.inGameInjuries;
     if (injuries.length === 0) return null;
+    // The kickoff is written before a snap is played; an injury block has no place in it.
+    if (this.options.contentType === 'season_welcome') return null;
     const lines = injuries.map(entry => {
       const position = entry.position ? `${entry.position}, ` : '';
       const when = entry.minutesAfterKickoff > 0 ? `${entry.minutesAfterKickoff} minutes after kickoff` : 'at kickoff';
@@ -1434,8 +1481,9 @@ Write each one as what happened in the game and turn to how the team replaces th
   private buildPlayerIntelBlock(): string | null {
     const intel = this.facts.intel;
     if (!intel || intel.length === 0) return null;
-    // The mock draft's pool lines and injury watch already carry the feed's word per player.
-    if (this.options.contentType === 'mock_draft') return null;
+    // The mock draft's pool lines and injury watch already carry the feed's word per player; the
+    // kickoff has no feed (and FACTS carries no intel for it) - its absence is not a story.
+    if (this.options.contentType === 'mock_draft' || this.options.contentType === 'season_welcome') return null;
     const teamName = new Map(this.facts.teams.map(team => [team.id, team.name]));
     const weight = (entry: NonNullable<FactsBlock["intel"]>[number]) =>
       (entry.injury ? 100 : 0) + (entry.cleared ? 40 : 0) + (entry.depthChart ? 5 : 0) + entry.news.length * 10 + (entry.market?.trendingAdds ? 3 : 0);
@@ -3484,7 +3532,335 @@ column is about — the player and team names, positions, and stats. Use those n
     return rumorData;
   }
 
+  /**
+   * The Season Kickoff (owner ask, 2026-09-06). Written from the League Almanac when the payload
+   * carries one (`this.facts.almanac`); the pre-almanac body below is the fallback for a payload
+   * from before the almanac existed, so an old scheduled row still produces a piece.
+   */
   private buildSeasonWelcomeData(data: LeagueDataContext): string {
+    const almanac = this.facts.almanac;
+    const raw = data.almanac;
+    if (!almanac || !raw) return this.buildLegacySeasonWelcomeData(data);
+    return this.buildKickoffData(data, almanac, raw);
+  }
+
+  /* ---------------------------------------------------------------------- *
+   * Banner Night: the readable rendering of the almanac. FACTS carries the compact almanac (ids,
+   * names, every cited figure); the full almanac on the payload carries the rest (win pct, points
+   * per game, season spans, every season's line), and the prose prints from both so nothing is
+   * lost to the writer. A decimal printed here is a FACTS number, printed the way FACTS prints it
+   * (8912.4, never 8,912.4), so the verifier's sweep and the repeated-receipt check agree with what
+   * the writer read - points per game is the one exception, printed for the writer but not in
+   * FACTS. Prose only: no field names, no ids outside parentheses.
+   * ---------------------------------------------------------------------- */
+
+  private buildKickoffData(data: LeagueDataContext, almanac: FactsAlmanac, raw: LeagueAlmanac): string {
+    const season = this.facts.league.season;
+    const completed = almanac.seasonsCovered.length;
+    let out = `BANNER NIGHT — THE ${season} SEASON KICKOFF, ${data.leagueName}\n`;
+    out += completed > 0
+      ? `Nothing this season has been played. Everything below is the league's history, and every number in it is a past one.\n`
+      : `Nothing this season has been played, and there is no history yet: this is the league's first season. The teams, the managers and the draft are the material.\n`;
+
+    if (completed > 0) {
+      out += this.ledgerLines(almanac);
+      out += this.allTimeLines(almanac, raw);
+      out += this.curseBoardLines(almanac);
+      out += this.recordBookLines(almanac);
+      out += this.rivalryLines(almanac);
+      out += this.draftReceiptLines(raw);
+    }
+    if (almanac.notes.length > 0) {
+      out += `\nNOTES (respect every one):\n${almanac.notes.map(note => `- ${note}`).join('\n')}\n`;
+    }
+    out += this.thisSeasonLines(data, almanac);
+    out += this.kickoffRules();
+    return out;
+  }
+
+  /** "Chodie mcgruber (Cameron Coscia, 10-4, 1612.3 PF)": a past-season side as the ledger prints it. */
+  private almanacRef(ref: FactsAlmanacTeamRef | undefined, withPoints = true): string {
+    if (!ref) return 'unknown';
+    const notes = [ref.manager];
+    if (ref.record) notes.push(ref.record);
+    if (withPoints && ref.pointsFor !== undefined) notes.push(`${pts(ref.pointsFor)} PF`);
+    return `${ref.team} (${notes.join(', ')})`;
+  }
+
+  private ledgerLines(almanac: FactsAlmanac): string {
+    const founded = almanac.foundedSeason !== undefined ? `, founded ${almanac.foundedSeason}` : '';
+    let lines = `\nLEAGUE LEDGER — ${almanac.seasonsCovered.length} completed season${almanac.seasonsCovered.length === 1 ? '' : 's'}${founded}:\n`;
+    for (const entry of almanac.seasons) {
+      let line = `- ${entry.season}: `;
+      if (entry.champion) {
+        line += `${this.almanacRef(entry.champion)} took the title`;
+        if (entry.final && entry.runnerUp) {
+          line += `, beating ${this.almanacRef(entry.runnerUp, false)} by ${pts(entry.final.margin)} in the week ${entry.final.week} final, ${pts(entry.final.winnerScore)}-${pts(entry.final.loserScore)}`;
+        } else if (entry.runnerUp) {
+          line += `; runner-up ${this.almanacRef(entry.runnerUp, false)}`;
+        }
+        line += '.';
+      } else {
+        line += 'no champion on record.';
+      }
+      if (entry.regularSeasonChampion) {
+        line += entry.champion && entry.regularSeasonChampion.teamId === entry.champion.teamId
+          ? ' Also the regular-season champ.'
+          : ` Regular-season champ: ${this.almanacRef(entry.regularSeasonChampion, false)}.`;
+      }
+      if (entry.lastPlace) line += ` Last place: ${this.almanacRef(entry.lastPlace, false)}.`;
+      if (entry.topScorer && entry.topScorer.pointsFor !== undefined) {
+        line += ` Top scorer: ${entry.topScorer.team} (${entry.topScorer.manager}), ${pts(entry.topScorer.pointsFor)} PF.`;
+      }
+      if (entry.unlikelyChampion) line += ` Unlikely champion: ${entry.unlikelyChampion.reason}.`;
+      if (entry.teamCount !== this.facts.league.teamCount) line += ` (${entry.teamCount}-team season.)`;
+      lines += `${line}\n`;
+    }
+    return lines;
+  }
+
+  /**
+   * One manager's all-time line, Broadcast register. The FACTS entry carries the ids and every
+   * cited figure; the full almanac entry adds the win pct, the points per game, the season span and
+   * every season's line. A departed manager's FACTS entry is the short one, and so is the prose.
+   */
+  private managerLine(manager: FactsAlmanacManager, raw: AlmanacManager | undefined): string {
+    const seasonsLabel = `${manager.seasons} season${manager.seasons === 1 ? '' : 's'}`;
+    const bits: string[] = [];
+    let head: string;
+    if (manager.currentTeamId && manager.currentTeam) {
+      head = `- ${manager.manager}, ${manager.currentTeam} (${manager.currentTeamId}):`;
+      const pct = raw ? ` (${winPctLabel(raw.winPct)})` : '';
+      const points = manager.pointsFor !== undefined ? `, ${pts(manager.pointsFor)} PF` : '';
+      const perGame = raw ? `, ${pts(raw.pointsPerGame)} a game` : '';
+      bits.push(`${manager.record} all-time${pct} over ${seasonsLabel}${points}${perGame}`);
+    } else {
+      const span = raw ? `${raw.firstSeason}-${raw.lastSeason}` : 'no longer in the league';
+      head = `- ${manager.manager} (${span}):`;
+      bits.push(`${manager.record} all-time over ${seasonsLabel}`);
+    }
+    bits.push(manager.titles.length > 0 ? `${manager.titles.length} title${manager.titles.length === 1 ? '' : 's'} (${yearsLabel(manager.titles)})` : 'no title');
+    if (manager.runnerUps.length > 0) bits.push(`runner-up ${yearsLabel(manager.runnerUps)}`);
+    const regularSeasonTitles = manager.regularSeasonTitles ?? [];
+    if (regularSeasonTitles.length > 0) bits.push(`regular-season champ ${yearsLabel(regularSeasonTitles)}`);
+    if (manager.playoffAppearances !== undefined) {
+      const streak = manager.playoffStreak ?? 0;
+      bits.push(
+        manager.playoffAppearances > 0
+          ? `${manager.playoffAppearances} playoff trip${manager.playoffAppearances === 1 ? '' : 's'}${streak > 1 ? `, ${streak} straight` : ''}`
+          : 'never made the playoffs'
+      );
+    }
+    const lastPlaces = manager.lastPlaceFinishes ?? [];
+    if (lastPlaces.length > 0) bits.push(`last place ${yearsLabel(lastPlaces)}`);
+    if (manager.bestSeason) bits.push(`best ${manager.bestSeason.record} in ${manager.bestSeason.season} as ${manager.bestSeason.team}`);
+    if (manager.worstSeason) bits.push(`worst ${manager.worstSeason.record} in ${manager.worstSeason.season} as ${manager.worstSeason.team}`);
+    if (manager.yearsSinceTitle !== undefined) {
+      bits.push(manager.yearsSinceTitle === 0 ? 'the defending champion' : `${manager.yearsSinceTitle} season${manager.yearsSinceTitle === 1 ? '' : 's'} since the last title`);
+    }
+    bits.push(
+      manager.teamNames.length > 1
+        ? `${manager.teamNames.length} team names (${manager.teamNames.join(', ')})`
+        : 'one team name'
+    );
+    let line = `${head} ${bits.join('; ')}.`;
+    // Season by season, without points: the per-season lines may have been dropped from FACTS for
+    // size, and a points total the verifier cannot find would read as invented.
+    const seasonLines = raw?.lines ?? manager.lines ?? [];
+    if (seasonLines.length > 0) {
+      const marks = (entry: (typeof seasonLines)[number]) =>
+        entry.champion ? ', champion' : entry.runnerUp ? ', runner-up' : entry.madePlayoffs ? ', playoffs' : '';
+      line += `\n  Season by season: ${seasonLines.map(entry => `${entry.season} ${entry.record} as ${entry.team} (${ordinal(entry.finish)}${marks(entry)})`).join(' · ')}`;
+    }
+    return line;
+  }
+
+  private allTimeLines(almanac: FactsAlmanac, raw: LeagueAlmanac): string {
+    const rawFor = (manager: FactsAlmanacManager) => raw.managers.find(candidate => candidate.manager === manager.manager);
+    const current = almanac.managers.filter(manager => manager.currentTeamId !== undefined);
+    const departed = almanac.managers.filter(manager => manager.currentTeamId === undefined);
+    let lines = `\nALL-TIME BY MANAGER (current managers first, with this season's team; titles first, then wins):\n`;
+    for (const manager of current) lines += `${this.managerLine(manager, rawFor(manager))}\n`;
+    if (departed.length > 0) {
+      lines += `\nNO LONGER IN THE LEAGUE:\n`;
+      for (const manager of departed) lines += `${this.managerLine(manager, rawFor(manager))}\n`;
+    }
+    return lines;
+  }
+
+  private curseBoardLines(almanac: FactsAlmanac): string {
+    const board = almanac.curseBoard;
+    const team = (id: string | undefined) => (id ? `, ${this.teamName(id)}` : '');
+    const lines: string[] = [];
+    if (board.mostPointsNoTitle) {
+      const entry = board.mostPointsNoTitle;
+      lines.push(`- Most career points without a title: ${entry.manager}${team(entry.currentTeamId)} — ${pts(entry.pointsFor)} PF over ${entry.seasons} seasons, ${entry.playoffAppearances} playoff trip${entry.playoffAppearances === 1 ? '' : 's'}, no ring.`);
+    }
+    if (board.longestDrought) {
+      const entry = board.longestDrought;
+      lines.push(`- Longest drought among past champions: ${entry.manager}${team(entry.currentTeamId)} — ${entry.yearsSinceTitle} season${entry.yearsSinceTitle === 1 ? '' : 's'} since the ${entry.lastTitle} title.`);
+    }
+    if (board.neverWon.length > 0) {
+      lines.push(`- Never won it: ${board.neverWon.map(entry => `${entry.manager}${team(entry.currentTeamId)} (${entry.seasons} season${entry.seasons === 1 ? '' : 's'}, ${entry.playoffAppearances} playoff trip${entry.playoffAppearances === 1 ? '' : 's'}${entry.runnerUps > 0 ? `, runner-up ${entry.runnerUps}×` : ''})`).join('; ')}.`);
+    }
+    if (board.alwaysTheBridesmaid) {
+      const entry = board.alwaysTheBridesmaid;
+      lines.push(`- Always the bridesmaid: ${entry.manager}${team(entry.currentTeamId)} — ${entry.runnerUps} runner-up finish${entry.runnerUps === 1 ? '' : 'es'}, no title.`);
+    }
+    if (board.neverMadePlayoffs.length > 0) {
+      lines.push(`- Never made the playoffs: ${board.neverMadePlayoffs.map(entry => `${entry.manager}${team(entry.currentTeamId)} (${entry.seasons} season${entry.seasons === 1 ? '' : 's'})`).join('; ')}.`);
+    }
+    if (board.mostLastPlaces) {
+      const entry = board.mostLastPlaces;
+      lines.push(`- Most last-place finishes: ${entry.manager}${team(entry.currentTeamId)} — ${entry.count} (${yearsLabel(entry.seasons)}).`);
+    }
+    return lines.length > 0 ? `\nTHE CURSE BOARD:\n${lines.join('\n')}\n` : '';
+  }
+
+  private recordBookLines(almanac: FactsAlmanac): string {
+    const records = almanac.records;
+    const lines: string[] = [];
+    const game = (label: string, entry: AlmanacGame | undefined) => {
+      if (!entry) return;
+      const tier = playoffTierLabel(entry.playoffTier);
+      const stage = tier && tier !== 'regular' ? `, ${tier}` : '';
+      lines.push(`- ${label}: ${entry.season} week ${entry.week}${stage} — ${entry.winner.team} (${entry.winner.manager}) ${pts(entry.winner.score)}-${pts(entry.loser.score)} over ${entry.loser.team} (${entry.loser.manager}), by ${pts(entry.margin)}.`);
+    };
+    game('Biggest blowout', records.biggestBlowout);
+    game('Closest game', records.closestGame);
+    if (records.highestScore) {
+      const entry = records.highestScore;
+      lines.push(`- Highest single-week score: ${pts(entry.score)} by ${entry.team} (${entry.manager}), ${entry.season} week ${entry.week}.`);
+    }
+    if (records.lowestScore) {
+      const entry = records.lowestScore;
+      lines.push(`- Lowest single-week score: ${pts(entry.score)} by ${entry.team} (${entry.manager}), ${entry.season} week ${entry.week}.`);
+    }
+    const seasonLine = (label: string, entry: AlmanacRecordBook['bestRegularSeason']) => {
+      if (!entry) return;
+      lines.push(`- ${label}: ${entry.record}, ${entry.team} (${entry.manager}), ${entry.season}, ${pts(entry.pointsFor)} PF${entry.champion ? ', won the title' : ''}.`);
+    };
+    seasonLine('Best regular season', records.bestRegularSeason);
+    seasonLine('Worst regular season', records.worstRegularSeason);
+    if (records.mostPointsInASeason) {
+      const entry = records.mostPointsInASeason;
+      lines.push(`- Most points in a season: ${pts(entry.pointsFor)} PF, ${entry.team} (${entry.manager}), ${entry.season} (${entry.record}).`);
+    }
+    if (records.mostTitles) {
+      lines.push(`- Most titles: ${records.mostTitles.manager}, ${records.mostTitles.count} (${yearsLabel(records.mostTitles.seasons)}).`);
+    }
+    lines.push(
+      records.backToBack.length > 0
+        ? `- Back-to-back: ${records.backToBack.map(entry => `${entry.manager} (${yearsLabel(entry.seasons)})`).join('; ')}.`
+        : '- Back-to-back titles: nobody, ever.'
+    );
+    return `\nRECORD BOOK:\n${lines.join('\n')}\n`;
+  }
+
+  private rivalryLines(almanac: FactsAlmanac): string {
+    if (almanac.rivalries.length === 0) return '';
+    const lines = almanac.rivalries.map(rivalry => {
+      const a = rivalry.a.currentTeamId ? `${rivalry.a.manager} (${this.teamName(rivalry.a.currentTeamId)})` : rivalry.a.manager;
+      const b = rivalry.b.currentTeamId ? `${rivalry.b.manager} (${this.teamName(rivalry.b.currentTeamId)})` : rivalry.b.manager;
+      const ties = rivalry.ties > 0 ? `-${rivalry.ties}` : '';
+      let line = `- ${a} vs ${b}: ${rivalry.games} meetings, ${rivalry.a.manager} leads ${rivalry.aWins}-${rivalry.bWins}${ties}`;
+      if (rivalry.bWins > rivalry.aWins) line = `- ${a} vs ${b}: ${rivalry.games} meetings, ${rivalry.b.manager} leads ${rivalry.bWins}-${rivalry.aWins}${ties}`;
+      if (rivalry.aWins === rivalry.bWins) line = `- ${a} vs ${b}: ${rivalry.games} meetings, level at ${rivalry.aWins}-${rivalry.bWins}${ties}`;
+      if (rivalry.lastMeeting) line += `; last meeting ${rivalry.lastMeeting.season} week ${rivalry.lastMeeting.week}, ${rivalry.lastMeeting.winnerManager} by ${pts(rivalry.lastMeeting.margin)}`;
+      if (rivalry.currentStreak && rivalry.currentStreak.wins > 1) line += `; ${rivalry.currentStreak.manager} has won ${rivalry.currentStreak.wins} straight`;
+      return `${line}.`;
+    });
+    return `\nRIVALRIES (all-time, current managers):\n${lines.join('\n')}\n`;
+  }
+
+  /** The draft receipts, from the full almanac: FACTS carries the same picks and points, minus the playoff and title flags printed here. */
+  private draftReceiptLines(almanac: LeagueAlmanac): string {
+    if (almanac.drafts.length === 0) return '';
+    let out = '';
+    for (const draft of almanac.drafts) {
+      if (draft.firstRound.length === 0) continue;
+      out += `\nDRAFT RECEIPTS — ${draft.season} first round (season points in this league's scoring; how the team finished):\n`;
+      for (const pick of draft.firstRound) {
+        const points = pick.seasonPoints !== undefined ? `${pts(pick.seasonPoints)} points` : 'points not synced';
+        const rank = pick.firstRoundRank !== undefined ? `, ${ordinal(pick.firstRoundRank)} of the round` : '';
+        const finish = pick.teamFinish
+          ? `; team finished ${pick.teamFinish.record}${pick.teamFinish.champion ? ', won the title' : pick.teamFinish.madePlayoffs ? ', made the playoffs' : ', missed the playoffs'}`
+          : '';
+        out += `- Pick ${pick.pick}: ${pick.player}${pick.pos ? ` (${pick.pos})` : ''} to ${pick.team} (${pick.manager}) — ${points}${rank}${finish}.\n`;
+      }
+      const short = (pick: AlmanacDraftReceiptPick | undefined) =>
+        pick ? `${pick.player} at pick ${pick.pick} to ${pick.team}${pick.seasonPoints !== undefined ? `, ${pts(pick.seasonPoints)} points` : ''}` : undefined;
+      if (draft.titlePick) out += `- The title pick: ${short(draft.titlePick)}.\n`;
+      if (draft.best) out += `- Best first-rounder: ${short(draft.best)}.\n`;
+      if (draft.worst) out += `- Worst first-rounder: ${short(draft.worst)}.\n`;
+    }
+    return out;
+  }
+
+  /** This season's teams in FACTS order with each manager's one-line ledger, then the draft and week 1. */
+  private thisSeasonLines(data: LeagueDataContext, almanac: FactsAlmanac): string {
+    const season = this.facts.league.season;
+    const byTeamId = new Map(almanac.managers.filter(m => m.currentTeamId).map(m => [m.currentTeamId as string, m]));
+    const byName = new Map(almanac.managers.map(m => [m.manager.trim().toLowerCase(), m]));
+    let out = `\nTHIS SEASON'S TEAMS (${season}; ${this.facts.teams.length} teams, in this order for the verdicts):\n`;
+    this.facts.teams.forEach((team, index) => {
+      const manager = byTeamId.get(team.id) ?? (team.manager ? byName.get(team.manager.trim().toLowerCase()) : undefined);
+      const who = team.manager ?? 'manager unknown';
+      let ledger: string;
+      if (!manager) {
+        ledger = 'first season in the league, no ledger line yet';
+      } else {
+        const titles = manager.titles.length === 0 ? 'no title' : `${manager.titles.length} title${manager.titles.length === 1 ? '' : 's'} (${yearsLabel(manager.titles)})`;
+        const drought = manager.yearsSinceTitle !== undefined && manager.yearsSinceTitle > 0 ? `, ${manager.yearsSinceTitle} season${manager.yearsSinceTitle === 1 ? '' : 's'} since the last one` : '';
+        const trips = manager.playoffAppearances ?? 0;
+        ledger = `${manager.record} all-time, ${titles}, ${trips} playoff trip${trips === 1 ? '' : 's'} in ${manager.seasons} season${manager.seasons === 1 ? '' : 's'}${drought}`;
+      }
+      out += `${index + 1}. ${team.name} (${team.id}) — ${who}: ${ledger}.\n`;
+    });
+
+    const kickoff = (data as unknown as Record<string, unknown>).seasonKickoff as
+      | { draftDone?: boolean; draftDate?: number; weekOneKickoffAt?: number }
+      | undefined;
+    if (kickoff) {
+      const draftDate = typeof kickoff.draftDate === 'number' ? kickoff.draftDate : undefined;
+      if (kickoff.draftDone) {
+        out += draftDate !== undefined ? `The draft was held on ${kickoffDateLabel(draftDate)}.\n` : 'The draft has been held.\n';
+      } else if (draftDate !== undefined) {
+        out += `${daysAwayLabel('The draft', draftDate)}\n`;
+      } else {
+        out += 'The draft has not been held yet.\n';
+      }
+      if (typeof kickoff.weekOneKickoffAt === 'number') {
+        out += `Week 1 kicks off ${kickoffDateLabel(kickoff.weekOneKickoffAt, true)}.\n`;
+      }
+    }
+    return out;
+  }
+
+  private kickoffRules(): string {
+    const teams = this.facts.teams.length;
+    const count = teams > 0 ? `${teams} teams, ${teams} claims` : 'one per team';
+    return `
+SEASON KICKOFF RULES:
+- Nobody has played a snap. No records, no "0-0", no standings, no points-for for THIS season. The only
+  records in this piece are all-time and past-season lines from the ledger, and a past record always
+  names its season or says "all-time".
+- No injury or practice talk. The feed is not part of this piece and its absence is not a story.
+- Every receipt once. A number, a game, a trade, a margin or a moment appears in exactly one section.
+  Once used, it is gone. Last season's final margin belongs to carryover_grudge alone. Print a number
+  the way the ledger prints it.
+- Every team gets its own verdict paragraph in ten_verdicts, in the listed order, headed by the team
+  name: one ledger receipt, one absurd demand, one numeric prediction.
+- claims[] carries one prediction per team (a win total, a finish, a points total), each with its
+  number, phrased as written — ${count}.
+- Register: this is Banner Night, the loudest night of the year. Segment headers read like a
+  broadcast rundown (BANNER NIGHT, THE CURSE BOARD, THE DOCKET). Trophies get shouted, droughts get
+  mourned at full volume, every manager hears their own name, and the piece gets bigger as it goes.
+  Nothing in it is a summary.`;
+  }
+
+  /** The pre-almanac kickoff body: the last three champions, last season, keepers and moments. */
+  private buildLegacySeasonWelcomeData(data: LeagueDataContext): string {
     console.log("=== buildSeasonWelcomeData START ===");
     console.log("Previous seasons available:", data.previousSeasons ? Object.keys(data.previousSeasons).length : 0);
     console.log("Previous season years:", data.previousSeasons ? Object.keys(data.previousSeasons) : []);

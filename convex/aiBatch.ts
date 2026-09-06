@@ -602,6 +602,9 @@ async function completeFromMessage(
       scheduledContentId: row._id,
       reviewFlags: generated.metadata.reviewFlags,
       generatedByUserId: "system",
+      // The batch API only ever runs for scheduled (automated) content - never a manual,
+      // credits-billed request - so this is always "pass" (spec §10.1).
+      billing: "pass",
     });
     scheduledRowCompleted = finalized.scheduledRowCompleted;
     console.log("[batch] article finalized:", finalized);

@@ -471,6 +471,7 @@ export const generateAIContentWithData = internalAction({
           scheduledContentId: args.scheduledContentId,
           reviewFlags: generatedContent.metadata.reviewFlags,
           generatedByUserId: args.userId,
+          billing,
         });
         console.log("Article finalized:", finalized);
       } catch (e) {
