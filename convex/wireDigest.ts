@@ -94,7 +94,10 @@ async function buildLeagueDigest(
     .slice(0, DIGEST_MAX_HEADLINES)
     .map((p) => ({ persona: p.persona, text: p.text, createdAt: p.createdAt }));
 
-  if (yourTeam.length === 0 && alerts.length === 0 && openQuestions.length === 0 && headlines.length === 0) return null;
+  // A league earns a block only when the desk had something about THIS manager's team (an overlay,
+  // an alert, an open question); the shared headlines ride along but never justify a block on their
+  // own - four leagues repeating the same five global posts is not a digest.
+  if (yourTeam.length === 0 && alerts.length === 0 && openQuestions.length === 0) return null;
 
   return {
     leagueId,
@@ -121,7 +124,15 @@ export const buildDigestForUser = internalQuery({
       .query("teamClaims")
       .withIndex("by_user", (q) => q.eq("userId", user.clerkId))
       .take(50);
-    const activeClaims = claims.filter((c) => c.status === "active");
+    // One block per league: a manager holds a claim per season, so keep the newest season's claim
+    // for each league (dev, 2026-09-05: every league rendered twice).
+    const newestClaimByLeague = new Map<string, (typeof claims)[number]>();
+    for (const claim of claims) {
+      if (claim.status !== "active") continue;
+      const current = newestClaimByLeague.get(claim.leagueId);
+      if (!current || claim.seasonId > current.seasonId) newestClaimByLeague.set(claim.leagueId, claim);
+    }
+    const activeClaims = [...newestClaimByLeague.values()];
 
     const leagues: WireDigestLeague[] = [];
     for (const claim of activeClaims) {

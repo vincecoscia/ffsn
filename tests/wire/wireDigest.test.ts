@@ -392,9 +392,9 @@ describe("wireDigest.buildDigestForUser: shape", () => {
       windowEnd: WINDOW_END,
     })) as WireDigestData | null;
 
-    // The opponent-framed overlay itself never counts as "your team" - only its underlying global
-    // post surfaces, as a headline like any other global post would.
-    expect(result).not.toBeNull();
-    expect(result!.leagues[0].yourTeam).toHaveLength(0);
+    // The opponent-framed overlay never counts as "your team", and a league earns a digest block
+    // only on team-specific content (an owner overlay, an alert, an open question) - the shared
+    // headlines alone never justify one. So with nothing else in the window there is no digest.
+    expect(result).toBeNull();
   });
 });
