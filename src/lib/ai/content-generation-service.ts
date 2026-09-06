@@ -604,8 +604,8 @@ export function languageArticleViolations(
   return out;
 }
 
-/** Applies every `strip` (and every unfixable `block`) to a copy of the article. */
-function applyStrips(article: GeneratedArticleT, violations: Violation[]): GeneratedArticleT {
+/** Applies every `strip` (and every unfixable `block`) to a copy of the article. Exported for tests. */
+export function applyStrips(article: GeneratedArticleT, violations: Violation[]): GeneratedArticleT {
   const next: GeneratedArticleT = JSON.parse(JSON.stringify(article));
   const actionable = violations.filter(v => v.severity === 'strip' || v.severity === 'block');
   if (actionable.length === 0) return next;
@@ -672,7 +672,8 @@ function applyStrips(article: GeneratedArticleT, violations: Violation[]): Gener
       }
       case 'llm_contradicted':
       case 'clean_team_language':
-      case 'language_over_rating': {
+      case 'language_over_rating':
+      case 'injury_blame': {
         const sentence = violation.detail.match(/"([^"]+)"/)?.[1];
         if (sentence) {
           for (const section of next.sections) {
@@ -759,7 +760,8 @@ function countFacts(facts: FactsBlock): number {
     players +
     facts.transactions.length +
     facts.trades.length +
-    facts.quotes.length
+    facts.quotes.length +
+    (facts.inGameInjuries ?? []).length
   );
 }
 
@@ -842,7 +844,11 @@ Opinions, predictions, jokes and stated uncertainty are not factual claims — s
 on two <FACTS> numbers is supported. When <FACTS> carries a playoffs block (seeds, bracket, byes,
 alive, eliminated, champion, runnerUp), it supports claims about titles, eliminations, byes and who
 is still in contention; a team's record is its regular-season record, so a playoff win never
-changes it and a sentence that adds one to the record is a contradiction. Copy each claim verbatim from the body. Report nothing you are
+changes it and a sentence that adds one to the record is a contradiction. When <FACTS> carries
+inGameInjuries, every player listed there left his game hurt, and that is never the manager's
+decision: any sentence blaming the manager for starting him — a lineup mistake, points left on the
+bench behind him, why he was started, a grade on the call — is a contradiction; cite inGameInjuries
+as the factPath. Copy each claim verbatim from the body. Report nothing you are
 not sure about; a short list of real findings is the goal.`;
 
 /** §11.2.7: on for every type unless the deployment turns it off with `FACT_CHECK_LLM="0"`. */

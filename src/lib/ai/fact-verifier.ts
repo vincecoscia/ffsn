@@ -43,6 +43,8 @@ export type ViolationKind =
   /** A weekly_preview written before kickoff cites a record beside a team, or "points for": nobody has played yet. */
   | "records_before_kickoff"
   | "unsupported_injury"
+  /** A sentence that grades the lineup call on a player who left his game hurt (`facts.inGameInjuries`, spec §16.1). Stripped. */
+  | "injury_blame"
   /** Editor pass scored the facts below 3; the article is held for review (spec §11.2.7). */
   | "editor_hold"
   /** Editor pass scored the voice below 3. A warning; voice never blocks (spec §11.2.7). */
@@ -360,6 +362,9 @@ function injurySupportedNames(facts: FactsBlock): Set<string> {
   }
   for (const player of facts.draftPool ?? []) if (player.injuryStatus) names.add(player.name.toLowerCase());
   for (const player of facts.mockDraft?.injuryWatch ?? []) names.add(player.name.toLowerCase());
+  // A player who left his game hurt is an injury FACTS carries (spec §16.1); the `?? []` covers
+  // facts serialized before the field existed (a batch prepared last week).
+  for (const player of facts.inGameInjuries ?? []) names.add(player.name.toLowerCase());
   return names;
 }
 
@@ -439,6 +444,59 @@ export function findRecordsBeforeKickoff(
       if (POINTS_FOR_AFTER_NUMBER.test(sentence.slice(Math.max(0, at - 24), at))) continue;
       hits.push({ phrase: match[0], sentence: sentence.trim() });
     }
+  }
+  return hits;
+}
+
+/**
+ * In-game injuries are not lineup mistakes (owner, 2026-09-05; The Wire spec §16.1). A player who
+ * left his game hurt scores like a bad start, and a recap working from points-per-slot invents a
+ * blunder out of it. The wording that makes starting him the manager's fault: a should-have, a
+ * mistake, a why-did-you-start, points left on the bench behind him, a lineup call, a cost, a
+ * fault. Kept to the sentence that names him.
+ */
+const INJURY_BLAME_RE =
+  /\b(should(?:n't| not)? have|shouldn't|mistake|blunder|why (?:did|would|on earth)[^.]{0,40}\b(?:start|play)|left [^.]{0,30}\bon the bench|bench(?:ed|ing) him|lineup (?:call|decision|error|mistake)|cost (?:them|him|the team)|indefensible|inexcusable|his fault|her fault|their fault)\b/i;
+
+/** One player of `facts.inGameInjuries` as the blame check names him: FACTS id and full name. */
+export interface InjuredPlayerRef {
+  id: string;
+  name: string;
+}
+
+/**
+ * The ways a sentence names one injured player: the full name, the last name (four letters or
+ * more, so "Li" does not match every sentence), the FACTS id and the bare ESPN id. Whole-word
+ * matches only, as for contention: "their squad" is not the team "IR Squad".
+ */
+function injuredNamePatterns(player: InjuredPlayerRef): RegExp[] {
+  const keys = new Set<string>();
+  const name = player.name.trim();
+  if (name.length > 0) keys.add(name);
+  const last = name.split(/\s+/).pop() ?? "";
+  if (last.length >= 4 && last !== name) keys.add(last);
+  if (player.id) {
+    keys.add(player.id);
+    const bare = player.id.replace(/^(?:M\d+P|P)/, "");
+    if (bare !== player.id && bare.length > 0) keys.add(bare);
+  }
+  return [...keys].map(key => new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(key)}(?![A-Za-z0-9])`, "i"));
+}
+
+/** Sentences of `text` that name one of `injured` AND grade the lineup call on him. */
+export function findInjuryBlame(
+  text: string,
+  injured: InjuredPlayerRef[]
+): Array<{ player: string; phrase: string; sentence: string }> {
+  const hits: Array<{ player: string; phrase: string; sentence: string }> = [];
+  if (!text || injured.length === 0) return hits;
+  const patterns = injured.map(player => ({ player, patterns: injuredNamePatterns(player) }));
+  for (const sentence of splitSentences(text)) {
+    const named = patterns.filter(({ patterns: ps }) => ps.some(pattern => pattern.test(sentence)));
+    if (named.length === 0) continue;
+    const blame = INJURY_BLAME_RE.exec(sentence);
+    if (!blame) continue;
+    for (const { player } of named) hits.push({ player: player.name, phrase: blame[1], sentence: sentence.trim() });
   }
   return hits;
 }
@@ -836,6 +894,27 @@ export function verifyArticle(
           detail: `"${hit.phrase}" in a preview written before kickoff; no game has been played, so records, standings and points for are not material yet: "${hit.sentence.slice(0, 80)}"`,
           section,
           severity: "warn",
+        });
+      }
+    }
+  }
+
+  // 4d. In-game injuries are not lineup mistakes (owner, 2026-09-05; The Wire §16.1). A sentence
+  //     that names a player who left his game hurt and grades the lineup call on him is stripped
+  //     (spec §11.2: the sentence goes, the section stands). The detail quotes the sentence so
+  //     `applyStrips` can find it.
+  const injuredPlayers: InjuredPlayerRef[] = (facts.inGameInjuries ?? []).map(entry => ({
+    id: entry.playerId,
+    name: entry.name,
+  }));
+  if (injuredPlayers.length > 0) {
+    for (const section of article.sections ?? []) {
+      for (const hit of findInjuryBlame(section.content ?? "", injuredPlayers)) {
+        violations.push({
+          kind: "injury_blame",
+          detail: `${hit.player} left his game hurt, which is never the manager's decision, but "${hit.sentence}" grades the lineup call ("${hit.phrase}")`,
+          section: section.name,
+          severity: "strip",
         });
       }
     }

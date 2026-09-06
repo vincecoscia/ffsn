@@ -18,7 +18,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { nflSeasonYearFor } from "./lib/season";
@@ -830,7 +830,19 @@ export const getSourceHealth = internalQuery({
   },
 });
 
-/** Events/posts/takes/card-fallbacks/cost since `since`, for the operator digest's "Wire:" line. */
+/** One Dex Desk kind's count in the digest window - `wireLeaguePosts.by_kind_created` is
+ *  deployment-wide (unlike every other index on that table, which keys on `leagueId` first), so
+ *  this never needs to scan league by league. Bounded the same way the rest of this file is. */
+async function countDeskKind(ctx: Pick<QueryCtx, "db">, kind: string, since: number): Promise<number> {
+  const rows = await ctx.db
+    .query("wireLeaguePosts")
+    .withIndex("by_kind_created", (q) => q.eq("kind", kind).gt("createdAt", since))
+    .take(2000);
+  return rows.length;
+}
+
+/** Events/posts/takes/card-fallbacks/cost since `since`, for the operator digest's "Wire:" line,
+ *  plus Dex Desk's own activity counts (spec §18 "Not built": "a digest line for the desk"). */
 export const getDigestStats = internalQuery({
   args: { since: v.number() },
   returns: v.object({
@@ -839,6 +851,14 @@ export const getDigestStats = internalQuery({
     takes: v.number(),
     cardFallbacks: v.number(),
     costUsd: v.number(),
+    desk: v.object({
+      lineupMoves: v.number(),
+      lateSwaps: v.number(),
+      proposals: v.number(),
+      claimsIn: v.number(),
+      lockWarnings: v.number(),
+      samQuestions: v.number(),
+    }),
   }),
   handler: async (ctx, { since }) => {
     const events = await ctx.db
@@ -852,7 +872,30 @@ export const getDigestStats = internalQuery({
     const takes = posts.filter((p) => p.status === "take").length;
     const cardFallbacks = posts.filter((p) => p.status === "card" && (p.generationStats?.flags.length ?? 0) > 0).length;
     const costUsd = posts.reduce((sum, p) => sum + (p.generationStats?.costUsd ?? 0), 0);
-    return { events: events.length, posts: posts.length, takes, cardFallbacks, costUsd };
+
+    const [lineupMoves, lateSwaps, proposals, claimsIn, samQuestions] = await Promise.all([
+      countDeskKind(ctx, "lineup_move", since),
+      countDeskKind(ctx, "late_swap", since),
+      countDeskKind(ctx, "trade_proposal", since),
+      countDeskKind(ctx, "claims_in", since),
+      countDeskKind(ctx, "sam_question", since),
+    ]);
+    // lineup_lock's private warning is a `userNotifications` row (type "wire_alert"), never a
+    // wireLeaguePosts row - `by_created_at` is the only global-scan index that table has.
+    const wireAlerts = await ctx.db
+      .query("userNotifications")
+      .withIndex("by_created_at", (q) => q.gt("createdAt", since))
+      .take(2000);
+    const lockWarnings = wireAlerts.filter((n) => n.type === "wire_alert").length;
+
+    return {
+      events: events.length,
+      posts: posts.length,
+      takes,
+      cardFallbacks,
+      costUsd,
+      desk: { lineupMoves, lateSwaps, proposals, claimsIn, lockWarnings, samQuestions },
+    };
   },
 });
 

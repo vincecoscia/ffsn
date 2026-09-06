@@ -78,6 +78,9 @@ any name, team, score, point total, record, rank, pick number, date, transaction
    if this is your first piece.
 5. facts.missing lists data unavailable this week. Do not fill those gaps. Name the gap in
    character instead — "the box score doesn't tell us why he sat" is in voice; inventing why is not.
+6. facts.inGameInjuries lists players who left their game hurt. An in-game injury is never the
+   manager's decision: never call starting one of those players a mistake, never count his slot
+   as points left on the bench, never ask why he was started.
 
 Uncertainty is in-voice, not out-of-voice. You may be as loud, cocky, or dismissive as your
 persona demands about interpretation — who was lucky, who is cooked, who should be ashamed. Speak
@@ -331,6 +334,32 @@ export function isUpcomingBye(row: UpcomingMatchup | UpcomingBye): row is Upcomi
   return 'bye' in row && row.bye !== undefined;
 }
 
+/**
+ * A player who left his game hurt this week (The Wire spec §16.1, owner 2026-09-05). Produced by
+ * the data layer from `wireEvents` (`injury_status` observed inside the game window) and ESPN's
+ * boxscore injury notes. He scores like a bad start in the box score, so without this a recap
+ * working from points-per-slot invents a lineup blunder and Sam asks "why did you start him".
+ * The rule every writer follows: an in-game injury is never the manager's decision.
+ */
+export interface InGameInjury {
+  espnId: string;
+  name: string;
+  position?: string;
+  nflTeam?: string;
+  /** ESPN external team id as a string, the same key the matchup performers use. */
+  fantasyTeamId: string;
+  fantasyTeamName: string;
+  week: number;
+  /** ESPN's spelling (OUT, QUESTIONABLE, DOUBTFUL, INJURY_RESERVE...). */
+  status: string;
+  /** When the tag landed (epoch ms). */
+  observedAt: number;
+  kickoffAt: number;
+  /** Whether he was in the lineup when he went down. */
+  started: boolean;
+  points?: number;
+}
+
 /** "1st", "2nd", "3rd", "14th", "21st", "112th": a draft slot as a broadcaster says it. */
 /** A feed or ESPN status as broadcast English: "NOT ACTIVE", "INJURY RESERVE", "DAY TO DAY". */
 function feedStatusLabel(status: string): string {
@@ -490,6 +519,12 @@ export interface LeagueDataContext {
    * `UpcomingBye` row, never as a game with an empty side.
    */
   upcomingMatchups?: Array<UpcomingMatchup | UpcomingBye>;
+  /**
+   * Players who left their game hurt this week (spec §16.1). Surfaces as `facts.inGameInjuries`,
+   * marks the matchup performer `leftGameInjured`, and retires any bench swap that would have
+   * replaced him: the slot is part of the game, never a lineup call. Absent on older payloads.
+   */
+  inGameInjuries?: InGameInjury[];
   trades?: Array<{
     teamA: string;
     teamB: string;
@@ -817,7 +852,8 @@ export function buildHouseStyleBlock(args: HouseStyleArgs = {}): string {
 - The team is the subject of results, records, scores, points and standings. Refer to a team by its team name, exactly as FACTS spells it.
 - The manager is that team's general manager. Name the manager when assigning credit or blame for a DECISION — a draft pick, a waiver claim, a lineup call, a trade, a quote — as the GM of the team: "Is Cameron Coscia doing enough for the Gravel Pit Grinders?" Never write the manager as the one who scored, lost, or won; the team did that.
 - Roasts and praise land on the team's decisions and on the GM who made them. A manager's character, looks, family and life outside the league stay off the page at every rating.
-- Headlines, titles, summaries and the first sentence name the team, not the manager.`;
+- Headlines, titles, summaries and the first sentence name the team, not the manager.
+- An in-game injury is never the manager's decision. A player in facts.inGameInjuries left his game hurt: never call starting him a mistake, never count his slot as points left on the bench, never ask or wonder why he was started, never grade the lineup call. Report it as part of the game (status, when) and turn to how the team replaces the production — the bench, the waiver wire, the next man up.`;
 
   const tierLine: Record<LanguageRating, string> = {
     clean:
@@ -1326,6 +1362,9 @@ where the two ever disagree, <FACTS> wins.
 
     prompt += `\n${this.addContentSpecificData(leagueData)}`;
 
+    const injuriesBlock = this.buildInGameInjuriesBlock();
+    if (injuriesBlock) prompt += `\n${injuriesBlock}\n`;
+
     const intelBlock = this.buildPlayerIntelBlock();
     if (intelBlock) prompt += `\n${intelBlock}\n`;
 
@@ -1362,6 +1401,36 @@ where the two ever disagree, <FACTS> wins.
    * <FACTS> agree to the day. Injuries first, then news-only players; capped so a 14-team league
    * does not print 200 lines, with the rest left in <FACTS> for lookup by id.
    */
+  /**
+   * The readable rendering of `facts.inGameInjuries` (spec §16.1): who left hurt, when, with what,
+   * and the one thing the writer does with it — the replacement story. Nothing when nobody did.
+   */
+  private buildInGameInjuriesBlock(): string | null {
+    const injuries = this.facts.inGameInjuries;
+    if (injuries.length === 0) return null;
+    const lines = injuries.map(entry => {
+      const position = entry.position ? `${entry.position}, ` : '';
+      const when = entry.minutesAfterKickoff > 0 ? `${entry.minutesAfterKickoff} minutes after kickoff` : 'at kickoff';
+      const points = entry.points !== undefined ? `, ${entry.points.toFixed(1)} points` : '';
+      const lineup = entry.started ? 'started' : 'on the bench';
+      return `- ${entry.name} (${position}${entry.teamName}): left hurt, ${feedStatusLabel(entry.status)}, ${when}, ${lineup}${points}.`;
+    });
+    return `IN-GAME INJURIES (facts.inGameInjuries) — part of the game, never a lineup decision
+${lines.join('\n')}
+Write each one as what happened in the game and turn to how the team replaces the production — the bench, the waiver wire, the next man up. Never call starting him a mistake, never count his slot as points left on the bench, never ask why he was started.`;
+  }
+
+  /** Ids and lower-cased names of this week's in-game injuries, for the matchup rendering. */
+  private inGameInjuryIndex(): { ids: Set<string>; names: Set<string> } {
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    for (const entry of this.options.leagueData.inGameInjuries ?? []) {
+      if (entry.espnId) ids.add(String(entry.espnId).toLowerCase());
+      if (entry.name) names.add(entry.name.trim().toLowerCase());
+    }
+    return { ids, names };
+  }
+
   private buildPlayerIntelBlock(): string | null {
     const intel = this.facts.intel;
     if (!intel || intel.length === 0) return null;
@@ -1508,10 +1577,18 @@ where the two ever disagree, <FACTS> wins.
     // Top performers with enhanced detail for championship/playoff games
     if (matchup.topPerformers && matchup.topPerformers.length > 0) {
       const performerCount = isChampionshipGame ? 5 : (isPlayoffGame ? 4 : 3);
+      const injured = this.inGameInjuryIndex();
       details += '  Top performers:\n';
       matchup.topPerformers.slice(0, performerCount).forEach((perf) => {
         const loose = perf as unknown as Record<string, unknown>;
         const playerName = perf.playerName || perf.player || 'Unknown Player';
+        // An in-game injury is never a lineup call (spec §16.1): the starter is tagged, and the
+        // bench swap that would have replaced him is not a story.
+        const leftGameInjured =
+          (perf.playerId !== undefined && injured.ids.has(String(perf.playerId).toLowerCase())) ||
+          injured.names.has(playerName.trim().toLowerCase());
+        const wouldHaveReplacedInjured =
+          perf.wouldHaveReplacedPlayer !== undefined && injured.names.has(perf.wouldHaveReplacedPlayer.trim().toLowerCase());
         const position = perf.position ? ` (${perf.position})` : '';
         // `fantasyTeamName` is authoritative. `nflTeam` is a separate, differently-named key.
         // The legacy `team` key is ambiguous and only used when nothing better is present.
@@ -1523,8 +1600,10 @@ where the two ever disagree, <FACTS> wins.
         const fantasyLabel = fantasyTeam ? ` fantasy team: ${fantasyTeam}` : '';
         const nflLabel = nflTeam ? `, NFL: ${nflTeam}` : '';
         const overPerf = perf.overPerformance ? ` (+${perf.overPerformance}% vs proj)` : '';
-        const lineupStatus = perf.isStarter === false ? ' [BENCH]' : ' [STARTER]';
-        const benchNote = perf.benchImpact && perf.wouldHaveReplacedPlayer ?
+        const lineupStatus = perf.isStarter === false
+          ? ' [BENCH]'
+          : leftGameInjured ? ' [STARTER — LEFT GAME INJURED, not a lineup call]' : ' [STARTER]';
+        const benchNote = perf.benchImpact && perf.wouldHaveReplacedPlayer && !wouldHaveReplacedInjured ?
           ` (would have replaced ${perf.wouldHaveReplacedPlayer} for +${perf.pointImprovementIfStarted} pts)` : '';
         details += `    - ${playerName}${position} - ${perf.points.toFixed(1)} pts${overPerf}${lineupStatus}${benchNote} —${fantasyLabel}${nflLabel}\n`;
       });

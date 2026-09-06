@@ -244,3 +244,96 @@ describe("wireDetect: injury status thresholds + dedupe + coalesce", () => {
     expect(posts).toHaveLength(0);
   });
 });
+
+describe("wireDetect: getDigestStats desk counts (spec §18 \"Not built\": a digest line for the desk)", () => {
+  it("counts lineup moves, late swaps, proposals, claims_in, Sam questions and lock warnings in the window, deployment-wide", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const since = now - 24 * 60 * 60 * 1000;
+
+    const leagueId = await t.run((ctx) =>
+      ctx.db.insert("leagues", {
+        name: "Digest Desk League",
+        platform: "espn",
+        externalId: "77771",
+        commissionerUserId: "clerk_digest_commish",
+        settings: { scoringType: "PPR", rosterSize: 16, playoffWeeks: 3, categories: [] },
+        espnData: { seasonId: 2026, currentScoringPeriod: 3, size: 2, lastSyncedAt: now, isPrivate: false },
+        subscription: {
+          tier: "season_pass",
+          status: "active",
+          creditsRemaining: 0,
+          creditsMonthly: 0,
+          paymentStatus: "completed",
+          seasonYear: 2026,
+        },
+        lastSync: now,
+        createdAt: now,
+      })
+    );
+
+    const insertPost = (kind: string, createdAt: number) =>
+      t.run((ctx) =>
+        ctx.db.insert("wireLeaguePosts", {
+          leagueId,
+          seasonId: 2026,
+          kind,
+          text: "x",
+          tags: [],
+          featuredTeams: [],
+          dedupeKey: `${kind}:${createdAt}:${Math.random()}`,
+          createdAt,
+        })
+      );
+
+    // Inside the window.
+    await insertPost("lineup_move", now - 1000);
+    await insertPost("lineup_move", now - 2000);
+    await insertPost("late_swap", now - 3000);
+    await insertPost("trade_proposal", now - 4000);
+    await insertPost("claims_in", now - 5000);
+    await insertPost("sam_question", now - 6000);
+    // Outside the window - never counted.
+    await insertPost("lineup_move", since - 1000);
+
+    const userId = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        clerkId: "clerk_digest_manager",
+        name: "Digest Manager",
+        hasCompletedOnboarding: true,
+        createdAt: now,
+        lastActiveAt: now,
+      })
+    );
+    await t.mutation(internal.notifications.createNotification, {
+      userId,
+      leagueId,
+      type: "wire_alert",
+      title: "Test Guy is Out and still in your lineup",
+      message: "Test Guy (WR) is Out with about 45 minutes to kickoff.",
+      relatedEntityType: "wire_post",
+      priority: "high",
+      deliveryChannels: ["in_app"],
+    });
+    // A non-wire_alert notification in the same window must never be counted as a lock warning.
+    await t.mutation(internal.notifications.createNotification, {
+      userId,
+      leagueId,
+      type: "system_announcement",
+      title: "Unrelated",
+      message: "Unrelated",
+      priority: "low",
+      deliveryChannels: ["in_app"],
+    });
+
+    const stats = await t.query(internal.wireDetect.getDigestStats, { since });
+    expect(stats.desk).toEqual({
+      lineupMoves: 2,
+      lateSwaps: 1,
+      proposals: 1,
+      claimsIn: 1,
+      lockWarnings: 1,
+      samQuestions: 1,
+    });
+  });
+});

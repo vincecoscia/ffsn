@@ -4,6 +4,7 @@ import {
   countWord,
   faabRemainingFraction,
   findUniqueRosteredMention,
+  firstSundayKickoff,
   hoursAgoPhrase,
   isInSeasonByMonth,
   isLateScratch,
@@ -274,5 +275,25 @@ describe("wireDeskRules: sam_question gates", () => {
     expect(samQuestionGateReason({ perManagerToday: 0, perLeagueToday: 0, seasonSpendUsd: 60, spendCapUsd: 60 })).toBe(
       "season_spend_cap"
     );
+  });
+});
+
+describe("wireDeskRules: firstSundayKickoff (lineup_lock on bye)", () => {
+  // Thu 8:20pm ET (Sept 3, 2026), Sun 1:00pm ET and 4:25pm ET (Sept 6), Mon 8:15pm ET (Sept 7).
+  const THU_NIGHT = Date.UTC(2026, 8, 4, 0, 20, 0);
+  const SUN_EARLY = Date.UTC(2026, 8, 6, 17, 0, 0);
+  const SUN_LATE = Date.UTC(2026, 8, 6, 20, 25, 0);
+  const MON_NIGHT = Date.UTC(2026, 8, 8, 0, 15, 0);
+
+  it("picks the earliest Sunday kickoff among a week's slate", () => {
+    expect(firstSundayKickoff([THU_NIGHT, SUN_LATE, SUN_EARLY, MON_NIGHT])).toBe(SUN_EARLY);
+  });
+
+  it("returns undefined when no kickoff in the list falls on a Sunday", () => {
+    expect(firstSundayKickoff([THU_NIGHT, MON_NIGHT])).toBeUndefined();
+  });
+
+  it("returns undefined for an empty list", () => {
+    expect(firstSundayKickoff([])).toBeUndefined();
   });
 });

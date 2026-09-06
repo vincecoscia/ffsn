@@ -308,6 +308,7 @@ function countUnresolvedTeamRefs(facts: FactsBlock): number {
     ...facts.quotes.map(quote => quote.teamId),
     ...facts.nonRespondents.map(entry => entry.teamId),
     ...facts.relationships.map(entry => entry.teamId),
+    ...facts.inGameInjuries.map(entry => entry.teamId),
   ];
   return refs.filter(id => id === "T?").length;
 }
@@ -331,6 +332,7 @@ function runFactsCounts(fixture: EvalFixture): string[][] {
     nonRespondents: facts.nonRespondents.length,
     relationships: facts.relationships.length,
     priorClaims: facts.priorClaims.length,
+    inGameInjuries: facts.inGameInjuries.length,
   };
 
   const rows: string[][] = [];

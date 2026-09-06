@@ -12,7 +12,8 @@
     "quotes": 0,
     "nonRespondents": 0,
     "relationships": 0,
-    "priorClaims": 0
+    "priorClaims": 0,
+    "inGameInjuries": 0
   },
   "unresolvedTeamRefs": 0,
   "byType": {

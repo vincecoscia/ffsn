@@ -310,3 +310,19 @@ export function isWeeklyRundownHour(utcMs: number, timeZone: string, targetHour 
 export function isQuietDeskDay(utcMs: number, timeZone: string): boolean {
   return localWeekdayAndHour(utcMs, timeZone).weekday === TUESDAY;
 }
+
+/* -------------------------------------------------------------------------- *
+ * lineup_lock on bye (spec §18 "Not built": "the on-bye trigger for lineup_lock")
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The earliest kickoff, among `kickoffTimes`, that falls on a Sunday in `timeZone` (default
+ * America/New_York, the same league-local clock `isWeeklyRundownHour`/`isQuietDeskDay` use) -
+ * a bye check has no game of its own to anchor to, so it anchors to the week's first Sunday
+ * kickoff instead (spec §18). `undefined` when none of the given kickoffs falls on a Sunday.
+ */
+export function firstSundayKickoff(kickoffTimes: readonly number[], timeZone = "America/New_York"): number | undefined {
+  const sundays = kickoffTimes.filter((t) => localWeekdayAndHour(t, timeZone).weekday === SUNDAY);
+  if (sundays.length === 0) return undefined;
+  return Math.min(...sundays);
+}

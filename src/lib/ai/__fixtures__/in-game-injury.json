@@ -1,0 +1,21 @@
+{
+  "name": "in-game-injury",
+  "description": "rich-week with one in-game injury (The Wire spec 16.1): Cole Vandermeer (WR, Sable Ridge Sentinels) left the week-7 game hurt 38 minutes after kickoff with 6.2 points, the slot Duke Ellery's 24.1 on the bench would have filled. The lineup story of that week is not a lineup story; the replacement is. Composed in index.ts as rich-week's payload plus this list, so the two never drift.",
+  "basedOn": "rich-week",
+  "inGameInjuries": [
+    {
+      "espnId": "p203",
+      "name": "Cole Vandermeer",
+      "position": "WR",
+      "nflTeam": "SEA",
+      "fantasyTeamId": "10",
+      "fantasyTeamName": "Sable Ridge Sentinels",
+      "week": 7,
+      "status": "OUT",
+      "observedAt": 1760895480000,
+      "kickoffAt": 1760893200000,
+      "started": true,
+      "points": 6.2
+    }
+  ]
+}

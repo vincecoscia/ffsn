@@ -985,6 +985,28 @@ export const sendOperatorDigest = internalAction({
         error: wireInjuryHealth.error,
       });
     }
+    // Dex Desk (spec §18 "Not built": "a digest line for the desk"): the transaction-log poll and
+    // the NFL schedule/kickoffs poll, both `wireSourceState` rows already, same treatment.
+    const wireTransactionsHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "espn_transactions" });
+    if (wireTransactionsHealth) {
+      feedRuns.push({
+        source: "espn_transactions",
+        ranAt: wireTransactionsHealth.lastRunAt,
+        ok: wireTransactionsHealth.ok,
+        summary: wireTransactionsHealth.summary,
+        error: wireTransactionsHealth.error,
+      });
+    }
+    const nflKickoffsHealth = await ctx.runQuery(internal.wireDetect.getSourceHealth, { source: "nfl_kickoffs" });
+    if (nflKickoffsHealth) {
+      feedRuns.push({
+        source: "nfl_kickoffs",
+        ranAt: nflKickoffsHealth.lastRunAt,
+        ok: nflKickoffsHealth.ok,
+        summary: nflKickoffsHealth.summary,
+        error: nflKickoffsHealth.error,
+      });
+    }
     const stale = staleFeeds(feedRuns, now);
 
     const lines: string[] = [];
@@ -1028,6 +1050,11 @@ export const sendOperatorDigest = internalAction({
     const wireLine =
       `Wire: ${wireStats.events} events / ${wireStats.posts} posts / ${wireStats.takes} takes / ` +
       `${wireStats.cardFallbacks} card fallback(s) / $${wireStats.costUsd.toFixed(2)} global cost`;
+    // Dex Desk (spec §18 "Not built": "a digest line for the desk").
+    const deskLine =
+      `Desk: ${wireStats.desk.lineupMoves} lineup move(s) / ${wireStats.desk.lateSwaps} late swap(s) / ` +
+      `${wireStats.desk.proposals} proposal(s) / ${wireStats.desk.claimsIn} claims_in / ` +
+      `${wireStats.desk.lockWarnings} lock warning(s) / ${wireStats.desk.samQuestions} Sam question(s)`;
 
     const body = [
       `Window: ${window}`,
@@ -1036,6 +1063,7 @@ export const sendOperatorDigest = internalAction({
       `Season run-rate horizon: ${DIGEST_RUN_RATE_WEEKS} weeks`,
       formatFeedFreshness(feedRuns, now),
       wireLine,
+      deskLine,
       "",
       lines.length > 0 ? lines.join("\n\n") : "Nothing to report.",
     ].join("\n");

@@ -69,6 +69,7 @@ const replyViewValidator = v.object({
   createdAt: v.number(),
   reactions: reactionsViewValidator,
   deleted: v.optional(v.boolean()),
+  canDelete: v.boolean(),
 });
 
 const leaguePostViewValidator = v.object({
@@ -171,7 +172,8 @@ async function repliesFor(
   ctx: QueryCtx,
   leagueId: Id<"leagues">,
   rootId: string,
-  viewerId: string | undefined
+  viewerId: string | undefined,
+  isCommissioner: boolean
 ): Promise<Array<{
   _id: string;
   kind: "manager_reply" | "writer_reply";
@@ -181,6 +183,7 @@ async function repliesFor(
   createdAt: number;
   reactions: { counts: { fire: number; lol: number; salty: number; respect: number }; mine?: WireReaction };
   deleted?: boolean;
+  canDelete: boolean;
 }>> {
   const rows = await ctx.db
     .query("wireLeaguePosts")
@@ -192,6 +195,9 @@ async function repliesFor(
   for (const row of rows) {
     const deleted = row.deletedAt !== undefined;
     const reactions = await reactionsFor(ctx, postKeyFor("league", row._id), viewerId, row.reactionCounts);
+    // Same rule `toLeaguePostView` uses for a root post: the author (a manager_reply always has
+    // one; a writer_reply never does, so this is always false for it) or the commissioner.
+    const canDelete = viewerId !== undefined && (row.authorUserId === viewerId || isCommissioner);
     out.push({
       _id: row._id as string,
       kind: (row.kind === "writer_reply" ? "writer_reply" : "manager_reply") as "manager_reply" | "writer_reply",
@@ -201,6 +207,7 @@ async function repliesFor(
       createdAt: row.createdAt,
       reactions,
       deleted: deleted || undefined,
+      canDelete,
     });
   }
   return out;
@@ -219,7 +226,7 @@ async function toLeaguePostView(
   const deleted = row.deletedAt !== undefined;
   const canDelete = viewerId !== undefined && (row.authorUserId === viewerId || isCommissioner);
   const reactions = await reactionsFor(ctx, postKeyFor("league", row._id), viewerId, row.reactionCounts);
-  const replies = await repliesFor(ctx, row.leagueId, row._id, viewerId);
+  const replies = await repliesFor(ctx, row.leagueId, row._id, viewerId, isCommissioner);
 
   return {
     _id: row._id,
@@ -287,7 +294,7 @@ async function toGlobalPostView(
 
   const overlays = passActive ? await overlaysFor(ctx, post._id, leagueId, viewerId, isCommissioner) : [];
   const reactions = await reactionsFor(ctx, postKeyFor("global", post._id), viewerId, post.reactionCounts);
-  const replies = await repliesFor(ctx, leagueId, post._id, viewerId);
+  const replies = await repliesFor(ctx, leagueId, post._id, viewerId, isCommissioner);
 
   return {
     _id: post._id,

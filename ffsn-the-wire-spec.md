@@ -576,6 +576,18 @@ Still open:
    the bench" claim targets a slot whose player left injured. Applies to weekly_recap, bank_statement,
    waiver_wire_report, power_rankings and every interview.
 
+   **Built 2026-09-05 (I-A/I-B).** Data: `convex/lib/inGameInjuries.ts` (window rule: the injury
+   tag's `observedAt` inside [kickoff, kickoff + 4.5 h] of that player's NFL game, from `wireEvents`
+   injury_status rows and `nflSchedules` kickoffs), `getInGameInjuriesForWeek`, attached to the league
+   data context and the interview context (that manager's players only); the bench-impact comparison
+   skips such starters. Writers: `facts.inGameInjuries` (id-bearing, always emitted), a HOUSE STYLE
+   rule ("An in-game injury is never the manager's decision …"), GROUNDING_CONTRACT rule 6, the
+   matchup rendering tags the starter "LEFT GAME INJURED, not a lineup call", verifier kind
+   `injury_blame` (strip, per section) with a blame-phrase pattern, the editor pass treats such blame
+   as a contradiction, and Sam's question prompt plus `interview-checks` block "why did you start
+   him" questions in favour of "how do you replace the production". Eval fixture `in-game-injury`
+   and sample `injury-blame` in `src/lib/ai/__fixtures__`.
+
 ## 17. Social layer (owner-approved 2026-09-05: "build it all")
 
 Managers are on the Wire too. Everything here is league-scoped, pass-gated, and follows the league's

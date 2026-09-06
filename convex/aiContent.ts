@@ -1170,6 +1170,9 @@ async function getLeagueDataForGenerationHandler(
 
       // Matchup data
       recentMatchups: enrichedData.recentMatchups,
+      // In-game injuries (spec §16, owner ask 2026-09-05) - src/lib/ai/facts.ts turns this into
+      // the per-player `leftGameInjured` FACTS entry and the HOUSE STYLE line.
+      inGameInjuries: enrichedData.inGameInjuries,
       // The look-ahead slate (spec 4.3). This reshape is a whitelist, so a field left out here
       // never reaches the prompt layer - weekly_preview had no upcoming games for exactly that
       // reason.

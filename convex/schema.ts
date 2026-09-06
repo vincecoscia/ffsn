@@ -2340,7 +2340,11 @@ export default defineSchema({
     .index("by_root", ["leagueId", "rootId", "createdAt"])
     // Season roll-up for deskMetrics.getLeagueSeasonSpend: writer_reply generation cost counts
     // toward the league's automation cap just like an article does.
-    .index("by_league_season", ["leagueId", "seasonId"]),
+    .index("by_league_season", ["leagueId", "seasonId"])
+    // Deployment-wide count of one Dex Desk `kind` in a time window (spec §18 digest line) -
+    // `by_league_created` can't answer this without scanning every league, since it always keys on
+    // `leagueId` first.
+    .index("by_kind_created", ["kind", "createdAt"]),
 
   // Reactions on a wire post (spec §17), mirroring `articleReactions`. `postKey` is
   // `"global:<wirePosts id>"` or `"league:<wireLeaguePosts id>"` - a single string key lets one
@@ -2371,5 +2375,18 @@ export default defineSchema({
     summary: v.string(),
     error: v.optional(v.string()),
   }).index("by_source", ["source"]),
+
+  // Small per-league tracking state for Dex Desk detectors that need to remember something across
+  // polls (spec §18). Currently one `kind`: "ir_active" - a player parked in an IR slot (21) while
+  // `playersEnhanced.injuryStatus` still reads Active, tracked from `onRosterSynced` so the
+  // roster_note IR branch can fire once he's been sitting there 14+ days, and so the row can be
+  // cleared the moment he leaves IR or his status changes.
+  wireDeskState: defineTable({
+    leagueId: v.id("leagues"),
+    kind: v.string(),
+    key: v.string(), // e.g. the player's espnId for "ir_active"
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  }).index("by_league_kind_key", ["leagueId", "kind", "key"]),
 
 });

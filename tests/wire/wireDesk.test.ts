@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GenericActionCtx, GenericMutationCtx } from "convex/server";
 import schema from "../../convex/schema";
 import { internal } from "../../convex/_generated/api";
@@ -197,7 +197,10 @@ describe("wireDesk: lineup_move / late_swap / reads_the_wire", () => {
     expect(post).toBeDefined();
     expect(post!.text).toContain("Moved In Guy");
     expect(post!.text).toContain("FLEX");
-    expect(post!.text).toContain("Benched Guy");
+    // The stock-line pick is seeded from the post's identity, so the chosen template may or may
+    // not carry the {benched} sentence; what must never happen is an unfilled token. The
+    // benched-slot fill itself is covered by tests/wireStockLines.test.ts.
+    expect(post!.text).not.toMatch(/\{[A-Za-z]+\}/);
     expect(post!.featuredTeams).toEqual([team1]);
   });
 
@@ -903,5 +906,229 @@ describe("wireDesk: ownership_swing (global card)", () => {
 
     const events = await t.run((ctx) => ctx.db.query("wireEvents").withIndex("by_kind_detected", (q) => q.eq("kind", "ownership_swing")).collect());
     expect(events).toHaveLength(10);
+  });
+});
+
+describe("wireDesk: lineup_lock on bye - scheduling (spec §18 \"Not built\")", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("schedules one bye check per (season, week), anchored to the week's first Sunday kickoff, and is idempotent", async () => {
+    const t = convexTest(schema, modules);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(Date.UTC(2026, 8, 1, 12, 0, 0)); // well before every kickoff below
+
+    // Thu 8:20pm ET (Sept 3), Sun 1:00pm ET and 4:25pm ET (Sept 6), Mon 8:15pm ET (Sept 7).
+    const THU_NIGHT = Date.UTC(2026, 8, 4, 0, 20, 0);
+    const SUN_EARLY = Date.UTC(2026, 8, 6, 17, 0, 0);
+    const SUN_LATE = Date.UTC(2026, 8, 6, 20, 25, 0);
+    const MON_NIGHT = Date.UTC(2026, 8, 8, 0, 15, 0);
+    const kickoffs = [THU_NIGHT, SUN_EARLY, SUN_LATE, MON_NIGHT].map((kickoffAt) => ({ kickoffAt, season: SEASON, week: 5 }));
+
+    const first = await t.mutation(internal.wireDesk.scheduleLineupLockChecks, { kickoffs });
+    expect(first).toEqual({ scheduled: 4, byeScheduled: 1 });
+
+    const state = await t.run((ctx) =>
+      ctx.db.query("wireSourceState").withIndex("by_source", (q) => q.eq("source", "nfl_kickoffs")).first()
+    );
+    expect((state?.cursor as { byeScheduled?: string[] } | undefined)?.byeScheduled).toContain(`${SEASON}:5`);
+
+    // A second call with the same kickoffs schedules nothing new.
+    const second = await t.mutation(internal.wireDesk.scheduleLineupLockChecks, { kickoffs });
+    expect(second).toEqual({ scheduled: 0, byeScheduled: 0 });
+  });
+
+  it("never schedules a bye check for a week with no Sunday kickoff in the batch", async () => {
+    const t = convexTest(schema, modules);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(Date.UTC(2026, 8, 1, 12, 0, 0));
+
+    const THU_NIGHT = Date.UTC(2026, 8, 4, 0, 20, 0);
+    const MON_NIGHT = Date.UTC(2026, 8, 8, 0, 15, 0);
+    const kickoffs = [THU_NIGHT, MON_NIGHT].map((kickoffAt) => ({ kickoffAt, season: SEASON, week: 5 }));
+
+    const result = await t.mutation(internal.wireDesk.scheduleLineupLockChecks, { kickoffs });
+    expect(result).toEqual({ scheduled: 2, byeScheduled: 0 });
+  });
+});
+
+describe("wireDesk: lineup_lock on bye - warning + public post", () => {
+  it("flags a starter whose NFL team has no game this week, warns privately then posts 'on bye' publicly", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const anchorKickoff = now + 2 * HOUR; // the week's first Sunday kickoff
+    const { leagueId, team1 } = await t.run((ctx) => seedLeague(ctx, {}));
+
+    await t.run(async (ctx) => {
+      await seedPlayer(ctx as TestCtx, { espnId: "16001", fullName: "Bye Week Starter", defaultPosition: "WR", proTeamAbbrev: "CHI" });
+      await ctx.db.patch(team1, {
+        roster: [{ playerId: "16001", playerName: "Bye Week Starter", position: "WR", team: "CHI", lineupSlotId: 4 }],
+      });
+      // A different team DOES have a game this week - proves the check isn't "no schedule rows at all this week".
+      await ctx.db.insert("nflSchedules", {
+        season: SEASON,
+        week: 3,
+        teamId: 9,
+        teamAbbrev: "GB",
+        opponent: "DET",
+        isHome: true,
+        gameTime: anchorKickoff,
+        isByeWeek: false,
+        createdAt: now,
+      });
+
+      await ctx.db.insert("users", {
+        clerkId: "clerk_bye_manager",
+        name: "Bye Manager",
+        hasCompletedOnboarding: true,
+        createdAt: now,
+        lastActiveAt: now,
+      });
+      await ctx.db.insert("teamClaims", {
+        leagueId,
+        teamId: team1,
+        seasonId: SEASON,
+        userId: "clerk_bye_manager",
+        status: "active",
+        credits: 0,
+        createdAt: now,
+      });
+    });
+
+    await t.mutation(internal.wireDesk.lineupLockWarning, { kickoffAt: anchorKickoff, season: SEASON, week: 3, bye: true });
+
+    const notifications = await t.run((ctx) => ctx.db.query("userNotifications").collect());
+    const alert = notifications.find((n) => n.type === "wire_alert");
+    expect(alert).toBeDefined();
+    expect(alert!.title).toContain("Bye Week Starter");
+    expect(alert!.message.toLowerCase()).toContain("on bye");
+
+    await t.mutation(internal.wireDesk.lineupLockPublic, { kickoffAt: anchorKickoff, season: SEASON, week: 3, bye: true });
+
+    const posts = await t.run((ctx) => ctx.db.query("wireLeaguePosts").withIndex("by_league_created", (q) => q.eq("leagueId", leagueId)).collect());
+    const post = posts.find((p) => p.kind === "lineup_lock");
+    expect(post).toBeDefined();
+    expect(post!.text).toContain("Bye Week Starter");
+    expect(post!.text.toLowerCase()).toContain("bye");
+  });
+
+  it("never flags a starter whose NFL team DOES have a game this week", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const anchorKickoff = now + 2 * HOUR;
+    const { leagueId, team1 } = await t.run((ctx) => seedLeague(ctx, {}));
+    await t.run(async (ctx) => {
+      await seedPlayer(ctx as TestCtx, { espnId: "16002", fullName: "Playing Starter", defaultPosition: "RB", proTeamAbbrev: "GB" });
+      await ctx.db.patch(team1, {
+        roster: [{ playerId: "16002", playerName: "Playing Starter", position: "RB", team: "GB", lineupSlotId: 2 }],
+      });
+      await ctx.db.insert("nflSchedules", {
+        season: SEASON,
+        week: 3,
+        teamId: 9,
+        teamAbbrev: "GB",
+        opponent: "DET",
+        isHome: true,
+        gameTime: anchorKickoff,
+        isByeWeek: false,
+        createdAt: now,
+      });
+    });
+
+    await t.mutation(internal.wireDesk.lineupLockPublic, { kickoffAt: anchorKickoff, season: SEASON, week: 3, bye: true });
+
+    const posts = await t.run((ctx) => ctx.db.query("wireLeaguePosts").withIndex("by_league_created", (q) => q.eq("leagueId", leagueId)).collect());
+    expect(posts.some((p) => p.kind === "lineup_lock")).toBe(false);
+  });
+});
+
+describe("wireDesk: roster_note IR-parked branch (spec §18 \"Not built\")", () => {
+  it("tracks an Active player parked on IR, posting once he's been there 14+ days", async () => {
+    const t = convexTest(schema, modules);
+    const { leagueId, team1 } = await t.run((ctx) => seedLeague(ctx, {}));
+    await t.run(async (ctx) => {
+      await seedPlayer(ctx as TestCtx, { espnId: "17001", fullName: "Parked Guy", defaultPosition: "RB", injuryStatus: "Active" });
+      await ctx.db.patch(team1, {
+        roster: [{ playerId: "17001", playerName: "Parked Guy", position: "RB", team: "FA", lineupSlotId: 21 }],
+      });
+    });
+
+    // First sync: starts tracking, too new to post yet.
+    await t.mutation(internal.wireDesk.onRosterSynced, { leagueId, seasonId: SEASON });
+    let posts = await t.run((ctx) => ctx.db.query("wireLeaguePosts").withIndex("by_league_created", (q) => q.eq("leagueId", leagueId)).collect());
+    expect(posts.some((p) => p.kind === "roster_note")).toBe(false);
+
+    const state = await t.run((ctx) =>
+      ctx.db
+        .query("wireDeskState")
+        .withIndex("by_league_kind_key", (q) => q.eq("leagueId", leagueId).eq("kind", "ir_active").eq("key", "17001"))
+        .first()
+    );
+    expect(state).toBeDefined();
+
+    // Backdate firstSeenAt 15 days - the next sync should now post.
+    await t.run((ctx) => ctx.db.patch(state!._id, { firstSeenAt: Date.now() - 15 * DAY }));
+    await t.mutation(internal.wireDesk.onRosterSynced, { leagueId, seasonId: SEASON });
+
+    posts = await t.run((ctx) => ctx.db.query("wireLeaguePosts").withIndex("by_league_created", (q) => q.eq("leagueId", leagueId)).collect());
+    const post = posts.find((p) => p.kind === "roster_note");
+    expect(post).toBeDefined();
+    expect(post!.text).toContain("Parked Guy");
+    expect(post!.featuredTeams).toContain(team1);
+  });
+
+  it("clears the tracking row once he leaves IR", async () => {
+    const t = convexTest(schema, modules);
+    const { leagueId, team1 } = await t.run((ctx) => seedLeague(ctx, {}));
+    await t.run(async (ctx) => {
+      await seedPlayer(ctx as TestCtx, { espnId: "17002", fullName: "Formerly Parked Guy", defaultPosition: "RB", injuryStatus: "Active" });
+      await ctx.db.patch(team1, {
+        roster: [{ playerId: "17002", playerName: "Formerly Parked Guy", position: "RB", team: "FA", lineupSlotId: 21 }],
+      });
+    });
+    await t.mutation(internal.wireDesk.onRosterSynced, { leagueId, seasonId: SEASON });
+    let state = await t.run((ctx) =>
+      ctx.db
+        .query("wireDeskState")
+        .withIndex("by_league_kind_key", (q) => q.eq("leagueId", leagueId).eq("kind", "ir_active").eq("key", "17002"))
+        .first()
+    );
+    expect(state).toBeDefined();
+
+    // He's moved off IR to the bench.
+    await t.run((ctx) =>
+      ctx.db.patch(team1, {
+        roster: [{ playerId: "17002", playerName: "Formerly Parked Guy", position: "RB", team: "FA", lineupSlotId: 20 }],
+      })
+    );
+    await t.mutation(internal.wireDesk.onRosterSynced, { leagueId, seasonId: SEASON });
+
+    state = await t.run((ctx) =>
+      ctx.db
+        .query("wireDeskState")
+        .withIndex("by_league_kind_key", (q) => q.eq("leagueId", leagueId).eq("kind", "ir_active").eq("key", "17002"))
+        .first()
+    );
+    expect(state).toBeNull();
+  });
+
+  it("never tracks an IR player whose status is not Active", async () => {
+    const t = convexTest(schema, modules);
+    const { leagueId, team1 } = await t.run((ctx) => seedLeague(ctx, {}));
+    await t.run(async (ctx) => {
+      await seedPlayer(ctx as TestCtx, { espnId: "17003", fullName: "Really Hurt Guy", defaultPosition: "RB", injuryStatus: "Out" });
+      await ctx.db.patch(team1, {
+        roster: [{ playerId: "17003", playerName: "Really Hurt Guy", position: "RB", team: "FA", lineupSlotId: 21 }],
+      });
+    });
+    await t.mutation(internal.wireDesk.onRosterSynced, { leagueId, seasonId: SEASON });
+    const state = await t.run((ctx) =>
+      ctx.db
+        .query("wireDeskState")
+        .withIndex("by_league_kind_key", (q) => q.eq("leagueId", leagueId).eq("kind", "ir_active").eq("key", "17003"))
+        .first()
+    );
+    expect(state).toBeNull();
   });
 });

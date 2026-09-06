@@ -31,7 +31,7 @@ import type { LanguageRating } from "../src/lib/ai/language";
 import { hasActivePass } from "./credits";
 import { leagueCurrentSeason, nflSeasonYearFor } from "./lib/season";
 import { draftPhaseFor } from "./lib/draftPhase";
-import { BENCH_SLOT_ID, isStartingSlot, lineupSlotName } from "./lib/lineupSlots";
+import { BENCH_SLOT_ID, IR_SLOT_ID, isStartingSlot, lineupSlotName } from "./lib/lineupSlots";
 import { userForTeam } from "./lib/teamClaims";
 import {
   currentMatchupPeriod,
@@ -46,6 +46,7 @@ import {
   countWord,
   faabRemainingFraction,
   findUniqueRosteredMention,
+  firstSundayKickoff,
   hoursAgoPhrase,
   isInSeasonByMonth,
   isLateScratch,
@@ -718,6 +719,9 @@ export const onTransactionsUpsertedForDex = internalMutation({
  * -------------------------------------------------------------------------- */
 
 const ROSTER_NOTE_WINDOW_MS = 14 * DAY_MS;
+/** roster_note IR branch (spec §18 "Not built"): an Active player parked in an IR slot for at
+ *  least this long fires once (the season-scoped dedupeKey below then keeps it from repeating). */
+const IR_ACTIVE_MIN_AGE_MS = 14 * DAY_MS;
 
 export const onRosterSynced = internalMutation({
   args: { leagueId: v.id("leagues"), seasonId: v.number() },
@@ -768,6 +772,49 @@ export const onRosterSynced = internalMutation({
         }
       }
     }
+
+    // roster_note IR branch (spec §18 "Not built"): a player parked in the IR slot (21) while
+    // ESPN still lists him Active for 14+ days. `wireDeskState` (kind "ir_active") tracks how long
+    // he's been sitting there and dedupes the post to once a season. A separate pass from the
+    // per-team loop above: a tracked player's row must be cleared the moment he leaves IR (or his
+    // status stops reading Active) even on a sync where his CURRENT roster entry never lands on
+    // slot 21 at all (traded away, dropped, moved to the bench) - reconciling against every
+    // existing tracked row, not just this sync's IR-slot entries, is what catches that case.
+    const activeIrPlayers = new Map<string, { team: Doc<"teams">; playerName: string; status: string }>();
+    for (const team of teams) {
+      for (const entry of team.roster) {
+        if (entry.lineupSlotId !== IR_SLOT_ID) continue;
+        const player = await resolvePlayerFull(ctx, entry.playerId, seasonId);
+        const status = player?.injuryStatus;
+        if ((status ?? "").trim().toLowerCase() !== "active") continue;
+        activeIrPlayers.set(entry.playerId, { team, playerName: player?.name ?? entry.playerName, status: status ?? "Active" });
+      }
+    }
+
+    const existingIrStates = await ctx.db
+      .query("wireDeskState")
+      .withIndex("by_league_kind_key", (q) => q.eq("leagueId", leagueId).eq("kind", "ir_active"))
+      .take(200);
+    for (const row of existingIrStates) {
+      if (!activeIrPlayers.has(row.key)) await ctx.db.delete(row._id);
+    }
+
+    for (const [playerId, info] of activeIrPlayers) {
+      const existingState = existingIrStates.find((row) => row.key === playerId);
+      if (existingState) {
+        await ctx.db.patch(existingState._id, { lastSeenAt: now });
+      } else {
+        await ctx.db.insert("wireDeskState", { leagueId, kind: "ir_active", key: playerId, firstSeenAt: now, lastSeenAt: now });
+      }
+
+      const firstSeenAt = existingState?.firstSeenAt ?? now;
+      if (now - firstSeenAt < IR_ACTIVE_MIN_AGE_MS) continue;
+
+      const dedupeKey = `roster_note_ir:${leagueId}:${seasonId}:${playerId}`;
+      const slots: WireSlots = { team: info.team.name, player: info.playerName, status: info.status };
+      await postDeskRoutine(ctx, { leagueId, seasonId, kind: "roster_note", persona: "nina-sharpe", slots, dedupeKey, featuredTeams: [info.team._id], now });
+    }
+
     return null;
   },
 });
@@ -1089,16 +1136,23 @@ export const upsertNflScheduleRows = internalMutation({
 
 const kickoffToScheduleValidator = v.object({ kickoffAt: v.number(), season: v.number(), week: v.number() });
 
+interface KickoffCursor {
+  scheduled: number[];
+  /** "season:week" pairs whose on-bye lineup_lock check (spec §18) has already been scheduled. */
+  byeScheduled?: string[];
+}
+
 export const scheduleLineupLockChecks = internalMutation({
   args: { kickoffs: v.array(kickoffToScheduleValidator) },
-  returns: v.object({ scheduled: v.number() }),
+  returns: v.object({ scheduled: v.number(), byeScheduled: v.number() }),
   handler: async (ctx, { kickoffs }) => {
     const state = await ctx.db
       .query("wireSourceState")
       .withIndex("by_source", (q) => q.eq("source", "nfl_kickoffs"))
       .first();
-    const priorCursor = (state?.cursor as { scheduled: number[] } | undefined) ?? { scheduled: [] };
+    const priorCursor = (state?.cursor as KickoffCursor | undefined) ?? { scheduled: [] };
     const already = new Set(priorCursor.scheduled ?? []);
+    const byeAlready = new Set(priorCursor.byeScheduled ?? []);
     const now = Date.now();
     let scheduled = 0;
 
@@ -1114,14 +1168,52 @@ export const scheduleLineupLockChecks = internalMutation({
       scheduled++;
     }
 
-    const pruned = [...already].filter((ts) => ts > now - DAY_MS);
-    const summary = `${scheduled} new kickoff(s) scheduled`;
-    if (state) {
-      await ctx.db.patch(state._id, { cursor: { scheduled: pruned }, lastRunAt: now, ok: true, summary });
-    } else {
-      await ctx.db.insert("wireSourceState", { source: "nfl_kickoffs", cursor: { scheduled: pruned }, lastRunAt: now, ok: true, summary });
+    // The on-bye lineup_lock trigger (spec §18 "Not built"): a bye has no kickoff of its own to
+    // anchor to, so it anchors to the week's FIRST SUNDAY kickoff instead - scheduled once per
+    // (season, week), from whichever future kickoffs this call happens to see for that week.
+    const kickoffsByWeek = new Map<string, number[]>();
+    for (const { kickoffAt, season, week } of kickoffs) {
+      if (kickoffAt <= now) continue;
+      const key = `${season}:${week}`;
+      const list = kickoffsByWeek.get(key) ?? [];
+      list.push(kickoffAt);
+      kickoffsByWeek.set(key, list);
     }
-    return { scheduled };
+    let byeScheduled = 0;
+    for (const [key, times] of kickoffsByWeek) {
+      if (byeAlready.has(key)) continue;
+      const sundayKickoff = firstSundayKickoff(times);
+      if (sundayKickoff === undefined) continue;
+      const [seasonStr, weekStr] = key.split(":");
+      const season = Number(seasonStr);
+      const week = Number(weekStr);
+      await ctx.scheduler.runAt(Math.max(now, sundayKickoff - LINEUP_LOCK_WARNING_MS), internal.wireDesk.lineupLockWarning, {
+        kickoffAt: sundayKickoff,
+        season,
+        week,
+        bye: true,
+      });
+      await ctx.scheduler.runAt(sundayKickoff + 2 * 60 * 1000, internal.wireDesk.lineupLockPublic, {
+        kickoffAt: sundayKickoff,
+        season,
+        week,
+        bye: true,
+      });
+      byeAlready.add(key);
+      byeScheduled++;
+    }
+
+    const pruned = [...already].filter((ts) => ts > now - DAY_MS);
+    // "season:week" strings never carry their own timestamp to age out by - capped by count instead.
+    const prunedBye = [...byeAlready].slice(-100);
+    const summary = `${scheduled} new kickoff(s) scheduled, ${byeScheduled} bye check(s) scheduled`;
+    const cursor: KickoffCursor = { scheduled: pruned, byeScheduled: prunedBye };
+    if (state) {
+      await ctx.db.patch(state._id, { cursor, lastRunAt: now, ok: true, summary });
+    } else {
+      await ctx.db.insert("wireSourceState", { source: "nfl_kickoffs", cursor, lastRunAt: now, ok: true, summary });
+    }
+    return { scheduled, byeScheduled };
   },
 });
 
@@ -1179,11 +1271,56 @@ async function findLockedStarters(ctx: MutationCtx, season: number, week: number
   return hits;
 }
 
+/** The on-bye lineup_lock trigger (spec §18 "Not built"): every starter whose NFL team has no
+ *  game at all this week (no `nflSchedules` row for that team, or one explicitly marked
+ *  `isByeWeek`). Unlike {@link findLockedStarters} this isn't anchored to one exact kickoff
+ *  instant - the caller passes the week's first Sunday kickoff (`firstSundayKickoff`) purely for
+ *  the notification/post's own "minutes to kickoff" framing and dedupe key. */
+async function findByeStarters(ctx: MutationCtx, season: number, week: number): Promise<LockedStarterHit[]> {
+  const schedRows = await ctx.db
+    .query("nflSchedules")
+    .withIndex("by_week", (q) => q.eq("season", season).eq("week", week))
+    .take(64);
+  const teamsWithGame = new Set(schedRows.filter((r) => !r.isByeWeek).map((r) => r.teamAbbrev));
+  const explicitByeTeams = new Set(schedRows.filter((r) => r.isByeWeek).map((r) => r.teamAbbrev));
+
+  const hits: LockedStarterHit[] = [];
+  const leagues = await ctx.db.query("leagues").take(1000);
+  for (const league of leagues) {
+    if (!hasActivePass(league)) continue;
+    const prefs = await getPrefs(ctx, league._id);
+    if (prefs?.wireEnabled === false) continue;
+
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_season", (q) => q.eq("leagueId", league._id).eq("seasonId", season))
+      .take(40);
+    for (const team of teams) {
+      for (const entry of team.roster) {
+        if (entry.lineupSlotId === undefined || !isStartingSlot(entry.lineupSlotId)) continue;
+        const player = await resolvePlayerFull(ctx, entry.playerId, season);
+        if (!player?.nflTeam) continue;
+        const onBye = explicitByeTeams.has(player.nflTeam) || !teamsWithGame.has(player.nflTeam);
+        if (!onBye) continue;
+        hits.push({
+          leagueId: league._id,
+          team,
+          playerId: entry.playerId,
+          playerName: player.name,
+          slot: lineupSlotName(entry.lineupSlotId),
+          status: "on bye",
+        });
+      }
+    }
+  }
+  return hits;
+}
+
 export const lineupLockWarning = internalMutation({
-  args: { kickoffAt: v.number(), season: v.number(), week: v.number() },
+  args: { kickoffAt: v.number(), season: v.number(), week: v.number(), bye: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { kickoffAt, season, week }) => {
-    const hits = await findLockedStarters(ctx, season, week, kickoffAt);
+  handler: async (ctx, { kickoffAt, season, week, bye }) => {
+    const hits = bye ? await findByeStarters(ctx, season, week) : await findLockedStarters(ctx, season, week, kickoffAt);
     const now = Date.now();
     for (const found of hits) {
       const user = await userForTeam(ctx, found.team._id, season);
@@ -1207,14 +1344,18 @@ export const lineupLockWarning = internalMutation({
 });
 
 export const lineupLockPublic = internalMutation({
-  args: { kickoffAt: v.number(), season: v.number(), week: v.number() },
+  args: { kickoffAt: v.number(), season: v.number(), week: v.number(), bye: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx, { kickoffAt, season, week }) => {
-    const hits = await findLockedStarters(ctx, season, week, kickoffAt);
+  handler: async (ctx, { kickoffAt, season, week, bye }) => {
+    const hits = bye ? await findByeStarters(ctx, season, week) : await findLockedStarters(ctx, season, week, kickoffAt);
     const now = Date.now();
     for (const found of hits) {
-      const injuryEvent = await findRecentInjuryEvent(ctx, found.playerId);
-      if (injuryEvent && isLateScratch(injuryEvent.observedAt, kickoffAt)) continue; // late scratch: no post (spec §16/§18)
+      if (!bye) {
+        // Late scratch (spec §16/§18): only meaningful for a real kickoff - a bye has no status
+        // that can land "just before" it.
+        const injuryEvent = await findRecentInjuryEvent(ctx, found.playerId);
+        if (injuryEvent && isLateScratch(injuryEvent.observedAt, kickoffAt)) continue; // no post
+      }
 
       const dedupeKey = `lineup_lock:${found.team._id}:${found.playerId}:${kickoffAt}`;
       const slots: WireSlots = { team: found.team.name, manager: managerNameFor(found.team), player: found.playerName, status: found.status };

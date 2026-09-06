@@ -1,6 +1,6 @@
 {
-  "fixture": "rich-week",
-  "note": "Everything a writer needs is present, so the only gap is the two managers who never answered. This is the only fixture carrying a week-8 slate, so it is the only one where weekly_preview builds. draft_rankings still names the three draft gaps because this payload has no draft in it.",
+  "fixture": "in-game-injury",
+  "note": "rich-week's payload with Cole Vandermeer's in-game injury attached. Every count and every gap is rich-week's; the one addition is facts.inGameInjuries, and Duke Ellery's bench swap (which would have replaced the injured starter) is retired, so matchupPlayers stays at 12 with one fewer benchImpact.",
   "facts": {
     "teams": 10,
     "matchups": 5,
@@ -13,7 +13,7 @@
     "nonRespondents": 2,
     "relationships": 3,
     "priorClaims": 2,
-    "inGameInjuries": 0
+    "inGameInjuries": 1
   },
   "unresolvedTeamRefs": 0,
   "byType": {

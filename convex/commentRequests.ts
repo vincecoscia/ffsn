@@ -6,6 +6,10 @@ import type { ConversationContext } from "../src/lib/ai/conversation-service";
 // Type-only: never a value import from a convex/*.ts module here (see the repo-wide gotcha about
 // `internal` recursion). `WaiverLedger` is a plain interface with no runtime footprint.
 import type { WaiverLedger } from "../src/lib/ai/prompt-builder";
+// `convex/lib/inGameInjuries.ts` is deliberately pure (no `internal`/`api` imports of its own -
+// see its file header), so its `InGameInjury` type carries none of the recursive-`api` risk the
+// repo gotcha warns about; the query itself is always called through `internal.inGameInjuries.*`.
+import type { InGameInjury } from "./lib/inGameInjuries";
 import { getLeagueMembership, requireCommissioner } from "./lib/auth";
 import { leagueCurrentSeason } from "./lib/season";
 import { espnConnectionBlocked } from "./lib/espnConnection";
@@ -468,6 +472,10 @@ export const buildConversationContext = internalQuery({
       position: string;
       pointGain: number;
     }> = [];
+    // In-game injuries on this manager's team this week (spec §16, owner ask 2026-09-05): a
+    // starter who left THIS game injured is never framed as a lineup decision, so he is excluded
+    // from the bench-vs-worst-starter comparison below.
+    let inGameInjuriesForTeam: InGameInjury[] = [];
 
     // Who they play, when the game is not final: a preview names the opponent, never a score.
     let upcomingOpponentName: string | undefined;
@@ -607,10 +615,28 @@ export const buildConversationContext = internalQuery({
         };
       }
 
+      // In-game injuries on this manager's team this week (spec §16, owner ask 2026-09-05): a
+      // low score from a player who got hurt in the game is never a lineup decision, so a started
+      // starter in this set is excluded from the "worst starter" comparison below.
+      inGameInjuriesForTeam = teamExternalId
+        ? (
+            await ctx.runQuery(internal.inGameInjuries.getInGameInjuriesForWeek, {
+              leagueId: request.leagueId,
+              seasonId: seasonIdUsed,
+              week,
+            })
+          ).filter((hit) => hit.fantasyTeamId === teamExternalId)
+        : [];
+      const inGameInjuredEspnIds = new Set(
+        inGameInjuriesForTeam.filter((hit) => hit.started).map((hit) => hit.espnId)
+      );
+
       // A bench player who outscored the worst starter at the same position by a
       // meaningful margin. Mirrors `impactfulBenchPlayers` in aiQueries.ts (~L1920).
       const worstStarterAt = (position: string) => {
-        const same = starters.filter((s: any) => s.position === position);
+        const same = starters.filter(
+          (s: any) => s.position === position && !inGameInjuredEspnIds.has(String(s.espnId))
+        );
         if (same.length === 0) return null;
         return [...same].sort((a: any, b: any) => (a.points || 0) - (b.points || 0))[0];
       };
@@ -1135,6 +1161,10 @@ export const buildConversationContext = internalQuery({
       benchPoints,
       topBenchPlayer,
       lineupDecisions,
+      // In-game injuries on this manager's team this week (spec §16). `ConversationContext`
+      // (src/lib/ai/conversation-service.ts) does not yet declare this field - wiring the
+      // interview prompt to read it is a follow-up outside this change's file allowlist.
+      inGameInjuries: inGameInjuriesForTeam,
 
       // League activity.
       transactionsThisWeek,
