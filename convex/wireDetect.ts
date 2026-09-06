@@ -1180,19 +1180,22 @@ export const getGlobalSpendToday = internalQuery({
 /* -------------------------------------------------------------------------- *
  * One-time cleanup (spec update 2026-09-06): the old `ingestTrending` reposted the same full
  * board every night as separate `trending` cards - prod carries 32 of them from a single preseason
- * sync. This retracts them (and their per-league overlays/reactions) without touching the underlying
+ * sync - and the old `ingestNews` posted bare feature headlines as `news` cards. This retracts every
+ * post of the given kinds (and their per-league overlays/reactions) without touching the underlying
  * `wireEvents` history. Not dev-guarded (it must run once on prod too), so it is internal-only and
- * never wired to a public mutation or a cron - an operator runs it by hand, once.
+ * never wired to a public mutation or a cron - an operator runs it by hand, once:
+ *   npx convex run wireDetect:retractWireCards '{"kinds":["trending","news"],"dryRun":true}' --prod
  * -------------------------------------------------------------------------- */
-export const retractTrendingCards = internalMutation({
-  args: { dryRun: v.boolean() },
+export const retractWireCards = internalMutation({
+  args: { kinds: v.array(v.string()), dryRun: v.boolean() },
   returns: v.object({ posts: v.number(), overlays: v.number(), reactions: v.number(), dryRun: v.boolean() }),
-  handler: async (ctx, { dryRun }) => {
+  handler: async (ctx, { kinds, dryRun }) => {
+    if (kinds.length === 0) return { posts: 0, overlays: 0, reactions: 0, dryRun };
     // No index on `kind` alone for wirePosts (a handful of hundred rows deployment-wide today) - a
     // bounded scan, capped and self-rescheduling, same shape as intelSync.ts#deleteStaleTrending.
     const rows = await ctx.db
       .query("wirePosts")
-      .filter((q) => q.eq(q.field("kind"), "trending"))
+      .filter((q) => q.or(...kinds.map((kind) => q.eq(q.field("kind"), kind))))
       .take(500);
 
     let overlays = 0;
@@ -1220,7 +1223,7 @@ export const retractTrendingCards = internalMutation({
     }
 
     if (!dryRun && rows.length === 500) {
-      await ctx.scheduler.runAfter(0, internal.wireDetect.retractTrendingCards, { dryRun });
+      await ctx.scheduler.runAfter(0, internal.wireDetect.retractWireCards, { kinds, dryRun });
     }
 
     return { posts: rows.length, overlays, reactions, dryRun };
