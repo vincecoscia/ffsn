@@ -54,6 +54,13 @@
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": null
+    },
+    "season_welcome": {
+      "missing": [
+        "almanac — no completed seasons on record; this is the league's first season: write the kickoff from the teams, the managers and the draft, not from history",
+        "quotes — Owen Radcliffe (T7), Bea Coleridge (T8) did not respond to the comment request"
+      ],
+      "throws": null
     }
   }
 }

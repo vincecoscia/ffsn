@@ -141,6 +141,22 @@ export interface ConversationContext {
     askedAbout?: string;
   }>;
 
+  /* --- Season kickoff (season_welcome interviews, 2026-09-06) --------------- */
+  /**
+   * This manager's all-time line from the League Almanac (src/lib/ai/almanac.ts), one sentence:
+   * "33-50 all-time over six seasons, no title, six playoff trips, best 8-6 in 2021 as Lemon Party".
+   * The hook for a preseason interview, when there is no matchup and no record yet.
+   */
+  almanacLine?: string;
+  /** Preseason facts for the kickoff interview: last season's champion and where the draft stands. */
+  kickoff?: {
+    lastChampion?: string;
+    lastChampionManager?: string;
+    draftDone: boolean;
+    draftDate?: number;
+    daysToKickoff?: number;
+  };
+
   /* --- The writer this interview feeds (spec §5/§6) ------------------------- */
   writerContext?: {
     persona: string;
@@ -551,6 +567,27 @@ export function buildInGameInjuryRule(context: ConversationContext): string | nu
 ${list} left the game hurt. That is never the manager's decision: never ask why they started ${each} or whether they regret it; ask how they replace the production (bench cover, the waiver wire, the next man up), one question.`;
 }
 
+/**
+ * The rule Sam is handed for a Season Kickoff interview (2026-09-06): there is no matchup and no
+ * record this week, so the two things to get are one bold prediction with a number and the team
+ * to beat (or the rival they most want to beat). `null` for every other story. Pure and exported
+ * so the checks and the harness see the same text.
+ */
+export function buildKickoffInterviewRule(context: ConversationContext): string | null {
+  if (context.contentType !== 'season_welcome') return null;
+  return `SEASON KICKOFF RULE
+Nobody has played a snap: there is no matchup, no result and no record this week, and you never ask about one. Two things to get, one per question: first, one bold prediction with a number in it (a win total, a finish, a points total); second, the team to beat - or the rival they most want to beat. Lead with their all-time line when CONTEXT has it.`;
+}
+
+/** "Sat, Aug 30" in league time; never an ISO timestamp. */
+function kickoffDayLabel(ms: number): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' }).format(new Date(ms));
+  } catch {
+    return 'a date not on file';
+  }
+}
+
 export class ConversationService {
   /** The templated close, shaped as a normal interviewer turn. No model call, no cost. */
   private templatedClose(context: ConversationContext): AIConversationResult {
@@ -860,6 +897,26 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
     lines.push(`Manager: ${context.managerName ?? 'Unknown manager'}`);
     lines.push(`Team: ${context.teamName ?? tp.teamName}`);
 
+    // Season kickoff (2026-09-06): the manager's all-time line and where the preseason stands are
+    // the only facts there are before a snap is played.
+    if (context.almanacLine) lines.push(`ALL-TIME LINE: ${context.almanacLine}`);
+    if (context.kickoff) {
+      const kickoff = context.kickoff;
+      if (kickoff.lastChampion) {
+        lines.push(`Defending champion: ${kickoff.lastChampion}${kickoff.lastChampionManager ? ` (${kickoff.lastChampionManager})` : ''}`);
+      }
+      if (kickoff.draftDone) {
+        lines.push(`Draft: held${kickoff.draftDate !== undefined ? ` on ${kickoffDayLabel(kickoff.draftDate)}` : ''}`);
+      } else if (kickoff.draftDate !== undefined) {
+        lines.push(`Draft: ${kickoffDayLabel(kickoff.draftDate)} (not held yet)`);
+      } else {
+        lines.push('Draft: not held yet');
+      }
+      if (kickoff.daysToKickoff !== undefined) {
+        lines.push(`Week 1: ${kickoff.daysToKickoff <= 0 ? 'this week' : `in ${kickoff.daysToKickoff} day${kickoff.daysToKickoff === 1 ? '' : 's'}`} (nothing played yet)`);
+      }
+    }
+
     if (context.upcomingOpponentName && !(tp.score > 0)) {
       lines.push(`${week > 0 ? `Week ${week} matchup` : 'Next matchup'}: vs ${context.upcomingOpponentName} (not played yet - no result to cite)`);
     }
@@ -1122,8 +1179,16 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
       case 'custom_roast':
       case 'hall_of_shame':
         return firstOf(benchPhrase, lineupPhrase, worstPerformer, rankPhrase);
-      case 'season_welcome':
-        return firstOf(rankPhrase, pickPhrase, upcomingPhrase);
+      case 'season_welcome': {
+        // The all-time line first (2026-09-06), then the defending champion; a standing is never
+        // the hook because there is none yet.
+        const almanacPhrase = context.almanacLine ? `their all-time line (${context.almanacLine})` : null;
+        const champion = context.kickoff?.lastChampion;
+        const championPhrase = champion
+          ? `${champion}${context.kickoff?.lastChampionManager ? ` (${context.kickoff.lastChampionManager})` : ''} going in as the defending champion`
+          : null;
+        return firstOf(almanacPhrase, championPhrase, pickPhrase, upcomingPhrase);
+      }
       default:
         return firstOf(marginPhrase, benchPhrase, rankPhrase, topPerformer, upcomingPhrase);
     }
@@ -1131,8 +1196,8 @@ DISCLOSURE: this is on the record and may be quoted with their name and team.`;
 
   private buildUserPrompt(context: ConversationContext, isInitial: boolean): string {
     const facts = this.buildFactBlock(context);
-    const injuryRule = buildInGameInjuryRule(context);
-    const rules = injuryRule ? `\n${injuryRule}\n` : '';
+    const ruleBlocks = [buildInGameInjuryRule(context), buildKickoffInterviewRule(context)].filter((rule): rule is string => rule !== null);
+    const rules = ruleBlocks.length > 0 ? `\n${ruleBlocks.join('\n\n')}\n` : '';
 
     if (isInitial) {
       return `CONTEXT (the only facts you may state)

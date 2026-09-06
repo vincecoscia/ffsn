@@ -843,7 +843,8 @@ export const contentTypePersonaMap: Record<string, string[]> = {
   playoff_picture: ["nina-sharpe"],
   championship_manifesto: ["walt-brennan"],
   season_recap: ["curtis-vaughn", "walt-brennan"],
-  season_welcome: ["curtis-vaughn"],
+  // Banner Night (owner, 2026-09-06): the kickoff is Mel's piece - verdicts, demands, receipts - Curtis is the fallback anchor.
+  season_welcome: ["mel-diaper", "curtis-vaughn"],
   commissioner_corner: ["walt-brennan"],
   hall_of_shame: ["walt-brennan"],
   custom_roast: ["walt-brennan"],

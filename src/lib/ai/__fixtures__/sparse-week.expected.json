@@ -64,6 +64,14 @@
         "intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool"
       ],
       "throws": "InsufficientDataError"
+    },
+    "season_welcome": {
+      "missing": [
+        "almanac — no completed seasons on record; this is the league's first season: write the kickoff from the teams, the managers and the draft, not from history",
+        "quotes — Hollis Vance (T9) did not respond to the comment request",
+        "priorClaims — none. You have no prediction history in this league; do not claim one."
+      ],
+      "throws": null
     }
   }
 }

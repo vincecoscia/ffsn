@@ -12,6 +12,14 @@
 //    last-resort fallback and is never emitted as-is.
 
 import { contentTemplates } from "./content-templates";
+import type {
+  AlmanacCurseBoard,
+  AlmanacDraftReceiptPick,
+  AlmanacRecordBook,
+  AlmanacSeasonLine,
+  AlmanacTeamRef,
+  LeagueAlmanac,
+} from "./almanac";
 import type { RelationshipTier } from "./persona-prompts";
 import type {
   LeagueDataContext,
@@ -394,6 +402,125 @@ export interface FactsPlayoffs {
   runnerUp?: string;
 }
 
+/* -------------------------------------------------------------------------- *
+ * ALMANAC block (owner ask, 2026-09-06: the Season Kickoff is written from the league's whole
+ * history, not the last three champions). `buildAlmanacFacts` carries `LeagueDataContext.almanac`
+ * (src/lib/ai/almanac.ts, computed server-side) into FACTS in a compact shape: the readable LEAGUE
+ * LEDGER prose in prompt-builder.ts tells the whole story, so FACTS keeps only what a writer would
+ * cite and the verifier must be able to check - every id, every name a writer may print, and every
+ * cited figure as a number (`collectNumbers` walks numeric values, not strings). Internal keys,
+ * derived rates (win pct, points per game), season spans and a departed manager's detail are left
+ * to the prose. `currentTeamId` is re-resolved against this season's `TeamIndex` so it is the same
+ * `T…` id the rest of FACTS uses. Present for `season_welcome` only.
+ * -------------------------------------------------------------------------- */
+
+/** One side of a past season: id, names, record and points. `seed` only on a season's champion. */
+export interface FactsAlmanacTeamRef {
+  teamId: string;
+  team: string;
+  manager: string;
+  record?: string;
+  pointsFor?: number;
+  seed?: number;
+}
+
+export interface FactsAlmanacSeason {
+  season: number;
+  teamCount: number;
+  champion?: FactsAlmanacTeamRef;
+  runnerUp?: FactsAlmanacTeamRef;
+  regularSeasonChampion?: FactsAlmanacTeamRef;
+  lastPlace?: FactsAlmanacTeamRef;
+  topScorer?: FactsAlmanacTeamRef;
+  /** The championship game. Its sides are `champion` and `runnerUp` above, so only their ids repeat here. */
+  final?: { winnerTeamId: string; loserTeamId: string; winnerScore: number; loserScore: number; margin: number; week: number };
+  unlikelyChampion?: { reason: string };
+}
+
+/** A manager's best or worst season, as much of it as a writer cites. */
+export interface FactsAlmanacSeasonSummary {
+  season: number;
+  team: string;
+  record: string;
+  pointsFor: number;
+}
+
+/**
+ * A manager's all-time line. A manager no longer in the league (no `currentTeamId`) carries only
+ * `manager`, `seasons`, `record`, `titles`, `runnerUps` and `teamNames`; a current manager carries
+ * everything, and `lines` (every completed season) while the block fits its budget.
+ */
+export interface FactsAlmanacManager {
+  manager: string;
+  currentTeamId?: string;
+  /** Points per game, all-time - kept in FACTS so "128.0 a game" verifies (the prose prints it). */
+  pointsPerGame?: number;
+  currentTeam?: string;
+  seasons: number;
+  /** "53-30" (ties appended only when non-zero). */
+  record: string;
+  pointsFor?: number;
+  titles: number[];
+  runnerUps: number[];
+  regularSeasonTitles?: number[];
+  playoffAppearances?: number;
+  playoffStreak?: number;
+  lastPlaceFinishes?: number[];
+  yearsSinceTitle?: number;
+  teamNames: string[];
+  bestSeason?: FactsAlmanacSeasonSummary;
+  worstSeason?: FactsAlmanacSeasonSummary;
+  lines?: AlmanacSeasonLine[];
+}
+
+export interface FactsAlmanacDraftPick {
+  pick: number;
+  teamId: string;
+  team: string;
+  manager: string;
+  player: string;
+  pos?: string;
+  seasonPoints?: number;
+  firstRoundRank?: number;
+  /** The drafting team's regular-season record that year. */
+  finish?: string;
+}
+
+export interface FactsAlmanacDraft {
+  season: number;
+  firstRound: FactsAlmanacDraftPick[];
+  titlePick?: FactsAlmanacDraftPick;
+  best?: FactsAlmanacDraftPick;
+  worst?: FactsAlmanacDraftPick;
+}
+
+export interface FactsAlmanacRivalry {
+  a: { manager: string; currentTeamId?: string };
+  b: { manager: string; currentTeamId?: string };
+  games: number;
+  aWins: number;
+  bWins: number;
+  ties: number;
+  lastMeeting?: { season: number; week: number; winnerManager: string; margin: number };
+  currentStreak?: { manager: string; wins: number };
+}
+
+export interface FactsAlmanac {
+  currentSeason: number;
+  foundedSeason?: number;
+  /** Completed seasons with results, ascending. Empty for a league's first season. */
+  seasonsCovered: number[];
+  seasons: FactsAlmanacSeason[];
+  /** Titles desc, then wins desc; a manager no longer in the league has no `currentTeamId`. */
+  managers: FactsAlmanacManager[];
+  curseBoard: AlmanacCurseBoard;
+  records: AlmanacRecordBook;
+  rivalries: FactsAlmanacRivalry[];
+  drafts: FactsAlmanacDraft[];
+  /** Plain-English caveats from the almanac, plus a line of this block's own when it had to drop the per-season lines. */
+  notes: string[];
+}
+
 export interface FactsBlock {
   schema: "ffsn.facts.v1";
   league: { name: string; week?: number; season: number; teamCount: number; scoring?: string };
@@ -419,6 +546,8 @@ export interface FactsBlock {
   playoffs?: FactsPlayoffs;
   /** Positional ranks league-wide (see FactsBoard); absent when the payload carries no board. */
   board?: FactsBoard;
+  /** The league's all-seasons history (see FactsAlmanac). `season_welcome` only; absent everywhere else. */
+  almanac?: FactsAlmanac;
   standings: Array<{
     rank: number;
     teamId: string;
@@ -1002,6 +1131,16 @@ export function computeMissingRequiredData(contentType: string, data: LeagueData
           missing.push("injuryReport — not collected for this content type");
         }
         break;
+      // The Season Kickoff (2026-09-06) is written from the League Almanac. A league in its first
+      // season has no history to write from, and the writer is told so in plain English rather
+      // than handed a blank ledger to rant about.
+      case "almanac":
+        if (!data.almanac || data.almanac.seasonsCovered.length === 0) {
+          missing.push(
+            "almanac — no completed seasons on record; this is the league's first season: write the kickoff from the teams, the managers and the draft, not from history"
+          );
+        }
+        break;
       default:
         break;
     }
@@ -1510,6 +1649,181 @@ export function buildPlayoffs(data: LeagueDataContext, teams: TeamIndex): FactsP
 }
 
 /**
+ * The budget for the serialized ALMANAC block, in characters of the pretty-printed FACTS JSON
+ * (`serializeFacts`, indent 2). A ten-team, seven-season league carries about 70 per-season lines
+ * across its managers; when the block would run over this, `buildAlmanacFacts` drops `lines`
+ * (the all-time totals, the best and worst season and every season's result still stand) and says
+ * so in `notes`. Everything else is kept whole.
+ */
+export const ALMANAC_FACTS_BUDGET = 24_000;
+
+/** Length of one FACTS sub-block as `serializeFacts` would print it. */
+export function serializedLength(value: unknown): number {
+  return JSON.stringify(value, null, 2).length;
+}
+
+/**
+ * Assembles the ALMANAC facts from `data.almanac` (owner ask, 2026-09-06: the Season Kickoff is
+ * written from the league's whole history). The almanac is computed server-side and arrives
+ * finished; this carries it into FACTS in the compact shape documented on `FactsAlmanac`, with
+ * every `currentTeamId` re-resolved through the same `TeamIndex` as the rest of FACTS, and drops
+ * the per-season `lines` when the block would still run over `ALMANAC_FACTS_BUDGET`. Absent
+ * entirely (any other content type, or a payload from before the almanac existed) yields nothing.
+ */
+export function buildAlmanacFacts(data: LeagueDataContext, teams: TeamIndex): FactsAlmanac | undefined {
+  const raw: LeagueAlmanac | undefined = data.almanac;
+  if (!raw) return undefined;
+
+  // The almanac's `currentTeamId` is already "T" + externalId; resolving it (and the current team
+  // name) through the index guards a payload whose team ids and almanac ids disagree.
+  const current = (id: string | undefined, name?: string): string | undefined => {
+    if (id === undefined && name === undefined) return undefined;
+    const hit = teams.resolve(id, name);
+    return hit === "T?" ? id : hit;
+  };
+  const withCurrent = <T extends { currentTeamId?: string }>(entry: T): T => ({ ...entry, currentTeamId: current(entry.currentTeamId) });
+  const ref = (side: AlmanacTeamRef | undefined, withSeed = false): FactsAlmanacTeamRef | undefined => {
+    if (!side) return undefined;
+    return {
+      teamId: side.teamId,
+      team: side.team,
+      manager: side.manager,
+      record: side.record,
+      pointsFor: side.pointsFor,
+      seed: withSeed ? side.seed : undefined,
+    };
+  };
+
+  const seasons: FactsAlmanacSeason[] = raw.seasons.map(season => ({
+    season: season.season,
+    teamCount: season.teamCount,
+    champion: ref(season.champion, true),
+    runnerUp: ref(season.runnerUp),
+    regularSeasonChampion: ref(season.regularSeasonChampion),
+    lastPlace: ref(season.lastPlace),
+    topScorer: ref(season.topScorer),
+    final: season.final
+      ? {
+          winnerTeamId: season.final.winner.teamId,
+          loserTeamId: season.final.loser.teamId,
+          winnerScore: season.final.winnerScore,
+          loserScore: season.final.loserScore,
+          margin: season.final.margin,
+          week: season.final.week,
+        }
+      : undefined,
+    unlikelyChampion: season.unlikelyChampion,
+  }));
+
+  const summary = (line: AlmanacSeasonLine | undefined): FactsAlmanacSeasonSummary | undefined =>
+    line ? { season: line.season, team: line.team, record: line.record, pointsFor: line.pointsFor } : undefined;
+
+  const managers: FactsAlmanacManager[] = raw.managers.map(manager => {
+    const currentTeamId = manager.currentTeamId === undefined ? undefined : current(manager.currentTeamId, manager.currentTeam);
+    if (currentTeamId === undefined) {
+      // No longer in the league: the line the prose gives them is the ledger's; FACTS keeps the
+      // record, the titles and the names a writer may still print.
+      return {
+        manager: manager.manager,
+        seasons: manager.seasons,
+        record: manager.record,
+        titles: manager.titles,
+        runnerUps: manager.runnerUps,
+        teamNames: manager.teamNames,
+      };
+    }
+    return {
+      manager: manager.manager,
+      currentTeamId,
+      currentTeam: manager.currentTeam,
+      seasons: manager.seasons,
+      record: manager.record,
+      pointsFor: manager.pointsFor,
+      pointsPerGame: manager.pointsPerGame,
+      titles: manager.titles,
+      runnerUps: manager.runnerUps,
+      regularSeasonTitles: manager.regularSeasonTitles,
+      playoffAppearances: manager.playoffAppearances,
+      playoffStreak: manager.playoffStreak,
+      lastPlaceFinishes: manager.lastPlaceFinishes,
+      yearsSinceTitle: manager.yearsSinceTitle,
+      teamNames: manager.teamNames,
+      bestSeason: summary(manager.bestSeason),
+      worstSeason: summary(manager.worstSeason),
+      lines: manager.lines,
+    };
+  });
+
+  const pick = (entry: AlmanacDraftReceiptPick | undefined): FactsAlmanacDraftPick | undefined =>
+    entry
+      ? {
+          pick: entry.pick,
+          teamId: entry.teamId,
+          team: entry.team,
+          manager: entry.manager,
+          player: entry.player,
+          pos: entry.pos,
+          seasonPoints: entry.seasonPoints,
+          firstRoundRank: entry.firstRoundRank,
+          finish: entry.teamFinish?.record,
+        }
+      : undefined;
+  const drafts: FactsAlmanacDraft[] = raw.drafts.map(draft => ({
+    season: draft.season,
+    firstRound: draft.firstRound.map(entry => pick(entry)!),
+    titlePick: pick(draft.titlePick),
+    best: pick(draft.best),
+    worst: pick(draft.worst),
+  }));
+
+  const curseBoard: AlmanacCurseBoard = {
+    mostPointsNoTitle: raw.curseBoard.mostPointsNoTitle ? withCurrent(raw.curseBoard.mostPointsNoTitle) : undefined,
+    longestDrought: raw.curseBoard.longestDrought ? withCurrent(raw.curseBoard.longestDrought) : undefined,
+    neverWon: raw.curseBoard.neverWon.map(withCurrent),
+    alwaysTheBridesmaid: raw.curseBoard.alwaysTheBridesmaid ? withCurrent(raw.curseBoard.alwaysTheBridesmaid) : undefined,
+    neverMadePlayoffs: raw.curseBoard.neverMadePlayoffs.map(withCurrent),
+    mostLastPlaces: raw.curseBoard.mostLastPlaces ? withCurrent(raw.curseBoard.mostLastPlaces) : undefined,
+  };
+
+  const rivalries: FactsAlmanacRivalry[] = raw.rivalries.map(rivalry => ({
+    a: { manager: rivalry.a.manager, currentTeamId: current(rivalry.a.currentTeamId) },
+    b: { manager: rivalry.b.manager, currentTeamId: current(rivalry.b.currentTeamId) },
+    games: rivalry.games,
+    aWins: rivalry.aWins,
+    bWins: rivalry.bWins,
+    ties: rivalry.ties,
+    lastMeeting: rivalry.lastMeeting,
+    currentStreak: rivalry.currentStreak,
+  }));
+
+  const almanac: FactsAlmanac = {
+    currentSeason: raw.currentSeason,
+    foundedSeason: raw.foundedSeason,
+    seasonsCovered: [...raw.seasonsCovered],
+    seasons,
+    managers,
+    curseBoard,
+    records: raw.records,
+    rivalries,
+    drafts,
+    notes: [...raw.notes],
+  };
+
+  if (serializedLength(almanac) <= ALMANAC_FACTS_BUDGET) return almanac;
+  return {
+    ...almanac,
+    managers: managers.map(manager => {
+      const { lines: _lines, ...rest } = manager;
+      return rest;
+    }),
+    notes: [
+      ...almanac.notes,
+      "per-season lines are omitted here for size; each manager's all-time totals, best and worst season, and every season's result above still stand",
+    ],
+  };
+}
+
+/**
  * Assembles the BOARD facts from `data.playerBoard`. Every entry's id is the same `P<espnId>` the
  * rosters block uses, so the verifier already knows the player, and every team is resolved
  * through the same `TeamIndex` as the rest of FACTS. Absent entirely (a payload from before the
@@ -1743,20 +2057,31 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const teams = new TeamIndex(data);
   const looseData = data as Loose;
 
+  // The Season Kickoff (2026-09-06) is written before a snap is played: there is no standing, no
+  // record and no points-for THIS season, and the prod piece that was handed "0-0-0, 0.0 PF" for
+  // every team wrote about it. The all-time and past-season numbers live in `almanac` instead.
+  const isKickoff = req.contentType === "season_welcome";
+
   const matchups = buildMatchups(data, teams);
   const upcoming = buildUpcoming(data, teams);
   const rosters = buildRosters(data, teams);
   const inGameInjuries = buildInGameInjuries(data, teams);
 
-  const standings = (data.standings ?? []).map(row => ({
-    rank: row.rank,
-    teamId: teams.resolve(row.teamId, row.team, asLoose(row).teamName, asLoose(row).externalId, asLoose(row).owner),
-    record: `${row.wins}-${row.losses}-${row.ties ?? 0}`,
-    pointsFor: num(row.pointsFor) ?? 0,
-    streak: row.streakType && row.streakLength ? `${row.streakType}${row.streakLength}` : undefined,
-    seed: row.playoffSeed,
-    division: str(asLoose(row).division),
-  }));
+  const standings = isKickoff
+    ? []
+    : (data.standings ?? []).map(row => ({
+        rank: row.rank,
+        teamId: teams.resolve(row.teamId, row.team, asLoose(row).teamName, asLoose(row).externalId, asLoose(row).owner),
+        record: `${row.wins}-${row.losses}-${row.ties ?? 0}`,
+        pointsFor: num(row.pointsFor) ?? 0,
+        streak: row.streakType && row.streakLength ? `${row.streakType}${row.streakLength}` : undefined,
+        seed: row.playoffSeed,
+        division: str(asLoose(row).division),
+      }));
+
+  const factsTeams: FactsTeam[] = isKickoff
+    ? teams.teams.map(team => ({ id: team.id, teamId: team.teamId, name: team.name, manager: team.manager, record: "preseason", division: team.division }))
+    : teams.teams;
 
   const transactions = (data.transactions ?? []).map((transaction, index) => ({
     id: `X${index + 1}`,
@@ -1854,7 +2179,8 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
   const draftPool = buildDraftPoolFacts(data);
   // Before kickoff every record is a blank and every standing is alphabetical; a writer handed
   // them anyway wrote "0-0 Halyard Bay leads the league". The board is the material instead.
-  if (board?.basis === "this week's projections") {
+  // (The Season Kickoff has its own rules for this and no records at all in FACTS.)
+  if (board?.basis === "this week's projections" && !isKickoff) {
     missing.push(
       "no games played yet - every record is 0-0; do not cite records, standings or scores as if they meant something; projections, draft slots and positional rank are the material"
     );
@@ -1914,8 +2240,10 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     new Date().getFullYear();
 
   // The feeds had nothing (or the sync has not run): the writer must not describe an injury, a
-  // practice report or a news item the rosters and the pool do not carry.
-  if (!data.playerIntel || data.playerIntel.length === 0) {
+  // practice report or a news item the rosters and the pool do not carry. The kickoff piece has
+  // no feed at all and its absence is not a story (the prod piece ranted that "the injury feed
+  // did not come through today").
+  if (!isKickoff && (!data.playerIntel || data.playerIntel.length === 0)) {
     missing.push("intel — no fresh injury, practice or news feed today; the only injury facts are the injuryStatus fields on the rosters and the draft pool");
   }
 
@@ -1930,19 +2258,20 @@ export function buildFactsBlock(req: FactsRequest): FactsBlock {
     },
     format,
     waivers,
-    teams: teams.teams,
+    teams: factsTeams,
     matchups,
     rosters: rosters.length > 0 ? rosters : undefined,
     upcoming,
     playoffs,
     board,
+    almanac: isKickoff ? buildAlmanacFacts(data, teams) : undefined,
     standings,
     transactions,
     trades,
     draftPicks: draftPicks.length > 0 ? draftPicks : undefined,
     draftPool,
     mockDraft: buildMockDraftFacts(data, teams),
-    intel: buildIntelFacts(data, rosters, draftPool),
+    intel: isKickoff ? undefined : buildIntelFacts(data, rosters, draftPool),
     inGameInjuries,
     quotes,
     nonRespondents,

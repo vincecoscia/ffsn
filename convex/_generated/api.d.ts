@@ -43,6 +43,7 @@ import type * as intel from "../intel.js";
 import type * as intelSync from "../intelSync.js";
 import type * as languageSettings from "../languageSettings.js";
 import type * as leagues from "../leagues.js";
+import type * as lib_almanacData from "../lib/almanacData.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_contentCalendar from "../lib/contentCalendar.js";
 import type * as lib_declineDetection from "../lib/declineDetection.js";
@@ -164,6 +165,7 @@ declare const fullApi: ApiFromModules<{
   intelSync: typeof intelSync;
   languageSettings: typeof languageSettings;
   leagues: typeof leagues;
+  "lib/almanacData": typeof lib_almanacData;
   "lib/auth": typeof lib_auth;
   "lib/contentCalendar": typeof lib_contentCalendar;
   "lib/declineDetection": typeof lib_declineDetection;

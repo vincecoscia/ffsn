@@ -1,0 +1,1185 @@
+{
+  "name": "season-kickoff",
+  "description": "The Ironclad Fantasy Conference before a snap of 2026 is played: four teams at 0-0-0 with a blank standings table, a three-season League Almanac (2023-2025) with a title every year, one changing team name, two seasons of draft receipts, the draft held and week 1 twelve days out. The Season Kickoff case: FACTS must carry the almanac and no standings, and every other type must see an ordinary preseason payload.",
+  "leagueData": {
+    "leagueName": "Ironclad Fantasy Conference",
+    "currentWeek": 0,
+    "currentSeason": 2026,
+    "season": 2026,
+    "scoringType": "PPR",
+    "rosterSize": 16,
+    "playoffTeams": 2,
+    "regularSeasonWeeks": 14,
+    "totalTeams": 4,
+    "teams": [
+      {
+        "id": "team_01",
+        "externalId": "1",
+        "name": "Gravel Pit Grinders",
+        "manager": "Dana Whitlock",
+        "record": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 0,
+          "pointsAgainst": 0
+        },
+        "pointsFor": 0,
+        "pointsAgainst": 0,
+        "roster": []
+      },
+      {
+        "id": "team_02",
+        "externalId": "2",
+        "name": "Cedar Falls Cormorants",
+        "manager": "Marcus Bly",
+        "record": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 0,
+          "pointsAgainst": 0
+        },
+        "pointsFor": 0,
+        "pointsAgainst": 0,
+        "roster": []
+      },
+      {
+        "id": "team_03",
+        "externalId": "3",
+        "name": "Quarry Road Quakers",
+        "manager": "Priya Nandi",
+        "record": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 0,
+          "pointsAgainst": 0
+        },
+        "pointsFor": 0,
+        "pointsAgainst": 0,
+        "roster": []
+      },
+      {
+        "id": "team_04",
+        "externalId": "4",
+        "name": "Ninth Street Nightjars",
+        "manager": "Trevor Ashby",
+        "record": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 0,
+          "pointsAgainst": 0
+        },
+        "pointsFor": 0,
+        "pointsAgainst": 0,
+        "roster": []
+      }
+    ],
+    "standings": [
+      {
+        "rank": 1,
+        "team": "Gravel Pit Grinders",
+        "teamId": "1",
+        "wins": 0,
+        "losses": 0,
+        "ties": 0,
+        "pointsFor": 0,
+        "pointsAgainst": 0
+      },
+      {
+        "rank": 2,
+        "team": "Cedar Falls Cormorants",
+        "teamId": "2",
+        "wins": 0,
+        "losses": 0,
+        "ties": 0,
+        "pointsFor": 0,
+        "pointsAgainst": 0
+      },
+      {
+        "rank": 3,
+        "team": "Quarry Road Quakers",
+        "teamId": "3",
+        "wins": 0,
+        "losses": 0,
+        "ties": 0,
+        "pointsFor": 0,
+        "pointsAgainst": 0
+      },
+      {
+        "rank": 4,
+        "team": "Ninth Street Nightjars",
+        "teamId": "4",
+        "wins": 0,
+        "losses": 0,
+        "ties": 0,
+        "pointsFor": 0,
+        "pointsAgainst": 0
+      }
+    ],
+    "almanac": {
+      "schema": "ffsn.almanac.v1",
+      "currentSeason": 2026,
+      "foundedSeason": 2023,
+      "seasonsCovered": [
+        2023,
+        2024,
+        2025
+      ],
+      "seasons": [
+        {
+          "season": 2023,
+          "teamCount": 4,
+          "champion": {
+            "teamId": "T1",
+            "team": "Gravel Pit Grinders",
+            "managerKey": "m0",
+            "manager": "Dana Whitlock",
+            "record": "11-3",
+            "pointsFor": 1775,
+            "seed": 1
+          },
+          "runnerUp": {
+            "teamId": "T2",
+            "team": "Cedar Falls Cormorants",
+            "managerKey": "m1",
+            "manager": "Marcus Bly",
+            "record": "8-6",
+            "pointsFor": 1703.3,
+            "seed": 2
+          },
+          "regularSeasonChampion": {
+            "teamId": "T1",
+            "team": "Gravel Pit Grinders",
+            "managerKey": "m0",
+            "manager": "Dana Whitlock",
+            "record": "11-3",
+            "pointsFor": 1775,
+            "seed": 1
+          },
+          "lastPlace": {
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "record": "3-11",
+            "pointsFor": 1584.9
+          },
+          "topScorer": {
+            "teamId": "T2",
+            "team": "Cedar Falls Cormorants",
+            "managerKey": "m1",
+            "manager": "Marcus Bly",
+            "record": "8-6",
+            "pointsFor": 1703.3
+          },
+          "final": {
+            "winner": {
+              "teamId": "T1",
+              "team": "Gravel Pit Grinders",
+              "managerKey": "m0",
+              "manager": "Dana Whitlock",
+              "record": "11-3",
+              "pointsFor": 1775,
+              "seed": 1
+            },
+            "loser": {
+              "teamId": "T2",
+              "team": "Cedar Falls Cormorants",
+              "managerKey": "m1",
+              "manager": "Marcus Bly",
+              "record": "8-6",
+              "pointsFor": 1703.3,
+              "seed": 2
+            },
+            "winnerScore": 139.4,
+            "loserScore": 96.7,
+            "margin": 42.7,
+            "week": 17
+          }
+        },
+        {
+          "season": 2024,
+          "teamCount": 4,
+          "champion": {
+            "teamId": "T1",
+            "team": "Whitlock's Wreckers",
+            "managerKey": "m0",
+            "manager": "Dana Whitlock",
+            "record": "8-6",
+            "pointsFor": 1701.1,
+            "seed": 2
+          },
+          "runnerUp": {
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "record": "11-3",
+            "pointsFor": 1786,
+            "seed": 1
+          },
+          "regularSeasonChampion": {
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "record": "11-3",
+            "pointsFor": 1786,
+            "seed": 1
+          },
+          "lastPlace": {
+            "teamId": "T3",
+            "team": "Quarry Road Quakers",
+            "managerKey": "m2",
+            "manager": "Priya Nandi",
+            "record": "3-11",
+            "pointsFor": 1582.7
+          },
+          "topScorer": {
+            "teamId": "T1",
+            "team": "Whitlock's Wreckers",
+            "managerKey": "m0",
+            "manager": "Dana Whitlock",
+            "record": "8-6",
+            "pointsFor": 1701.1
+          },
+          "final": {
+            "winner": {
+              "teamId": "T1",
+              "team": "Whitlock's Wreckers",
+              "managerKey": "m0",
+              "manager": "Dana Whitlock",
+              "record": "8-6",
+              "pointsFor": 1701.1,
+              "seed": 2
+            },
+            "loser": {
+              "teamId": "T4",
+              "team": "Ninth Street Nightjars",
+              "managerKey": "m3",
+              "manager": "Trevor Ashby",
+              "record": "11-3",
+              "pointsFor": 1786,
+              "seed": 1
+            },
+            "winnerScore": 141.7,
+            "loserScore": 100.8,
+            "margin": 40.9,
+            "week": 17
+          }
+        },
+        {
+          "season": 2025,
+          "teamCount": 4,
+          "champion": {
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "record": "8-6",
+            "pointsFor": 1712.1,
+            "seed": 2
+          },
+          "runnerUp": {
+            "teamId": "T3",
+            "team": "Quarry Road Quakers",
+            "managerKey": "m2",
+            "manager": "Priya Nandi",
+            "record": "11-3",
+            "pointsFor": 1783.8,
+            "seed": 1
+          },
+          "regularSeasonChampion": {
+            "teamId": "T3",
+            "team": "Quarry Road Quakers",
+            "managerKey": "m2",
+            "manager": "Priya Nandi",
+            "record": "11-3",
+            "pointsFor": 1783.8,
+            "seed": 1
+          },
+          "lastPlace": {
+            "teamId": "T2",
+            "team": "Cedar Falls Cormorants",
+            "managerKey": "m1",
+            "manager": "Marcus Bly",
+            "record": "3-11",
+            "pointsFor": 1580.5
+          },
+          "topScorer": {
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "record": "8-6",
+            "pointsFor": 1712.1
+          },
+          "final": {
+            "winner": {
+              "teamId": "T4",
+              "team": "Ninth Street Nightjars",
+              "managerKey": "m3",
+              "manager": "Trevor Ashby",
+              "record": "8-6",
+              "pointsFor": 1712.1,
+              "seed": 2
+            },
+            "loser": {
+              "teamId": "T3",
+              "team": "Quarry Road Quakers",
+              "managerKey": "m2",
+              "manager": "Priya Nandi",
+              "record": "11-3",
+              "pointsFor": 1783.8,
+              "seed": 1
+            },
+            "winnerScore": 144,
+            "loserScore": 103.9,
+            "margin": 40.1,
+            "week": 17
+          }
+        }
+      ],
+      "managers": [
+        {
+          "key": "m0",
+          "manager": "Dana Whitlock",
+          "currentTeamId": "T1",
+          "currentTeam": "Gravel Pit Grinders",
+          "seasons": 3,
+          "firstSeason": 2023,
+          "lastSeason": 2025,
+          "wins": 25,
+          "losses": 17,
+          "ties": 0,
+          "record": "25-17",
+          "winPct": 0.595,
+          "pointsFor": 5128.3,
+          "pointsAgainst": 4840,
+          "pointsPerGame": 122.1,
+          "titles": [
+            2023,
+            2024
+          ],
+          "runnerUps": [],
+          "regularSeasonTitles": [
+            2023
+          ],
+          "playoffAppearances": 2,
+          "playoffStreak": 0,
+          "lastPlaceFinishes": [],
+          "bestSeason": {
+            "season": 2023,
+            "team": "Gravel Pit Grinders",
+            "record": "11-3",
+            "pointsFor": 1775,
+            "finish": 1,
+            "madePlayoffs": true,
+            "champion": true,
+            "runnerUp": false
+          },
+          "worstSeason": {
+            "season": 2025,
+            "team": "Gravel Pit Gravy",
+            "record": "6-8",
+            "pointsFor": 1652.2,
+            "finish": 3,
+            "madePlayoffs": false,
+            "champion": false,
+            "runnerUp": false
+          },
+          "yearsSinceTitle": 1,
+          "teamNames": [
+            "Gravel Pit Grinders",
+            "Whitlock's Wreckers",
+            "Gravel Pit Gravy"
+          ],
+          "lines": [
+            {
+              "season": 2023,
+              "team": "Gravel Pit Grinders",
+              "record": "11-3",
+              "pointsFor": 1775,
+              "finish": 1,
+              "madePlayoffs": true,
+              "champion": true,
+              "runnerUp": false
+            },
+            {
+              "season": 2024,
+              "team": "Whitlock's Wreckers",
+              "record": "8-6",
+              "pointsFor": 1701.1,
+              "finish": 2,
+              "madePlayoffs": true,
+              "champion": true,
+              "runnerUp": false
+            },
+            {
+              "season": 2025,
+              "team": "Gravel Pit Gravy",
+              "record": "6-8",
+              "pointsFor": 1652.2,
+              "finish": 3,
+              "madePlayoffs": false,
+              "champion": false,
+              "runnerUp": false
+            }
+          ]
+        },
+        {
+          "key": "m3",
+          "manager": "Trevor Ashby",
+          "currentTeamId": "T4",
+          "currentTeam": "Ninth Street Nightjars",
+          "seasons": 3,
+          "firstSeason": 2023,
+          "lastSeason": 2025,
+          "wins": 22,
+          "losses": 20,
+          "ties": 0,
+          "record": "22-20",
+          "winPct": 0.524,
+          "pointsFor": 5083,
+          "pointsAgainst": 4918.9,
+          "pointsPerGame": 121,
+          "titles": [
+            2025
+          ],
+          "runnerUps": [
+            2024
+          ],
+          "regularSeasonTitles": [
+            2024
+          ],
+          "playoffAppearances": 2,
+          "playoffStreak": 2,
+          "lastPlaceFinishes": [
+            2023
+          ],
+          "bestSeason": {
+            "season": 2024,
+            "team": "Ninth Street Nightjars",
+            "record": "11-3",
+            "pointsFor": 1786,
+            "finish": 1,
+            "madePlayoffs": true,
+            "champion": false,
+            "runnerUp": true
+          },
+          "worstSeason": {
+            "season": 2023,
+            "team": "Ninth Street Nightjars",
+            "record": "3-11",
+            "pointsFor": 1584.9,
+            "finish": 4,
+            "madePlayoffs": false,
+            "champion": false,
+            "runnerUp": false
+          },
+          "yearsSinceTitle": 0,
+          "teamNames": [
+            "Ninth Street Nightjars"
+          ],
+          "lines": [
+            {
+              "season": 2023,
+              "team": "Ninth Street Nightjars",
+              "record": "3-11",
+              "pointsFor": 1584.9,
+              "finish": 4,
+              "madePlayoffs": false,
+              "champion": false,
+              "runnerUp": false
+            },
+            {
+              "season": 2024,
+              "team": "Ninth Street Nightjars",
+              "record": "11-3",
+              "pointsFor": 1786,
+              "finish": 1,
+              "madePlayoffs": true,
+              "champion": false,
+              "runnerUp": true
+            },
+            {
+              "season": 2025,
+              "team": "Ninth Street Nightjars",
+              "record": "8-6",
+              "pointsFor": 1712.1,
+              "finish": 2,
+              "madePlayoffs": true,
+              "champion": true,
+              "runnerUp": false
+            }
+          ]
+        },
+        {
+          "key": "m2",
+          "manager": "Priya Nandi",
+          "currentTeamId": "T3",
+          "currentTeam": "Quarry Road Quakers",
+          "seasons": 3,
+          "firstSeason": 2023,
+          "lastSeason": 2025,
+          "wins": 20,
+          "losses": 22,
+          "ties": 0,
+          "record": "20-22",
+          "winPct": 0.476,
+          "pointsFor": 5023.1,
+          "pointsAgainst": 4952.6,
+          "pointsPerGame": 119.6,
+          "titles": [],
+          "runnerUps": [
+            2025
+          ],
+          "regularSeasonTitles": [
+            2025
+          ],
+          "playoffAppearances": 1,
+          "playoffStreak": 1,
+          "lastPlaceFinishes": [
+            2024
+          ],
+          "bestSeason": {
+            "season": 2025,
+            "team": "Quarry Road Quakers",
+            "record": "11-3",
+            "pointsFor": 1783.8,
+            "finish": 1,
+            "madePlayoffs": true,
+            "champion": false,
+            "runnerUp": true
+          },
+          "worstSeason": {
+            "season": 2024,
+            "team": "Quarry Road Quakers",
+            "record": "3-11",
+            "pointsFor": 1582.7,
+            "finish": 4,
+            "madePlayoffs": false,
+            "champion": false,
+            "runnerUp": false
+          },
+          "teamNames": [
+            "Quarry Road Quakers"
+          ],
+          "lines": [
+            {
+              "season": 2023,
+              "team": "Quarry Road Quakers",
+              "record": "6-8",
+              "pointsFor": 1656.6,
+              "finish": 3,
+              "madePlayoffs": false,
+              "champion": false,
+              "runnerUp": false
+            },
+            {
+              "season": 2024,
+              "team": "Quarry Road Quakers",
+              "record": "3-11",
+              "pointsFor": 1582.7,
+              "finish": 4,
+              "madePlayoffs": false,
+              "champion": false,
+              "runnerUp": false
+            },
+            {
+              "season": 2025,
+              "team": "Quarry Road Quakers",
+              "record": "11-3",
+              "pointsFor": 1783.8,
+              "finish": 1,
+              "madePlayoffs": true,
+              "champion": false,
+              "runnerUp": true
+            }
+          ]
+        },
+        {
+          "key": "m1",
+          "manager": "Marcus Bly",
+          "currentTeamId": "T2",
+          "currentTeam": "Cedar Falls Cormorants",
+          "seasons": 3,
+          "firstSeason": 2023,
+          "lastSeason": 2025,
+          "wins": 17,
+          "losses": 25,
+          "ties": 0,
+          "record": "17-25",
+          "winPct": 0.405,
+          "pointsFor": 4938.2,
+          "pointsAgainst": 5006.3,
+          "pointsPerGame": 117.6,
+          "titles": [],
+          "runnerUps": [
+            2023
+          ],
+          "regularSeasonTitles": [],
+          "playoffAppearances": 1,
+          "playoffStreak": 0,
+          "lastPlaceFinishes": [
+            2025
+          ],
+          "bestSeason": {
+            "season": 2023,
+            "team": "Cedar Falls Cormorants",
+            "record": "8-6",
+            "pointsFor": 1703.3,
+            "finish": 2,
+            "madePlayoffs": true,
+            "champion": false,
+            "runnerUp": true
+          },
+          "worstSeason": {
+            "season": 2025,
+            "team": "Cedar Falls Cormorants",
+            "record": "3-11",
+            "pointsFor": 1580.5,
+            "finish": 4,
+            "madePlayoffs": false,
+            "champion": false,
+            "runnerUp": false
+          },
+          "teamNames": [
+            "Cedar Falls Cormorants"
+          ],
+          "lines": [
+            {
+              "season": 2023,
+              "team": "Cedar Falls Cormorants",
+              "record": "8-6",
+              "pointsFor": 1703.3,
+              "finish": 2,
+              "madePlayoffs": true,
+              "champion": false,
+              "runnerUp": true
+            },
+            {
+              "season": 2024,
+              "team": "Cedar Falls Cormorants",
+              "record": "6-8",
+              "pointsFor": 1654.4,
+              "finish": 3,
+              "madePlayoffs": false,
+              "champion": false,
+              "runnerUp": false
+            },
+            {
+              "season": 2025,
+              "team": "Cedar Falls Cormorants",
+              "record": "3-11",
+              "pointsFor": 1580.5,
+              "finish": 4,
+              "madePlayoffs": false,
+              "champion": false,
+              "runnerUp": false
+            }
+          ]
+        }
+      ],
+      "curseBoard": {
+        "mostPointsNoTitle": {
+          "manager": "Priya Nandi",
+          "currentTeamId": "T3",
+          "pointsFor": 5023.1,
+          "seasons": 3,
+          "playoffAppearances": 1
+        },
+        "longestDrought": {
+          "manager": "Dana Whitlock",
+          "currentTeamId": "T1",
+          "yearsSinceTitle": 1,
+          "lastTitle": 2024
+        },
+        "neverWon": [
+          {
+            "manager": "Priya Nandi",
+            "currentTeamId": "T3",
+            "seasons": 3,
+            "playoffAppearances": 1,
+            "runnerUps": 1
+          },
+          {
+            "manager": "Marcus Bly",
+            "currentTeamId": "T2",
+            "seasons": 3,
+            "playoffAppearances": 1,
+            "runnerUps": 1
+          }
+        ],
+        "alwaysTheBridesmaid": {
+          "manager": "Priya Nandi",
+          "currentTeamId": "T3",
+          "runnerUps": 1
+        },
+        "neverMadePlayoffs": [],
+        "mostLastPlaces": {
+          "manager": "Trevor Ashby",
+          "currentTeamId": "T4",
+          "count": 1,
+          "seasons": [
+            2023
+          ]
+        }
+      },
+      "records": {
+        "biggestBlowout": {
+          "season": 2023,
+          "week": 17,
+          "playoffTier": "WINNERS_BRACKET",
+          "winner": {
+            "team": "Gravel Pit Grinders",
+            "manager": "Dana Whitlock",
+            "score": 139.4
+          },
+          "loser": {
+            "team": "Cedar Falls Cormorants",
+            "manager": "Marcus Bly",
+            "score": 96.7
+          },
+          "margin": 42.7
+        },
+        "closestGame": {
+          "season": 2025,
+          "week": 17,
+          "playoffTier": "WINNERS_BRACKET",
+          "winner": {
+            "team": "Ninth Street Nightjars",
+            "manager": "Trevor Ashby",
+            "score": 144
+          },
+          "loser": {
+            "team": "Quarry Road Quakers",
+            "manager": "Priya Nandi",
+            "score": 103.9
+          },
+          "margin": 40.1
+        },
+        "highestScore": {
+          "season": 2024,
+          "week": 9,
+          "team": "Ninth Street Nightjars",
+          "manager": "Trevor Ashby",
+          "score": 196.3
+        },
+        "lowestScore": {
+          "season": 2025,
+          "week": 4,
+          "team": "Cedar Falls Cormorants",
+          "manager": "Marcus Bly",
+          "score": 49.9
+        },
+        "bestRegularSeason": {
+          "season": 2024,
+          "team": "Ninth Street Nightjars",
+          "record": "11-3",
+          "pointsFor": 1786,
+          "finish": 1,
+          "madePlayoffs": true,
+          "champion": false,
+          "runnerUp": true,
+          "manager": "Trevor Ashby"
+        },
+        "worstRegularSeason": {
+          "season": 2025,
+          "team": "Cedar Falls Cormorants",
+          "record": "3-11",
+          "pointsFor": 1580.5,
+          "finish": 4,
+          "madePlayoffs": false,
+          "champion": false,
+          "runnerUp": false,
+          "manager": "Marcus Bly"
+        },
+        "mostPointsInASeason": {
+          "season": 2024,
+          "team": "Ninth Street Nightjars",
+          "record": "11-3",
+          "pointsFor": 1786,
+          "finish": 1,
+          "madePlayoffs": true,
+          "champion": false,
+          "runnerUp": true,
+          "manager": "Trevor Ashby"
+        },
+        "mostTitles": {
+          "manager": "Dana Whitlock",
+          "count": 2,
+          "seasons": [
+            2023,
+            2024
+          ]
+        },
+        "backToBack": [
+          {
+            "manager": "Dana Whitlock",
+            "seasons": [
+              2023,
+              2024
+            ]
+          }
+        ]
+      },
+      "rivalries": [
+        {
+          "a": {
+            "managerKey": "m0",
+            "manager": "Dana Whitlock",
+            "currentTeamId": "T1"
+          },
+          "b": {
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "currentTeamId": "T4"
+          },
+          "games": 6,
+          "aWins": 5,
+          "bWins": 1,
+          "ties": 0,
+          "lastMeeting": {
+            "season": 2025,
+            "week": 12,
+            "winnerManager": "Dana Whitlock",
+            "margin": 12.6
+          },
+          "currentStreak": {
+            "manager": "Dana Whitlock",
+            "wins": 2
+          }
+        },
+        {
+          "a": {
+            "managerKey": "m3",
+            "manager": "Trevor Ashby",
+            "currentTeamId": "T4"
+          },
+          "b": {
+            "managerKey": "m2",
+            "manager": "Priya Nandi",
+            "currentTeamId": "T3"
+          },
+          "games": 6,
+          "aWins": 2,
+          "bWins": 4,
+          "ties": 0,
+          "lastMeeting": {
+            "season": 2025,
+            "week": 11,
+            "winnerManager": "Priya Nandi",
+            "margin": 17
+          },
+          "currentStreak": {
+            "manager": "Priya Nandi",
+            "wins": 3
+          }
+        },
+        {
+          "a": {
+            "managerKey": "m2",
+            "manager": "Priya Nandi",
+            "currentTeamId": "T3"
+          },
+          "b": {
+            "managerKey": "m1",
+            "manager": "Marcus Bly",
+            "currentTeamId": "T2"
+          },
+          "games": 6,
+          "aWins": 5,
+          "bWins": 1,
+          "ties": 0,
+          "lastMeeting": {
+            "season": 2025,
+            "week": 10,
+            "winnerManager": "Priya Nandi",
+            "margin": 21.4
+          },
+          "currentStreak": {
+            "manager": "Priya Nandi",
+            "wins": 4
+          }
+        }
+      ],
+      "drafts": [
+        {
+          "season": 2024,
+          "firstRound": [
+            {
+              "pick": 1,
+              "round": 1,
+              "teamId": "T1",
+              "team": "Whitlock's Wreckers",
+              "manager": "Dana Whitlock",
+              "player": "Bo Larkin",
+              "pos": "RB",
+              "seasonPoints": 320.4,
+              "firstRoundRank": 1,
+              "teamFinish": {
+                "record": "8-6",
+                "madePlayoffs": true,
+                "champion": true
+              }
+            },
+            {
+              "pick": 2,
+              "round": 1,
+              "teamId": "T2",
+              "team": "Cedar Falls Cormorants",
+              "manager": "Marcus Bly",
+              "player": "Teddy Vance",
+              "pos": "WR",
+              "seasonPoints": 313,
+              "firstRoundRank": 2,
+              "teamFinish": {
+                "record": "6-8",
+                "madePlayoffs": false,
+                "champion": false
+              }
+            },
+            {
+              "pick": 3,
+              "round": 1,
+              "teamId": "T3",
+              "team": "Quarry Road Quakers",
+              "manager": "Priya Nandi",
+              "player": "Cyrus Mott",
+              "pos": "RB",
+              "seasonPoints": 275.9,
+              "firstRoundRank": 3,
+              "teamFinish": {
+                "record": "3-11",
+                "madePlayoffs": false,
+                "champion": false
+              }
+            },
+            {
+              "pick": 4,
+              "round": 1,
+              "teamId": "T4",
+              "team": "Ninth Street Nightjars",
+              "manager": "Trevor Ashby",
+              "player": "Elias Brandt",
+              "pos": "WR",
+              "seasonPoints": 258.6,
+              "firstRoundRank": 4,
+              "teamFinish": {
+                "record": "11-3",
+                "madePlayoffs": true,
+                "champion": false
+              }
+            }
+          ],
+          "titlePick": {
+            "pick": 1,
+            "round": 1,
+            "teamId": "T1",
+            "team": "Whitlock's Wreckers",
+            "manager": "Dana Whitlock",
+            "player": "Bo Larkin",
+            "pos": "RB",
+            "seasonPoints": 320.4,
+            "firstRoundRank": 1,
+            "teamFinish": {
+              "record": "8-6",
+              "madePlayoffs": true,
+              "champion": true
+            }
+          },
+          "best": {
+            "pick": 1,
+            "round": 1,
+            "teamId": "T1",
+            "team": "Whitlock's Wreckers",
+            "manager": "Dana Whitlock",
+            "player": "Bo Larkin",
+            "pos": "RB",
+            "seasonPoints": 320.4,
+            "firstRoundRank": 1,
+            "teamFinish": {
+              "record": "8-6",
+              "madePlayoffs": true,
+              "champion": true
+            }
+          },
+          "worst": {
+            "pick": 4,
+            "round": 1,
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "manager": "Trevor Ashby",
+            "player": "Elias Brandt",
+            "pos": "WR",
+            "seasonPoints": 258.6,
+            "firstRoundRank": 4,
+            "teamFinish": {
+              "record": "11-3",
+              "madePlayoffs": true,
+              "champion": false
+            }
+          }
+        },
+        {
+          "season": 2025,
+          "firstRound": [
+            {
+              "pick": 1,
+              "round": 1,
+              "teamId": "T1",
+              "team": "Gravel Pit Gravy",
+              "manager": "Dana Whitlock",
+              "player": "Bo Larkin",
+              "pos": "RB",
+              "seasonPoints": 330.3,
+              "firstRoundRank": 1,
+              "teamFinish": {
+                "record": "6-8",
+                "madePlayoffs": false,
+                "champion": false
+              }
+            },
+            {
+              "pick": 2,
+              "round": 1,
+              "teamId": "T2",
+              "team": "Cedar Falls Cormorants",
+              "manager": "Marcus Bly",
+              "player": "Teddy Vance",
+              "pos": "WR",
+              "seasonPoints": 293.2,
+              "firstRoundRank": 2,
+              "teamFinish": {
+                "record": "3-11",
+                "madePlayoffs": false,
+                "champion": false
+              }
+            },
+            {
+              "pick": 3,
+              "round": 1,
+              "teamId": "T3",
+              "team": "Quarry Road Quakers",
+              "manager": "Priya Nandi",
+              "player": "Cyrus Mott",
+              "pos": "RB",
+              "seasonPoints": 275.9,
+              "firstRoundRank": 3,
+              "teamFinish": {
+                "record": "11-3",
+                "madePlayoffs": true,
+                "champion": false
+              }
+            },
+            {
+              "pick": 4,
+              "round": 1,
+              "teamId": "T4",
+              "team": "Ninth Street Nightjars",
+              "manager": "Trevor Ashby",
+              "player": "Elias Brandt",
+              "pos": "WR",
+              "seasonPoints": 268.5,
+              "firstRoundRank": 4,
+              "teamFinish": {
+                "record": "8-6",
+                "madePlayoffs": true,
+                "champion": true
+              }
+            }
+          ],
+          "titlePick": {
+            "pick": 4,
+            "round": 1,
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "manager": "Trevor Ashby",
+            "player": "Elias Brandt",
+            "pos": "WR",
+            "seasonPoints": 268.5,
+            "firstRoundRank": 4,
+            "teamFinish": {
+              "record": "8-6",
+              "madePlayoffs": true,
+              "champion": true
+            }
+          },
+          "best": {
+            "pick": 1,
+            "round": 1,
+            "teamId": "T1",
+            "team": "Gravel Pit Gravy",
+            "manager": "Dana Whitlock",
+            "player": "Bo Larkin",
+            "pos": "RB",
+            "seasonPoints": 330.3,
+            "firstRoundRank": 1,
+            "teamFinish": {
+              "record": "6-8",
+              "madePlayoffs": false,
+              "champion": false
+            }
+          },
+          "worst": {
+            "pick": 4,
+            "round": 1,
+            "teamId": "T4",
+            "team": "Ninth Street Nightjars",
+            "manager": "Trevor Ashby",
+            "player": "Elias Brandt",
+            "pos": "WR",
+            "seasonPoints": 268.5,
+            "firstRoundRank": 4,
+            "teamFinish": {
+              "record": "8-6",
+              "madePlayoffs": true,
+              "champion": true
+            }
+          }
+        }
+      ],
+      "notes": [
+        "Every points total is this league's own scoring, rounded to a tenth.",
+        "No draft data before 2024."
+      ]
+    },
+    "seasonKickoff": {
+      "draftDone": true,
+      "draftDate": 1788044400000,
+      "weekOneKickoffAt": 1789086000000
+    }
+  },
+  "commentResponses": [],
+  "nonRespondents": [],
+  "relationships": [
+    {
+      "userId": "user_dana",
+      "teamId": "team_01",
+      "teamName": "Gravel Pit Grinders",
+      "managerName": "Dana Whitlock",
+      "score": -41,
+      "tier": "cold",
+      "recentEvents": [
+        {
+          "type": "article_roast",
+          "delta": -10,
+          "evidence": "called the 2025 final a coronation for a team that scored like a consolation bracket",
+          "week": 17
+        }
+      ]
+    }
+  ],
+  "priorClaims": [
+    {
+      "articleId": "art_kickoff_2025",
+      "week": 17,
+      "claim": "Gravel Pit Grinders will not win another title while Dana Whitlock keeps drafting a tight end in the first round",
+      "outcome": "miss"
+    }
+  ]
+}

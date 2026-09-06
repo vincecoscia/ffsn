@@ -16,6 +16,11 @@ import { espnConnectionBlocked } from "./lib/espnConnection";
 import { alignPrintTime, localHour, nextWallClockAtOrAfter } from "./lib/printTime";
 import { LOOKBACK_INTERVIEW_TYPES, resolveInterviewees } from "./lib/interviewees";
 import { reminderTimes } from "./lib/reminderTimes";
+// `convex/lib/almanacData.ts` is deliberately pure/DB-only (no `internal`/`api` imports of its
+// own - see its file header); `src/lib/ai/almanac.ts` has no imports at all. Both are safe value
+// imports here - the League Almanac line for a season_welcome interview (owner ask, 2026-09-06).
+import { gatherAlmanacInput, managerKeyFor } from "./lib/almanacData";
+import { almanacLineFor, buildAlmanac } from "../src/lib/ai/almanac";
 
 // Helper function to identify defense positions
 function isDefensePosition(position: string): boolean {
@@ -1136,6 +1141,52 @@ export const buildConversationContext = internalQuery({
       standingsTeamIds: standings.map(s => s.teamId).slice(0, 3), // First 3 for debugging
     });
 
+    // Season kickoff (season_welcome interviews, 2026-09-06): the League Almanac line for this
+    // manager, and where the season stands, for the interview Sam runs when there is no
+    // matchup and no record yet. Bounded (one gatherer pass) and never allowed to cost the
+    // interview - a failure here just leaves both fields undefined.
+    let almanacLine: string | undefined;
+    let kickoff:
+      | { lastChampion?: string; lastChampionManager?: string; draftDone: boolean; draftDate?: number; daysToKickoff?: number }
+      | undefined;
+    if (request.contentType === "season_welcome") {
+      try {
+        const almanacInput = await gatherAlmanacInput(ctx, request.leagueId, seasonIdUsed);
+        const almanac = buildAlmanac(almanacInput);
+        const managerKey = team ? managerKeyFor(team) : undefined;
+        almanacLine = managerKey ? almanacLineFor(almanac, managerKey) : undefined;
+
+        const lastCompletedSeason = almanac.seasonsCovered[almanac.seasonsCovered.length - 1];
+        const lastSeasonRow =
+          lastCompletedSeason !== undefined ? almanac.seasons.find((s) => s.season === lastCompletedSeason) : undefined;
+
+        const currentLeagueSeason = await ctx.db
+          .query("leagueSeasons")
+          .withIndex("by_league_season", (q) => q.eq("leagueId", request.leagueId).eq("seasonId", seasonIdUsed))
+          .first();
+        const draftInfo = currentLeagueSeason?.draftInfo as { drafted?: boolean; draftDate?: number } | undefined;
+
+        const week1Games = await ctx.db
+          .query("nflSchedules")
+          .withIndex("by_week", (q) => q.eq("season", seasonIdUsed).eq("week", 1))
+          .collect();
+        const weekOneKickoffAt = week1Games.length > 0 ? Math.min(...week1Games.map((g) => g.gameTime)) : undefined;
+
+        kickoff = {
+          lastChampion: lastSeasonRow?.champion?.team,
+          lastChampionManager: lastSeasonRow?.champion?.manager,
+          draftDone: draftInfo?.drafted === true,
+          draftDate: typeof draftInfo?.draftDate === "number" ? draftInfo.draftDate : undefined,
+          daysToKickoff:
+            weekOneKickoffAt !== undefined
+              ? Math.max(0, Math.round((weekOneKickoffAt - Date.now()) / (24 * 60 * 60 * 1000)))
+              : undefined,
+        };
+      } catch (e) {
+        console.error("Failed to build the League Almanac for a season_welcome interview", e);
+      }
+    }
+
     return {
       userId: request.targetUserId,
       leagueId: request.leagueId,
@@ -1144,6 +1195,8 @@ export const buildConversationContext = internalQuery({
       week,
       seasonId: seasonIdUsed,
       leagueName: league?.name || "League",
+      almanacLine,
+      kickoff,
 
       // Identity (spec §5) - the interviewer is always Sam Ortega.
       managerName: user?.name || user?.email || "Unknown manager",
@@ -1232,6 +1285,13 @@ function getFocusAreas(contentType: string): string[] {
       return ["season highlights", "key turning points", "championship strategy", "trash talk"];
     case "season_recap":
       return ["season highlights", "biggest disappointments", "memorable trades", "rivalry moments"];
+    case "season_welcome":
+      return [
+        "a bold prediction for this season with a number on it",
+        "the team to beat",
+        "the manager you most want to beat and why",
+        "what changes after last season",
+      ];
     default:
       return ["general thoughts", "key insights", "team updates", "future plans"];
   }
@@ -1281,6 +1341,13 @@ function getConversationGoals(contentType: string): string[] {
         "Capture draft day regrets",
         "Extract lessons learned",
       ];
+    case "season_welcome":
+      return [
+        "Get one bold prediction with a number attached",
+        "Get the manager's pick for the team to beat",
+        "Capture preseason trash talk aimed at a named rival",
+        "Get a one-line reaction to their all-time record",
+      ];
     default:
       return ["Gather relevant insights", "Get quotable content", "Capture memorable reactions"];
   }
@@ -1304,6 +1371,8 @@ function getInitialFocus(contentType: string): string {
       return "your championship victory or season highlights";
     case "season_recap":
       return "your season highlights and most memorable moments";
+    case "season_welcome":
+      return "your bold prediction for this season, with a number on it, and who you think is the team to beat";
     default:
       return "relevant insights and reactions for the upcoming article";
   }
