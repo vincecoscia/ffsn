@@ -9,6 +9,7 @@
  */
 
 import { DIGEST_MAX_HEADLINES, DIGEST_MAX_YOUR_TEAM, type WireDigestData, type WireDigestLeague } from "../ai/wire/types";
+import { stripArticlePaths } from "../ai/wire/articleLink";
 import { firstName, personaInitials, shortName, writerDisplay, type EmailPersona } from "./labels";
 import {
   button,
@@ -641,6 +642,9 @@ interface DigestItem {
   label: string;
   time: string;
   text: string;
+  /** Set when the item announces a published article — renders a "Read: {title}" line below the text. */
+  articleUrl?: string;
+  articleTitle?: string;
 }
 
 /** A hairline-separated list: label · time above, the post text below. Everything escaped here. */
@@ -651,6 +655,7 @@ function digestItems(items: DigestItem[]): string {
       (item) => `<tr><td class="em-hairline" style="padding:10px 0 12px;border-top:1px solid ${L.hairline};">
 <div class="em-text3" style="font-family:${FONT_DISPLAY};font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;line-height:1;color:${L.text3};">${escapeHtml(item.label)}<span style="padding:0 8px;">&middot;</span>${escapeHtml(item.time)}</div>
 <div class="em-body" style="margin-top:6px;font-family:${FONT_TEXT};font-size:15px;line-height:1.55;color:${L.body};">${escapeHtml(item.text)}</div>
+${item.articleUrl ? `<div style="margin-top:6px;font-family:${FONT_TEXT};font-size:13px;line-height:1.5;"><a href="${escapeHtml(item.articleUrl)}" class="em-text2" style="color:${L.text2};text-decoration:underline;">Read: ${escapeHtml(item.articleTitle ?? "")}</a></div>` : ""}
 </td></tr>`,
     )
     .join("\n");
@@ -660,22 +665,33 @@ ${rows}
 }
 
 function digestTextItems(items: DigestItem[]): string {
-  return items.map((item) => `- ${item.label} (${item.time}): ${item.text.trim()}`).join("\n");
+  return items
+    .map((item) => {
+      const base = `- ${item.label} (${item.time}): ${item.text.trim()}`;
+      return item.articleUrl ? `${base}\n  Read: ${item.articleTitle} — ${item.articleUrl}` : base;
+    })
+    .join("\n");
 }
 
-/** The digest's view of one league: the capped lists, with times already formatted. */
-function digestLeagueView(league: WireDigestLeague, timeZone?: string) {
+/** The digest's view of one league: the capped lists, with times already formatted. `siteUrl` backs
+ *  the article link when `league.wireUrl` doesn't parse to an origin (it always should in practice). */
+function digestLeagueView(league: WireDigestLeague, siteUrl: string, timeZone?: string) {
   const time = (at: number) => formatWireTime(at, timeZone);
+  const origin = originOf(league.wireUrl) ?? siteUrl;
+  const articleFields = (article: { id: string; title: string } | undefined, text: string) =>
+    article
+      ? { text: stripArticlePaths(text), articleUrl: `${origin}/articles/${article.id}`, articleTitle: article.title }
+      : { text };
   return {
-    yourTeam: league.yourTeam.slice(0, DIGEST_MAX_YOUR_TEAM).map((item) => ({ label: wireByline(item.persona), time: time(item.createdAt), text: item.text })),
+    yourTeam: league.yourTeam.slice(0, DIGEST_MAX_YOUR_TEAM).map((item) => ({ label: wireByline(item.persona), time: time(item.createdAt), ...articleFields(item.article, item.text) })),
     alerts: league.alerts.map((alert) => ({ label: alert.title, time: time(alert.createdAt), text: alert.message })),
     openQuestions: league.openQuestions.map((question) => ({ ...question, time: time(question.createdAt) })),
-    headlines: league.headlines.slice(0, DIGEST_MAX_HEADLINES).map((item) => ({ label: wireByline(item.persona), time: time(item.createdAt), text: item.text })),
+    headlines: league.headlines.slice(0, DIGEST_MAX_HEADLINES).map((item) => ({ label: wireByline(item.persona), time: time(item.createdAt), ...articleFields(item.article, item.text) })),
   };
 }
 
-function digestLeagueHtml(league: WireDigestLeague, timeZone?: string): string {
-  const view = digestLeagueView(league, timeZone);
+function digestLeagueHtml(league: WireDigestLeague, siteUrl: string, timeZone?: string): string {
+  const view = digestLeagueView(league, siteUrl, timeZone);
   const parts = [rule(), headline(league.leagueName, { size: 26 }), league.teamName ? kicker(league.teamName) : ""];
   if (view.yourTeam.length > 0) parts.push(kicker("Your team"), digestItems(view.yourTeam));
   if (view.alerts.length > 0) parts.push(kicker("Alerts"), digestItems(view.alerts));
@@ -691,8 +707,8 @@ function digestLeagueHtml(league: WireDigestLeague, timeZone?: string): string {
   return parts.filter(Boolean).join("\n");
 }
 
-function digestLeagueText(league: WireDigestLeague, timeZone?: string): string {
-  const view = digestLeagueView(league, timeZone);
+function digestLeagueText(league: WireDigestLeague, siteUrl: string, timeZone?: string): string {
+  const view = digestLeagueView(league, siteUrl, timeZone);
   return textDocument([
     TEXT_RULE,
     `${league.leagueName.toUpperCase()}${league.teamName ? ` · ${league.teamName}` : ""}`,
@@ -711,7 +727,7 @@ function digestPreheader(data: WireDigestData): string {
   for (const league of data.leagues) {
     const first = league.yourTeam[0]?.text ?? league.alerts[0]?.message ?? league.headlines[0]?.text;
     if (first) {
-      const clean = first.trim();
+      const clean = stripArticlePaths(first);
       return clean.length > 140 ? `${clean.slice(0, 137).trimEnd()}…` : clean;
     }
   }
@@ -735,7 +751,7 @@ export function renderWireDigestEmail(data: WireDigestData): RenderedEmail {
     slate("The Wire", `Sunday night · ${dateLabel}`),
     headline("Your Wire"),
     paragraph(escapeHtml(intro)),
-    ...leagues.map((league) => digestLeagueHtml(league, data.timeZone)),
+    ...leagues.map((league) => digestLeagueHtml(league, siteUrl, data.timeZone)),
     rule(),
     finePrint(`${manageAlerts} &middot; Sent once, Sunday night, and only when the desk had something for you.`, { last: true }),
   ].join("\n");
@@ -760,7 +776,7 @@ export function renderWireDigestEmail(data: WireDigestData): RenderedEmail {
     `FFSN · THE WIRE · SUNDAY NIGHT · ${dateLabel.toUpperCase()}`,
     "Your Wire",
     intro,
-    ...leagues.map((league) => digestLeagueText(league, data.timeZone)),
+    ...leagues.map((league) => digestLeagueText(league, siteUrl, data.timeZone)),
     TEXT_RULE,
     `Manage alerts: ${data.settingsUrl}\nSent once, Sunday night, and only when the desk had something for you.`,
     textFooter({ siteUrl, preferencesUrl: data.settingsUrl, reason }),

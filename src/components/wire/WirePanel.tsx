@@ -5,6 +5,7 @@ import { ChevronRight } from "lucide-react";
 
 import { Panel, PersonaAvatar, SectionHeader, personaName } from "@/components/broadcast";
 import { useNow } from "@/components/useNow";
+import { stripArticlePaths } from "@/lib/ai/wire/articleLink";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { ManagerPlate } from "./ManagerPlate";
 import { formatWireTime } from "./WirePost";
@@ -51,7 +52,19 @@ export function WirePanel({ leagueId, className }: WirePanelProps) {
           // so `item.post.persona` there is never absent (see `convex/wire.ts`'s
           // `globalPostViewValidator` vs `leaguePostViewValidator`).
           const author = item.scope === "league" ? item.post.author : undefined;
+          const article = item.scope === "league" ? item.post.article : undefined;
           const time = formatWireTime(item.post.createdAt, now);
+          const cleanText = stripArticlePaths(item.post.text);
+          const textLine = article ? (
+            <Link
+              href={`/articles/${article.id}`}
+              className="truncate text-[13px] text-bc-text-2 underline decoration-bc-hairline underline-offset-2 transition-colors hover:text-bc-red-text"
+            >
+              {article.title}
+            </Link>
+          ) : (
+            <p className="truncate text-[13px] text-bc-text-2">{cleanText}</p>
+          );
           return (
             <div
               key={item.post._id}
@@ -60,7 +73,7 @@ export function WirePanel({ leagueId, className }: WirePanelProps) {
               {author ? (
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <ManagerPlate author={author} size={28} meta={time} />
-                  <p className="truncate text-[13px] text-bc-text-2">{item.post.text}</p>
+                  {textLine}
                 </div>
               ) : (
                 <>
@@ -72,7 +85,7 @@ export function WirePanel({ leagueId, className }: WirePanelProps) {
                       </span>
                       <span className="bc-label-sm flex-none text-bc-text-3">{time}</span>
                     </div>
-                    <p className="truncate text-[13px] text-bc-text-2">{item.post.text}</p>
+                    {textLine}
                   </div>
                 </>
               )}

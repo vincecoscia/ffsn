@@ -110,6 +110,7 @@ export function WireFeed({
             text={item.post.text}
             tags={item.post.tags}
             createdAt={item.post.createdAt}
+            article={item.post.article}
             leagueId={leagueId}
             scope="league"
             postId={item.post._id}

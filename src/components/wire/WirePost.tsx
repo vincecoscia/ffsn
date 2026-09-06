@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import { Panel, PersonaAvatar, personaName, personaRole } from "@/components/broadcast";
 import { useNow } from "@/components/useNow";
+import { ARTICLE_PATH_RE, extractArticleId, stripArticlePaths } from "@/lib/ai/wire/articleLink";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -171,6 +173,9 @@ export interface WirePostCardProps {
   /** Only global posts carry a status; `"take_pending"` renders the "…is on it" line. */
   status?: string;
   source?: { type: string; url?: string };
+  /** The published article this post announces (league `article_published` posts only) — renders a
+   *  linked card in place of the old raw "/articles/<id>" text. */
+  article?: { id: string; title: string; persona?: string };
   /** Nested overlay blocks for a global post — rendered beneath the text, above the reply thread. */
   children?: ReactNode;
   className?: string;
@@ -207,6 +212,7 @@ export function WirePost({
   createdAt,
   status,
   source,
+  article,
   children,
   className,
   leagueId,
@@ -224,6 +230,10 @@ export function WirePost({
   const [replyOpen, setReplyOpen] = useState(false);
   const firstName = persona ? personaName(persona).split(" ")[0] : undefined;
   const label = source ? sourceLabel(source.type) : null;
+  // Old rows (written before the article-link change) still carry the raw "/articles/<id>" path in
+  // `text`; `article` is absent on those, so this recovers the id to render an inline link. Deleted
+  // posts keep their placeholder text verbatim either way.
+  const legacyArticleId = !deleted && !article ? extractArticleId(text) : undefined;
 
   return (
     <Panel padding="md" className={cn("flex flex-col gap-3", className)}>
@@ -266,7 +276,22 @@ export function WirePost({
       </div>
 
       <p className={cn("min-w-0 text-[15px] leading-relaxed", deleted ? "text-bc-text-3 italic" : "text-bc-ink")}>
-        {text}
+        {article ? (
+          stripArticlePaths(text)
+        ) : legacyArticleId ? (
+          <>
+            {text.split(ARTICLE_PATH_RE)[0]}
+            <Link
+              href={`/articles/${legacyArticleId}`}
+              className="underline decoration-bc-hairline underline-offset-2 transition-colors hover:text-bc-red-text"
+            >
+              Read it
+            </Link>
+            {text.split(ARTICLE_PATH_RE)[1]}
+          </>
+        ) : (
+          text
+        )}
       </p>
 
       {status === "take_pending" && (
@@ -286,6 +311,23 @@ export function WirePost({
         ) : (
           <span className="w-fit text-[13px] font-semibold text-bc-text-3">{label}</span>
         ))}
+
+      {article && !deleted && (
+        <Link
+          href={`/articles/${article.id}`}
+          className="group flex flex-col gap-1 border border-bc-hairline bg-bc-panel-2 p-3 outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-bc-red/50"
+        >
+          <span className="bc-label-sm text-bc-text-3">
+            {article.persona ? personaRole(article.persona) : "NEW PIECE"}
+          </span>
+          <span className="font-display text-[17px] font-bold uppercase tracking-[0.01em] text-bc-ink">
+            {article.title}
+          </span>
+          <span className="bc-label-sm text-bc-text-3 transition-colors group-hover:text-bc-red-text">
+            Read the piece
+          </span>
+        </Link>
+      )}
 
       {children}
 

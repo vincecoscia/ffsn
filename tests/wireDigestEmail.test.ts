@@ -109,6 +109,29 @@ describe("wire digest email", () => {
     expect(email.html).not.toContain(`Headline ${DIGEST_MAX_HEADLINES}`);
   });
 
+  it("renders an article-announcing item as a link and strips the old raw path from its text", () => {
+    const email = renderWireDigestEmail(
+      digest({
+        leagues: [
+          league({
+            yourTeam: [
+              {
+                persona: "curtis-vaughn",
+                text: 'Ten Teams, Seven Seasons, And One Trophy Nobody Can Pry Loose. /articles/oldpath123456789. Stand by.',
+                createdAt: sundayAt(16),
+                article: { id: "a1", title: "Ten Teams, Seven Seasons" },
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(email.html).not.toContain("/articles/oldpath123456789");
+    expect(email.html).toContain("Ten Teams, Seven Seasons");
+    expect(email.html).toContain(`${siteUrl}/articles/a1`);
+    expect(email.text).toContain(`${siteUrl}/articles/a1`);
+  });
+
   it("formats item times in the recipient's zone, Eastern by default", () => {
     expect(formatWireTime(sundayAt(16, 12))).toMatch(/Sun.*4:12 PM E[DS]T/);
     expect(formatWireTime(sundayAt(16, 12), "America/Los_Angeles")).toMatch(/1:12 PM P[DS]T/);

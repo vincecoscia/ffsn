@@ -19,6 +19,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasActivePass } from "./credits";
 import { inSeasonNow } from "./wireDesk";
+import { articleRefFor } from "./lib/wireArticleRef";
 import { wireEnabled } from "./lib/wireLeaguePosting";
 import { DIGEST_MAX_HEADLINES, DIGEST_MAX_YOUR_TEAM, type WireDigestData, type WireDigestLeague } from "../src/lib/ai/wire/types";
 import { renderWireDigestEmail } from "../src/lib/email/templates";
@@ -56,11 +57,16 @@ async function buildLeagueDigest(
   // Owner overlays about the manager's own team (spec §19.3): globalPostId set (an overlay, not a
   // routine post), impact.teamId is this team, and the variant is "owner" - not the opponent-framed
   // overlay a rival's overlay would also carry with this team as impact.teamId.
-  const yourTeam = inWindow
+  const yourTeamSliced = inWindow
     .filter((p) => p.globalPostId !== undefined && p.impact?.teamId === team._id && p.impact?.variant === "owner")
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, DIGEST_MAX_YOUR_TEAM)
-    .map((p) => ({ persona: p.persona, text: p.text, createdAt: p.createdAt }));
+    .slice(0, DIGEST_MAX_YOUR_TEAM);
+  const yourTeam = await Promise.all(
+    yourTeamSliced.map(async (p) => {
+      const ref = await articleRefFor(ctx, p.dedupeKey);
+      return { persona: p.persona, text: p.text, createdAt: p.createdAt, article: ref ? { id: ref.id, title: ref.title } : undefined };
+    })
+  );
 
   // Sam's questions addressed to this team, still without a manager reply in the thread.
   const samQuestions = inWindow.filter((p) => p.kind === "sam_question" && p.featuredTeams.includes(team._id));
@@ -88,11 +94,21 @@ async function buildLeagueDigest(
     .query("wirePosts")
     .withIndex("by_created", (q) => q.gt("createdAt", windowStart))
     .take(GLOBAL_POST_SCAN_CAP);
+  // `article` is always absent here (spec deviation - see report): headlines come from the GLOBAL
+  // `wirePosts` table, which carries no `dedupeKey` to resolve an article from, and
+  // `article_published` is a league-only event kind (types.ts's LEAGUE_EVENT_KINDS) that a global
+  // post could never be in the first place. The field is still present, undefined, so the UI can
+  // treat `yourTeam` and `headlines` items identically.
   const headlines = recentGlobalPosts
     .filter((p) => p.createdAt <= windowEnd && (p.status === "card" || p.status === "take"))
     .sort((a, b) => b.interest - a.interest)
     .slice(0, DIGEST_MAX_HEADLINES)
-    .map((p) => ({ persona: p.persona, text: p.text, createdAt: p.createdAt }));
+    .map((p) => ({
+      persona: p.persona,
+      text: p.text,
+      createdAt: p.createdAt,
+      article: undefined as { id: string; title: string } | undefined,
+    }));
 
   // A league earns a block only when the desk had something about THIS manager's team (an overlay,
   // an alert, an open question); the shared headlines ride along but never justify a block on their

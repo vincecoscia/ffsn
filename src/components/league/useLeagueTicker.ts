@@ -7,6 +7,7 @@ import { Id } from "../../../convex/_generated/dataModel";
 import { useLeagueSeason } from "@/hooks/use-league-season";
 import { useDraftStatus } from "@/hooks/use-draft-status";
 import { personaName, type TickerItem } from "@/components/broadcast";
+import { stripArticlePaths } from "@/lib/ai/wire/articleLink";
 
 export type LeaguePhase =
   | "loading"
@@ -132,11 +133,15 @@ export function useLeagueTicker(
 
   return useMemo<LeagueTickerResult>(() => {
     const base = { season: currentSeason };
-    const wireItems: TickerItem[] = (wirePosts ?? []).map((post) => ({
-      // A manager post carries `authorName` instead of `persona` (see `wire.getRecentForTicker`).
-      k: post.persona ? personaName(post.persona).split(" ")[0] : (post.authorName?.split(" ")[0] ?? "Manager"),
-      v: post.text.length > 90 ? `${post.text.slice(0, 89)}…` : post.text,
-    }));
+    const wireItems: TickerItem[] = (wirePosts ?? []).map((post) => {
+      const cleanText = stripArticlePaths(post.text);
+      return {
+        // A manager post carries `authorName` instead of `persona` (see `wire.getRecentForTicker`).
+        k: post.persona ? personaName(post.persona).split(" ")[0] : (post.authorName?.split(" ")[0] ?? "Manager"),
+        v: cleanText.length > 90 ? `${cleanText.slice(0, 89)}…` : cleanText,
+        href: post.article ? `/articles/${post.article.id}` : undefined,
+      };
+    });
     const storyItem: TickerItem[] =
       wireItems.length > 0
         ? wireItems
