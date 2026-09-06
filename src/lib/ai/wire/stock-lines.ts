@@ -22,15 +22,47 @@
 //   claim_settled     writer, claim, outcome ("hit"|"miss"), record, team, week
 //   article_published title, url, writer, week
 //
+// Dex Desk (spec §18), Dex unless noted. Slot values are strings D-A formats for prose:
+//   lineup_move       team, manager, player, slot ("FLEX"), benched?, week?  — {benched} always sits in its own
+//                     sentence, so a move with nobody benched simply loses that sentence.
+//   late_swap         team, manager, player, slot, minutes ("40"), benched?  — news, never a verdict.
+//   reads_the_wire    team, manager, player, status (the tag), hoursAgo — a plain-English gap ("two hours",
+//                     "40 minutes"): the lines read "{hoursAgo} after the {status} tag". D-A never sends a
+//                     bench move that followed an in-game injury (§16); the lines assume the tag came first.
+//   trade_proposal    team (proposer), otherTeam (recipient), players ("A and B", both sides), manager
+//   trade_declined    team (the side that declined or withdrew), otherTeam, players?
+//   claims_in         player, pos, count ("three" teams), heat ("the bidding looks high" | "a bid or two in").
+//                     LEAK POLICY (owner): no {team}, {manager}, {bid}, {faab}, {topBid}, no dollar figure —
+//                     tests/wireStockLines.test.ts asserts it.
+//   quiet_desk        team (one team or a joined list "A, B and C" — no line conjugates it), weeksSilent ("6"),
+//                     deadline (plain English, "Tuesday, November 10")
+//   weekly_rundown    week, adds, drops, claims (always) + topPlayer?, topBid?, faabLeader?, faabLeft? — every
+//                     optional fact in its own sentence, so a league without FAAB loses only the FAAB sentences.
+//   streaming_churn   team, unit ("D/ST" | "K"), count ("four"), player, streak? ("fourth D/ST in five weeks")
+//   lineup_lock       team, manager, player, status — factual, at most a dry tag, never "mismanagement" (§16)
+//   rumor_check       manager, player (the rostered name in the post), and players ONLY when a proposal exists.
+//                     Two libraries: confirm lines carry {players} ("There is a proposal in the system involving
+//                     {players}"), deny lines never do ("Nothing in the system on {player}. Yet."). Because a
+//                     deny line would fill fine in the confirm case, slot dropping alone cannot choose, so
+//                     pickStockLine picks the confirm library when {players} resolves and the deny library
+//                     when it does not; pickRumorLine(branch, …) chooses explicitly. The confirm branch is
+//                     behind the commissioner's leaks toggle (D-A's gate).
+//   roster_note (Nina) team, position, benchCount — or, for an Active player parked on IR: team, player, status.
+//                     pickStockLine picks the bench library when {benchCount} resolves, the IR library otherwise.
+//   faab_watch (Nina)  team, faabLeft ("$7"), weeksLeft ("7")
+//   sam_question, manager_post, manager_reply, writer_reply: no stock lines — pickStockLine returns null.
+//
 // Pure: imports the contract, fill.ts, language.ts and persona-prompts.ts only.
 
 import { countProfanity, type LanguageRating } from "../language";
 import { effectiveLanguageRange, fnv1a, personaPrompts } from "../persona-prompts";
 import { fillVariant, isSlotToken, splitTemplateSentences, templateTokens } from "./fill";
-import type { LeagueEventKind, StockLine, WireEventKind, WirePersona, WireSlots, WireTag } from "./types";
+import type { LeagueEventKind, SlotToken, StockLine, WireEventKind, WirePersona, WireSlots, WireTag } from "./types";
 
 const REPORTED: WireTag[] = ["REPORTED"];
 const FINAL: WireTag[] = ["FINAL"];
+/** A manager said it on the wire (STATED) and the log answered (REPORTED): rumor_check. */
+const STATED_REPORTED: WireTag[] = ["STATED", "REPORTED"];
 
 function clean(text: string, tags?: WireTag[]): StockLine {
   return tags ? { text, rating: "clean", tags } : { text, rating: "clean" };
@@ -136,6 +168,232 @@ const DEX_ARTICLE: StockLine[] = [
   clean("Desk update: {writer} is up with \"{title}\". {url}. Read it before the next hit."),
   clean("Story's live. {writer}, \"{title}\". {url}. Checked the link twice. Works."),
 ];
+
+/* ------------------------------------------------------------------------------------------- *
+ * Dex Desk (spec §18) — league activity off the transaction log. Same phone hit, more kinds.
+ * ------------------------------------------------------------------------------------------- */
+
+const DEX_LINEUP_MOVE: StockLine[] = [
+  clean("REPORTED: {player} in at {slot} for {team}. {benched} to the bench. Filed.", REPORTED),
+  clean("Lineup change. {team}: {player} into {slot}. {benched} sits. Week {week}. Stand by.", REPORTED),
+  clean("Here's what I've got. {team} moved {player} into {slot}. {benched} out of the lineup. Back to you.", REPORTED),
+  clean("{manager} made a lineup move: {player} starts at {slot} for {team}. {benched} goes to the bench. Filed.", REPORTED),
+  clean("REPORTED: {team} starts {player} at {slot}. Week {week}. Checked twice. Phone works.", REPORTED),
+  clean("{team}: {player} in at {slot}. A lineup call is not a transaction, but this desk logs it anyway. More when I have it.", REPORTED),
+  clean("Lineup desk. {player} to {slot}, {team}. {benched} to the bench. Two lines, one move. Stand by.", REPORTED),
+  clean("{manager} of {team} moved {player} into {slot}. Filed. Sam may have a question. Back to you.", REPORTED),
+  clean("REPORTED: lineup change at {team}. {player}, {slot}. {benched} out. Week {week}. That's the wire.", REPORTED),
+  clean("{team} set {player} at {slot} this week. {benched} sits. Noted. Filed.", REPORTED),
+  clean("Roster move, not a transaction: {team} slots {player} at {slot}. It still goes on the wire. Stand by.", REPORTED),
+  clean("{player} into {slot} for {team}. {benched} out. Nobody called to explain it, and nobody has to. Back to you.", REPORTED),
+  clean("{team} starts {player} at {slot}. Week {week} lineup. Checked the log twice. Filed.", REPORTED),
+  clean("{team}: {manager} moved {player} to {slot}. {benched} to the bench. Filed. Stand by.", REPORTED),
+  salty("{team}: {player} in at {slot}, {benched} out. A lineup move is not a trade, but hell, it's activity. Filed.", REPORTED),
+  unfiltered("{team} moved {player} into {slot}. {benched} sits. Somebody in this league touched a roster. Holy shit. Back to you.", REPORTED),
+];
+
+const DEX_LATE_SWAP: StockLine[] = [
+  clean("REPORTED: {team} moved {player} into {slot} with {minutes} minutes to kickoff. {benched} sits. Filed. Stand by.", REPORTED),
+  clean("Late swap. {team}: {player} in at {slot}, {minutes} minutes before kickoff. {benched} to the bench. Back to you.", REPORTED),
+  clean("{minutes} minutes out, {team} changed a lineup: {player} at {slot}. {benched} out. That's the wire.", REPORTED),
+  clean("Here's what I've got, and it's fresh: {player} into {slot} for {team}, {minutes} minutes before kickoff. Filed.", REPORTED),
+  clean("REPORTED: late lineup change at {team}. {player}, {slot}, {minutes} minutes to go. {benched} sits. Stand by.", REPORTED),
+  clean("{manager} of {team} moved {player} into {slot} with {minutes} minutes on the clock. Filed. More when I have it.", REPORTED),
+  clean("Kickoff minus {minutes}: {team} starts {player} at {slot}. {benched} out. Checked twice. Back to you.", REPORTED),
+  clean("Late swap, {team}. {player} in at {slot}. {benched} sits. {minutes} minutes before kickoff. Filed.", REPORTED),
+  clean("REPORTED: {player} into {slot} for {team}, {minutes} minutes before the game. {benched} to the bench. Stand by.", REPORTED),
+  clean("{team} beat the lock by {minutes} minutes: {player} at {slot}. {benched} out. That's the wire.", REPORTED),
+  clean("Late change. {manager} put {player} at {slot} for {team} with {minutes} minutes left before kickoff. Filed.", REPORTED),
+  clean("{minutes} minutes to kickoff and {team} moved {player} into {slot}. {benched} sits. Timestamped. Filed. Back to you.", REPORTED),
+  clean("Fresh off the log: {team}, {player} to {slot}, {minutes} minutes before kickoff. More when I have it.", REPORTED),
+  salty("{team} moved {player} into {slot}, {minutes} minutes to kickoff. {benched} sits. Late as hell, and it counts. Filed.", REPORTED),
+  unfiltered("{minutes} minutes to kickoff. {team}: {player} in at {slot}, {benched} out. Fast as shit. Filed. Back to you.", REPORTED),
+];
+
+const DEX_READS_THE_WIRE: StockLine[] = [
+  clean("{team} benched {player} {hoursAgo} after the {status} tag. Somebody reads the wire. Filed.", REPORTED),
+  clean("REPORTED: {status} on {player}, then a bench move by {team} {hoursAgo} later. That is a reader. Stand by.", REPORTED),
+  clean("{player}: {status}. {team}: benched him {hoursAgo} after it posted. The wire works. Back to you.", REPORTED),
+  clean("Here's what I've got. The {status} tag on {player} went up; {hoursAgo} later {team} sat him. Somebody's phone buzzed. Filed.", REPORTED),
+  clean("{manager} benched {player} {hoursAgo} after the {status} tag. Reads the wire, or knows somebody who does. Filed.", REPORTED),
+  clean("REPORTED: {team} moved {player} to the bench, {hoursAgo} after his {status} tag. Quick. Stand by.", REPORTED),
+  clean("{status} tag on {player}. Bench move by {team} {hoursAgo} later. Tag, move, timestamp. That's the wire.", REPORTED),
+  clean("{team} read the {status} tag on {player} and acted inside {hoursAgo}. This desk notices when people notice. Back to you.", REPORTED),
+  clean("Somebody reads the wire: {team} benched {player} {hoursAgo} after the {status} tag went up. Filed.", REPORTED),
+  clean("{player} ({status}) to the bench at {team}, {hoursAgo} after the tag. Fast hands. More when I have it.", REPORTED),
+  clean("Wire to bench in {hoursAgo}. {team}, {player}, {status}. Somebody is paying attention. Filed.", REPORTED),
+  clean("REPORTED: {manager} benched {player} {hoursAgo} after ESPN tagged him {status}. Reads the wire. Stand by.", REPORTED),
+  clean("The {status} tag on {player} was up for {hoursAgo} before {team} sat him. That is a response time. Back to you.", REPORTED),
+  salty("{team} benched {player} {hoursAgo} after the {status} tag. Somebody reads the wire. Hell, somebody reads. Filed.", REPORTED),
+  unfiltered("{status} tag on {player}, bench move by {team} {hoursAgo} later. Somebody reads the wire. No shit. Back to you.", REPORTED),
+];
+
+const DEX_TRADE_PROPOSAL: StockLine[] = [
+  clean("REPORTED: a package involving {players} is in the system between {team} and {otherTeam}. Terms under review. Stand by.", REPORTED),
+  clean("Proposal on the wire. {team} to {otherTeam}. Pieces: {players}. Not done, not dead. Terms under review.", REPORTED),
+  clean("Here's what I've got: {manager} sent {otherTeam} a proposal. {players} in the package. Terms under review. More when I have it.", REPORTED),
+  clean("REPORTED: {team} and {otherTeam} have a proposal open. Names in it: {players}. Nobody has signed. Back to you.", REPORTED),
+  clean("Trade desk, live: a proposal from {team} to {otherTeam} is pending. {players} involved. Terms under review. Filed.", REPORTED),
+  clean("Not a trade. A proposal. {team}, {otherTeam}, {players}. Pending. That's the wire.", REPORTED),
+  clean("{manager} of {team} put a package in front of {otherTeam}. {players}. Terms under review; the answer is theirs. Stand by.", REPORTED),
+  clean("REPORTED: pending proposal, {team} and {otherTeam}. Pieces: {players}. Whether it clears is above this desk. Filed.", REPORTED),
+  clean("Something in the system between {team} and {otherTeam}: a proposal involving {players}. Terms under review. Back to you.", REPORTED),
+  clean("The market has a pulse. Proposal pending: {team} to {otherTeam}, {players} in it. Not done until it's done. Stand by.", REPORTED),
+  clean("Proposal filed by {team}. Recipient: {otherTeam}. Package: {players}. Terms under review. More when I have it.", REPORTED),
+  clean("REPORTED: {players} named in a proposal between {team} and {otherTeam}. Terms under review. No verdict from this desk; it isn't done. Filed.", REPORTED),
+  clean("{team} is talking to {otherTeam}. Not rumor: a proposal, in the system, {players} in it. Terms under review.", REPORTED),
+  salty("{team} sent {otherTeam} a package with {players} in it. A live proposal, hell yes. Terms under review. Stand by.", REPORTED),
+  unfiltered("Proposal pending: {team} to {otherTeam}, {players}. The market isn't dead after all. Holy shit. Terms under review.", REPORTED),
+];
+
+const DEX_TRADE_DECLINED: StockLine[] = [
+  clean("REPORTED: the proposal between {team} and {otherTeam} is dead. {players} stay where they are. Filed.", REPORTED),
+  clean("Dead deal. {team} declined {otherTeam}. Package was {players}. Back to the yard sale. Stand by.", REPORTED),
+  clean("Declined. {team}, {otherTeam}. {players} not moving. That's the wire.", REPORTED),
+  clean("{team} passed on {otherTeam}'s package. {players} stay put. Nobody called to explain it, and nobody has to. Filed.", REPORTED),
+  clean("REPORTED: no deal. {team} and {otherTeam} are done talking, for now. {players} were the pieces. Back to you.", REPORTED),
+  clean("Off the board. {team} killed the proposal with {otherTeam}. {players} unmoved. Filed.", REPORTED),
+  clean("The proposal between {team} and {otherTeam} died in the system. {players} go nowhere. Checked twice. Stand by.", REPORTED),
+  clean("{team} said no to {otherTeam}. It's in the log. {players} stay. More when I have it.", REPORTED),
+  clean("REPORTED: declined. The package between {otherTeam} and {team} is dead. {players} were in it. Back to you.", REPORTED),
+  clean("No trade. {team} and {otherTeam} had a proposal open; they don't now. {players} unmoved. Filed.", REPORTED),
+  clean("No sale. {team} declined {otherTeam}. {players} stay home. That's the wire.", REPORTED),
+  clean("REPORTED: {team} turned down {otherTeam}; {players} stay. My read, not reporting: somebody asked for a lot. Filed.", ["REPORTED", "OPINION"]),
+  clean("Proposal, declined. {team}. {otherTeam}. One proposal, one no. {players} unmoved. Stand by.", REPORTED),
+  salty("{team} declined {otherTeam}. {players} stay put. The trade market: dead as hell again. Checked twice.", REPORTED),
+  unfiltered("Dead deal. {team} turned down {otherTeam}. {players} unmoved. Back to a market that does shit-all. Filed.", REPORTED),
+];
+
+// Leak policy (owner, spec §18): a count and a soft read on the heat. Never a team, a manager or a figure.
+const DEX_CLAIMS_IN: StockLine[] = [
+  clean("REPORTED: multiple teams targeting {player} ({pos}), {count} claims in, and {heat}. Names stay on this desk. Stand by.", REPORTED),
+  clean("Claims desk. {player} has {count} teams on him this period, and {heat}. Who and how much: not until it processes. Filed.", REPORTED),
+  clean("Multiple teams targeting {player}. Count: {count}. Read: {heat}. That's all you get until it clears. Back to you.", REPORTED),
+  clean("REPORTED: {count} pending claims on {player} ({pos}), and {heat}. No names, no numbers; that's the policy. Stand by.", REPORTED),
+  clean("{player} is the name on {count} pending claims, and {heat}. Who wins is the log's business until it clears. More when I have it.", REPORTED),
+  clean("Here's what I've got: {count} teams in on {player}, and {heat}. Terms sealed until processing. Filed.", REPORTED),
+  clean("Waiver watch: {player} ({pos}), {count} teams targeting. Read on the money: {heat}. Not naming anyone. Stand by.", REPORTED),
+  clean("REPORTED: a contested claim. {player}, {count} teams, and {heat}. Names and bids stay sealed. Back to you.", REPORTED),
+  clean("Wanted by {count} teams: {player}. Same period, same target, and {heat}. Whoever wins, the log will say so. Filed.", REPORTED),
+  clean("Multiple teams targeting {player} ({pos}), with {count} in the queue, and {heat}. Processing decides it, not this desk. Stand by.", REPORTED),
+  clean("Claim traffic on {player}: {count} teams, and {heat}. That's the whole leak, and it's all I'm allowed. More when I have it.", REPORTED),
+  clean("REPORTED: {player} has {count} claims pending, and {heat}. Nobody's name goes out before it clears. That's the wire.", REPORTED),
+  clean("{player} ({pos}): {count} teams targeting him this period, and {heat}. Filed under contested. Stand by.", REPORTED),
+  salty("Claims on {player}: {count} teams, and {heat}. The claims desk is alive as hell for once. Names sealed. Filed.", REPORTED),
+  unfiltered("Multiple teams targeting {player}, {count} of them, and {heat}. Who? Not a fucking chance before it processes. Back to you.", REPORTED),
+];
+
+const DEX_QUIET_DESK: StockLine[] = [
+  clean("{team}: no proposals in {weeksSilent} weeks. Deadline is {deadline}. The phone works. I checked. Filed.", REPORTED),
+  clean("Quiet desk. {team}: nothing filed in {weeksSilent} weeks, with the deadline {deadline}. Checked twice. Phone works.", REPORTED),
+  clean("REPORTED: {weeksSilent} weeks without a trade proposal from {team}. Deadline: {deadline}. That is a finding, not a hole. Stand by.", REPORTED),
+  clean("Here's what I've got on {team}: nothing. {weeksSilent} weeks of it. The deadline is {deadline}. Back to you.", REPORTED),
+  clean("{team}: no proposal sent in {weeksSilent} weeks. Deadline {deadline}. A ghost town with a mailbox. Filed.", REPORTED),
+  clean("Trade deadline {deadline}. Silent for {weeksSilent} weeks: {team}. Checked the log twice. Phone works. Stand by.", REPORTED),
+  clean("{team}. {weeksSilent} weeks. Zero proposals. Deadline {deadline}. Four facts, no adjectives. Filed.", REPORTED),
+  clean("REPORTED: the quietest corner of the market is {team}: {weeksSilent} weeks without a proposal, deadline {deadline}. Back to you.", REPORTED),
+  clean("Deadline watch, {deadline}. {team}: {weeksSilent} weeks and not one proposal. The phone works. I checked. Filed.", REPORTED),
+  clean("{team}: nothing proposed in {weeksSilent} weeks. {deadline} is the deadline. A yard sale nobody drove to. Stand by.", REPORTED),
+  clean("No proposals from {team} in {weeksSilent} weeks. Deadline is {deadline}. Inactivity is a story; this is it. More when I have it.", REPORTED),
+  clean("Quiet desk, {weeksSilent} weeks running: {team}. Deadline {deadline}. Noted. Filed.", REPORTED),
+  clean("REPORTED: {team} sent no proposals in {weeksSilent} weeks. Deadline {deadline}. The log is empty and the phone works. That's the wire.", REPORTED),
+  salty("{team}: {weeksSilent} weeks, no proposals, deadline {deadline}. Dead as hell. Checked twice. Phone works.", REPORTED),
+  unfiltered("{team}: no proposals in {weeksSilent} weeks. Deadline {deadline}. Phone works. Nobody gives a shit. That's the wire.", REPORTED),
+];
+
+// One fact per sentence: a league without FAAB loses the bid and balance sentences and nothing else.
+const DEX_WEEKLY_RUNDOWN: StockLine[] = [
+  clean("Week {week} rundown. {adds} adds. {drops} drops. {claims} claims processed. Top claim: {topPlayer}. Winning bid: {topBid}. FAAB leader: {faabLeader}. Balance there: {faabLeft}. That's the wire.", REPORTED),
+  clean("Here's what I've got for Week {week}. Adds: {adds}. Drops: {drops}. Claims cleared: {claims}. Biggest claim: {topPlayer}. Price: {topBid}. Most FAAB left: {faabLeader}. Their balance: {faabLeft}. Back to you.", REPORTED),
+  clean("Transactions desk, Week {week}. {adds} players added. {drops} dropped. {claims} claims processed. {topPlayer} was the top claim. It cost {topBid}. {faabLeader} leads the FAAB table. They sit on {faabLeft}. Filed.", REPORTED),
+  clean("Week {week} on the wire: {adds} adds and {drops} drops. {claims} claims went through. {topPlayer} drew the top bid. The bid was {topBid}. {faabLeader} has the deepest pockets. {faabLeft} in that account. Stand by.", REPORTED),
+  clean("REPORTED, Week {week}: {adds} adds. {drops} drops. {claims} claims. Top of the board: {topPlayer}. Top bid: {topBid}. Deepest pockets: {faabLeader}. Balance: {faabLeft}. More when I have it.", REPORTED),
+  clean("The week in moves. Adds, {adds}. Drops, {drops}. Claims processed, {claims}. Top claim, {topPlayer}. Top bid, {topBid}. FAAB leader, {faabLeader}. FAAB balance there, {faabLeft}. Week {week}. Filed.", REPORTED),
+  clean("Week {week}, by the numbers. {adds} adds. {drops} drops. {claims} claims cleared. Top claim: {topPlayer}. He cost {topBid}. FAAB leader: {faabLeader}. Their balance: {faabLeft}. Back to you.", REPORTED),
+  clean("Rundown, Week {week}. Adds {adds}. Drops {drops}. Claims processed {claims}. Top claim {topPlayer}. Winning bid {topBid}. FAAB leader {faabLeader}. Left there: {faabLeft}. That's the wire.", REPORTED),
+  clean("Week {week} log. {adds} in. {drops} out. {claims} claims processed. {topPlayer} went at the top of the week. Price: {topBid}. {faabLeader} leads FAAB. {faabLeft} left. Checked twice. Filed.", REPORTED),
+  clean("Wednesday desk, Week {week}. {adds} adds, {drops} drops, {claims} claims. Top claim: {topPlayer}. Bid: {topBid}. FAAB leader: {faabLeader}. Balance: {faabLeft}. Stand by.", REPORTED),
+  clean("Moves this week: {adds} adds, {drops} drops. Claims processed: {claims}. Priciest claim: {topPlayer}. Price: {topBid}. Richest desk: {faabLeader}. Balance: {faabLeft}. Week {week}. Back to you.", REPORTED),
+  clean("Week {week} is filed. {adds} adds. {drops} drops. {claims} claims. Claim of the week: {topPlayer}. It went for {topBid}. FAAB leader: {faabLeader}. {faabLeft} still there. More when I have it.", REPORTED),
+  clean("REPORTED: Week {week} transactions. Adds {adds}. Drops {drops}. Claims {claims}. Top claim {topPlayer}. Top bid {topBid}. FAAB leader {faabLeader}. Balance {faabLeft}. That's the wire.", REPORTED),
+  salty("Week {week} rundown. {adds} adds. {drops} drops. {claims} claims processed. Top claim: {topPlayer}. Bid: {topBid}. FAAB leader: {faabLeader}. Balance: {faabLeft}. Hell of a log. Filed.", REPORTED),
+  unfiltered("Week {week}: {adds} adds, {drops} drops, {claims} claims. Top claim: {topPlayer}. Bid: {topBid}. FAAB leader: {faabLeader}. Balance: {faabLeft}. Every line real, no shit. Filed.", REPORTED),
+];
+
+const DEX_STREAMING_CHURN: StockLine[] = [
+  clean("{team} is on {unit} number {count} in five weeks. {player} this time. Filed.", REPORTED),
+  clean("REPORTED: {team} added {player}. That's the {streak}. Streaming, by the log's count. Stand by.", REPORTED),
+  clean("Streaming desk. {team}: {unit} add number {count} in five weeks. Latest: {player}. Checked twice. Back to you.", REPORTED),
+  clean("{team} picked up {player}, making {count} different {unit} adds in five weeks. The {unit} slot has a turnstile. Filed.", REPORTED),
+  clean("REPORTED: {player} is {team}'s {unit} this week. The {streak}. More when I have it.", REPORTED),
+  clean("Here's what I've got: {team}, {unit}, {count} adds in five weeks. This week's name is {player}. Stand by.", REPORTED),
+  clean("{team} keeps the {unit} slot warm for whoever's next. {player} now; {count} names in five weeks. Filed.", REPORTED),
+  clean("Churn report. {team}: {count} {unit} adds in five weeks, {player} the latest. Every one of them in the log. Back to you.", REPORTED),
+  clean("{player} to {team}. The {streak}. Noted. Filed.", REPORTED),
+  clean("REPORTED: {team} added a {unit} again. {player}, number {count} in five weeks. The log counts; I read it. Stand by.", REPORTED),
+  clean("{team}: {count} {unit} adds in five weeks. This one is {player}. Streaming, by the log's count. That's the wire.", REPORTED),
+  clean("Weekly {unit} for {team}: {player}. Number {count} in five weeks. Somebody has a schedule taped to the fridge. Filed.", REPORTED),
+  clean("{team} is on {unit} number {count} in five weeks: {player}. Checked twice. Back to you.", REPORTED),
+  salty("{team} added {player}. {unit} number {count} in five weeks. More turnover than the trade market, which, hell, isn't hard. Filed.", REPORTED),
+  unfiltered("{team}: {unit} number {count} in five weeks. {player} this time. Shit, that's a turnstile. Filed.", REPORTED),
+];
+
+// Factual, at most a dry tag. Spec §16: starting a tagged player is never called mismanagement here.
+const DEX_LINEUP_LOCK: StockLine[] = [
+  clean("{team} kicked off with {player} ({status}) in the lineup. Filed.", REPORTED),
+  clean("REPORTED: at kickoff, {player} was in {team}'s lineup, tagged {status}. That's the log. Stand by.", REPORTED),
+  clean("Lineup locked. {team}: {player}, {status}, starting. Noted. Back to you.", REPORTED),
+  clean("{player} ({status}) started for {team} at kickoff. Filed. More when I have it.", REPORTED),
+  clean("REPORTED: {team} locked in {player} with the {status} tag on him. Kickoff came; the lineup stayed. Filed.", REPORTED),
+  clean("Kickoff. {team} has {player} in the lineup; ESPN has him {status}. Both true. Stand by.", REPORTED),
+  clean("{manager} kicked off with {player} ({status}) in the starting lineup. The log says so; I say so. Filed.", REPORTED),
+  clean("Lock report: {team}, {player}, {status}, starting. Four facts. That's the wire.", REPORTED),
+  clean("REPORTED: {player} carried the {status} tag into kickoff as a starter for {team}. Filed. Back to you.", REPORTED),
+  clean("At the lock, {team} had {player} starting. Tag on him: {status}. Read once, flat. Stand by.", REPORTED),
+  clean("{team} started {player}. Status at kickoff: {status}. That is the whole hit. Filed.", REPORTED),
+  clean("Locked and logged: {player} ({status}) in {team}'s starting lineup at kickoff. More when I have it.", REPORTED),
+  clean("{manager} of {team}: {player} started, tagged {status}. Why is not my desk. Filed.", REPORTED),
+  salty("{team} kicked off with {player} ({status}) in the lineup. Hell of a tag to carry into a start. Filed.", REPORTED),
+  unfiltered("Kickoff: {player}, {status}, starting for {team}. The log doesn't grade and neither do I. Shit happens at the lock. Filed.", REPORTED),
+];
+
+// rumor_check, confirm branch: a proposal exists. Every line carries {players}; terms stay under review.
+const DEX_RUMOR_CONFIRM: StockLine[] = [
+  clean("STATED by {manager}. There is a proposal in the system involving {players}. Terms under review. Stand by.", STATED_REPORTED),
+  clean("{manager} put it on the wire; the log backs it. A proposal involving {players} is pending. Terms under review. Filed.", STATED_REPORTED),
+  clean("STATED by {manager}, checked by this desk: yes. A proposal involving {players} is in the system. Terms under review. Back to you.", STATED_REPORTED),
+  clean("Rumor check: a proposal involving {players} is in the system. STATED by {manager}; REPORTED by the log. Terms under review. Stand by.", STATED_REPORTED),
+  clean("{manager} said it on the wire, and the log agrees: {players} are in a pending proposal. Terms under review. Filed.", STATED_REPORTED),
+  clean("REPORTED: a proposal involving {players} is pending, and {manager} said as much on the wire. Terms under review. Back to you.", STATED_REPORTED),
+  clean("Checked the system for {manager}: there is a proposal involving {players}. Terms under review. Not done until it's done. Stand by.", STATED_REPORTED),
+  clean("Rumor check, {players}: real. A proposal is in the system, as {manager} said. Terms under review. More when I have it.", STATED_REPORTED),
+  clean("Proposal pending involving {players}, as {manager} said on the record. Terms under review. Filed.", STATED_REPORTED),
+  clean("REPORTED: {players} are named in a live proposal, which is what {manager} said. Terms under review. That's the wire.", STATED_REPORTED),
+  clean("There is a proposal in the system involving {players}. {manager} had it right. Terms under review. Stand by.", STATED_REPORTED),
+  clean("Rumor check: {players}, pending proposal, in the system. {manager} said it; the log confirms it. Terms under review. Back to you.", STATED_REPORTED),
+  salty("A proposal involving {players} is in the system, just like {manager} said. Hell, somebody's honest. Terms under review. Filed.", STATED_REPORTED),
+  unfiltered("{players}: pending proposal, in the system, exactly as {manager} put it. No shit. Terms under review. Stand by.", STATED_REPORTED),
+];
+
+// rumor_check, deny branch: nothing in the system. No line carries {players}.
+const DEX_RUMOR_DENY: StockLine[] = [
+  clean("STATED by {manager}. Nothing in the system on {player}. Yet. Stand by.", STATED_REPORTED),
+  clean("Rumor check on {player}: the log has nothing. {manager} said it; the system hasn't. Filed.", STATED_REPORTED),
+  clean("{manager} put {player}'s name on the wire. I checked the system twice. No proposal. Not yet. Back to you.", STATED_REPORTED),
+  clean("STATED by {manager}: talk about {player}. REPORTED: no proposal in the system. Talk is free; proposals get logged. Stand by.", STATED_REPORTED),
+  clean("Nothing pending on {player}. {manager} may know something the log doesn't; the log is what I print. Filed.", STATED_REPORTED),
+  clean("Checked for {manager}: no proposal involving {player} in the system. If that changes, I'll have it. Stand by.", STATED_REPORTED),
+  clean("Rumor check: {player}. Result: nothing filed, nothing pending. {manager} said it on the wire; the log says nothing back. More when I have it.", STATED_REPORTED),
+  clean("STATED by {manager}. This desk: no proposal on {player}. Yet. The word 'yet' is doing honest work. Back to you.", STATED_REPORTED),
+  clean("{player} rumor, per {manager}. Log: empty. That is not a denial; that is an empty log. Filed.", STATED_REPORTED),
+  clean("No proposal in the system on {player}. {manager} said the word; the paperwork hasn't. Stand by.", STATED_REPORTED),
+  clean("Rumor check, {player}: nothing in the system. {manager} is on the record; the log is not. Yet. That's the wire.", STATED_REPORTED),
+  clean("{manager} says {player}. The system says nothing. When it says something, so will I. Filed.", STATED_REPORTED),
+  salty("Nothing in the system on {player}, whatever {manager} heard. Rumor is hell on a desk that only prints the log. Stand by.", STATED_REPORTED),
+  unfiltered("{manager} says {player}. The system says nothing. Rumors don't file paperwork, and this desk doesn't print shit that didn't. Yet. Filed.", STATED_REPORTED),
+];
+
+const DEX_RUMOR_CHECK: StockLine[] = [...DEX_RUMOR_CONFIRM, ...DEX_RUMOR_DENY];
 
 /* ------------------------------------------------------------------------------------------- *
  * Curtis Vaughn — Studio Anchor. Teleprompter cadence, one dry tag, the toss by first name.
@@ -286,6 +544,53 @@ const NINA_ARTICLE: StockLine[] = [
   clean("Reading assignment, Week {week}: \"{title}\" ({writer}). {url}."),
 ];
 
+// roster_note (Nina), bench branch: a hoard at one position.
+const NINA_ROSTER_BENCH: StockLine[] = [
+  clean("Class. {team} has {benchCount} {position}s on the bench. That is not depth, that is a hoard."),
+  clean("Pop quiz: how many {position}s does one bench need? {team} answered {benchCount}. Wrong, but confidently. That's the segment."),
+  clean("Circle this column: bench {position}s. {team}: {benchCount}. Everyone look at the board. That is a shelf, not a bench."),
+  clean("{team} is carrying {benchCount} {position}s on the bench. Sample size: one roster. I'm holding it loosely. I am also still right."),
+  clean("Everyone look at {team}'s bench. {benchCount} {position}s. A lineup starts a few of those. A bench stores the rest. This is storage."),
+  clean("{benchCount} {position}s on {team}'s bench. Was it a plan? Show your work. The column says collection, not plan."),
+  clean("Roster note. {team}, {position}, {benchCount} on the bench. Depth is a number with a purpose. This number has a hobby. That's the segment."),
+  clean("Class. {team} rosters {benchCount} bench {position}s. One roster, one column, one raised eyebrow. Circle it."),
+  clean("Partial credit for {team}'s depth at {position}. None for the {benchCount} of it sitting down. Grade posted."),
+  clean("{team}: {benchCount} {position}s, none of them starting. The story says insurance. The column says {benchCount}. I trust the column."),
+  clean("Show your work, {team}: {benchCount} {position}s on the bench. That is a position group, not a bench slot. That's the segment."),
+  clean("Everyone look at the board. Bench {position}s, {team}: {benchCount}. Reggie would call that a squad. I call it a column that needs trimming."),
+  salty("{team} has {benchCount} {position}s on the bench. Hell of a collection. A collection is not depth. That's the segment."),
+  unfiltered("{benchCount} {position}s on {team}'s bench. That is, and I am using the technical term, a fucking hoard. Moving on."),
+];
+
+// roster_note (Nina), IR branch: an Active player parked in an IR slot for two weeks or more.
+const NINA_ROSTER_IR: StockLine[] = [
+  clean("Class. {team} has {player} parked in an IR slot while ESPN lists him {status}. Circle that column. The slot is for injuries."),
+  clean("Pop quiz: what does IR stand for? {team} has {player} in that slot, status {status}. Show your work. That's the segment."),
+  clean("{player} is {status} and sitting in {team}'s IR slot. Weeks, plural. That is a column with a clerical error in it."),
+  clean("Roster note, {team}: {player} in the IR slot, listed {status}. The slot has a name. The name is a hint. That's the segment."),
+  clean("Everyone look at {team}'s IR slot. {player}. Status: {status}. One of those words is wrong, and it isn't the status."),
+];
+
+const NINA_ROSTER_NOTE: StockLine[] = [...NINA_ROSTER_BENCH, ...NINA_ROSTER_IR];
+
+const NINA_FAAB_WATCH: StockLine[] = [
+  clean("Class. {team} has {faabLeft} of FAAB left with {weeksLeft} weeks to play. Two numbers, one caveat: the caveat is the second number. That's the segment."),
+  clean("Circle this column: FAAB remaining. {team}, {faabLeft}. Weeks remaining: {weeksLeft}. Neither of those numbers goes up."),
+  clean("{team}: {faabLeft} left, {weeksLeft} weeks left. Pop quiz: which runs out first? Show your work. That's the segment."),
+  clean("FAAB watch. {team} is down to {faabLeft} with {weeksLeft} weeks on the schedule. Caveat: free agents are still free. That's the segment."),
+  clean("Everyone look at the board. {team}, FAAB: {faabLeft}. Weeks: {weeksLeft}. The budget was for a season. The season is still going."),
+  clean("{faabLeft}. That is {team}'s FAAB balance, and {weeksLeft} weeks remain. I am not projecting anything; I am reading a column. That's the segment."),
+  clean("Class, a budgeting lesson. {team}: {faabLeft} in the account, {weeksLeft} weeks to go. Caveat: the account does not refill. Circle it."),
+  clean("FAAB remaining, {team}: {faabLeft}. Weeks remaining: {weeksLeft}. Was it worth it? I'll grade that in {weeksLeft} weeks. Show your work until then."),
+  clean("{team} has {faabLeft} left for {weeksLeft} weeks. The story says aggressive. The column says {faabLeft}. Only one of them has a dollar sign."),
+  clean("Pop quiz: {faabLeft} divided by {weeksLeft} weeks. {team} will be doing that math every waiver run. I did it on the board. That's the segment."),
+  clean("Roster note from the numbers desk: {team} is at {faabLeft} of FAAB with {weeksLeft} weeks left. One caveat: it only matters if someone gets hurt. Someone gets hurt. That's the segment."),
+  clean("{team}: {faabLeft} FAAB, {weeksLeft} weeks. Hold it loosely; a budget is not a result. I am holding it loosely. I am also still right."),
+  clean("Circle the FAAB column. {team}, {faabLeft}, with {weeksLeft} weeks to go. Not supported: \"we'll be fine.\" The column doesn't do fine. That's the segment."),
+  salty("{team} has {faabLeft} of FAAB and {weeksLeft} weeks left. Hell of a column. Circle it, then hold it loosely."),
+  unfiltered("{faabLeft} of FAAB, {weeksLeft} weeks to go. {team}. That is, and I am using the technical term, a fucking budget problem. Moving on."),
+];
+
 /* ------------------------------------------------------------------------------------------- *
  * Reggie Banks — The Results Desk. Joy in caps, flowers, "Scoreboard!" Never angry.
  * ------------------------------------------------------------------------------------------- */
@@ -398,6 +703,18 @@ export const STOCK_LINES: Record<WirePersona, Partial<Record<LeagueEventKind, Re
     add_drop: DEX_ADD_DROP,
     trade: DEX_TRADE,
     article_published: DEX_ARTICLE,
+    // Dex Desk (spec §18)
+    lineup_move: DEX_LINEUP_MOVE,
+    late_swap: DEX_LATE_SWAP,
+    reads_the_wire: DEX_READS_THE_WIRE,
+    trade_proposal: DEX_TRADE_PROPOSAL,
+    trade_declined: DEX_TRADE_DECLINED,
+    claims_in: DEX_CLAIMS_IN,
+    quiet_desk: DEX_QUIET_DESK,
+    weekly_rundown: DEX_WEEKLY_RUNDOWN,
+    streaming_churn: DEX_STREAMING_CHURN,
+    lineup_lock: DEX_LINEUP_LOCK,
+    rumor_check: DEX_RUMOR_CHECK,
   },
   "curtis-vaughn": {
     week_final: CURTIS_WEEK_FINAL,
@@ -409,6 +726,9 @@ export const STOCK_LINES: Record<WirePersona, Partial<Record<LeagueEventKind, Re
     bench_points: NINA_BENCH,
     claim_settled: NINA_CLAIM,
     article_published: NINA_ARTICLE,
+    // Dex Desk (spec §18), Nina's two
+    roster_note: NINA_ROSTER_NOTE,
+    faab_watch: NINA_FAAB_WATCH,
   },
   "reggie-banks": {
     top_score: REGGIE_TOP,
@@ -476,6 +796,30 @@ export function sampleSlotsFor(kind: WireEventKind): WireSlots {
     writer: "Nina Sharpe",
     claim: "Kittle Me This wins by 20",
     outcome: "hit",
+    // Dex Desk (spec §18)
+    slot: "FLEX",
+    benched: "Chase Brown",
+    minutes: "40",
+    hoursAgo: "two hours",
+    otherTeam: "Sable Ridge Sentinels",
+    players: "Joe Burrow and Chase Brown",
+    count: "three",
+    heat: "the bidding looks high",
+    weeksSilent: "6",
+    deadline: "Tuesday, November 10",
+    adds: "14",
+    drops: "12",
+    claims: "9",
+    topPlayer: "Jake Browning",
+    topBid: "$14",
+    faabLeader: "Moisty Loins",
+    faabLeft: "$61",
+    weeksLeft: "7",
+    unit: "D/ST",
+    position: "WR",
+    benchCount: "6",
+    pct: "12%",
+    direction: "dropped",
   };
   switch (kind) {
     case "low_score":
@@ -484,6 +828,16 @@ export function sampleSlotsFor(kind: WireEventKind): WireSlots {
       return { ...base, streak: "W4" };
     case "claim_settled":
       return { ...base, writer: "Nina Sharpe", outcome: "hit" };
+    case "reads_the_wire":
+      return { ...base, status: "Questionable" };
+    case "quiet_desk":
+      return { ...base, team: "Kittle Me This, Moisty Loins and Sable Ridge Sentinels" };
+    case "streaming_churn":
+      return { ...base, player: "Bengals D/ST", pos: "D/ST", count: "four", streak: "fourth D/ST in five weeks" };
+    case "roster_note":
+      return { ...base, status: "Active" };
+    case "faab_watch":
+      return { ...base, faabLeft: "$7" };
     default:
       return base;
   }
@@ -531,25 +885,48 @@ function leadResolves(line: StockLine, slots: WireSlots): boolean {
   return sentences.some(sentence => templateTokens(sentence).length > 0 && sentenceResolves(sentence, slots));
 }
 
+/** Kinds that never post a stock line: manager-authored posts, and Sam's question (a model call, spec §18). */
+export const NO_STOCK_LINE_KINDS: ReadonlySet<string> = new Set(["manager_post", "manager_reply", "writer_reply", "sam_question"]);
+
+function hasSlot(slots: WireSlots, token: SlotToken): boolean {
+  return (slots[token] ?? "").trim().length > 0;
+}
+
+/** rumor_check's two libraries (spec §18): a proposal exists (confirm) or the system has nothing (deny). */
+export type RumorBranch = "confirm" | "deny";
+export const RUMOR_LINES: Record<RumorBranch, ReadonlyArray<StockLine>> = { confirm: DEX_RUMOR_CONFIRM, deny: DEX_RUMOR_DENY };
+
+/** The branch the slots imply: `{players}` is passed only when a proposal exists. */
+export function rumorBranchFor(slots: WireSlots): RumorBranch {
+  return hasSlot(slots, "players") ? "confirm" : "deny";
+}
+
 /**
- * A filled stock line for `persona` × `kind`, or `null` when the persona or kind is unknown, no
- * line is allowed at `rating`, or no candidate fills with these slots. Candidates are walked in
- * fnv1a(seed) order so the same seed always yields the same line and neighbouring seeds differ.
- * A line that fills completely is preferred; failing that, one whose lead sentence resolves (so a
- * post never opens on a leftover fragment like "Cleared. Filed.").
+ * The lines a persona × kind draws from for these slots. Two kinds hold two libraries that must not
+ * mix — a deny line would fill perfectly in the confirm case and state the opposite of the log — so
+ * the slots choose: rumor_check by `{players}`, roster_note by `{benchCount}` (bench hoard) versus the
+ * IR branch (an Active player parked on IR).
  */
-export function pickStockLine(
-  persona: string,
-  kind: LeagueEventKind,
+function linePool(persona: WirePersona, kind: LeagueEventKind, slots: WireSlots): ReadonlyArray<StockLine> | undefined {
+  if (persona === "dex-alvarez" && kind === "rumor_check") return RUMOR_LINES[rumorBranchFor(slots)];
+  if (persona === "nina-sharpe" && kind === "roster_note") return hasSlot(slots, "benchCount") ? NINA_ROSTER_BENCH : NINA_ROSTER_IR;
+  return STOCK_LINES[persona][kind];
+}
+
+/**
+ * The shared picker: candidates allowed at `rating` are walked in fnv1a(seed) order so the same
+ * seed always yields the same line and neighbouring seeds differ. A line that fills completely is
+ * preferred; failing that, one whose lead sentence resolves (so a post never opens on a leftover
+ * fragment like "Cleared. Filed.").
+ */
+function pickFrom(
+  lines: ReadonlyArray<StockLine>,
+  persona: WirePersona,
   slots: WireSlots,
   seed: string,
   rating: LanguageRating
 ): { text: string; tags: WireTag[] } | null {
-  if (!(persona in STOCK_LINES)) return null;
-  const slug = persona as WirePersona;
-  const lines = STOCK_LINES[slug][kind];
-  if (!lines || lines.length === 0) return null;
-  const candidates = lines.filter(line => lineAllowed(line, slug, rating, seed));
+  const candidates = lines.filter(line => lineAllowed(line, persona, rating, seed));
   if (candidates.length === 0) return null;
   const start = fnv1a(seed) % candidates.length;
   const ordered = candidates.map((_line, offset) => candidates[(start + offset) % candidates.length]);
@@ -563,4 +940,34 @@ export function pickStockLine(
     if (!partial && leadResolves(line, slots)) partial = result;
   }
   return partial;
+}
+
+/**
+ * A filled stock line for `persona` × `kind`, or `null` when the persona or kind is unknown, the
+ * kind never posts a stock line (NO_STOCK_LINE_KINDS), no line is allowed at `rating`, or no
+ * candidate fills with these slots. See {@link linePool} for the two kinds whose slots pick a branch.
+ */
+export function pickStockLine(
+  persona: string,
+  kind: LeagueEventKind,
+  slots: WireSlots,
+  seed: string,
+  rating: LanguageRating
+): { text: string; tags: WireTag[] } | null {
+  if (NO_STOCK_LINE_KINDS.has(kind)) return null;
+  if (!(persona in STOCK_LINES)) return null;
+  const slug = persona as WirePersona;
+  const lines = linePool(slug, kind, slots);
+  if (!lines || lines.length === 0) return null;
+  return pickFrom(lines, slug, slots, seed, rating);
+}
+
+/**
+ * rumor_check with the branch chosen by the caller rather than inferred from `{players}`. The
+ * confirm branch needs `{players}`: without them a confirm line would degrade to "STATED by X.
+ * Terms under review." — a post that states nothing — so it returns null instead.
+ */
+export function pickRumorLine(branch: RumorBranch, slots: WireSlots, seed: string, rating: LanguageRating): { text: string; tags: WireTag[] } | null {
+  if (branch === "confirm" && !hasSlot(slots, "players")) return null;
+  return pickFrom(RUMOR_LINES[branch], "dex-alvarez", slots, seed, rating);
 }

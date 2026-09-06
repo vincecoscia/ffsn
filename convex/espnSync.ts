@@ -355,6 +355,13 @@ export const updateTeams = internalMutation({
         }
       }
     }
+
+    // Dex Desk (ffsn-the-wire-spec.md §18): roster_note (bench hoards) and faab_watch, derived
+    // from the same roster/transactionCounter this mutation is the one writer of.
+    await ctx.scheduler.runAfter(0, internal.wireDesk.onRosterSynced, {
+      leagueId: args.leagueId,
+      seasonId: args.seasonId,
+    });
   },
 });;
 
@@ -2647,6 +2654,14 @@ export const upsertTransactions = internalMutation({
 
     for (const { leagueId, seasonId, ids } of wireIdsByLeagueSeason.values()) {
       await ctx.scheduler.runAfter(0, internal.wireRoutine.onTransactionsUpserted, {
+        leagueId,
+        seasonId,
+        espnTransactionIds: ids,
+      });
+      // Dex Desk (ffsn-the-wire-spec.md §18): lineup moves, trade proposals/declines, streaming
+      // churn and pending-claims detection - derived from the same transaction log this mutation
+      // is the one writer of, alongside the routine posts above.
+      await ctx.scheduler.runAfter(0, internal.wireDesk.onTransactionsUpsertedForDex, {
         leagueId,
         seasonId,
         espnTransactionIds: ids,

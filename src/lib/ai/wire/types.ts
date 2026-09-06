@@ -34,6 +34,8 @@ export const GLOBAL_EVENT_KINDS = [
   "news",
   "depth_chart",
   "trending",
+  // Dex Desk (spec §18): ESPN roster-percentage swings, no model
+  "ownership_swing",
   // P2 (reserved; no detector in P1)
   "game_started",
   "game_final",
@@ -49,6 +51,21 @@ export const LEAGUE_EVENT_KINDS = [
   "manager_post",
   "manager_reply",
   "writer_reply",
+  // Dex Desk (spec §18): league activity from the ESPN transaction log, stock lines, Dex unless noted
+  "lineup_move",
+  "late_swap",
+  "reads_the_wire",
+  "trade_proposal",
+  "trade_declined",
+  "claims_in",
+  "quiet_desk",
+  "weekly_rundown",
+  "streaming_churn",
+  "roster_note", // Nina
+  "faab_watch", // Nina
+  "lineup_lock", // public at kickoff, after a private wire_alert
+  "rumor_check",
+  "sam_question", // Sam follows a notable move with one question
   // P1 (stock lines, no model)
   "waiver_processed",
   "add_drop",
@@ -113,6 +130,21 @@ export const WIRE_PERSONA_FOR_KIND: Record<WireEventKind, WirePersona> = {
   big_line: "reggie-banks",
   bust_watch: "mel-diaper",
   weather: "nina-sharpe",
+  ownership_swing: "dex-alvarez",
+  lineup_move: "dex-alvarez",
+  late_swap: "dex-alvarez",
+  reads_the_wire: "dex-alvarez",
+  trade_proposal: "dex-alvarez",
+  trade_declined: "dex-alvarez",
+  claims_in: "dex-alvarez",
+  quiet_desk: "dex-alvarez",
+  weekly_rundown: "dex-alvarez",
+  streaming_churn: "dex-alvarez",
+  roster_note: "nina-sharpe",
+  faab_watch: "nina-sharpe",
+  lineup_lock: "dex-alvarez",
+  rumor_check: "dex-alvarez",
+  sam_question: "sam-ortega",
   manager_post: "curtis-vaughn", // unused: a manager post has an author, not a persona
   manager_reply: "curtis-vaughn", // unused, as above
   writer_reply: "curtis-vaughn", // overridden by the writer being answered
@@ -209,6 +241,9 @@ export interface WireFactCard {
   depthPosition?: string;
   // trending
   trendingAdds?: number;
+  // ownership_swing (spec §18): ESPN `ownership.percentChange`, signed, in percentage points
+  // (-12 = dropped in 12% of ESPN leagues overnight, +9 = added in 9%).
+  ownershipChange?: number;
   source: WireSourceRef;
 }
 
@@ -250,6 +285,31 @@ export const SLOT_TOKENS = [
   "writer", // display name of a writer
   "claim", // the settled claim text
   "outcome", // "hit" | "miss"
+  // Dex Desk (spec §18)
+  "slot", // lineup slot name the player moved into, e.g. "FLEX"
+  "benched", // the player who went to the bench in the same move
+  "minutes", // minutes to kickoff at the time of a late swap
+  "hoursAgo", // hours between an injury tag and the bench move
+  "otherTeam", // the other side of a proposal
+  "players", // "A and B" — the pieces in a proposal, both sides
+  "count", // "three" — teams with a claim in, or moves in a window
+  "heat", // "the bidding looks high" | "a bid or two in" (claims_in only)
+  "weeksSilent", // weeks since a team's last proposal
+  "deadline", // plain-English trade deadline
+  "adds", // weekly rundown counters
+  "drops",
+  "claims",
+  "topPlayer", // most-claimed player of the processed week
+  "topBid", // its winning bid, once processed (public in ESPN's log)
+  "faabLeader", // team with the most FAAB left
+  "faabLeft",
+  "weeksLeft",
+  "unit", // "D/ST" | "K"
+  "streak", // reused: "fourth D/ST in five weeks"
+  "position",
+  "benchCount", // roster_note
+  "pct", // ownership swing, e.g. "12%"
+  "direction", // "dropped" | "added"
 ] as const;
 export type SlotToken = (typeof SLOT_TOKENS)[number];
 export type WireSlots = Partial<Record<SlotToken, string>>;
@@ -311,6 +371,48 @@ export const SAME_PLAYER_PENALTY_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 export const WIRE_DEFAULT_ROUTE = { model: "claude-sonnet-5", effort: "low" } as const;
 export const DEFAULT_GLOBAL_DAILY_CAP_USD = 3;
+
+/* ------------------------------------------------------------------------------------------- *
+ * Dex Desk (spec §18): league activity from the ESPN transaction log
+ * ------------------------------------------------------------------------------------------- */
+
+/** In season the transaction log is polled this often for the current scoring period. */
+export const TRANSACTION_LOG_POLL_MINUTES = 15;
+/** A lineup move this close to that player's kickoff is a late swap. */
+export const LATE_SWAP_WINDOW_MS = 60 * 60 * 1000;
+/** A bench move this soon after an injury tag on the same player "reads the wire". */
+export const READS_THE_WIRE_WINDOW_MS = 3 * 60 * 60 * 1000;
+/** At most one lineup_move post per team per window; further moves in the window are folded in. */
+export const LINEUP_MOVE_COALESCE_MS = 30 * 60 * 1000;
+/**
+ * Leak policy (owner, 2026-09-05): pending claims post only as "multiple teams targeting X" — at
+ * least this many teams, never a name, never a dollar amount. `heat` says "the bidding looks high"
+ * when the top pending bid is at least CLAIMS_HOT_FRACTION of the league's FAAB budget.
+ */
+export const CLAIMS_IN_MIN_TEAMS = 2;
+export const CLAIMS_HOT_FRACTION = 0.2;
+/** quiet_desk runs only inside this window before the trade deadline. */
+export const QUIET_DESK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** streaming_churn: this many distinct D/ST (or K) adds in the last five weeks. */
+export const STREAMING_CHURN_MIN_ADDS = 4;
+export const STREAMING_CHURN_WEEKS = 5;
+/** roster_note: this many players at one position on the bench. */
+export const ROSTER_NOTE_BENCH_MIN = 6;
+/** faab_watch: budget under this share with at least this many weeks left. */
+export const FAAB_WATCH_MAX_FRACTION = 0.1;
+export const FAAB_WATCH_MIN_WEEKS_LEFT = 6;
+/** ownership_swing: ESPN percentChange at least this many points, on a player rostered this widely. */
+export const OWNERSHIP_SWING_MIN_POINTS = 5;
+export const OWNERSHIP_SWING_MIN_OWNED = 20;
+/** lineup_lock: the private warning fires this long before kickoff; the public post right after it. */
+export const LINEUP_LOCK_WARNING_MS = 60 * 60 * 1000;
+/** A status that changed inside this window before kickoff is a late scratch, never a manager's call. */
+export const LATE_SCRATCH_WINDOW_MS = 60 * 60 * 1000;
+/** Sam follows a notable move with one question at most this often. */
+export const SAM_QUESTIONS_PER_MANAGER_PER_DAY = 1;
+export const SAM_QUESTIONS_PER_LEAGUE_PER_DAY = 10;
+/** A lineup move is "notable" (worth Sam's question) when the moved player is rostered this widely. */
+export const SAM_NOTABLE_MIN_PERCENT_OWNED = 80;
 
 /* ------------------------------------------------------------------------------------------- *
  * Stock lines (spec §3.3)
@@ -415,6 +517,13 @@ export interface WriterReplyInput {
   card?: WireFactCard;
   /** The manager's text being answered (or, in chase mode, the standalone post). */
   managerText: string;
+  /**
+   * Chase mode only (spec §18, sam_question): what `managerText` is. "post" (the default) - the
+   * manager's own standalone post. "move" - a plain-English description of a move they just made
+   * (src/lib/ai/wire/moves.ts#describeMove), not their words: Sam asks one question about the
+   * decision and never quotes the description back as if they said it.
+   */
+  chaseSubject?: "post" | "move";
   manager: { displayName: string; teamName: string; relationshipTier: string; recentEvidence: string[] };
   /** Earlier turns in this thread, oldest first, at most MAX_THREAD_CONTEXT. */
   thread: Array<{ author: "writer" | "manager"; text: string }>;
@@ -535,6 +644,8 @@ export interface WireStatusView {
   myTeam?: WireTeamRef;
   /** The league's language rating, for the composer's hint. */
   languageRating: LanguageRating;
+  /** Commissioner toggle (spec §18): Dex reports pending claims and proposals. Absent = on. */
+  wireLeaks: boolean;
 }
 
 /** `wire.getRecentForTicker` item: newest global + league posts, merged, for the header strip. */

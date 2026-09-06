@@ -631,6 +631,47 @@ language rating.
   never as told to Sam; the pull quote's strip reads "Said on The Wire · Week N". Excluded from the
   draft-season types (mock_draft, draft_rankings, draft_strategy_guide, season_welcome).
 
+## 18. Dex Desk: league activity (owner-approved 2026-09-05)
+
+Everything here comes from ESPN's transaction log (`view=mTransactions2`), which already carries lineup
+moves (`LINEUP` items with from/to slots), trade proposals, declines and cancellations, and pending
+waiver claims - plus the daily ESPN ownership swing. Dex owns every kind below unless noted. All are
+stock lines (no model) except Sam's question.
+
+**Leak policy (owner):** pending claims post only as "multiple teams targeting {player}" with a soft
+read on the heat ("the bidding looks high" when the top pending bid is ≥ 20% of the FAAB budget,
+else "a bid or two in"). Never a team name, never a dollar amount, never a single claim. Proposals
+name the pieces and the two teams; terms stay "under review". The commissioner can turn leaks off
+(`leagueContentPreferences.wireLeaks`, default on), which silences `claims_in`, `trade_proposal`,
+`trade_declined` and the confirm branch of `rumor_check`.
+
+| Kind | Trigger | Notes |
+|---|---|---|
+| `lineup_move` | ROSTER / FUTURE_ROSTER transaction with LINEUP items into or out of a starting slot | one post per team per 30 min (later moves fold in); pre-draft never; IR-only moves stay `ir_move` |
+| `late_swap` | a lineup move under 60 min before the moved player's NFL kickoff | kickoffs from ESPN's public scoreboard, stored in `nflSchedules` |
+| `reads_the_wire` | a bench move within 3 h of an injury tag on that player | an in-game injury is never framed as a decision (§16) |
+| `trade_proposal` | TRADE_PROPOSAL pending | leaks toggle |
+| `trade_declined` | TRADE_DECLINE / cancelled proposal | leaks toggle |
+| `claims_in` | ≥ 2 pending WAIVER claims on one player in the current period | leak policy above; one post per player per period, "UPDATE" when the count grows |
+| `quiet_desk` | Tuesday inside the 7 days before the trade deadline: teams with no TRADE_* since a given week | one post listing them |
+| `weekly_rundown` | Wednesday 07:00 league time | adds, drops, claims processed, top processed bid (public), FAAB leader |
+| `streaming_churn` | 4th distinct D/ST or K add in 5 weeks | |
+| `roster_note` (Nina) | ≥ 6 at one position on the bench, or an IR slot holding an Active player 2+ weeks | once per team per 2 weeks |
+| `faab_watch` (Nina) | budget under 10% with 6+ weeks left | once per team per season |
+| `lineup_lock` | at kickoff − 60 min a starter is OUT / IR / on bye → private `wire_alert` notification to the manager; at kickoff, still starting → public post | a status that changed inside the last 60 min is a late scratch: no public post |
+| `rumor_check` | a manager post mentioning "rumor", "hearing", "trade", "shopping" and a rostered player's name | confirm branch (a proposal exists) needs leaks on; the deny branch always runs |
+| `sam_question` | a late swap, a proposal (both managers), or a lineup move of a ≥ 80%-rostered player | Sam's chase question via the writer-reply call; 1 per manager per day, 10 per league per day; the manager's answer is a quote |
+| `ownership_swing` (global card) | ESPN `percentChange` ≥ 5 points on a ≥ 20%-rostered player after the daily player sync | "Dropped in 12% of ESPN leagues overnight" |
+
+Cadence: a 15-minute poll of the current scoring period's log for every pass-holding, wire-enabled
+league (one ESPN call each) from the PRESEASON phase on (drafts and the first lineup moves happen
+before Week 1), on top of the existing 4-hourly sync; kickoffs refreshed every 6 hours from ESPN's
+public scoreboard (the `site.web.api.espn.com` host is the fallback when Convex gets a 403);
+lineup-lock checks scheduled per distinct kickoff time inside the next 7 days.
+
+Built 2026-09-05 (D-A/D-B). Not built: the on-bye trigger for `lineup_lock` (a bye has no kickoff to
+anchor to), the IR-parked-Active branch of `roster_note`, a digest line for the desk.
+
 ## Appendix A — sources consulted (2026-09-05)
 
 - ESPN endpoint shapes: live probes recorded above; community docs

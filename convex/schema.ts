@@ -1145,12 +1145,15 @@ export default defineSchema({
     })),
     
     isByeWeek: v.boolean(),
-    
+
     createdAt: v.number(),
   })
     .index("by_team_season", ["teamId", "season"])
     .index("by_week", ["season", "week"])
-    .index("by_team_week", ["teamId", "season", "week"]),
+    .index("by_team_week", ["teamId", "season", "week"])
+    // Dex Desk (ffsn-the-wire-spec.md §18): `pollNflSchedule` upserts by team ABBREVIATION (the
+    // scoreboard payload's own key), not the numeric ESPN team id `by_team_week` is keyed on.
+    .index("by_season_week_team", ["season", "week", "teamAbbrev"]),
 
   // Content schedule configurations for leagues
   contentSchedules: defineTable({
@@ -1376,6 +1379,9 @@ export default defineSchema({
     // The Wire (ffsn-the-wire-spec.md §11 kill switches): commissioner toggle on the settings
     // page. Absent means on - most leagues never touch this.
     wireEnabled: v.optional(v.boolean()),
+    // Dex Desk leak policy (spec §18, owner): silences `claims_in`, `trade_proposal`,
+    // `trade_declined` and the confirm branch of `rumor_check`. Absent means on.
+    wireLeaks: v.optional(v.boolean()),
 
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1717,23 +1723,27 @@ export default defineSchema({
       v.literal("article_generated"),     // Scheduled article completed
       v.literal("system_announcement"),   // System-wide announcements
       v.literal("league_invitation"),     // League-related invites
-      v.literal("account_update")         // Account/subscription changes
+      v.literal("account_update"),        // Account/subscription changes
+      // Dex Desk (ffsn-the-wire-spec.md §18/§10): a starter is OUT/IR/on bye ~60 min before
+      // kickoff. In-app only by default (spec §10); never emailed per-post.
+      v.literal("wire_alert")
     ),
-    
+
     title: v.string(),
     message: v.string(),
-    
+
     // Action/navigation
     actionUrl: v.optional(v.string()),    // Where to navigate when clicked
     actionText: v.optional(v.string()),   // Button text ("View Comment Request")
-    
+
     // Related entities (for deep linking and context)
     relatedEntityType: v.optional(v.union(
       v.literal("comment_request"),
       v.literal("scheduled_content"),
       v.literal("ai_content"),
       v.literal("league"),
-      v.literal("user")
+      v.literal("user"),
+      v.literal("wire_post")
     )),
     relatedEntityId: v.optional(v.string()), // ID of related entity
     
@@ -2304,6 +2314,14 @@ export default defineSchema({
     reactionCounts: v.optional(
       v.object({ fire: v.number(), lol: v.number(), salty: v.number(), respect: v.number() })
     ),
+    // Dex Desk (spec §18): a post that evolves in place instead of reposting - a `lineup_move`
+    // family post coalescing further moves for the same team within LINEUP_MOVE_COALESCE_MS, or a
+    // `claims_in` post whose team count grows within the same period. `evolvingBaseText` is the
+    // FIRST version of `text`, kept so a later patch can append "UPDATE: ..." without stacking
+    // duplicate suffixes across repeated patches; `evolvingCount` is the count last rendered
+    // (moves folded in, or teams targeting the claim).
+    evolvingCount: v.optional(v.number()),
+    evolvingBaseText: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_league_created", ["leagueId", "createdAt"])

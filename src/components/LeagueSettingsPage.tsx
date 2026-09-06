@@ -94,8 +94,25 @@ function FieldCard({ label, value }: { label: string; value: string }) {
 function WireSettingsCard({ leagueId, canManage }: { leagueId: Id<"leagues">; canManage: boolean }) {
   const status = useQuery(api.wire.getWireStatus, { leagueId });
   const setWireEnabled = useMutation(api.wire.setWireEnabled);
+  const setWireLeaks = useMutation(api.wire.setWireLeaks);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingLeaks, setIsSavingLeaks] = useState(false);
   const enabled = status?.wireEnabled ?? true;
+  const leaks = status?.wireLeaks ?? true;
+
+  // Dex Desk leak policy (spec §18): pending claims post only as "multiple teams targeting X",
+  // never a name or an amount; this switch turns those posts, proposals and declines off entirely.
+  const handleLeaksToggle = async (next: boolean) => {
+    setIsSavingLeaks(true);
+    try {
+      await setWireLeaks({ leagueId, enabled: next });
+    } catch (err) {
+      console.error("Failed to update the Wire leaks toggle:", err);
+      toast.error("Couldn't update Dex's leaks. Try again.");
+    } finally {
+      setIsSavingLeaks(false);
+    }
+  };
 
   const handleToggle = async (next: boolean) => {
     setIsSaving(true);
@@ -137,6 +154,24 @@ function WireSettingsCard({ leagueId, canManage }: { leagueId: Id<"leagues">; ca
             checked={enabled}
             onCheckedChange={handleToggle}
             disabled={!status || isSaving}
+          />
+        )}
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-4 border border-bc-hairline bg-bc-panel-2 p-4">
+        <div>
+          <Label htmlFor="wire-leaks" className="text-[15px] text-bc-ink">
+            Dex reports pending claims and proposals
+          </Label>
+          <p className="mt-1 text-sm text-bc-text-2">
+            &ldquo;Multiple teams targeting&hellip;&rdquo; and trade proposals in the system. Never a bid amount or who claimed.
+          </p>
+        </div>
+        {canManage && (
+          <Switch
+            id="wire-leaks"
+            checked={leaks}
+            onCheckedChange={handleLeaksToggle}
+            disabled={!status || !enabled || isSavingLeaks}
           />
         )}
       </div>

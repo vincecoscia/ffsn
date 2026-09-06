@@ -129,6 +129,45 @@ describe("renderCard", () => {
     const huge: WireFactCard = { ...burrow, players: [{ espnId: "1", name: "N".repeat(300) }] };
     expect(renderCard(huge).text.length).toBeLessThanOrEqual(MAX_POST_CHARS);
   });
+
+  it("renders an ownership swing (spec §18) by its sign and size, tagged REPORTED", () => {
+    const swing: WireFactCard = {
+      kind: "ownership_swing",
+      observedAt: 0,
+      players: [{ espnId: "3915511", name: "Joe Burrow", position: "QB", nflTeam: "CIN", percentOwned: 63.2 }],
+      ownershipChange: -12.4,
+      source: { type: "espn_fantasy", fetchedAt: 0 },
+    };
+    expect(renderCard(swing)).toEqual({ text: "Joe Burrow was dropped in 12% of ESPN leagues overnight.", tags: ["REPORTED"] });
+    expect(renderCard({ ...swing, ownershipChange: 8.6 }).text).toBe("Joe Burrow was added in 9% of ESPN leagues overnight.");
+    expect(renderCard({ ...swing, ownershipChange: 0.4 }).text).toBe("Joe Burrow was added in 0.4% of ESPN leagues overnight.");
+    expect(renderCard({ ...swing, ownershipChange: undefined }).text).toBe("Joe Burrow: ESPN roster percentage moved overnight.");
+    expect(renderCard({ ...swing, ownershipChange: 0 }).text).toBe("Joe Burrow: ESPN roster percentage moved overnight.");
+  });
+});
+
+describe("ownership_swing validation and numbers", () => {
+  const swing = {
+    kind: "ownership_swing",
+    observedAt: 0,
+    players: [{ espnId: "3915511", name: "Joe Burrow", percentOwned: 63.2 }],
+    ownershipChange: -12.4,
+    source: { type: "espn_fantasy", fetchedAt: 0 },
+  };
+
+  it("validateFactCard accepts the kind and keeps the signed change", () => {
+    const parsed = validateFactCard(swing);
+    expect(parsed.kind).toBe("ownership_swing");
+    expect(parsed.ownershipChange).toBe(-12.4);
+    expect(() => validateFactCard({ ...swing, ownershipChange: "12" })).toThrow(/ownershipChange/);
+    expect(() => validateFactCard({ ...swing, ownershipChange: Number.POSITIVE_INFINITY })).toThrow(/ownershipChange/);
+  });
+
+  it("cardNumbers holds the swing as the reader sees it, unsigned", () => {
+    const numbers = cardNumbers(validateFactCard(swing));
+    expect(numbers).toEqual(expect.arrayContaining(["12", "12.4", "63.2", "63"]));
+    expect(numbers).not.toContain("-12");
+  });
 });
 
 describe("numbers and names", () => {

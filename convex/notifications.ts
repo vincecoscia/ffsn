@@ -27,7 +27,8 @@ export const getUserNotifications = query({
       v.literal("article_generated"),
       v.literal("system_announcement"),
       v.literal("league_invitation"),
-      v.literal("account_update")
+      v.literal("account_update"),
+      v.literal("wire_alert")
     )),
     isRead: v.optional(v.boolean()),
     limit: v.optional(v.number()),
@@ -287,7 +288,8 @@ export const createNotification = internalMutation({
       v.literal("article_generated"),
       v.literal("system_announcement"),
       v.literal("league_invitation"),
-      v.literal("account_update")
+      v.literal("account_update"),
+      v.literal("wire_alert")
     ),
     title: v.string(),
     message: v.string(),
@@ -298,7 +300,8 @@ export const createNotification = internalMutation({
       v.literal("scheduled_content"),
       v.literal("ai_content"),
       v.literal("league"),
-      v.literal("user")
+      v.literal("user"),
+      v.literal("wire_post")
     )),
     relatedEntityId: v.optional(v.string()),
     priority: v.union(

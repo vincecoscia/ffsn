@@ -35,6 +35,8 @@ export function interestBase(card: WireFactCard): number {
       return card.depthOrderTo === 1 ? 30 : DEFAULT_BASE;
     case "trending":
       return 20;
+    case "ownership_swing":
+      return 20;
     default:
       return DEFAULT_BASE;
   }

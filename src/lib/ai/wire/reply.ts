@@ -123,10 +123,12 @@ else.
    {slot} tokens.
 9. Modes (the mode is named under THIS MANAGER):
    - reply: answer the manager in voice, one to three sentences.
-   - chase (Sam Ortega only): you have read a manager's standalone post and you ask EXACTLY ONE
-     question about what they just said. No opinion, no numbers, no second question. Present tense,
+   - chase (Sam Ortega only): you have read either a manager's standalone post or a plain
+     description of a move they just made (the mode line under THIS MANAGER says which), and you ask
+     EXACTLY ONE question about it. No opinion, no numbers, no second question. Present tense,
      reporter's notebook — "I ask …" is your register — and the question mark is the only one in the
-     post.
+     post. When it is a move, the description is not the manager's words: ask about the decision, and
+     never quote the description back as if they said it.
 10. Also classify how the MANAGER's text reads toward you: "jab" (hostile, mocking or dismissive of
    you or your work), "thanks" (friendly, appreciative, giving you credit), or "neutral" (everything
    else, including a plain question or a disagreement on the merits). Classify their words, not your
@@ -170,10 +172,17 @@ export function buildStandingBlock(persona: PersonaPrompt, input: WriterReplyInp
   }
   lines.push(
     input.mode === "chase"
-      ? "Mode: chase — exactly one question about what they just posted, nothing else."
+      ? isMoveChase(input)
+        ? "Mode: chase — the text under \"move\" describes a move this manager just made; it is not their words. Ask exactly one question about the decision: no opinion, no numbers, nothing else."
+        : "Mode: chase — exactly one question about what they just posted, nothing else."
       : "Mode: reply — answer them in voice, one to three sentences."
   );
   return lines.join("\n");
+}
+
+/** Chase mode over a move description (spec §18 sam_question) rather than the manager's own post. */
+export function isMoveChase(input: WriterReplyInput): boolean {
+  return input.mode === "chase" && input.chaseSubject === "move";
 }
 
 /** The input as the model sees it: the words and the card, minus ids, timestamps and plumbing. */
@@ -185,7 +194,8 @@ export function modelReplyView(input: WriterReplyInput): Record<string, unknown>
     card: input.card ? modelCardView(input.card) : undefined,
     thread: threadContext(input).map(turn => ({ author: turn.author, text: turn.text })),
     manager: { displayName: input.manager.displayName, teamName: input.manager.teamName },
-    managerText: input.managerText,
+    // A move description is not something the manager said, so it never travels under managerText.
+    ...(isMoveChase(input) ? { move: input.managerText } : { managerText: input.managerText }),
   };
 }
 

@@ -11,6 +11,7 @@ const runs: FeedRun[] = [
   { source: "ffc_adp", ranAt: NOW - 60 * H, ok: true, summary: "6 boards (2026), 0 changed" },
   { source: "espn_news", ranAt: NOW - 20 * 60 * 1000, ok: true },
   { source: "espn_injuries", ranAt: NOW - 10 * 60 * 1000, ok: true, summary: "3 changed" },
+  { source: "espn_transactions", ranAt: NOW - 5 * 60 * 1000, ok: true, summary: "2 league(s) polled" },
 ];
 
 describe("feed freshness", () => {
@@ -26,6 +27,7 @@ describe("feed freshness", () => {
     expect(line).toContain("FFC ADP: 3d ago STALE");
     expect(line).toContain("ESPN news: 20m ago");
     expect(line).toContain("ESPN injuries: 10m ago, 3 changed");
+    expect(line).toContain("ESPN transactions: 5m ago, 2 league(s) polled");
     expect(formatFeedFreshness([], NOW)).toContain("Sleeper injuries/depth: never");
   });
 });

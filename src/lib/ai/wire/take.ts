@@ -199,6 +199,8 @@ export function modelCardView(card: WireFactCard): Record<string, unknown> {
     depthOrderTo: card.depthOrderTo,
     depthPosition: card.depthPosition,
     sleeperAddsLast24h: card.trendingAdds,
+    // ownership_swing: signed percentage points, ESPN's overnight roster change
+    espnRosterChangePct: card.ownershipChange,
     source: sourceLabel(card.source.type),
   };
 }

@@ -12,6 +12,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { requireEnv } from "./lib/nodeHelpers";
 import { wireEnabled } from "./lib/wireLeaguePosting";
 import { automationSpendCapUsd } from "./deskMetrics";
@@ -23,6 +24,7 @@ import {
 import type { WireFactCard, WirePersona, WriterReplyInput } from "../src/lib/ai/wire/types";
 import { validateFactCard } from "../src/lib/ai/wire/card";
 import { generateWriterReply } from "../src/lib/ai/wire/reply";
+import { describeMove, type MoveDescriptionInput } from "../src/lib/ai/wire/moves";
 import {
   decideReplyMode,
   relationshipEventForSentiment,
@@ -30,6 +32,7 @@ import {
   shouldSamChase,
   writerPersonaForTarget,
 } from "./lib/wireSocialRules";
+import { samQuestionGateReason } from "./lib/wireDeskRules";
 
 /**
  * A reaction lands on `postKey`; only a WRITER's post moves the relationship meter (spec §17.2).
@@ -213,6 +216,108 @@ export const onManagerPost = internalAction({
       sentiment: result.sentiment,
     });
 
+    return null;
+  },
+});
+
+const moveDescriptionValidator = v.object({
+  kind: v.union(v.literal("lineup_move"), v.literal("late_swap"), v.literal("trade_proposal")),
+  team: v.string(),
+  manager: v.string(),
+  players: v.array(v.string()),
+  slot: v.optional(v.string()),
+  benched: v.optional(v.string()),
+  minutes: v.optional(v.number()),
+  otherTeam: v.optional(v.string()),
+});
+
+/**
+ * Sam follows a notable Dex Desk move with one question (spec §18 `sam_question`): a late swap, a
+ * trade proposal (both managers), or a lineup move of a widely-rostered player. Unlike
+ * `onManagerPost`'s "chase" mode, there is no standalone manager post to read - `managerText` is a
+ * plain-English description of the move itself (`describeMove`, `chaseSubject: "move"`), and
+ * `reply.ts` treats it accordingly (never quoted back as if the manager said it). Every gate here
+ * skips silently: a Dex Desk post always lands regardless of whether Sam ever follows up.
+ */
+export const askSamAboutMove = internalAction({
+  args: {
+    leaguePostId: v.id("wireLeaguePosts"),
+    leagueId: v.id("leagues"),
+    seasonId: v.number(),
+    week: v.optional(v.number()),
+    teamId: v.id("teams"),
+    move: moveDescriptionValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, { leaguePostId, leagueId, seasonId, week, teamId, move }) => {
+    if (!wireEnabled()) return null;
+
+    const manager: { userId: Id<"users"> } | null = await ctx.runQuery(internal.wireDeskData.getManagerForTeam, {
+      teamId,
+      seasonId,
+    });
+    if (!manager) return null; // no claimed team - spec §18: skip
+
+    const now = Date.now();
+    const counts: { perManagerToday: number; perLeagueToday: number } = await ctx.runQuery(
+      internal.wireDeskData.getSamQuestionCountsToday,
+      { leagueId, teamId, now }
+    );
+    const spend: { totalUsd: number } = await ctx.runQuery(internal.deskMetrics.getLeagueSeasonSpend, { leagueId, seasonId });
+    const reason = samQuestionGateReason({
+      perManagerToday: counts.perManagerToday,
+      perLeagueToday: counts.perLeagueToday,
+      seasonSpendUsd: spend.totalUsd,
+      spendCapUsd: automationSpendCapUsd(),
+    });
+    if (reason) {
+      console.log(`wireSocial.askSamAboutMove: skipped leaguePost ${leaguePostId} (${reason})`);
+      return null;
+    }
+
+    const relationships = await ctx.runQuery(internal.relationships.getRelationshipsForWriter, {
+      leagueId,
+      persona: "sam-ortega",
+      userIds: [manager.userId],
+    });
+    const rel = relationships[0];
+
+    const language = await ctx.runQuery(internal.languageSettings.getLeagueLanguage, { leagueId });
+    const cleanTeam = language.cleanTeamNames.includes(move.team);
+
+    const input: WriterReplyInput = {
+      persona: "sam-ortega",
+      mode: "chase",
+      chaseSubject: "move",
+      managerText: describeMove(move as MoveDescriptionInput),
+      manager: {
+        displayName: rel?.managerName ?? move.manager,
+        teamName: rel?.teamName ?? move.team,
+        relationshipTier: rel?.tier ?? "neutral",
+        recentEvidence: (rel?.recentEvents ?? []).slice(0, 3).map((event) => event.evidence),
+      },
+      thread: [],
+      languageRating: language.languageRating,
+      cleanTeam,
+      week,
+    };
+
+    const result = await generateWriterReply(input, requireEnv("ANTHROPIC_API_KEY"));
+
+    if (result.text) {
+      await ctx.runMutation(internal.wireDeskData.insertSamQuestion, {
+        leagueId,
+        seasonId,
+        week,
+        deskPostId: leaguePostId,
+        teamId,
+        text: result.text,
+        generationStats: { costUsd: result.costUsd, model: result.model, effort: result.effort },
+      });
+    }
+
+    // Chase mode never moves the relationship meter (spec §17.3: only "reply" mode does) - the
+    // sentiment classification exists on `result` but there is no manager post to tag it onto here.
     return null;
   },
 });

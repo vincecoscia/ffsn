@@ -760,8 +760,12 @@ export const syncPlayersDefaultStats = internalAction({
         playersProcessed: allPlayers.length,
       });
 
-      return { 
-        status: "success", 
+      // Dex Desk (ffsn-the-wire-spec.md §18): ownership_swing - a detector run once per full
+      // default-stats sync, never per batch, so "top swings today" is judged over the whole pool.
+      await ctx.scheduler.runAfter(0, internal.wireDesk.detectOwnershipSwings, { season });
+
+      return {
+        status: "success",
         playersCount: allPlayers.length,
         message: `Successfully synced ${allPlayers.length} players with default PPR stats for ${season} season`
       };

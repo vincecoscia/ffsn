@@ -27,6 +27,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { parseEspnInjuriesPayload, type EspnInjuryEntry } from "../src/lib/ai/wire/espn";
 import { wireEnabled } from "./lib/wireLeaguePosting";
+import { nflSeasonYearFor } from "./lib/season";
 
 const ESPN_INJURIES_PRIMARY = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries";
 // Fallback on a 403 from the primary host - the same trick convex/espnNews.ts documents.
@@ -163,6 +164,135 @@ export const pollEspnInjuries = internalAction({
         // Recording the failure is best-effort; the outer catch already has the real error.
       }
       return { ...empty, error: message };
+    }
+  },
+});
+
+/* -------------------------------------------------------------------------- *
+ * NFL schedule / kickoffs (Dex Desk, ffsn-the-wire-spec.md §18): the current NFL week and the next,
+ * from ESPN's public scoreboard - no cookies, same host family as the injuries poll above. Rows are
+ * upserted and upcoming kickoffs are scheduled for lineup-lock checks by `convex/wireDesk.ts`
+ * (`upsertNflScheduleRows`, `scheduleLineupLockChecks`) - this file only fetches and parses.
+ * -------------------------------------------------------------------------- */
+
+const NFL_SCOREBOARD_BASE = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard";
+
+interface ScoreboardTeam {
+  id?: string;
+  abbreviation?: string;
+}
+interface ScoreboardCompetitor {
+  team?: ScoreboardTeam;
+  homeAway?: string;
+}
+interface ScoreboardCompetition {
+  date?: string;
+  competitors?: ScoreboardCompetitor[];
+}
+interface ScoreboardEvent {
+  date?: string;
+  competitions?: ScoreboardCompetition[];
+}
+interface ScoreboardPayload {
+  week?: { number?: number };
+  season?: { year?: number };
+  events?: ScoreboardEvent[];
+}
+
+async function fetchScoreboard(week?: number): Promise<ScoreboardPayload> {
+  const url = week ? `${NFL_SCOREBOARD_BASE}?seasontype=2&week=${week}` : `${NFL_SCOREBOARD_BASE}?seasontype=2`;
+  let response = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
+  if (response.status === 403) {
+    // Same bot filter the injuries poll and espnNews.ts hit: site.web.api.espn.com serves the
+    // identical payload without it (dev, 2026-09-05: the primary host answered 403 from Convex).
+    response = await fetch(url.replace("https://site.api.espn.com/", "https://site.web.api.espn.com/"), {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    });
+  }
+  if (!response.ok) throw new Error(`ESPN scoreboard HTTP ${response.status}`);
+  return (await response.json()) as ScoreboardPayload;
+}
+
+interface ScheduleRow {
+  season: number;
+  week: number;
+  teamId: number;
+  teamAbbrev: string;
+  opponent: string;
+  isHome: boolean;
+  gameTime: number;
+  isByeWeek: boolean;
+}
+
+export const pollNflSchedule = internalAction({
+  args: {},
+  returns: v.object({ success: v.boolean(), rows: v.number(), scheduled: v.number(), error: v.optional(v.string()) }),
+  handler: async (ctx) => {
+    if (!wireEnabled()) return { success: true, rows: 0, scheduled: 0 };
+
+    try {
+      // Called without `week` first so ESPN's own `week.number` tells us the current NFL week
+      // (spec §18: "week from the scoreboard's own week.number when called without params").
+      const discovery = await fetchScoreboard();
+      const currentWeek = discovery.week?.number;
+      if (!currentWeek) throw new Error("ESPN scoreboard did not report a current week");
+      const season = discovery.season?.year ?? nflSeasonYearFor();
+
+      const rows: ScheduleRow[] = [];
+      const kickoffsByWeek = new Map<number, Set<number>>();
+
+      for (const week of [currentWeek, currentWeek + 1]) {
+        const payload = week === currentWeek ? discovery : await fetchScoreboard(week);
+        for (const event of payload.events ?? []) {
+          const competition = event.competitions?.[0];
+          if (!competition) continue;
+          const gameTime = Date.parse(event.date ?? competition.date ?? "");
+          if (!Number.isFinite(gameTime)) continue;
+          const competitors = competition.competitors ?? [];
+          for (const competitor of competitors) {
+            const abbrev = competitor.team?.abbreviation;
+            const teamIdNum = parseInt(competitor.team?.id ?? "", 10);
+            if (!abbrev || !Number.isFinite(teamIdNum)) continue;
+            const opponent = competitors.find((c) => c !== competitor)?.team?.abbreviation ?? "";
+            rows.push({ season, week, teamId: teamIdNum, teamAbbrev: abbrev, opponent, isHome: competitor.homeAway === "home", gameTime, isByeWeek: false });
+          }
+          const set = kickoffsByWeek.get(week) ?? new Set<number>();
+          set.add(gameTime);
+          kickoffsByWeek.set(week, set);
+        }
+      }
+
+      const upsertResult: { upserted: number } = await ctx.runMutation(internal.wireDesk.upsertNflScheduleRows, { rows });
+      const upserted = upsertResult.upserted;
+
+      const now = Date.now();
+      const sevenDays = 7 * 24 * 60 * 60 * 1000;
+      const kickoffs: Array<{ kickoffAt: number; season: number; week: number }> = [];
+      for (const [week, set] of kickoffsByWeek) {
+        for (const kickoffAt of set) {
+          if (kickoffAt > now && kickoffAt <= now + sevenDays) kickoffs.push({ kickoffAt, season, week });
+        }
+      }
+      const scheduleResult: { scheduled: number } = await ctx.runMutation(internal.wireDesk.scheduleLineupLockChecks, { kickoffs });
+      const scheduled = scheduleResult.scheduled;
+
+      return { success: true, rows: upserted, scheduled };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to poll NFL schedule";
+      console.error("pollNflSchedule failed:", message);
+      try {
+        const state = await ctx.runQuery(internal.wireDetect.getSourceCursor, { source: "nfl_kickoffs" });
+        await ctx.runMutation(internal.wireDetect.recordSourceRun, {
+          source: "nfl_kickoffs",
+          cursor: state?.cursor,
+          ok: false,
+          summary: "threw",
+          error: message,
+        });
+      } catch {
+        // best-effort - the outer catch already has the real error
+      }
+      return { success: false, rows: 0, scheduled: 0, error: message };
     }
   },
 });

@@ -43,6 +43,11 @@ describe("interestBase (spec §7 table)", () => {
     expect(interestBase(card({ kind: "trending", trendingAdds: 1240 }))).toBe(20);
   });
 
+  it("scores an ownership swing (spec §18) at 20, plus the usual roster term", () => {
+    expect(interestBase(card({ kind: "ownership_swing", ownershipChange: -12 }))).toBe(20);
+    expect(scoreInterest(card({ kind: "ownership_swing", ownershipChange: -12, players: [player({ percentOwned: 60 })] }), { now: NOW })).toBe(50);
+  });
+
   it("gives kinds without a rule the default base", () => {
     expect(interestBase(card({ kind: "game_final" }))).toBe(15);
     expect(interestBase(card({ kind: "weather" }))).toBe(15);

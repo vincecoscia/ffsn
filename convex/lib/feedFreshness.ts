@@ -11,7 +11,9 @@ export type FeedName =
   | "ffc_adp"
   | "espn_news"
   // The Wire (spec ffsn-the-wire-spec.md §11): ESPN's injuries poll, every 5 min in season.
-  | "espn_injuries";
+  | "espn_injuries"
+  // Dex Desk (spec §18): the transaction-log poll, every 15 min in season.
+  | "espn_transactions";
 
 export interface FeedRun {
   source: FeedName;
@@ -28,6 +30,7 @@ const LABELS: Record<FeedName, string> = {
   ffc_adp: "FFC ADP",
   espn_news: "ESPN news",
   espn_injuries: "ESPN injuries",
+  espn_transactions: "ESPN transactions",
 };
 
 /** How old the last successful run may be before the feed counts as stale (ms). */
@@ -38,6 +41,7 @@ export const STALE_AFTER_MS: Record<FeedName, number> = {
   ffc_adp: 50 * 60 * 60 * 1000, // daily
   espn_news: 6 * 60 * 60 * 1000, // hourly
   espn_injuries: 2 * 60 * 60 * 1000, // polled every 5 min in season, 30 min otherwise (Wire spec §5.1/§6)
+  espn_transactions: 2 * 60 * 60 * 1000, // polled every 15 min in season (Dex Desk spec §18)
 };
 
 const ORDER: FeedName[] = [
@@ -47,6 +51,7 @@ const ORDER: FeedName[] = [
   "ffc_adp",
   "espn_news",
   "espn_injuries",
+  "espn_transactions",
 ];
 
 export function ago(ms: number): string {

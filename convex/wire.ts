@@ -370,6 +370,7 @@ export const getWireStatus = query({
     isCommissioner: v.boolean(),
     myTeam: v.optional(teamRefValidator),
     languageRating: languageRatingValidator,
+    wireLeaks: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const membership = await getLeagueMembership(ctx, args.leagueId);
@@ -394,6 +395,7 @@ export const getWireStatus = query({
       isCommissioner: membership?.membership.role === "commissioner",
       myTeam,
       languageRating: language.languageRating,
+      wireLeaks: prefs?.wireLeaks !== false,
     };
   },
 });
@@ -729,6 +731,12 @@ export const postAsManager = mutation({
 
     await ctx.scheduler.runAfter(0, internal.wireSocial.onManagerPost, { leaguePostId: postId });
 
+    // rumor_check (Dex Desk, spec §18): standalone posts only - a reply is never framed as a fresh
+    // rumor about the thread it is answering.
+    if (!args.replyTo) {
+      await ctx.scheduler.runAfter(0, internal.wireDesk.checkRumor, { leaguePostId: postId });
+    }
+
     return { postId };
   },
 });
@@ -790,6 +798,44 @@ export const setWireEnabled = mutation({
       });
     } else {
       await ctx.db.patch(existing._id, { wireEnabled: args.enabled, updatedAt: now });
+    }
+    return null;
+  },
+});
+
+/**
+ * Dex Desk leak policy toggle (spec §18, commissioner only): silences `claims_in`,
+ * `trade_proposal`, `trade_declined` and the confirm branch of `rumor_check`. Absent means on.
+ */
+export const setWireLeaks = mutation({
+  args: { leagueId: v.id("leagues"), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireCommissioner(ctx, args.leagueId);
+
+    const existing = await ctx.db
+      .query("leagueContentPreferences")
+      .withIndex("by_league", (q) => q.eq("leagueId", args.leagueId))
+      .first();
+    const now = Date.now();
+
+    if (!existing) {
+      await ctx.db.insert("leagueContentPreferences", {
+        leagueId: args.leagueId,
+        contentEnabled: true,
+        timezone: DEFAULT_TIMEZONE,
+        notifyCommissioner: true,
+        notifyFailures: true,
+        autoPublish: true,
+        requireApproval: false,
+        currentMonthSpent: 0,
+        budgetResetDate: now,
+        wireLeaks: args.enabled,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(existing._id, { wireLeaks: args.enabled, updatedAt: now });
     }
     return null;
   },

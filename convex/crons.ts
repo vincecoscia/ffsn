@@ -1,5 +1,6 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
+import { TRANSACTION_LOG_POLL_MINUTES } from "../src/lib/ai/wire/types";
 
 const crons = cronJobs();
 
@@ -209,6 +210,36 @@ crons.interval(
   "flush Wire take batch",
   { minutes: 10 },
   internal.wireGenerate.flushTakeBatch,
+  {},
+);
+
+// --- Dex Desk (ffsn-the-wire-spec.md §18) ------------------------------
+
+// ESPN's transaction log, polled every 15 min in season for the current scoring period of every
+// pass-holding, wire-enabled league with valid credentials - the primary source for lineup moves,
+// trade proposals/declines, pending claims and streaming churn.
+crons.interval(
+  "poll transaction logs (The Wire)",
+  { minutes: TRANSACTION_LOG_POLL_MINUTES },
+  internal.wireDesk.pollTransactionLogs,
+  {},
+);
+
+// The current + next NFL week's kickoffs from ESPN's public scoreboard, every 6 hours in season -
+// upserts `nflSchedules` and schedules a private lineup-lock warning + public post per kickoff.
+crons.interval(
+  "sync NFL kickoffs (The Wire)",
+  { hours: 6 },
+  internal.wireSourcesNode.pollNflSchedule,
+  {},
+);
+
+// weekly_rundown (Wednesday 07:00 league-local) and quiet_desk (Tuesdays inside the trade-deadline
+// window) both fire on a wall-clock condition the cron checks hourly, per league.
+crons.interval(
+  "Dex Desk hourly checks (The Wire)",
+  { hours: 1 },
+  internal.wireDesk.hourlyDeskCron,
   {},
 );
 

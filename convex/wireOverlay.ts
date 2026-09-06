@@ -16,7 +16,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasActivePass } from "./credits";
 import { leagueCurrentSeason, nflSeasonYearFor } from "./lib/season";
-import { isPreDraftRedraft } from "./lib/matchupSummary";
+import { draftPhaseFor } from "./lib/draftPhase";
 import { currentMatchupPeriod, faabSlot, insertLeaguePostIfNew, managerNameFor } from "./lib/wireLeaguePosting";
 import {
   CARD_MIN_INTEREST,
@@ -26,7 +26,7 @@ import {
 } from "../src/lib/ai/wire/types";
 import type { OverlayVariant, WireCardPlayer, WireFactCard, WireSlots } from "../src/lib/ai/wire/types";
 import { validateFactCard } from "../src/lib/ai/wire/card";
-import { defaultVariants, fillVariant } from "../src/lib/ai/wire/fill";
+import { defaultVariants, fillVariant, ownershipSwingSlots } from "../src/lib/ai/wire/fill";
 import { verifyLeagueText } from "../src/lib/ai/wire/verify";
 
 const BENCH_SLOT_ID = 20;
@@ -141,23 +141,6 @@ async function findBackupCandidate(
   return enriched ? { espnId: nextUp.espnId, name: enriched.fullName } : null;
 }
 
-type DraftPhase = "predraft_redraft" | "predraft_keeper" | "drafted";
-
-/**
- * Where this league's season sits relative to its draft. Reuses `isPreDraftRedraft`'s rule
- * (matchupSummary.ts): `draftInfo.drafted` must be the literal `false` to count as pre-draft, and a
- * keeper/dynasty league (keeperCount or keeperCountFuture > 0) is the keeper case. Anything else,
- * including an unsynced season, is treated as drafted so real rosters are never hidden.
- */
-async function draftPhaseFor(ctx: MutationCtx, leagueId: Id<"leagues">, seasonId: number): Promise<DraftPhase> {
-  const season = await ctx.db
-    .query("leagueSeasons")
-    .withIndex("by_league_season", (q) => q.eq("leagueId", leagueId).eq("seasonId", seasonId))
-    .first();
-  if (!season || season.draftInfo?.drafted !== false) return "drafted";
-  return isPreDraftRedraft(season) ? "predraft_redraft" : "predraft_keeper";
-}
-
 const ADP_MARKET_PREFERENCE = ["ppr-12", "ppr-10", "half-ppr-12", "half-ppr-10", "standard-12", "standard-10"];
 
 /** `{adp}` / `{adpRank}` from the freshest FFC market board for this player (intel sync), if any. */
@@ -185,6 +168,9 @@ function basePlayerSlots(card: WireFactCard, player: WireCardPlayer): WireSlots 
   if (card.statusTo) slots.status = card.statusTo;
   if (card.timetable) slots.timetable = card.timetable;
   if (card.trendingAdds !== undefined) slots.trendingAdds = String(card.trendingAdds);
+  // Dex Desk (spec §18): {pct}/{direction} for an ownership_swing card's overlay sentences -
+  // absent (both keys) when the card carries no signed percentChange, so those sentences drop.
+  if (card.kind === "ownership_swing") Object.assign(slots, ownershipSwingSlots(card));
   return slots;
 }
 

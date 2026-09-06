@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultVariants, fillVariant, splitTemplateSentences, templateTokens, timetableShape } from "../src/lib/ai/wire/fill";
+import { defaultVariants, fillVariant, ownershipSwingSlots, splitTemplateSentences, templateTokens, timetableShape } from "../src/lib/ai/wire/fill";
 import { sampleSlotsFor } from "../src/lib/ai/wire/stock-lines";
 import { GLOBAL_EVENT_KINDS, MAX_POST_CHARS, SLOT_TOKENS, type WireFactCard, type WireSlots } from "../src/lib/ai/wire/types";
 
@@ -188,6 +188,32 @@ describe("defaultVariants", () => {
   it("does not mention a timetable when the card has none", () => {
     const variants = defaultVariants({ ...base, timetable: undefined });
     for (const template of Object.values(variants)) expect(template).not.toContain("{timetable}");
+  });
+
+  it("phrases the ownership swing (spec §18) from the card's signed change", () => {
+    const swing: WireFactCard = {
+      kind: "ownership_swing",
+      observedAt: 0,
+      players: [{ espnId: "3915511", name: "Joe Burrow", position: "QB", nflTeam: "CIN" }],
+      ownershipChange: -12.4,
+      source: { type: "espn_fantasy", fetchedAt: 0 },
+    };
+    expect(ownershipSwingSlots(swing)).toEqual({ pct: "12%", direction: "dropped" });
+    expect(ownershipSwingSlots({ ...swing, ownershipChange: 9 })).toEqual({ pct: "9%", direction: "added" });
+    expect(ownershipSwingSlots({ ...swing, ownershipChange: undefined })).toEqual({});
+    const variants = defaultVariants(swing);
+    const slots: WireSlots = { ...SLOTS, ...ownershipSwingSlots(swing) };
+    expect(fillVariant(variants.owner, slots)).toEqual({ ok: true, text: "Kittle Me This rosters Joe Burrow, who was dropped in 12% of ESPN leagues overnight." });
+    expect(fillVariant(variants.opponent, slots)).toEqual({
+      ok: true,
+      text: "Kittle Me This draws Moisty Loins this week, and they roster Joe Burrow, who was dropped in 12% of ESPN leagues overnight.",
+    });
+    const freeAgent = fillVariant(variants.freeAgent, slots);
+    expect(freeAgent.ok && freeAgent.text).toBe("Joe Burrow is on your wire in this league and was dropped in 12% of ESPN leagues overnight. $31 FAAB left.");
+    const board = fillVariant(variants.draftBoard, { ...slots, adp: "18.4", adpRank: "QB3" });
+    expect(board.ok && board.text).toBe("Joe Burrow (QB) is still on the board here and was dropped in 12% of ESPN leagues overnight. ADP 18.4, QB3.");
+    // Without the swing slots the variant is skipped rather than posted with a hole in it.
+    expect(fillVariant(variants.owner, SLOTS)).toEqual({ ok: false, unresolved: ["direction", "pct"] });
   });
 
   it("phrases the opponent line for the spec example", () => {

@@ -3,6 +3,7 @@
 // A variant is a template with `{token}` slots. A sentence whose tokens do not all resolve is
 // dropped; if nothing is left the variant is skipped. Never a blank, never a raw token.
 
+import { ownershipSwingDirection, ownershipSwingPercent } from "./card";
 import { MAX_POST_CHARS, SLOT_TOKENS, type OverlayVariant, type SlotToken, type WireFactCard, type WireSlots } from "./types";
 
 const TOKEN_PATTERN = /\{([A-Za-z]+)\}/g;
@@ -155,6 +156,8 @@ function draftBoardTemplate(card: WireFactCard): string {
       return "{player} is still on the board here and just moved up the {nflTeam} depth chart. ADP {adp}, {adpRank} before this.";
     case "trending":
       return "{player} is still on the board here. {trendingAdds} Sleeper leagues added him in the last day. ADP {adp}, {adpRank}.";
+    case "ownership_swing":
+      return "{player} ({pos}) is still on the board here and was {direction} in {pct} of ESPN leagues overnight. ADP {adp}, {adpRank}.";
     default:
       return "{player} ({pos}) is still on the board in this league. ADP {adp}, {adpRank}.";
   }
@@ -162,6 +165,17 @@ function draftBoardTemplate(card: WireFactCard): string {
 
 export function defaultVariants(card: WireFactCard): Record<OverlayVariant, string> {
   return { ...baseVariants(card), draftBoard: draftBoardTemplate(card) };
+}
+
+/**
+ * The two slots an ownership_swing overlay needs (spec §18): `{pct}` ("12%") and `{direction}`
+ * ("dropped" | "added") from the card's signed ESPN percentChange. Empty when the card has none, so
+ * every sentence that mentions the swing drops cleanly.
+ */
+export function ownershipSwingSlots(card: WireFactCard): Pick<WireSlots, "pct" | "direction"> {
+  const change = card.ownershipChange;
+  if (typeof change !== "number" || !Number.isFinite(change) || change === 0) return {};
+  return { pct: ownershipSwingPercent(change), direction: ownershipSwingDirection(change) };
 }
 
 function baseVariants(card: WireFactCard): Record<Exclude<OverlayVariant, "draftBoard">, string> {
@@ -216,6 +230,12 @@ function baseVariants(card: WireFactCard): Record<Exclude<OverlayVariant, "draft
         owner: "{team} already rosters {player}. {trendingAdds} Sleeper leagues just added him.",
         opponent: "{team} draws {ownerTeam} this week, and they roster {player}, who {trendingAdds} Sleeper leagues just added.",
         freeAgent: "{player} is on your wire. {trendingAdds} Sleeper leagues added him in the last day. {faab} FAAB left.",
+      };
+    case "ownership_swing":
+      return {
+        owner: "{team} rosters {player}, who was {direction} in {pct} of ESPN leagues overnight.",
+        opponent: "{team} draws {ownerTeam} this week, and they roster {player}, who was {direction} in {pct} of ESPN leagues overnight.",
+        freeAgent: "{player} is on your wire in this league and was {direction} in {pct} of ESPN leagues overnight. {faab} FAAB left.",
       };
     default:
       return {

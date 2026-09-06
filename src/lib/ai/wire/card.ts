@@ -60,6 +60,7 @@ export const WireFactCardSchema = z.object({
   depthOrderTo: z.number().int().optional(),
   depthPosition: z.string().optional(),
   trendingAdds: z.number().int().nonnegative().optional(),
+  ownershipChange: z.number().finite().optional(),
   source: WireSourceRefSchema,
 });
 
@@ -161,6 +162,18 @@ function playerNames(card: WireFactCard): string {
   return card.players.map(player => player.name).join(", ");
 }
 
+/** ownership_swing: "dropped" for a negative ESPN percentChange, "added" for a positive one. */
+export function ownershipSwingDirection(change: number): "dropped" | "added" {
+  return change < 0 ? "dropped" : "added";
+}
+
+/** ownership_swing: |change| as the reader sees it - "12%", or "0.5%" under a point. */
+export function ownershipSwingPercent(change: number): string {
+  const abs = Math.abs(change);
+  const rounded = Math.round(abs);
+  return rounded >= 1 ? `${rounded}%` : `${abs.toFixed(1)}%`;
+}
+
 const KIND_LABELS: Partial<Record<WireFactCard["kind"], string>> = {
   game_started: "kickoff",
   game_final: "final",
@@ -215,6 +228,15 @@ export function renderCard(card: WireFactCard): { text: string; tags: WireTag[] 
         card.trendingAdds !== undefined
           ? `${player.name} added in ${formatCount(card.trendingAdds)} ${label} leagues in the last 24 h.`
           : `${player.name} is trending on ${label}.`;
+      return { text: clampText(text), tags: ["REPORTED"] };
+    }
+    case "ownership_swing": {
+      const player = card.players[0];
+      const change = card.ownershipChange;
+      const text =
+        typeof change === "number" && Number.isFinite(change) && change !== 0
+          ? `${player.name} was ${ownershipSwingDirection(change)} in ${ownershipSwingPercent(change)} of ${label} leagues overnight.`
+          : `${player.name}: ${label} roster percentage moved overnight.`;
       return { text: clampText(text), tags: ["REPORTED"] };
     }
     default: {
@@ -281,6 +303,7 @@ export function cardNumbers(card: WireFactCard): string[] {
   for (const value of extractNumbers(card.note)) out.add(value);
   for (const value of extractNumbers(card.headline)) out.add(value);
   addNumber(out, card.trendingAdds);
+  if (typeof card.ownershipChange === "number") addNumber(out, Math.abs(card.ownershipChange));
   addNumber(out, card.depthOrderFrom);
   addNumber(out, card.depthOrderTo);
   for (const player of card.players) {
