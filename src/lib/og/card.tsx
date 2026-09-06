@@ -96,9 +96,12 @@ const eyebrow: CSSProperties = {
   color: SIGNAL,
 };
 
-/** The real FFSN mark. `width` in px; the artwork is 3:2. */
+/** src/app/og-assets/ffsn-logo.png is 840x482; the box keeps that ratio so no renderer has to crop or stretch it. */
+const LOGO_ASPECT = 482 / 840;
+
+/** The real FFSN mark. `width` in px. */
 function Logo({ src, width }: { src: string; width: number }): ReactElement {
-  const height = Math.round(width * (2 / 3));
+  const height = Math.round(width * LOGO_ASPECT);
   return (
     <img
       src={src}
@@ -328,13 +331,12 @@ export function ArticleCard(props: ArticleCardProps): ReactElement {
   return (
     <Frame background={props.bannerUrl}>
       <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, padding: "56px 72px 0", gap: 22 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* The kicker alone up top: a messaging app's rounded corner mask (large on iOS) shaved the
+            mark when it sat in the top-right corner (owner, 2026-09-06). Nothing lives in a corner now. */}
+        <div style={{ display: "flex", alignItems: "center" }}>
           <div style={eyebrow}>
             <span style={{ display: "flex", width: 12, height: 12, borderRadius: 6, backgroundColor: RED, marginRight: 14 }} />
-            <span style={{ display: "flex", maxWidth: 900, overflow: "hidden", whiteSpace: "nowrap" }}>{kicker}</span>
-          </div>
-          <div style={{ display: "flex", flexShrink: 0, marginTop: -8 }}>
-            {props.logo ? <Logo src={props.logo} width={168} /> : <div style={{ display: "flex", transform: "rotate(-4deg)" }}><Badge scale={0.42} /></div>}
+            <span style={{ display: "flex", maxWidth: 1000, overflow: "hidden", whiteSpace: "nowrap" }}>{kicker}</span>
           </div>
         </div>
         <div
@@ -353,13 +355,20 @@ export function ArticleCard(props: ArticleCardProps): ReactElement {
         >
           {props.title}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: "auto", marginBottom: 40 }}>
-          <div style={{ display: "flex", width: 6, height: 44, backgroundColor: RED_DEEP }} />
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <span style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 30, letterSpacing: 1, textTransform: "uppercase", color: BODY }}>
-              {props.writerName}
-            </span>
-            <span style={{ fontFamily: TEXT, fontWeight: 400, fontSize: 20, color: TEXT_2 }}>{props.writerRole}</span>
+        {/* The byline row: writer left, the mark right - the network bug where a broadcast puts it,
+            mid-height on the right edge and well clear of every corner. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "auto", marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ display: "flex", width: 6, height: 44, backgroundColor: RED_DEEP }} />
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 30, letterSpacing: 1, textTransform: "uppercase", color: BODY }}>
+                {props.writerName}
+              </span>
+              <span style={{ fontFamily: TEXT, fontWeight: 400, fontSize: 20, color: TEXT_2 }}>{props.writerRole}</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexShrink: 0 }}>
+            {props.logo ? <Logo src={props.logo} width={176} /> : <div style={{ display: "flex", transform: "rotate(-4deg)" }}><Badge scale={0.44} /></div>}
           </div>
         </div>
       </div>
