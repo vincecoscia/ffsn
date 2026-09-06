@@ -1,3 +1,4 @@
+import { draftTypeFromEspn } from "../src/lib/ai/draftType";
 import { v } from "convex/values";
 import { internalQuery, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
@@ -2087,12 +2088,15 @@ export const getMockDraftDataForAI = internalQuery({
       
       // Reuses the season row already fetched above (spec: format audit) rather than a second query.
       const leagueFormat = computeLeagueFormat(leagueSeason.settings, league.settings);
+      const draftTypeRead = draftTypeFromEspn(leagueSeason.draftSettings?.type, leagueSeason.draftInfo?.draftType);
 
       const result: any = {
         leagueName: league.name,
         seasonId: targetSeason,
         draftOrder,
-        draftType: leagueSeason.draftSettings?.type === "AUCTION" ? "Auction" : "Snake",
+        // ESPN's own draft type (src/lib/ai/draftType.ts): SNAKE / AUCTION / OFFLINE, else a flagged default.
+        draftType: draftTypeRead.draftType,
+        draftTypeAssumed: draftTypeRead.assumed || undefined,
         leagueType: leagueTypeFromDraftSettings(leagueSeason.draftSettings),
         scoringType: league.settings.scoringType,
         rosterSize: league.settings.rosterSize,

@@ -111,6 +111,7 @@ export const prepareAIContentData = internalAction({
           totalTeams: mockDraftData.totalTeams,
           draftOrder: mockDraftData.draftOrder,
           draftType: mockDraftData.draftType,
+          draftTypeAssumed: mockDraftData.draftTypeAssumed,
           leagueType: mockDraftData.leagueType,
           availablePlayers: mockDraftData.availablePlayers,
           playerCount: mockDraftData.playerCount,

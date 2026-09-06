@@ -817,8 +817,11 @@ const EditorReport = z.object({
   // ("Schema type is missing") - so the editor pass had been failing on every article and each
   // piece shipped on the deterministic checks alone (found 2026-09-06 on the kickoff eval). A
   // number-or-string union keeps the lenient read (clampScore parses "4/5") with a real type.
-  factsScore: z.union([z.number(), z.string()]).describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
-  voiceScore: z.union([z.number(), z.string()]).describe("1-5. How much this reads like the writer described above."),
+  // Also nullable/optional: a report whose score came back null or missing (mock draft eval,
+  // 2026-09-06: two "Invalid input" issues threw the whole report away) still carries the
+  // findings; clampScore reads anything unreadable as 3.
+  factsScore: z.union([z.number(), z.string()]).nullable().optional().describe("1-5. 5 = every factual sentence is in <FACTS>. 3 = nothing wrong, some slack."),
+  voiceScore: z.union([z.number(), z.string()]).nullable().optional().describe("1-5. How much this reads like the writer described above."),
   incompleteSections: z
     .array(z.string())
     .default([])
@@ -945,7 +948,10 @@ async function runEditorPass(
     }
     const parsed = EditorReport.safeParse(unwrapToolInput(toolUse.input));
     if (!parsed.success) {
+      const raw = unwrapToolInput(toolUse.input) as Record<string, unknown> | undefined;
       console.warn('Editor pass returned an unusable report; continuing without it', {
+        // The failing paths and what arrived there, so the next schema gap is diagnosable from a log line.
+        paths: parsed.error.issues.map(issue => `${issue.path.join('.')}: ${JSON.stringify(raw?.[String(issue.path[0])])?.slice(0, 80)}`),
         issues: parsed.error.issues.slice(0, 3).map(issue => issue.message),
       });
       return null;
@@ -1569,9 +1575,10 @@ export async function completeArticleFromMessage(
   // Repetition never holds an article (2026-09-06): the one rewrite above is the remedy, and a
   // receipt that survives it is a warning on the row, not a reason to regenerate in full or to
   // stop in review. (The first kickoff eval escalated to a $0.63 full regeneration over "42.7".)
+  // Same for an incomplete mock-draft round (2026-09-06): one rewrite, then a warning on the row.
   deterministic = deterministic.map(v =>
-    v.kind === 'repeated_receipt' && v.severity === 'block'
-      ? { ...v, severity: 'warn' as const, detail: `${v.detail} (still repeated after one rewrite)` }
+    (v.kind === 'repeated_receipt' || v.kind === 'round_incomplete') && v.severity === 'block'
+      ? { ...v, severity: 'warn' as const, detail: `${v.detail} (still after one rewrite)` }
       : v
   );
 

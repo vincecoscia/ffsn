@@ -303,7 +303,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     name: "Mock Draft",
     description: "Mock draft predictions forecasting what each team will select",
     creditCost: 30,
-    estimatedWords: 2000,
+    estimatedWords: 2400,
     requiredData: ["draft_order", "league_settings", "scoring_type", "available_players", "draft_type", "league_type"],
     optionalData: ["keeper_info", "team_preferences", "historical_draft_data"],
     sections: [
@@ -313,17 +313,25 @@ export const contentTemplates: Record<string, ContentTemplate> = {
         required: true,
         wordCount: 200
       },
+      // Owner ask (2026-09-06): the first TWO rounds pick by pick. One 800-word section for both
+      // rounds spent itself on round one and waved at round two; each round now owns a section.
       {
-        name: "rounds_1_2_by_team",
-        description: "Predictions for first two rounds by round, explaining why each team will likely select specific players. Go pick by pick.",
+        name: "round_one",
+        description: "Round one, pick by pick: every slot in draft order gets its own pick, the player named with the ADP printed in the pool, and the why. No slot skipped.",
         required: true,
-        wordCount: 800
+        wordCount: 700
+      },
+      {
+        name: "round_two",
+        description: "Round two, pick by pick, the same way: every slot (in reverse order for a snake), its own pick with the ADP and the why. No slot skipped, no summary in place of a pick.",
+        required: true,
+        wordCount: 700
       },
       {
         name: "rounds_3_8",
         description: "Middle round predictions focusing on likely value targets and position runs",
         required: true,
-        wordCount: 600
+        wordCount: 500
       },
       {
         name: "rounds_9_plus",
@@ -341,7 +349,7 @@ export const contentTemplates: Record<string, ContentTemplate> = {
     examplePrompt: `Write a mock draft for {leagueName} ({leagueType} league, {draftType} draft). 
     Draft order: {draftOrder}. Scoring: {scoringType}. 
     Use the provided player projections and season outlooks to build optimal teams.
-    Present rounds 1-2 in detail by team, then provide overview of later rounds.`
+    Present round 1 and round 2 pick by pick, every slot, then provide overview of later rounds.`
   },
 
   "rivalry_week_special": {
